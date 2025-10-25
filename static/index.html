@@ -1,1162 +1,402 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>🎧 Silent Disco P2P</title>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Silent Disco - P2P</title>
   <style>
-    * {
-      margin: 0;
-      padding: 0;
-      box-sizing: border-box;
-    }
-
-    body {
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-      min-height: 100vh;
-      padding: 20px;
-      color: #333;
-    }
-
-    .container {
-      max-width: 1200px;
-      margin: 0 auto;
-    }
-
-    .header {
-      text-align: center;
-      margin-bottom: 30px;
-      color: white;
-    }
-
-    .header h1 {
-      font-size: 2.5em;
-      margin-bottom: 10px;
-    }
-
-    .card {
-      background: white;
-      border-radius: 15px;
-      padding: 25px;
-      margin-bottom: 20px;
-      box-shadow: 0 10px 30px rgba(0,0,0,0.2);
-    }
-
-    .btn {
-      padding: 12px 24px;
-      border: none;
-      border-radius: 8px;
-      font-size: 16px;
-      font-weight: 600;
-      cursor: pointer;
-      transition: all 0.3s;
-      margin: 5px;
-    }
-
-    .btn-primary {
-      background: #667eea;
-      color: white;
-    }
-
-    .btn-primary:hover {
-      background: #5568d3;
-      transform: translateY(-2px);
-    }
-
-    .btn-secondary {
-      background: #f0f0f0;
-      color: #333;
-    }
-
-    .btn-secondary:hover {
-      background: #e0e0e0;
-    }
-
-    .btn-danger {
-      background: #ef4444;
-      color: white;
-    }
-
-    .btn-danger:hover {
-      background: #dc2626;
-    }
-
-    .input {
-      width: 100%;
-      padding: 12px;
-      border: 2px solid #e0e0e0;
-      border-radius: 8px;
-      font-size: 16px;
-      margin-bottom: 15px;
-    }
-
-    .input:focus {
-      outline: none;
-      border-color: #667eea;
-    }
-
-    .room-list {
-      display: grid;
-      grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
-      gap: 15px;
-      margin-top: 20px;
-    }
-
-    .room-card {
-      background: #f8f9fa;
-      padding: 20px;
-      border-radius: 10px;
-      cursor: pointer;
-      transition: all 0.3s;
-      border: 2px solid transparent;
-    }
-
-    .room-card:hover {
-      border-color: #667eea;
-      transform: translateY(-3px);
-      box-shadow: 0 5px 15px rgba(0,0,0,0.1);
-    }
-
-    .room-name {
-      font-size: 1.3em;
-      font-weight: bold;
-      margin-bottom: 10px;
-      color: #333;
-    }
-
-    .room-info {
-      color: #666;
-      font-size: 0.9em;
-    }
-
-    .hidden {
-      display: none;
-    }
-
-    .audio-source-selector {
-      display: flex;
-      gap: 10px;
-      margin-bottom: 20px;
-      padding: 15px;
-      background: #f8f9fa;
-      border-radius: 8px;
-    }
-
-    .audio-source-btn {
-      flex: 1;
-      padding: 15px;
-      border: 2px solid #e0e0e0;
-      background: white;
-      border-radius: 8px;
-      cursor: pointer;
-      transition: all 0.3s;
-      text-align: center;
-    }
-
-    .audio-source-btn:hover {
-      border-color: #667eea;
-    }
-
-    .audio-source-btn.active {
-      border-color: #667eea;
-      background: #f0f4ff;
-      font-weight: bold;
-    }
-
-    .audio-source-btn.disabled {
-      opacity: 0.5;
-      cursor: not-allowed;
-      background: #f5f5f5;
-    }
-
-    .track-controls {
-      display: flex;
-      gap: 10px;
-      align-items: center;
-      margin-top: 20px;
-    }
-
-    .track-info {
-      flex: 1;
-      padding: 15px;
-      background: #f8f9fa;
-      border-radius: 8px;
-    }
-
-    .debug-panel {
-      font-family: 'Courier New', monospace;
-      font-size: 0.9em;
-      background: #1a1a1a;
-      color: #0f0;
-      padding: 15px;
-      border-radius: 8px;
-      max-height: 300px;
-      overflow-y: auto;
-    }
-
-    .debug-panel div {
-      margin-bottom: 5px;
-    }
-
-    .status-indicator {
-      display: inline-block;
-      width: 10px;
-      height: 10px;
-      border-radius: 50%;
-      margin-right: 8px;
-    }
-
-    .status-connected {
-      background: #10b981;
-    }
-
-    .status-disconnected {
-      background: #ef4444;
-    }
-
-    .status-connecting {
-      background: #f59e0b;
-      animation: pulse 1s infinite;
-    }
-
-    @keyframes pulse {
-      0%, 100% { opacity: 1; }
-      50% { opacity: 0.5; }
-    }
-
-    .listener-badge {
-      display: inline-block;
-      padding: 5px 12px;
-      background: #667eea;
-      color: white;
-      border-radius: 20px;
-      font-size: 0.9em;
-      margin-left: 10px;
-    }
-
-    #fileInput {
-      display: none;
-    }
-
-    .file-input-label {
-      display: inline-block;
-      padding: 12px 24px;
-      background: #667eea;
-      color: white;
-      border-radius: 8px;
-      cursor: pointer;
-      transition: all 0.3s;
-      font-weight: 600;
-    }
-
-    .file-input-label:hover {
-      background: #5568d3;
-      transform: translateY(-2px);
-    }
-
-    .now-playing {
-      padding: 20px;
-      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-      color: white;
-      border-radius: 10px;
-      margin-bottom: 20px;
-    }
-
-    .now-playing h3 {
-      margin-bottom: 10px;
-    }
-
-    .peer-list {
-      margin-top: 15px;
-      padding: 15px;
-      background: #f8f9fa;
-      border-radius: 8px;
-    }
-
-    .peer-item {
-      padding: 8px;
-      margin-bottom: 5px;
-      background: white;
-      border-radius: 5px;
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-    }
-
-    #createRoomModal {
-      position: fixed;
-      top: 0;
-      left: 0;
-      right: 0;
-      bottom: 0;
-      background: rgba(0,0,0,0.5);
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      z-index: 1000;
-    }
-
-    #createRoomModal.hidden {
-      display: none !important;
-    }
+    body { font-family: system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, Arial, sans-serif; margin:0; padding:20px; background:#f5f7fb; color:#222; }
+    .container { max-width: 960px; margin: 0 auto; }
+    .card { background:#fff; border-radius:16px; box-shadow:0 8px 24px rgba(0,0,0,.08); padding:24px; margin:16px 0; }
+    .btn { border:none; padding:10px 16px; border-radius:8px; background:#6366f1; color:#fff; cursor:pointer; margin-right:8px; }
+    .btn.secondary { background:#0ea5e9; }
+    .btn.danger { background:#ef4444; }
+    audio { width:100%; margin-top:8px; }
+    .muted { color:#888; font-size:.9rem; }
+    .log { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace; background:#0b1220; color:#d1ffea; border-radius:12px; padding:12px; height:220px; overflow:auto; }
   </style>
 </head>
 <body>
   <div class="container">
-    <!-- Header -->
-    <div class="header">
-      <h1>🎧 Silent Disco P2P</h1>
-      <p id="userInfo"></p>
+    <div class="card">
+      <h2>Silent Disco (P2P)</h2>
+      <div id="whoami" class="muted">Not identified</div>
     </div>
 
-    <!-- Landing Screen -->
-    <div id="landingScreen" class="card">
-      <h2 style="margin-bottom: 20px;">Create or join a room</h2>
-
-      <button class="btn btn-primary" onclick="showCreateRoomModal()">Create New Room</button>
-
-      <div style="margin: 20px 0; text-align: center; color: #999;">───── or join existing ─────</div>
-
-      <div class="room-list" id="roomList"></div>
+    <div id="controls" class="card">
+      <input id="roomName" placeholder="Room name" style="width:100%; padding:10px; border-radius:8px; border:1px solid #ddd;"/>
+      <div style="margin-top:10px;">
+        <button class="btn" id="createBtn">Create room</button>
+      </div>
+      <div id="rooms" style="margin-top:12px;"></div>
     </div>
 
-    <!-- Room Screen -->
-    <div id="roomScreen" class="hidden">
-      <!-- Room Header -->
-      <div class="card">
-        <div style="display: flex; justify-content: space-between; align-items: center;">
-          <div>
-            <h2 id="roomName"></h2>
-            <p id="roomRole"></p>
-          </div>
-          <div>
-            <span class="listener-badge" id="listenerCount">0 listeners</span>
-            <button class="btn btn-danger" onclick="leaveRoom()">Leave Room</button>
-          </div>
-        </div>
+    <div id="djCard" class="card" style="display:none;">
+      <h3>DJ Controls <span id="djRoom" class="muted"></span></h3>
+      <input type="file" id="audioFile" accept="audio/*"/>
+      <audio id="djAudio" controls></audio>
+      <div style="margin-top:8px;">
+        <button class="btn" id="djPlay">Play (local)</button>
+        <button class="btn secondary" id="djPause">Pause (local)</button>
+        <button class="btn danger" id="djStop">Stop (local)</button>
       </div>
-
-      <!-- DJ Controls (only for DJ) -->
-      <div id="djControls" class="card hidden">
-        <h3>🎛️ DJ Controls</h3>
-
-        <!-- Audio Source Selector -->
-        <div class="audio-source-selector">
-          <div class="audio-source-btn active" id="sourceFile" onclick="selectAudioSource('file')">
-            <div style="font-size: 2em;">🎵</div>
-            <div>MP3 File</div>
-          </div>
-          <div class="audio-source-btn disabled" id="sourceMic" title="Coming soon">
-            <div style="font-size: 2em;">🎤</div>
-            <div>Microphone</div>
-            <small>(Coming Soon)</small>
-          </div>
-          <div class="audio-source-btn disabled" id="sourceInterface" title="Coming soon">
-            <div style="font-size: 2em;">🔊</div>
-            <div>Audio Interface</div>
-            <small>(Coming Soon)</small>
-          </div>
-        </div>
-
-        <!-- File Input (MP3) -->
-        <div id="fileSourceControls">
-          <input type="file" id="fileInput" accept="audio/mp3,audio/mpeg" onchange="handleFileSelect(event)">
-          <label for="fileInput" class="file-input-label">
-            📁 Select MP3 File
-          </label>
-
-          <div class="track-info" id="trackInfo">
-            <strong>No track loaded</strong>
-          </div>
-
-          <div class="track-controls">
-            <button class="btn btn-primary" id="playBtn" onclick="playAudio()" disabled>▶️ Play</button>
-            <button class="btn btn-secondary" id="pauseBtn" onclick="pauseAudio()" disabled>⏸️ Pause</button>
-            <button class="btn btn-secondary" id="stopBtn" onclick="stopAudio()" disabled>⏹️ Stop</button>
-          </div>
-        </div>
-
-        <!-- Future: Microphone Controls -->
-        <div id="micSourceControls" class="hidden">
-          <!-- Will be implemented later -->
-        </div>
-
-        <!-- Future: Audio Interface Controls -->
-        <div id="interfaceSourceControls" class="hidden">
-          <!-- Will be implemented later -->
-        </div>
-
-        <!-- Connected Peers -->
-        <div class="peer-list">
-          <h4>Connected Listeners</h4>
-          <div id="peerConnections"></div>
-        </div>
-      </div>
-
-      <!-- Listener Player -->
-      <div id="listenerPlayer" class="card hidden">
-        <div class="now-playing">
-          <h3>Now Playing</h3>
-          <div id="nowPlayingInfo">Waiting for DJ to start...</div>
-        </div>
-
-        <audio id="audioPlayer" autoplay></audio>
-
-        <div style="text-align: center; padding: 20px;">
-          <div style="font-size: 4em; margin-bottom: 10px;">🎧</div>
-          <p style="color: #666;">Connected to DJ stream</p>
-        </div>
-      </div>
-
-      <!-- Debug Panel -->
-      <div class="card">
-        <h3>🐛 Debug Info</h3>
-        <div class="debug-panel" id="debugPanel">
-          <div>Status: <span class="status-indicator status-disconnected"></span>Initializing...</div>
-        </div>
+      <div style="margin-top:12px;">
+        <strong>Connected listeners</strong>
+        <div id="peers" class="muted">None</div>
       </div>
     </div>
-  </div>
 
-  <!-- Create Room Modal (Simple) -->
-  <div id="createRoomModal" class="hidden">
-    <div class="card" style="width: 400px; max-width: 90%;">
-      <h3 style="margin-bottom: 20px;">Create New Room</h3>
-      <input type="text" id="roomNameInput" class="input" placeholder="Room name" maxlength="50">
-      <div style="display: flex; gap: 10px;">
-        <button class="btn btn-primary" style="flex: 1;" onclick="createRoom()">Create Room</button>
-        <button class="btn btn-secondary" style="flex: 1;" onclick="hideCreateRoomModal()">Cancel</button>
-      </div>
+    <div id="listenerCard" class="card" style="display:none;">
+      <h3>Listener <span id="liRoom" class="muted"></span></h3>
+      <audio id="listenerAudio" autoplay controls></audio>
+      <div class="muted" style="margin-top:6px;">Live WebRTC stream plays continuously; no buffering or remote pause.</div>
+    </div>
+
+    <div class="card">
+      <h3>Log</h3>
+      <div id="log" class="log"></div>
     </div>
   </div>
 
   <script>
-    // =====================================================
-    // STATE MANAGEMENT
-    // =====================================================
+    const API = location.origin;
+    const WS_URL = `ws://${location.host}/ws`;
+
+    // Dynamic ICE config (STUN + optional TURN from server)
+    let ICE_CONFIG = { iceServers: [] };
+
     const state = {
-      user: null,
-      currentRoom: null,
-      userRole: null,
-      clientId: `client_${Math.random().toString(36).substr(2, 9)}`,
-      websocket: null,
-
-      // Audio streaming
-      audioContext: null,
-      audioElement: null,
-      audioStream: null,
-      audioSource: 'file', // 'file' | 'mic' | 'interface'
-
-      // P2P connections
-      peerConnections: new Map(), // listener_id -> RTCPeerConnection
-      pendingCandidates: new Map(), // listener_id -> [candidates]
-
-      // Room state
-      listeners: new Set(),
-      djClientId: null
+      userId: null, username: null,
+      roomId: null, role: null, clientId: null,
+      ws: null, pcs: new Map(), pending: new Map(),
+      listeners: new Set(), audioStream: null, senders: new Map()
     };
 
-    const ICE_CONFIG = {
-      iceServers: [
-        { urls: 'stun:stun.l.google.com:19302' }
-      ]
-    };
-
-    const API_BASE = window.location.origin;
-    const WS_URL = `ws://${window.location.host}/ws`;
-
-    // =====================================================
-    // INITIALIZATION
-    // =====================================================
-    async function init() {
-      await identifyUser();
-      await loadRooms();
-
-      // Check if URL contains room ID
-      const roomId = window.location.pathname.split('/').pop();
-      if (roomId && roomId !== '' && roomId !== 'room') {
-        await joinRoom(roomId);
+    function log(msg) {
+      console.log(msg);
+      const el = document.getElementById('log');
+      if (el) {
+        el.insertAdjacentHTML('beforeend', `<div>[${new Date().toLocaleTimeString()}] ${msg}</div>`);
+        el.scrollTop = el.scrollHeight;
       }
     }
 
-    async function identifyUser() {
+    function cid() { return 'client_' + Math.random().toString(36).slice(2, 11); }
+
+    async function api(path, body) {
+      const res = await fetch(API + path, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(body || {})
+      });
+      return res.json();
+    }
+
+    async function loadIceConfig() {
       try {
-        const response = await fetch(`${API_BASE}/user/identify`, {
-          method: 'POST'
-        });
-        const data = await response.json();
-        state.user = data.user;
-        document.getElementById('userInfo').textContent = `👤 ${state.user.nickname}`;
-        log(`User identified: ${state.user.nickname}`);
-      } catch (error) {
-        console.error('❌ Identify error:', error);
+        const res = await fetch(API + '/config');
+        const data = await res.json();
+        if (data && Array.isArray(data.iceServers)) {
+          ICE_CONFIG = { iceServers: data.iceServers };
+          log(`Loaded ICE servers (${data.iceServers.length})`);
+        } else {
+          throw new Error('Invalid ICE config');
+        }
+      } catch (e) {
+        // Fallback to STUN-only if server config fails
+        ICE_CONFIG = { iceServers: [
+          { urls: 'stun:stun.l.google.com:19302' },
+          { urls: 'stun:stun1.l.google.com:19302' },
+        ]};
+        log(`Using default STUN-only ICE (config error: ${e.message})`);
       }
     }
 
-    async function loadRooms() {
-      try {
-        const response = await fetch(`${API_BASE}/rooms`);
-        const data = await response.json();
-        displayRooms(data.rooms);
-      } catch (error) {
-        console.error('❌ Load rooms error:', error);
+    async function identify() {
+      const existing = localStorage.getItem('userId');
+      const data = await api('/user/identify', { user_id: existing });
+      if (data.success) {
+        state.userId = data.user.user_id;
+        state.username = data.user.username;
+        localStorage.setItem('userId', state.userId);
+        const who = document.getElementById('whoami');
+        if (who) who.textContent = `Welcome ${state.username} (${state.userId.slice(0, 8)})`;
+        log(`User identified: ${state.username}`);
+        await listRooms();
       }
     }
 
-    function displayRooms(rooms) {
-      const roomList = document.getElementById('roomList');
-      if (rooms.length === 0) {
-        roomList.innerHTML = '<p style="text-align: center; color: #999; padding: 40px;">No rooms available. Create one!</p>';
+    async function listRooms() {
+      const res = await fetch(API + '/rooms');
+      const data = await res.json();
+      const el = document.getElementById('rooms');
+      if (!el) return;
+      el.innerHTML = '';
+      if (!data.success || data.rooms.length === 0) {
+        el.innerHTML = '<div class="muted">No rooms yet</div>';
         return;
       }
-
-      roomList.innerHTML = rooms.map(room => `
-        <div class="room-card" onclick="joinRoom('${room.id}')">
-          <div class="room-name">🎪 ${room.name}</div>
-          <div class="room-info">
-            DJ: ${room.dj_nickname}<br>
-            Listeners: ${room.listener_count} / ${room.max_capacity}<br>
-            ${room.dj_online ? '🟢 DJ Online' : '🔴 DJ Offline'}
-          </div>
-        </div>
-      `).join('');
-    }
-
-    // =====================================================
-    // ROOM MANAGEMENT
-    // =====================================================
-    function showCreateRoomModal() {
-      document.getElementById('createRoomModal').classList.remove('hidden');
-      document.getElementById('roomNameInput').focus();
-    }
-
-    function hideCreateRoomModal() {
-      document.getElementById('createRoomModal').classList.add('hidden');
-      document.getElementById('roomNameInput').value = '';
+      data.rooms.forEach(r => {
+        const live = r.is_live ? 'LIVE' : 'Offline';
+        const div = document.createElement('div');
+        div.className = 'card';
+        div.innerHTML = `
+          <div><strong>${r.name}</strong> (${live})</div>
+          <div class="muted">DJ: ${r.dj_username} • listeners: ${r.listener_count}</div>
+          <div style="margin-top:8px;"><button class="btn" data-room="${r.room_id}">Join as listener</button></div>`;
+        div.querySelector('button').onclick = () => join(r.room_id, 'listener');
+        el.appendChild(div);
+      });
     }
 
     async function createRoom() {
-      const roomName = document.getElementById('roomNameInput').value.trim();
-      if (!roomName) {
-        alert('Please enter a room name');
-        return;
-      }
-
-      try {
-        const response = await fetch(`${API_BASE}/room/create`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ name: roomName })
-        });
-
-        const data = await response.json();
-        if (data.success) {
-          hideCreateRoomModal();
-          await joinRoom(data.room.id);
-          history.pushState({}, '', `/room/${data.room.id}`);
-        } else {
-          alert(data.error || 'Failed to create room');
-        }
-      } catch (error) {
-        console.error('❌ Create room error:', error);
-        alert('Failed to create room');
-      }
+      const name = document.getElementById('roomName').value || 'My Disco';
+      const data = await api('/room/create', { user_id: state.userId, room_name: name });
+      if (data.success) await join(data.room.room_id, 'dj');
     }
 
-    async function joinRoom(roomId) {
-      try {
-        const response = await fetch(`${API_BASE}/room/${roomId}/join`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ client_id: state.clientId })
-        });
+    async function join(roomId, role) {
+      state.clientId = cid();
+      state.role = role;
+      state.roomId = roomId;
+      const data = await api(`/room/${roomId}/join`, { user_id: state.userId, role, client_id: state.clientId });
+      if (!data.success) return;
 
-        const data = await response.json();
-        if (data.success) {
-          state.currentRoom = data.room;
-          state.userRole = data.role;
-
-          log(`✅ Joined room as ${data.role}`);
-
-          // Setup UI
-          document.getElementById('landingScreen').classList.add('hidden');
-          document.getElementById('roomScreen').classList.remove('hidden');
-          document.getElementById('roomName').textContent = `🎪 ${state.currentRoom.name}`;
-          document.getElementById('roomRole').textContent = `Role: ${state.userRole.toUpperCase()}`;
-
-          if (state.userRole === 'dj') {
-            document.getElementById('djControls').classList.remove('hidden');
-            document.getElementById('listenerPlayer').classList.add('hidden');
-          } else {
-            document.getElementById('djControls').classList.add('hidden');
-            document.getElementById('listenerPlayer').classList.remove('hidden');
-          }
-
-          // Connect WebSocket
-          connectWebSocket(roomId);
-
-        } else {
-          alert(data.error || 'Failed to join room');
-        }
-      } catch (error) {
-        console.error('❌ Join room error:', error);
-        alert('Failed to join room');
+      if (role === 'dj') {
+        document.getElementById('djCard').style.display = '';
+        document.getElementById('listenerCard').style.display = 'none';
+        document.getElementById('djRoom').textContent = roomId;
+        setupDJ();
+      } else {
+        document.getElementById('listenerCard').style.display = '';
+        document.getElementById('djCard').style.display = 'none';
+        document.getElementById('liRoom').textContent = roomId;
       }
+      connectWS();
+      log(`✅ Joined room as ${role}`);
     }
 
-    async function leaveRoom() {
-      if (!state.currentRoom) return;
-
-      try {
-        // Close all peer connections
-        for (let [listenerId, pc] of state.peerConnections) {
-          pc.close();
-        }
-        state.peerConnections.clear();
-
-        // Stop audio
-        if (state.audioElement) {
-          state.audioElement.pause();
-          state.audioElement.src = '';
-        }
-        if (state.audioContext) {
-          state.audioContext.close();
-        }
-
-        // Close WebSocket
-        if (state.websocket) {
-          state.websocket.close();
-        }
-
-        // Leave room
-        await fetch(`${API_BASE}/room/${state.currentRoom.id}/leave`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ client_id: state.clientId })
-        });
-
-        // Reset state
-        state.currentRoom = null;
-        state.userRole = null;
-
-        // Reset UI
-        document.getElementById('roomScreen').classList.add('hidden');
-        document.getElementById('landingScreen').classList.remove('hidden');
-        history.pushState({}, '', '/');
-
-        await loadRooms();
-
-      } catch (error) {
-        console.error('❌ Leave room error:', error);
-      }
+    async function leave() {
+      if (state.roomId && state.clientId) await api(`/room/${state.roomId}/leave`, { client_id: state.clientId });
+      for (const [, pc] of state.pcs) pc.close();
+      state.pcs.clear();
+      state.senders?.clear();
+      if (state.ws) { state.ws.close(); state.ws = null; }
+      if (state.audioStream) { state.audioStream.getTracks().forEach(t => t.stop()); state.audioStream = null; }
+      document.getElementById('djCard').style.display = 'none';
+      document.getElementById('listenerCard').style.display = 'none';
+      await listRooms();
+      log('🚪 Left room');
     }
 
-    // =====================================================
-    // WEBSOCKET SIGNALING
-    // =====================================================
-    function connectWebSocket(roomId) {
-      state.websocket = new WebSocket(WS_URL);
-
-      state.websocket.onopen = () => {
+    function connectWS() {
+      state.ws = new WebSocket(WS_URL);
+      state.ws.onopen = () => {
         log('🔌 WebSocket connected');
-
-        // Register with server
-        state.websocket.send(JSON.stringify({
-          type: 'register',
-          client_id: state.clientId,
-          room_id: roomId
-        }));
+        send({ type: 'register', client_id: state.clientId, room_id: state.roomId });
       };
-
-      state.websocket.onmessage = async (event) => {
-        try {
-          const data = JSON.parse(event.data);
-          await handleSignalingMessage(data);
-        } catch (error) {
-          console.error('❌ WebSocket message error:', error);
-        }
-      };
-
-      state.websocket.onerror = (error) => {
-        console.error('❌ WebSocket error:', error);
-      };
-
-      state.websocket.onclose = () => {
-        log('🔌 WebSocket disconnected');
-      };
+      state.ws.onmessage = async (ev) => { const msg = JSON.parse(ev.data); await onSignal(msg); };
+      state.ws.onerror = (e) => log(`WS error: ${e.message || e}`);
+      state.ws.onclose = () => log('🔌 WebSocket disconnected');
     }
 
-    async function handleSignalingMessage(data) {
+    function send(m) { if (state.ws && state.ws.readyState === 1) state.ws.send(JSON.stringify(m)); }
+
+    async function onSignal(data) {
       const { type } = data;
-
-      switch (type) {
-        case 'room_state':
-          updateRoomState(data);
-          break;
-
-        case 'offer':
-          await handleOffer(data);
-          break;
-
-        case 'answer':
-          await handleAnswer(data);
-          break;
-
-        case 'ice-candidate':
-          await handleRemoteIceCandidate(data);
-          break;
-
-        case 'client_left':
-          handleClientLeft(data);
-          break;
-
-        case 'play':
-        case 'pause':
-        case 'track_change':
-          updatePlaybackState(data);
-          break;
-      }
-    }
-
-    function updateRoomState(data) {
-      state.djClientId = data.dj_client_id;
-
-      if (state.userRole === 'listener' && state.djClientId) {
-        // Listener should request stream from DJ
-        log('📡 DJ is online, awaiting stream...');
-      }
-
-      if (state.userRole === 'dj') {
-        // Update listener list
-        state.listeners = new Set(data.clients.filter(id => id !== state.clientId));
-        updateListenerCount();
-        updatePeerList();
-      }
-    }
-
-    function updateListenerCount() {
-      const count = state.listeners.size;
-      document.getElementById('listenerCount').textContent = `${count} listener${count !== 1 ? 's' : ''}`;
-    }
-
-    // =====================================================
-    // AUDIO SOURCE SELECTION
-    // =====================================================
-    function selectAudioSource(source) {
-      // Only 'file' is enabled for now
-      if (source !== 'file') {
-        return;
-      }
-
-      state.audioSource = source;
-
-      // Update UI
-      document.querySelectorAll('.audio-source-btn').forEach(btn => {
-        btn.classList.remove('active');
-      });
-      document.getElementById(`source${source.charAt(0).toUpperCase() + source.slice(1)}`).classList.add('active');
-
-      // Show appropriate controls
-      document.getElementById('fileSourceControls').classList.toggle('hidden', source !== 'file');
-      document.getElementById('micSourceControls').classList.toggle('hidden', source !== 'mic');
-      document.getElementById('interfaceSourceControls').classList.toggle('hidden', source !== 'interface');
-    }
-
-    // =====================================================
-    // FILE-BASED AUDIO STREAMING (DJ)
-    // =====================================================
-    async function handleFileSelect(event) {
-      const file = event.target.files[0];
-      if (!file) return;
-
-      log(`📁 Selected file: ${file.name}`);
-
-      // Create audio element
-      const url = URL.createObjectURL(file);
-      state.audioElement = new Audio(url);
-
-      // Create Web Audio API context
-      if (!state.audioContext) {
-        state.audioContext = new (window.AudioContext || window.webkitAudioContext)();
-      }
-
-      // Create media stream from audio element
-      const source = state.audioContext.createMediaElementSource(state.audioElement);
-      const destination = state.audioContext.createMediaStreamDestination();
-
-      // Connect: source → destination (for streaming) + audioContext.destination (for DJ to hear)
-      source.connect(destination);
-      source.connect(state.audioContext.destination);
-
-      state.audioStream = destination.stream;
-
-      // Update UI
-      document.getElementById('trackInfo').innerHTML = `<strong>${file.name}</strong><br>Ready to stream`;
-      document.getElementById('playBtn').disabled = false;
-      document.getElementById('pauseBtn').disabled = false;
-      document.getElementById('stopBtn').disabled = false;
-
-      log('✅ Audio stream ready');
-    }
-
-    async function playAudio() {
-      if (!state.audioElement || !state.audioStream) {
-        alert('Please select an audio file first');
-        return;
-      }
-
-      try {
-        await state.audioElement.play();
-        log('▶️ Playing audio');
-
-        // Create peer connections to all listeners
-        await createPeerConnectionsToListeners();
-
-        // Broadcast play event
-        broadcastMessage({
-          type: 'play',
-          room_id: state.currentRoom.id
-        });
-
-      } catch (error) {
-        console.error('❌ Play error:', error);
-        alert('Failed to play audio: ' + error.message);
-      }
-    }
-
-    function pauseAudio() {
-      if (state.audioElement) {
-        state.audioElement.pause();
-        log('⏸️ Paused audio');
-
-        broadcastMessage({
-          type: 'pause',
-          room_id: state.currentRoom.id
-        });
-      }
-    }
-
-    function stopAudio() {
-      if (state.audioElement) {
-        state.audioElement.pause();
-        state.audioElement.currentTime = 0;
-        log('⏹️ Stopped audio');
-
-        broadcastMessage({
-          type: 'pause',
-          room_id: state.currentRoom.id
-        });
-      }
-    }
-
-    // =====================================================
-    // P2P CONNECTION MANAGEMENT (DJ)
-    // =====================================================
-    async function createPeerConnectionsToListeners() {
-      for (let listenerId of state.listeners) {
-        if (state.peerConnections.has(listenerId)) {
-          continue; // Already connected
+      if (type === 'room_state' && state.role === 'dj') {
+        for (const lid of data.clients) {
+          if (lid === state.clientId) continue;
+          if (!state.pcs.has(lid)) await createPCForListener(lid);
         }
+      } else if (type === 'new_listener' && state.role === 'dj') {
+        state.listeners.add(data.client_id);
+        await createPCForListener(data.client_id);
+      } else if (type === 'offer' && state.role === 'listener') {
+        await onOffer(data);
+      } else if (type === 'answer' && state.role === 'dj') {
+        await onAnswer(data);
+      } else if (type === 'ice-candidate') {
+        await onIce(data);
+      } else if (type === 'room_closed') {
+        log('Room closed'); await leave();
+      } else if (type === 'listener_left') {
+        const pc = state.pcs.get(data.client_id);
+        if (pc) pc.close();
+        state.pcs.delete(data.client_id);
+        state.listeners.delete(data.client_id);
+        renderPeers();
+      }
+      renderPeers();
+    }
 
-        await createPeerConnection(listenerId);
+    function renderPeers() {
+      const el = document.getElementById('peers');
+      if (!el) return;
+      if (!state.listeners.size) { el.textContent = 'None'; return; }
+      el.innerHTML = '';
+      for (const lid of state.listeners) {
+        const pc = state.pcs.get(lid);
+        const st = pc ? pc.connectionState : 'init';
+        const div = document.createElement('div');
+        div.textContent = `${lid.slice(0,12)} — ${st}`;
+        el.appendChild(div);
       }
     }
 
-    async function createPeerConnection(listenerId) {
-      log(`🔗 Creating peer connection to ${listenerId}`);
-
+    // DJ: create PC for listener; use transceiver-first approach and later replaceTrack
+    async function createPCForListener(listenerId) {
+      log(`Creating PC to ${listenerId}`);
       const pc = new RTCPeerConnection(ICE_CONFIG);
-      state.peerConnections.set(listenerId, pc);
+      state.pcs.set(listenerId, pc);
 
-      // Add audio track
+      const transceiver = pc.addTransceiver('audio', { direction: 'sendonly' });
+      const sender = transceiver.sender;
+      state.senders.set?.(listenerId, sender);
+
       if (state.audioStream) {
-        state.audioStream.getTracks().forEach(track => {
-          pc.addTrack(track, state.audioStream);
-          log(`🎵 Added track to peer connection: ${track.kind}`);
-        });
+        const track = state.audioStream.getAudioTracks()[0];
+        if (track) {
+          await sender.replaceTrack(track);
+          log(`Attached real track to ${listenerId}`);
+        }
       }
 
-      // Handle ICE candidates
-      pc.onicecandidate = (event) => {
-        if (event.candidate) {
-          sendSignalingMessage({
-            type: 'ice-candidate',
-            target: listenerId,
-            from: state.clientId,
-            candidate: event.candidate
-          });
+      pc.onicecandidate = (e) => {
+        if (e.candidate) send({ type: 'ice-candidate', candidate: e.candidate, target: listenerId, from: state.clientId });
+      };
+
+      pc.onconnectionstatechange = async () => {
+        log(`PC(${listenerId}) ${pc.connectionState}`);
+        renderPeers();
+        if (pc.connectionState === 'failed') {
+          try {
+            pc.onicecandidate = null;
+            pc.onconnectionstatechange = null;
+            pc.close();
+            state.pcs.delete(listenerId);
+            state.senders.delete(listenerId);
+            log(`Rebuilding PC for ${listenerId} after failure...`);
+            await new Promise(r => setTimeout(r, 250));
+            await createPCForListener(listenerId);
+          } catch (err) {
+            log(`Retry failed for ${listenerId}: ${err.message}`);
+          }
         }
       };
 
-      // Handle connection state
-      pc.onconnectionstatechange = () => {
-        log(`🔗 Connection to ${listenerId}: ${pc.connectionState}`);
-        updatePeerList();
-      };
-
-      // Create and send offer
-      try {
-        const offer = await pc.createOffer();
-        await pc.setLocalDescription(offer);
-
-        sendSignalingMessage({
-          type: 'offer',
-          target: listenerId,
-          from: state.clientId,
-          sdp: pc.localDescription.sdp,
-          sdpType: pc.localDescription.type
-        });
-
-        log(`📤 Sent offer to ${listenerId}`);
-
-      } catch (error) {
-        console.error(`❌ Failed to create offer for ${listenerId}:`, error);
-      }
+      const offer = await pc.createOffer();
+      await pc.setLocalDescription(offer);
+      send({ type: 'offer', sdp: offer.sdp, sdpType: offer.type, target: listenerId, from: state.clientId });
+      log(`Offer sent to ${listenerId}`);
     }
 
-    // =====================================================
-    // P2P CONNECTION MANAGEMENT (LISTENER)
-    // =====================================================
-    async function handleOffer(data) {
-      const { from, sdp, sdpType } = data;
-
+    // Listener: handle offer → answer
+    async function onOffer({ from, sdp, sdpType }) {
       log(`📥 Received offer from ${from}`);
-
       const pc = new RTCPeerConnection(ICE_CONFIG);
-      state.peerConnections.set(from, pc);
+      state.pcs.set(from, pc);
 
-      // Handle incoming audio track
-      pc.ontrack = (event) => {
+      pc.ontrack = (ev) => {
         log('🎵 Received audio track from DJ');
-        const audioPlayer = document.getElementById('audioPlayer');
-        audioPlayer.srcObject = event.streams[0];
-
-        // Auto-play
-        audioPlayer.play().then(() => {
-          log('✅ Audio playback started');
-        }).catch(error => {
-          console.error('❌ Autoplay error:', error);
-        });
+        const el = document.getElementById('listenerAudio');
+        el.srcObject = ev.streams[0];
+        el.play().then(() => log('✅ Audio playing')).catch(err => log(`Autoplay error: ${err.message}`));
       };
 
-      // Handle ICE candidates
-      pc.onicecandidate = (event) => {
-        if (event.candidate) {
-          sendSignalingMessage({
-            type: 'ice-candidate',
-            target: from,
-            from: state.clientId,
-            candidate: event.candidate
-          });
-        }
+      pc.onicecandidate = (e) => {
+        if (e.candidate) send({ type: 'ice-candidate', candidate: e.candidate, target: from, from: state.clientId });
       };
 
-      // Handle connection state
-      pc.onconnectionstatechange = () => {
-        log(`🔗 Connection to DJ: ${pc.connectionState}`);
-        updateDebugPanel();
-      };
+      await pc.setRemoteDescription(new RTCSessionDescription({ type: sdpType, sdp }));
 
-      // Set remote description and create answer
-      try {
-        await pc.setRemoteDescription({ type: sdpType, sdp });
-
-        // Process any pending ICE candidates
-        if (state.pendingCandidates.has(from)) {
-          for (let candidate of state.pendingCandidates.get(from)) {
-            await pc.addIceCandidate(candidate);
-          }
-          state.pendingCandidates.delete(from);
-        }
-
-        const answer = await pc.createAnswer();
-        await pc.setLocalDescription(answer);
-
-        sendSignalingMessage({
-          type: 'answer',
-          target: from,
-          from: state.clientId,
-          sdp: pc.localDescription.sdp,
-          sdpType: pc.localDescription.type
-        });
-
-        log(`📤 Sent answer to ${from}`);
-
-      } catch (error) {
-        console.error('❌ Failed to handle offer:', error);
+      const pend = state.pending.get(from);
+      if (pend) {
+        for (const c of pend) await pc.addIceCandidate(new RTCIceCandidate(c));
+        state.pending.delete(from);
       }
+
+      const answer = await pc.createAnswer();
+      await pc.setLocalDescription(answer);
+      send({ type: 'answer', sdp: answer.sdp, sdpType: answer.type, target: from, from: state.clientId });
+      log('📤 Sent answer to DJ');
     }
 
-    async function handleAnswer(data) {
-      const { from, sdp, sdpType } = data;
+    async function onAnswer({ from, sdp, sdpType }) {
+      const pc = state.pcs.get(from);
+      if (!pc) { log(`No PC for ${from}`); return; }
+      await pc.setRemoteDescription(new RTCSessionDescription({ type: sdpType, sdp }));
+      const pend = state.pending.get(from);
+      if (pend) {
+        for (const c of pend) await pc.addIceCandidate(new RTCIceCandidate(c));
+        state.pending.delete(from);
+      }
+      log(`Answer set from ${from}`);
+    }
 
-      log(`📥 Received answer from ${from}`);
-
-      const pc = state.peerConnections.get(from);
+    async function onIce({ from, candidate }) {
+      const pc = state.pcs.get(from);
       if (!pc) {
-        console.error(`❌ No peer connection found for ${from}`);
+        const list = state.pending.get(from) || [];
+        list.push(candidate);
+        state.pending.set(from, list);
+        log(`⏳ Queued ICE from ${from}`);
         return;
       }
+      if (pc.remoteDescription) {
+        await pc.addIceCandidate(new RTCIceCandidate(candidate));
+        log(`✅ Added ICE from ${from}`);
+      } else {
+        const list = state.pending.get(from) || [];
+        list.push(candidate);
+        state.pending.set(from, list);
+        log(`⏳ Queued ICE (no remote desc) from ${from}`);
+      }
+    }
 
-      try {
-        await pc.setRemoteDescription({ type: sdpType, sdp });
+    // DJ setup — real stream created on file select; replaceTrack on all senders
+    function setupDJ() {
+      const file = document.getElementById('audioFile');
+      const djAudio = document.getElementById('djAudio');
 
-        // Process any pending ICE candidates
-        if (state.pendingCandidates.has(from)) {
-          for (let candidate of state.pendingCandidates.get(from)) {
-            await pc.addIceCandidate(candidate);
+      file.onchange = async (e) => {
+        const f = e.target.files[0];
+        if (!f) return;
+        djAudio.src = URL.createObjectURL(f);
+
+        const ctx = new AudioContext();
+        const src = ctx.createMediaElementSource(djAudio);
+        const dst = ctx.createMediaStreamDestination();
+        src.connect(dst);
+        src.connect(ctx.destination);
+        state.audioStream = dst.stream;
+        log('✅ Audio stream ready');
+
+        const track = state.audioStream.getAudioTracks()[0];
+        if (track) {
+          for (const [lid, sender] of state.senders) {
+            try {
+              await sender.replaceTrack(track);
+              log(`Attached real track to ${lid}`);
+            } catch (err) {
+              log(`replaceTrack error (${lid}): ${err.message}`);
+            }
           }
-          state.pendingCandidates.delete(from);
         }
+      };
 
-        log(`✅ Set remote description for ${from}`);
-
-      } catch (error) {
-        console.error('❌ Failed to handle answer:', error);
-      }
+      document.getElementById('djPlay').onclick = () => { djAudio.play(); log('▶️ Playing (local)'); };
+      document.getElementById('djPause').onclick = () => { djAudio.pause(); log('⏸️ Paused (local)'); };
+      document.getElementById('djStop').onclick = () => { djAudio.pause(); djAudio.currentTime = 0; log('⏹️ Stopped (local)'); };
     }
 
-    async function handleRemoteIceCandidate(data) {
-      const { from, candidate } = data;
-
-      const pc = state.peerConnections.get(from);
-      if (!pc) {
-        // Store for later
-        if (!state.pendingCandidates.has(from)) {
-          state.pendingCandidates.set(from, []);
-        }
-        state.pendingCandidates.get(from).push(candidate);
-        return;
-      }
-
-      try {
-        if (pc.remoteDescription) {
-          await pc.addIceCandidate(new RTCIceCandidate(candidate));
-        } else {
-          // Store for later
-          if (!state.pendingCandidates.has(from)) {
-            state.pendingCandidates.set(from, []);
-          }
-          state.pendingCandidates.get(from).push(candidate);
-        }
-      } catch (error) {
-        console.error('❌ Failed to add ICE candidate:', error);
-      }
-    }
-
-    function handleClientLeft(data) {
-      const { client_id } = data;
-
-      log(`👋 Client left: ${client_id}`);
-
-      // Remove from listeners
-      state.listeners.delete(client_id);
-      updateListenerCount();
-
-      // Close peer connection
-      const pc = state.peerConnections.get(client_id);
-      if (pc) {
-        pc.close();
-        state.peerConnections.delete(client_id);
-      }
-
-      updatePeerList();
-    }
-
-    // =====================================================
-    // UI UPDATES
-    // =====================================================
-    function updatePeerList() {
-      const container = document.getElementById('peerConnections');
-      if (state.peerConnections.size === 0) {
-        container.innerHTML = '<p style="color: #999;">No active connections</p>';
-        return;
-      }
-
-      container.innerHTML = Array.from(state.peerConnections.entries()).map(([id, pc]) => {
-        const state = pc.connectionState;
-        const stateClass = state === 'connected' ? 'status-connected' :
-                          state === 'connecting' ? 'status-connecting' : 'status-disconnected';
-
-        return `
-          <div class="peer-item">
-            <span><span class="status-indicator ${stateClass}"></span>${id.substr(0, 12)}...</span>
-            <span>${state}</span>
-          </div>
-        `;
-      }).join('');
-    }
-
-    function updatePlaybackState(data) {
-      if (state.userRole === 'listener') {
-        const info = document.getElementById('nowPlayingInfo');
-        if (data.type === 'play') {
-          info.textContent = 'DJ is playing music 🎵';
-        } else if (data.type === 'pause') {
-          info.textContent = 'DJ paused playback ⏸️';
-        }
-      }
-    }
-
-    function updateDebugPanel() {
-      const panel = document.getElementById('debugPanel');
-
-      let html = '<div>Client ID: ' + state.clientId.substr(0, 12) + '...</div>';
-      html += '<div>Role: ' + (state.userRole || 'None') + '</div>';
-      html += '<div>Room: ' + (state.currentRoom ? state.currentRoom.name : 'None') + '</div>';
-      html += '<div>WebSocket: ' + (state.websocket && state.websocket.readyState === 1 ? '✅ Connected' : '❌ Disconnected') + '</div>';
-      html += '<div>Peer Connections: ' + state.peerConnections.size + '</div>';
-
-      if (state.userRole === 'dj') {
-        html += '<div>Listeners: ' + state.listeners.size + '</div>';
-        html += '<div>Audio Stream: ' + (state.audioStream ? '✅ Active' : '❌ None') + '</div>';
-      }
-
-      for (let [id, pc] of state.peerConnections) {
-        html += `<div>  ${id.substr(0, 10)}: ${pc.connectionState}</div>`;
-      }
-
-      panel.innerHTML = html;
-    }
-
-    // =====================================================
-    // UTILITIES
-    // =====================================================
-    function sendSignalingMessage(message) {
-      if (state.websocket && state.websocket.readyState === 1) {
-        state.websocket.send(JSON.stringify(message));
-      }
-    }
-
-    function broadcastMessage(message) {
-      sendSignalingMessage(message);
-    }
-
-    function log(message) {
-      console.log(message);
-      updateDebugPanel();
-    }
-
-    // =====================================================
-    // AUTO-REFRESH & CLEANUP
-    // =====================================================
-    setInterval(() => {
-      if (document.getElementById('landingScreen').classList.contains('hidden') === false) {
-        loadRooms();
-      }
-    }, 5000);
-
-    window.addEventListener('beforeunload', () => {
-      if (state.currentRoom) {
-        leaveRoom();
-      }
+    // Boot: first load ICE config, then identify
+    document.getElementById('createBtn').onclick = createRoom;
+    window.addEventListener('load', async () => {
+      await loadIceConfig();
+      await identify();
+      setInterval(() => { if (!state.roomId) listRooms(); }, 5000);
     });
-
-    // =====================================================
-    // START
-    // =====================================================
-    init();
   </script>
 </body>
 </html>
