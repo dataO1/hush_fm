@@ -751,34 +751,36 @@
       }
     }
 
-    function setupDataChannel() {
-      state.dataChannel.onopen = () => {
-      console.log('✅ DataChannel OPENED');
-      updateDebugPanel(); // ✅ FIX: Update UI immediately
-      };
+function setupDataChannel() {
+  state.dataChannel.onopen = () => {
+    console.log('✅ DataChannel OPENED');
+    updateDebugPanel();
+  };
 
-      state.dataChannel.onmessage = (event) => {
-        try {
-          const message = JSON.parse(event.data);
-          state.messageCount++;
-          state.lastMessage = message.type;
-          handleDataChannelMessage(message);
-          updateDebugPanel(); // ✅ FIX: Update UI on each message
-        } catch (error) {
-          console.error('DataChannel message error:', error);
-        }
-      };
+  state.dataChannel.onmessage = (event) => {
+    try {
+      const message = JSON.parse(event.data);
+      state.debugMessageCount++; // ✅ FIX: Use debugMessageCount not messageCount
+      updateDebugPanel({
+        msgCount: state.debugMessageCount,
+        lastMsg: message.type
+      });
+      handleDataChannelMessage(message);
+    } catch (error) {
+      console.error('DataChannel message error:', error);
+    }
+  };
 
-      state.dataChannel.onerror = (error) => {
-        console.error('❌ DataChannel error:', error);
-        updateDebugPanel(); // ✅ FIX: Update UI on error
-      };
+  state.dataChannel.onerror = (error) => {
+    console.error('❌ DataChannel error:', error);
+    updateDebugPanel();
+  };
 
-      state.dataChannel.onclose = () => {
-        console.log('🔌 DataChannel CLOSED');
-        updateDebugPanel(); // ✅ FIX: Update UI on close
-    };
-  }
+  state.dataChannel.onclose = () => {
+    console.log('🔌 DataChannel CLOSED');
+    updateDebugPanel();
+  };
+}
 
     function handleDataChannelMessage(message) {
       switch (message.type) {
@@ -813,38 +815,46 @@
       }
     }
 
-    function updateDebugPanel(updates) {
-      if (updates.connState) {
-        const elem = document.getElementById('debugConnState');
-        elem.textContent = updates.connState;
-        elem.className = 'debug-value ' + (updates.connState === 'connected' ? 'success' : '');
-      }
-      if (updates.iceState) {
-        const elem = document.getElementById('debugIceState');
-        elem.textContent = updates.iceState;
-        elem.className = 'debug-value ' + (updates.iceState === 'connected' ? 'success' : '');
-      }
-      if (updates.dataChannel) {
-        const elem = document.getElementById('debugDataChannel');
-        elem.textContent = updates.dataChannel;
-        elem.className = 'debug-value ' + (updates.dataChannel.startsWith('open') ? 'success' : '');
-      }
-      if (updates.audioTrack) {
-        document.getElementById('debugAudioTrack').textContent = updates.audioTrack;
-      }
-      if (updates.streamActive !== undefined) {
-        document.getElementById('debugStreamActive').textContent = updates.streamActive;
-      }
-      if (updates.audioElement) {
-        document.getElementById('debugAudioElement').textContent = updates.audioElement;
-      }
-      if (updates.msgCount !== undefined) {
-        document.getElementById('debugMsgCount').textContent = updates.msgCount;
-      }
-      if (updates.lastMsg) {
-        document.getElementById('debugLastMsg').textContent = updates.lastMsg;
-      }
-    }
+function updateDebugPanel(updates = {}) {
+  // Read live state from peer connection if not explicitly provided
+  const connState = updates.connState || (state.peerConnection ? state.peerConnection.connectionState : 'new');
+  const iceState = updates.iceState || (state.peerConnection ? state.peerConnection.iceConnectionState : 'new');
+  const dataChannelState = updates.dataChannel || (state.dataChannel ?
+    (state.dataChannel.readyState === 'open' ? 'open (buffered: ' + state.dataChannel.bufferedAmount + ')' : state.dataChannel.readyState)
+    : 'Not connected');
+
+  // Update Connection State
+  const connElem = document.getElementById('debugConnState');
+  connElem.textContent = connState;
+  connElem.className = 'debug-value ' + (connState === 'connected' ? 'success' : connState === 'connecting' ? '' : 'error');
+
+  // Update ICE State
+  const iceElem = document.getElementById('debugIceState');
+  iceElem.textContent = iceState;
+  iceElem.className = 'debug-value ' + (iceState === 'completed' || iceState === 'connected' ? 'success' : iceState === 'checking' ? '' : 'error');
+
+  // Update DataChannel State
+  const dcElem = document.getElementById('debugDataChannel');
+  dcElem.textContent = dataChannelState;
+  dcElem.className = 'debug-value ' + (dataChannelState.startsWith('open') ? 'success' : 'error');
+
+  // Update other fields if provided
+  if (updates.audioTrack) {
+    document.getElementById('debugAudioTrack').textContent = updates.audioTrack;
+  }
+  if (updates.streamActive !== undefined) {
+    document.getElementById('debugStreamActive').textContent = updates.streamActive;
+  }
+  if (updates.audioElement) {
+    document.getElementById('debugAudioElement').textContent = updates.audioElement;
+  }
+  if (updates.msgCount !== undefined) {
+    document.getElementById('debugMsgCount').textContent = updates.msgCount;
+  }
+  if (updates.lastMsg) {
+    document.getElementById('debugLastMsg').textContent = updates.lastMsg;
+  }
+}
 
     async function leaveRoom() {
       try {
