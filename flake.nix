@@ -40,6 +40,7 @@
           pkgs.libffi
           pkgs.openssl
           pkgs.zlib
+          pkgs.coturn
         ];
 
       in

@@ -324,8 +324,12 @@ class SilentDiscoServer:
         """
         stun = [
             {"urls": "stun:stun.l.google.com:19302"},
-            {"urls": "stun:stun1.l.google.com:19302"},
-        ]
+            {
+              "urls": ["turn:your.domain:3478", "turns:your.domain:5349"],
+              "username": "turn",
+              "credential": "turn"
+            }
+          ]
         ice_servers: List[dict] = list(stun)
 
         turn_urls = os.getenv("SD_TURN_URLS", "").strip()
