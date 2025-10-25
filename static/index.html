@@ -5,563 +5,492 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>🎧 Silent Disco P2P</title>
   <style>
-    * { margin: 0; padding: 0; box-sizing: border-box; }
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
     body {
-      font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
       background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
       min-height: 100vh;
-      display: flex;
-      justify-content: center;
-      align-items: center;
       padding: 20px;
+      color: #333;
     }
+
     .container {
-      background: white;
-      border-radius: 20px;
-      box-shadow: 0 20px 60px rgba(0,0,0,0.3);
-      padding: 30px;
-      max-width: 600px;
-      width: 100%;
-      max-height: 90vh;
-      overflow-y: auto;
+      max-width: 1200px;
+      margin: 0 auto;
     }
-    .header { text-align: center; margin-bottom: 20px; padding-bottom: 15px; border-bottom: 2px solid #f0f0f0; }
-    h1 { color: #333; font-size: 2.2em; margin-bottom: 5px; }
-    .subtitle { color: #999; font-size: 0.9em; }
 
-    .user-badge {
-      background: #f8f9ff;
-      border: 2px solid #667eea;
-      border-radius: 10px;
-      padding: 12px;
-      margin-bottom: 20px;
+    .header {
       text-align: center;
-    }
-    .user-badge strong { color: #667eea; font-size: 1.1em; }
-
-    .top-controls {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      margin-bottom: 20px;
-    }
-
-    .leave-btn {
-      padding: 8px 16px;
-      background: #ff6b6b;
+      margin-bottom: 30px;
       color: white;
-      border: none;
-      border-radius: 8px;
-      cursor: pointer;
-      font-size: 0.9em;
-      transition: all 0.3s ease;
-    }
-    .leave-btn:hover { background: #ff5252; transform: translateY(-2px); }
-
-    .tabs {
-      display: flex;
-      gap: 10px;
-      margin-bottom: 20px;
-      border-bottom: 2px solid #f0f0f0;
-    }
-    .tab {
-      padding: 10px 20px;
-      background: none;
-      border: none;
-      cursor: pointer;
-      font-size: 1em;
-      color: #999;
-      border-bottom: 3px solid transparent;
-      transition: all 0.3s ease;
-    }
-    .tab.active { color: #667eea; border-bottom-color: #667eea; font-weight: bold; }
-    .tab:hover { color: #667eea; }
-
-    .tab-content { display: none; }
-    .tab-content.active { display: block; }
-
-    .room-info {
-      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-      color: white;
-      padding: 15px;
-      border-radius: 12px;
-      margin-bottom: 20px;
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-    }
-    .room-info-item { text-align: center; }
-    .room-info-label { font-size: 0.75em; opacity: 0.9; margin-bottom: 4px; }
-    .room-info-value { font-size: 1.2em; font-weight: bold; }
-
-    .now-playing {
-      background: #f8f9ff;
-      padding: 15px;
-      border-radius: 12px;
-      margin-bottom: 20px;
-      border-left: 4px solid #667eea;
-    }
-    .now-playing-label { font-size: 0.8em; color: #999; margin-bottom: 5px; }
-    .now-playing-track { font-size: 1.1em; font-weight: bold; color: #333; }
-    .waveform-container {
-      margin-top: 10px;
-      height: 40px;
-      background: #e8eaff;
-      border-radius: 8px;
-      overflow: hidden;
-      position: relative;
-    }
-    .waveform {
-      display: flex;
-      align-items: center;
-      justify-content: space-around;
-      height: 100%;
-      padding: 0 5px;
-    }
-    .waveform-bar {
-      width: 3px;
-      background: linear-gradient(to top, #667eea, #764ba2);
-      border-radius: 2px;
-      animation: wave 1s ease-in-out infinite;
-    }
-    @keyframes wave {
-      0%, 100% { height: 20%; }
-      50% { height: 80%; }
     }
 
-    .player {
-      background: #f8f9ff;
-      padding: 20px;
-      border-radius: 12px;
-      margin-bottom: 20px;
-    }
-    .player-controls {
-      display: flex;
-      gap: 10px;
-      justify-content: center;
-      margin-bottom: 15px;
-    }
-    .player-btn {
-      width: 60px;
-      height: 60px;
-      border: none;
-      border-radius: 50%;
-      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-      color: white;
-      font-size: 1.5em;
-      cursor: pointer;
-      transition: all 0.3s ease;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-    }
-    .player-btn:hover { transform: scale(1.1); box-shadow: 0 5px 15px rgba(102, 126, 234, 0.4); }
-    .player-btn:active { transform: scale(0.95); }
-
-    .loaded-track {
-      background: white;
-      padding: 12px;
-      border-radius: 8px;
-      border: 2px solid #e0e0e0;
-      margin-bottom: 15px;
-      text-align: center;
-      font-size: 0.95em;
-      color: #666;
-    }
-
-    .volume-control {
-      display: flex;
-      align-items: center;
-      gap: 10px;
-      margin-top: 15px;
-    }
-    .volume-control input[type="range"] {
-      flex: 1;
-      height: 6px;
-      border-radius: 3px;
-      background: #e0e0e0;
-      outline: none;
-    }
-    .volume-control input[type="range"]::-webkit-slider-thumb {
-      -webkit-appearance: none;
-      width: 16px;
-      height: 16px;
-      border-radius: 50%;
-      background: #667eea;
-      cursor: pointer;
-    }
-
-    .music-library {
-      background: #f8f9ff;
-      padding: 20px;
-      border-radius: 12px;
-    }
-    .library-header {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      margin-bottom: 15px;
-    }
-    .library-header h3 { color: #333; font-size: 1.2em; margin: 0; }
-    .upload-btn {
-      width: 40px;
-      height: 40px;
-      border: none;
-      border-radius: 50%;
-      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-      color: white;
-      font-size: 1.5em;
-      cursor: pointer;
-      transition: all 0.3s ease;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-    }
-    .upload-btn:hover { transform: scale(1.1); box-shadow: 0 5px 15px rgba(102, 126, 234, 0.4); }
-
-    .track-list { max-height: 300px; overflow-y: auto; }
-    .track-item {
-      background: white;
-      padding: 12px;
+    .header h1 {
+      font-size: 2.5em;
       margin-bottom: 10px;
-      border-radius: 8px;
-      border: 2px solid #e0e0e0;
-      cursor: pointer;
-      transition: all 0.3s ease;
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
     }
-    .track-item:hover { border-color: #667eea; transform: translateX(5px); }
-    .track-name { font-weight: bold; color: #333; font-size: 0.95em; }
-    .track-meta { font-size: 0.8em; color: #999; margin-top: 4px; }
-    .play-icon { color: #667eea; font-size: 1.2em; }
 
-    .room-list { display: flex; flex-direction: column; gap: 15px; }
-    .room-card {
+    .card {
       background: white;
-      padding: 20px;
-      border-radius: 12px;
-      border: 2px solid #e0e0e0;
-      cursor: pointer;
-      transition: all 0.3s ease;
-    }
-    .room-card:hover { border-color: #667eea; transform: translateY(-5px); box-shadow: 0 10px 25px rgba(0,0,0,0.1); }
-    .room-card-header {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      margin-bottom: 12px;
-    }
-    .room-card-name { font-size: 1.3em; font-weight: bold; color: #333; }
-    .room-card-dj { font-size: 0.9em; color: #667eea; margin-bottom: 8px; }
-    .room-card-stats {
-      display: flex;
-      gap: 15px;
-      font-size: 0.85em;
-      color: #999;
+      border-radius: 15px;
+      padding: 25px;
+      margin-bottom: 20px;
+      box-shadow: 0 10px 30px rgba(0,0,0,0.2);
     }
 
-    .btn-primary, .btn-secondary {
-      width: 100%;
-      padding: 12px;
+    .btn {
+      padding: 12px 24px;
       border: none;
-      border-radius: 10px;
-      font-size: 1em;
+      border-radius: 8px;
+      font-size: 16px;
+      font-weight: 600;
       cursor: pointer;
-      transition: all 0.3s ease;
-      font-weight: bold;
+      transition: all 0.3s;
+      margin: 5px;
     }
+
     .btn-primary {
-      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      background: #667eea;
       color: white;
     }
-    .btn-primary:hover { transform: translateY(-2px); box-shadow: 0 5px 15px rgba(102, 126, 234, 0.4); }
+
+    .btn-primary:hover {
+      background: #5568d3;
+      transform: translateY(-2px);
+    }
+
     .btn-secondary {
       background: #f0f0f0;
-      color: #666;
-      margin-top: 10px;
-    }
-    .btn-secondary:hover { background: #e0e0e0; }
-
-    .modal {
-      display: none;
-      position: fixed;
-      top: 0;
-      left: 0;
-      width: 100%;
-      height: 100%;
-      background: rgba(0,0,0,0.5);
-      justify-content: center;
-      align-items: center;
-      z-index: 1000;
-    }
-    .modal.show { display: flex; }
-    .modal-content {
-      background: white;
-      padding: 30px;
-      border-radius: 20px;
-      max-width: 400px;
-      width: 90%;
-      box-shadow: 0 20px 60px rgba(0,0,0,0.3);
-    }
-    .modal-header {
-      font-size: 1.5em;
-      font-weight: bold;
       color: #333;
-      margin-bottom: 20px;
-      text-align: center;
     }
-    .input-group { margin-bottom: 20px; }
-    .input-group label {
-      display: block;
-      margin-bottom: 8px;
-      color: #666;
-      font-size: 0.9em;
-      font-weight: bold;
+
+    .btn-secondary:hover {
+      background: #e0e0e0;
     }
-    .input-group input {
+
+    .btn-danger {
+      background: #ef4444;
+      color: white;
+    }
+
+    .btn-danger:hover {
+      background: #dc2626;
+    }
+
+    .input {
       width: 100%;
       padding: 12px;
       border: 2px solid #e0e0e0;
       border-radius: 8px;
-      font-size: 1em;
-      transition: border-color 0.3s ease;
+      font-size: 16px;
+      margin-bottom: 15px;
     }
-    .input-group input:focus {
+
+    .input:focus {
       outline: none;
       border-color: #667eea;
     }
 
-    .hidden { display: none !important; }
+    .room-list {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+      gap: 15px;
+      margin-top: 20px;
+    }
+
+    .room-card {
+      background: #f8f9fa;
+      padding: 20px;
+      border-radius: 10px;
+      cursor: pointer;
+      transition: all 0.3s;
+      border: 2px solid transparent;
+    }
+
+    .room-card:hover {
+      border-color: #667eea;
+      transform: translateY(-3px);
+      box-shadow: 0 5px 15px rgba(0,0,0,0.1);
+    }
+
+    .room-name {
+      font-size: 1.3em;
+      font-weight: bold;
+      margin-bottom: 10px;
+      color: #333;
+    }
+
+    .room-info {
+      color: #666;
+      font-size: 0.9em;
+    }
+
+    .hidden {
+      display: none;
+    }
+
+    .audio-source-selector {
+      display: flex;
+      gap: 10px;
+      margin-bottom: 20px;
+      padding: 15px;
+      background: #f8f9fa;
+      border-radius: 8px;
+    }
+
+    .audio-source-btn {
+      flex: 1;
+      padding: 15px;
+      border: 2px solid #e0e0e0;
+      background: white;
+      border-radius: 8px;
+      cursor: pointer;
+      transition: all 0.3s;
+      text-align: center;
+    }
+
+    .audio-source-btn:hover {
+      border-color: #667eea;
+    }
+
+    .audio-source-btn.active {
+      border-color: #667eea;
+      background: #f0f4ff;
+      font-weight: bold;
+    }
+
+    .audio-source-btn.disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+      background: #f5f5f5;
+    }
+
+    .track-controls {
+      display: flex;
+      gap: 10px;
+      align-items: center;
+      margin-top: 20px;
+    }
+
+    .track-info {
+      flex: 1;
+      padding: 15px;
+      background: #f8f9fa;
+      border-radius: 8px;
+    }
 
     .debug-panel {
-      background: #2d2d2d;
-      color: #00ff00;
-      padding: 15px;
-      border-radius: 12px;
-      margin-top: 20px;
       font-family: 'Courier New', monospace;
-      font-size: 0.85em;
+      font-size: 0.9em;
+      background: #1a1a1a;
+      color: #0f0;
+      padding: 15px;
+      border-radius: 8px;
       max-height: 300px;
       overflow-y: auto;
     }
-    .debug-panel h4 {
-      color: #00ff00;
-      margin-bottom: 10px;
-      font-size: 1em;
+
+    .debug-panel div {
+      margin-bottom: 5px;
     }
-    .debug-row {
+
+    .status-indicator {
+      display: inline-block;
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      margin-right: 8px;
+    }
+
+    .status-connected {
+      background: #10b981;
+    }
+
+    .status-disconnected {
+      background: #ef4444;
+    }
+
+    .status-connecting {
+      background: #f59e0b;
+      animation: pulse 1s infinite;
+    }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.5; }
+    }
+
+    .listener-badge {
+      display: inline-block;
+      padding: 5px 12px;
+      background: #667eea;
+      color: white;
+      border-radius: 20px;
+      font-size: 0.9em;
+      margin-left: 10px;
+    }
+
+    #fileInput {
+      display: none;
+    }
+
+    .file-input-label {
+      display: inline-block;
+      padding: 12px 24px;
+      background: #667eea;
+      color: white;
+      border-radius: 8px;
+      cursor: pointer;
+      transition: all 0.3s;
+      font-weight: 600;
+    }
+
+    .file-input-label:hover {
+      background: #5568d3;
+      transform: translateY(-2px);
+    }
+
+    .now-playing {
+      padding: 20px;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      color: white;
+      border-radius: 10px;
+      margin-bottom: 20px;
+    }
+
+    .now-playing h3 {
+      margin-bottom: 10px;
+    }
+
+    .peer-list {
+      margin-top: 15px;
+      padding: 15px;
+      background: #f8f9fa;
+      border-radius: 8px;
+    }
+
+    .peer-item {
+      padding: 8px;
+      margin-bottom: 5px;
+      background: white;
+      border-radius: 5px;
       display: flex;
       justify-content: space-between;
-      padding: 4px 0;
-      border-bottom: 1px solid #444;
+      align-items: center;
     }
-    .debug-label { color: #888; }
-    .debug-value { color: #00ff00; font-weight: bold; }
-    .debug-value.error { color: #ff4444; }
-    .debug-value.success { color: #44ff44; }
+
+    #createRoomModal {
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background: rgba(0,0,0,0.5);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      z-index: 1000;
+    }
+
+    #createRoomModal.hidden {
+      display: none !important;
+    }
   </style>
 </head>
 <body>
   <div class="container">
-    <div id="homeView">
-      <div class="header">
-        <h1>🎧 Silent Disco P2P</h1>
-        <p class="subtitle">Create or join a room</p>
-      </div>
-
-      <div id="userBadge" class="user-badge hidden">
-        <strong id="userNickname"></strong>
-      </div>
-
-      <button class="btn-primary" onclick="showCreateRoomModal()">Create New Room</button>
-
-      <div style="margin: 20px 0; text-align: center; color: #999;">
-        <span>─────  or join existing  ─────</span>
-      </div>
-
-      <div id="roomList" class="room-list"></div>
+    <!-- Header -->
+    <div class="header">
+      <h1>🎧 Silent Disco P2P</h1>
+      <p id="userInfo"></p>
     </div>
 
-    <div id="roomView" class="hidden">
-      <div class="top-controls">
-        <div id="roomUserBadge" class="user-badge" style="margin: 0; flex: 1;">
-          <strong id="roomUserNickname"></strong>
-          <span id="roomUserRole"></span>
-        </div>
-        <button class="leave-btn" onclick="leaveRoom()">Leave Room</button>
-      </div>
+    <!-- Landing Screen -->
+    <div id="landingScreen" class="card">
+      <h2 style="margin-bottom: 20px;">Create or join a room</h2>
 
-      <div class="room-info">
-        <div class="room-info-item">
-          <div class="room-info-label">Listeners</div>
-          <div class="room-info-value" id="listenerCount">0</div>
-        </div>
-        <div class="room-info-item">
-          <div class="room-info-label">Codec</div>
-          <div class="room-info-value" id="codecInfo">Opus</div>
-        </div>
-        <div class="room-info-item">
-          <div class="room-info-label">Bitrate</div>
-          <div class="room-info-value" id="bitrateInfo">128 kbps</div>
-        </div>
-      </div>
+      <button class="btn btn-primary" onclick="showCreateRoomModal()">Create New Room</button>
 
-      <div class="now-playing">
-        <div class="now-playing-label">Now Playing</div>
-        <div class="now-playing-track" id="nowPlayingTrack">No track loaded</div>
-        <div id="waveformContainer" class="waveform-container hidden">
-          <div class="waveform">
-            <div class="waveform-bar" style="animation-delay: 0s;"></div>
-            <div class="waveform-bar" style="animation-delay: 0.1s;"></div>
-            <div class="waveform-bar" style="animation-delay: 0.2s;"></div>
-            <div class="waveform-bar" style="animation-delay: 0.3s;"></div>
-            <div class="waveform-bar" style="animation-delay: 0.4s;"></div>
-            <div class="waveform-bar" style="animation-delay: 0.5s;"></div>
-            <div class="waveform-bar" style="animation-delay: 0.6s;"></div>
-            <div class="waveform-bar" style="animation-delay: 0.7s;"></div>
-            <div class="waveform-bar" style="animation-delay: 0.8s;"></div>
-            <div class="waveform-bar" style="animation-delay: 0.9s;"></div>
+      <div style="margin: 20px 0; text-align: center; color: #999;">───── or join existing ─────</div>
+
+      <div class="room-list" id="roomList"></div>
+    </div>
+
+    <!-- Room Screen -->
+    <div id="roomScreen" class="hidden">
+      <!-- Room Header -->
+      <div class="card">
+        <div style="display: flex; justify-content: space-between; align-items: center;">
+          <div>
+            <h2 id="roomName"></h2>
+            <p id="roomRole"></p>
+          </div>
+          <div>
+            <span class="listener-badge" id="listenerCount">0 listeners</span>
+            <button class="btn btn-danger" onclick="leaveRoom()">Leave Room</button>
           </div>
         </div>
       </div>
 
-      <div id="djView" class="hidden">
-        <div class="tabs">
-          <button class="tab active" onclick="switchTab('player')">Audio Player</button>
-          <button class="tab" onclick="switchTab('library')">Music Library</button>
-        </div>
+      <!-- DJ Controls (only for DJ) -->
+      <div id="djControls" class="card hidden">
+        <h3>🎛️ DJ Controls</h3>
 
-        <div id="playerTab" class="tab-content active">
-          <div class="player">
-            <div class="loaded-track" id="loadedTrack">No track loaded</div>
-            <div class="player-controls">
-              <button class="player-btn" id="playPauseBtn" onclick="togglePlayPause()">▶</button>
-            </div>
-            <div class="volume-control">
-              <span>🔊</span>
-              <input type="range" id="volumeSlider" min="0" max="100" value="80">
-              <span id="volumeValue">80%</span>
-            </div>
+        <!-- Audio Source Selector -->
+        <div class="audio-source-selector">
+          <div class="audio-source-btn active" id="sourceFile" onclick="selectAudioSource('file')">
+            <div style="font-size: 2em;">🎵</div>
+            <div>MP3 File</div>
+          </div>
+          <div class="audio-source-btn disabled" id="sourceMic" title="Coming soon">
+            <div style="font-size: 2em;">🎤</div>
+            <div>Microphone</div>
+            <small>(Coming Soon)</small>
+          </div>
+          <div class="audio-source-btn disabled" id="sourceInterface" title="Coming soon">
+            <div style="font-size: 2em;">🔊</div>
+            <div>Audio Interface</div>
+            <small>(Coming Soon)</small>
           </div>
         </div>
 
-        <div id="libraryTab" class="tab-content">
-          <div class="music-library">
-            <div class="library-header">
-              <h3>Music Library</h3>
-              <button class="upload-btn" onclick="document.getElementById('audioUpload').click()">+</button>
-              <input type="file" id="audioUpload" accept="audio/mp3" style="display: none;" onchange="uploadAudio(event)">
-            </div>
-            <div id="trackList" class="track-list"></div>
+        <!-- File Input (MP3) -->
+        <div id="fileSourceControls">
+          <input type="file" id="fileInput" accept="audio/mp3,audio/mpeg" onchange="handleFileSelect(event)">
+          <label for="fileInput" class="file-input-label">
+            📁 Select MP3 File
+          </label>
+
+          <div class="track-info" id="trackInfo">
+            <strong>No track loaded</strong>
           </div>
+
+          <div class="track-controls">
+            <button class="btn btn-primary" id="playBtn" onclick="playAudio()" disabled>▶️ Play</button>
+            <button class="btn btn-secondary" id="pauseBtn" onclick="pauseAudio()" disabled>⏸️ Pause</button>
+            <button class="btn btn-secondary" id="stopBtn" onclick="stopAudio()" disabled>⏹️ Stop</button>
+          </div>
+        </div>
+
+        <!-- Future: Microphone Controls -->
+        <div id="micSourceControls" class="hidden">
+          <!-- Will be implemented later -->
+        </div>
+
+        <!-- Future: Audio Interface Controls -->
+        <div id="interfaceSourceControls" class="hidden">
+          <!-- Will be implemented later -->
+        </div>
+
+        <!-- Connected Peers -->
+        <div class="peer-list">
+          <h4>Connected Listeners</h4>
+          <div id="peerConnections"></div>
         </div>
       </div>
 
-      <div id="listenerView" class="hidden">
-        <div class="music-library">
-          <div class="library-header">
-            <h3>Music Library</h3>
-          </div>
-          <div id="listenerTrackList" class="track-list"></div>
+      <!-- Listener Player -->
+      <div id="listenerPlayer" class="card hidden">
+        <div class="now-playing">
+          <h3>Now Playing</h3>
+          <div id="nowPlayingInfo">Waiting for DJ to start...</div>
+        </div>
+
+        <audio id="audioPlayer" autoplay></audio>
+
+        <div style="text-align: center; padding: 20px;">
+          <div style="font-size: 4em; margin-bottom: 10px;">🎧</div>
+          <p style="color: #666;">Connected to DJ stream</p>
         </div>
       </div>
 
-      <div id="debugPanel" class="debug-panel">
-        <h4>🐛 Debug Info</h4>
-        <div class="debug-row">
-          <span class="debug-label">Connection State:</span>
-          <span class="debug-value" id="debugConnState">new</span>
-        </div>
-        <div class="debug-row">
-          <span class="debug-label">ICE Connection:</span>
-          <span class="debug-value" id="debugIceState">new</span>
-        </div>
-        <div class="debug-row">
-          <span class="debug-label">DataChannel:</span>
-          <span class="debug-value" id="debugDataChannel">Not connected</span>
-        </div>
-        <div class="debug-row">
-          <span class="debug-label">Audio Track:</span>
-          <span class="debug-value" id="debugAudioTrack">No stream</span>
-        </div>
-        <div class="debug-row">
-          <span class="debug-label">Stream Active:</span>
-          <span class="debug-value" id="debugStreamActive">❌ No</span>
-        </div>
-        <div class="debug-row">
-          <span class="debug-label">Audio Element:</span>
-          <span class="debug-value" id="debugAudioElement">No source</span>
-        </div>
-        <div class="debug-row">
-          <span class="debug-label">Client ID:</span>
-          <span class="debug-value" id="debugClientId">-</span>
-        </div>
-        <div class="debug-row">
-          <span class="debug-label">Messages Received:</span>
-          <span class="debug-value" id="debugMsgCount">0</span>
-        </div>
-        <div class="debug-row">
-          <span class="debug-label">Last Message:</span>
-          <span class="debug-value" id="debugLastMsg">-</span>
+      <!-- Debug Panel -->
+      <div class="card">
+        <h3>🐛 Debug Info</h3>
+        <div class="debug-panel" id="debugPanel">
+          <div>Status: <span class="status-indicator status-disconnected"></span>Initializing...</div>
         </div>
       </div>
     </div>
   </div>
 
-  <div id="createRoomModal" class="modal">
-    <div class="modal-content">
-      <div class="modal-header">Create New Room</div>
-      <div class="input-group">
-        <label for="roomNameInput">Room Name</label>
-        <input type="text" id="roomNameInput" placeholder="My Awesome Room">
+  <!-- Create Room Modal (Simple) -->
+  <div id="createRoomModal" class="hidden">
+    <div class="card" style="width: 400px; max-width: 90%;">
+      <h3 style="margin-bottom: 20px;">Create New Room</h3>
+      <input type="text" id="roomNameInput" class="input" placeholder="Room name" maxlength="50">
+      <div style="display: flex; gap: 10px;">
+        <button class="btn btn-primary" style="flex: 1;" onclick="createRoom()">Create Room</button>
+        <button class="btn btn-secondary" style="flex: 1;" onclick="hideCreateRoomModal()">Cancel</button>
       </div>
-      <button class="btn-primary" onclick="createRoom()">Create Room</button>
-      <button class="btn-secondary" onclick="hideCreateRoomModal()">Cancel</button>
     </div>
   </div>
-
-  <audio id="remoteAudio" autoplay style="display: none;"></audio>
-  <audio id="listenerAudio" autoplay muted style="display: none;">
 
   <script>
-    const API_BASE = window.location.origin;
+    // =====================================================
+    // STATE MANAGEMENT
+    // =====================================================
     const state = {
       user: null,
       currentRoom: null,
       userRole: null,
-      clientId: null,
-      peerConnection: null,
-      dataChannel: null,
-      tracks: [],
-      currentTrack: null,
-      isPlaying: false,
-      debugMessageCount: 0
+      clientId: `client_${Math.random().toString(36).substr(2, 9)}`,
+      websocket: null,
+
+      // Audio streaming
+      audioContext: null,
+      audioElement: null,
+      audioStream: null,
+      audioSource: 'file', // 'file' | 'mic' | 'interface'
+
+      // P2P connections
+      peerConnections: new Map(), // listener_id -> RTCPeerConnection
+      pendingCandidates: new Map(), // listener_id -> [candidates]
+
+      // Room state
+      listeners: new Set(),
+      djClientId: null
     };
 
-    const Storage = {
-      saveVolume: (volume) => {
-        localStorage.setItem('silentdisco_volume', volume);
-      },
-      getVolume: () => {
-        return localStorage.getItem('silentdisco_volume') || '80';
-      }
+    const ICE_CONFIG = {
+      iceServers: [
+        { urls: 'stun:stun.l.google.com:19302' }
+      ]
     };
+
+    const API_BASE = window.location.origin;
+    const WS_URL = `ws://${window.location.host}/ws`;
+
+    // =====================================================
+    // INITIALIZATION
+    // =====================================================
+    async function init() {
+      await identifyUser();
+      await loadRooms();
+
+      // Check if URL contains room ID
+      const roomId = window.location.pathname.split('/').pop();
+      if (roomId && roomId !== '' && roomId !== 'room') {
+        await joinRoom(roomId);
+      }
+    }
 
     async function identifyUser() {
       try {
         const response = await fetch(`${API_BASE}/user/identify`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' }
+          method: 'POST'
         });
         const data = await response.json();
         state.user = data.user;
-        document.getElementById('userNickname').textContent = state.user.nickname;
-        document.getElementById('userBadge').classList.remove('hidden');
-        console.log('👤 User identified:', state.user.nickname);
+        document.getElementById('userInfo').textContent = `👤 ${state.user.nickname}`;
+        log(`User identified: ${state.user.nickname}`);
       } catch (error) {
-        console.error('Error identifying user:', error);
+        console.error('❌ Identify error:', error);
       }
     }
 
@@ -571,38 +500,39 @@
         const data = await response.json();
         displayRooms(data.rooms);
       } catch (error) {
-        console.error('Error loading rooms:', error);
+        console.error('❌ Load rooms error:', error);
       }
     }
 
     function displayRooms(rooms) {
       const roomList = document.getElementById('roomList');
       if (rooms.length === 0) {
-        roomList.innerHTML = '<p style="text-align: center; color: #999; padding: 20px;">No rooms available. Create one!</p>';
+        roomList.innerHTML = '<p style="text-align: center; color: #999; padding: 40px;">No rooms available. Create one!</p>';
         return;
       }
 
       roomList.innerHTML = rooms.map(room => `
         <div class="room-card" onclick="joinRoom('${room.id}')">
-          <div class="room-card-header">
-            <div class="room-card-name">${room.name}</div>
-          </div>
-          <div class="room-card-dj">👤 DJ: ${room.dj_nickname}</div>
-          <div class="room-card-stats">
-            <span>👥 ${room.listener_count} listeners</span>
-            <span>🎵 ${room.current_audio ? room.current_audio.original_name : 'No track'}</span>
+          <div class="room-name">🎪 ${room.name}</div>
+          <div class="room-info">
+            DJ: ${room.dj_nickname}<br>
+            Listeners: ${room.listener_count} / ${room.max_capacity}<br>
+            ${room.dj_online ? '🟢 DJ Online' : '🔴 DJ Offline'}
           </div>
         </div>
       `).join('');
     }
 
+    // =====================================================
+    // ROOM MANAGEMENT
+    // =====================================================
     function showCreateRoomModal() {
-      document.getElementById('createRoomModal').classList.add('show');
+      document.getElementById('createRoomModal').classList.remove('hidden');
       document.getElementById('roomNameInput').focus();
     }
 
     function hideCreateRoomModal() {
-      document.getElementById('createRoomModal').classList.remove('show');
+      document.getElementById('createRoomModal').classList.add('hidden');
       document.getElementById('roomNameInput').value = '';
     }
 
@@ -619,466 +549,614 @@
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ name: roomName })
         });
+
         const data = await response.json();
         if (data.success) {
           hideCreateRoomModal();
-          joinRoom(data.room.id);
+          await joinRoom(data.room.id);
+          history.pushState({}, '', `/room/${data.room.id}`);
+        } else {
+          alert(data.error || 'Failed to create room');
         }
       } catch (error) {
-        console.error('Error creating room:', error);
-        alert('Error creating room');
+        console.error('❌ Create room error:', error);
+        alert('Failed to create room');
       }
     }
 
     async function joinRoom(roomId) {
       try {
-        state.clientId = 'client_' + Math.random().toString(36).substr(2, 9);
-        document.getElementById('debugClientId').textContent = state.clientId;
-
         const response = await fetch(`${API_BASE}/room/${roomId}/join`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ client_id: state.clientId })
         });
-        const data = await response.json();
 
+        const data = await response.json();
         if (data.success) {
           state.currentRoom = data.room;
           state.userRole = data.role;
 
-          document.getElementById('homeView').classList.add('hidden');
-          document.getElementById('roomView').classList.remove('hidden');
-          document.getElementById('roomUserNickname').textContent = data.nickname;
-          document.getElementById('roomUserRole').textContent = ` (${data.role})`;
+          log(`✅ Joined room as ${data.role}`);
+
+          // Setup UI
+          document.getElementById('landingScreen').classList.add('hidden');
+          document.getElementById('roomScreen').classList.remove('hidden');
+          document.getElementById('roomName').textContent = `🎪 ${state.currentRoom.name}`;
+          document.getElementById('roomRole').textContent = `Role: ${state.userRole.toUpperCase()}`;
 
           if (state.userRole === 'dj') {
-            document.getElementById('djView').classList.remove('hidden');
-            document.getElementById('listenerView').classList.add('hidden');
+            document.getElementById('djControls').classList.remove('hidden');
+            document.getElementById('listenerPlayer').classList.add('hidden');
           } else {
-            document.getElementById('djView').classList.add('hidden');
-            document.getElementById('listenerView').classList.remove('hidden');
+            document.getElementById('djControls').classList.add('hidden');
+            document.getElementById('listenerPlayer').classList.remove('hidden');
           }
 
-          await setupWebRTC(roomId);
-          loadMusicLibrary();
+          // Connect WebSocket
+          connectWebSocket(roomId);
 
-          window.history.pushState({}, '', `/room/${roomId}`);
-
-          console.log(`✅ Joined room as ${state.userRole}`);
+        } else {
+          alert(data.error || 'Failed to join room');
         }
       } catch (error) {
-        console.error('Error joining room:', error);
-        alert('Error joining room');
+        console.error('❌ Join room error:', error);
+        alert('Failed to join room');
       }
     }
-
-    async function setupWebRTC(roomId) {
-      try {
-        console.log('🔧 Setting up WebRTC connection...');
-
-      state.peerConnection = new RTCPeerConnection({
-        iceServers: [{ urls: 'stun:stun.l.google.com:19302' }]
-      });
-
-      // ✅ CRITICAL: Set this BEFORE creating offer
-      state.peerConnection.onicecandidate = async (event) => {
-        if (event.candidate) {
-          // Skip unresolvable .local candidates
-          if (event.candidate.candidate && event.candidate.candidate.includes('.local')) {
-            console.log('🧊 Skipping .local candidate');
-            return;
-          }
-
-          console.log(`🧊 Sending ICE candidate`);
-          await fetch(`${API_BASE}/ice-candidate`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              client_id: state.clientId,
-              candidate: event.candidate
-            })
-          });
-        }
-      };
-
-      state.peerConnection.ondatachannel = (event) => {
-        console.log('📡 DataChannel received from server');
-        state.dataChannel = event.channel;
-        setupDataChannel();
-      };
-
-      state.peerConnection.onconnectionstatechange = () => {
-        console.log('🔗 Connection state:', state.peerConnection.connectionState);
-        updateDebugPanel(); // ✅ FIX: Update UI when connection state changes
-      };
-
-      state.peerConnection.oniceconnectionstatechange = () => {
-        console.log('🧊 ICE state:', state.peerConnection.iceConnectionState);
-        updateDebugPanel(); // ✅ FIX: Update UI when ICE state changes
-      };
-      // ✅ CRITICAL FIX: Add audio transceiver BEFORE creating offer
-      state.peerConnection.addTransceiver('audio', { direction: 'recvonly' });
-      console.log('🎵 Added audio transceiver');
-      state.peerConnection.ontrack = async (event) => {
-        console.log('🎵 ontrack event:', event.streams.length, 'streams');
-        const audio = state.userRole === 'dj'
-          ? document.getElementById('remoteAudio')
-          : document.getElementById('listenerAudio');
-
-        if (audio.srcObject !== event.streams[0]) {
-          audio.srcObject = event.streams[0];
-          console.log('🔊 Audio stream attached to element');
-
-          // ✅ FIX: Explicitly play the audio
-          try {
-            await audio.play();
-            audio.muted = false;  // Unmute after successful play
-            console.log('✅ Audio playback started');
-          } catch (e) {
-            console.error('❌ Autoplay blocked:', e.message);
-            console.log('💡 User interaction required or audio must be muted');
-          }
-
-          updateDebugPanel({
-            audioTrack: 'Enabled (' + (event.streams[0].active ? 'live' : 'inactive') + ')',
-            streamActive: event.streams[0].active
-          });
-        }
-      };
-
-        const offer = await state.peerConnection.createOffer();
-        await state.peerConnection.setLocalDescription(offer);
-        console.log('📤 Sending offer to server');
-
-        const response = await fetch('/offer', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            type: offer.type,
-            sdp: offer.sdp,
-            client_id: state.clientId,
-            room_id: roomId
-          })
-        });
-
-        const data = await response.json();
-        console.log('📥 Received answer from server');
-
-        const answer = new RTCSessionDescription({
-          type: 'answer',
-          sdp: data.sdp
-        });
-
-        await state.peerConnection.setRemoteDescription(answer);
-        console.log('✅ WebRTC setup complete');
-
-      } catch (error) {
-        console.error('❌ WebRTC setup error:', error);
-      }
-    }
-
-    function setupDataChannel() {
-      if (!state.dataChannel) return;
-
-      state.dataChannel.onopen = () => {
-        console.log('✅ DataChannel opened');
-        updateDebugPanel();
-      };
-
-      state.dataChannel.onmessage = (event) => {
-        const message = JSON.parse(event.data);
-        state.debugMessageCount++;
-        console.log('📩 Message:', message.type);
-        handleDataChannelMessage(message);
-        updateDebugPanel();
-      };
-
-      state.dataChannel.onerror = (error) => {
-        console.error('❌ DataChannel error:', error);
-      };
-    }
-
-    function handleDataChannelMessage(message) {
-      switch (message.type) {
-        case 'room_update':
-          document.getElementById('listenerCount').textContent = message.listeners || 0;
-          break;
-
-        case 'track_change':
-          document.getElementById('nowPlayingTrack').textContent = message.track_name || 'No track loaded';
-          document.getElementById('loadedTrack').textContent = message.track_name || 'No track loaded';
-          state.currentTrack = message.track_id;
-          break;
-
-        case 'playback_state':
-          state.isPlaying = message.is_playing;
-          updatePlayPauseButton();
-
-          if (state.userRole === 'listener') {
-            const waveform = document.getElementById('waveformContainer');
-            if (message.is_playing) {
-              waveform.classList.remove('hidden');
-            } else {
-              waveform.classList.add('hidden');
-            }
-          }
-          break;
-
-        case 'library_update':
-          state.tracks = message.tracks || [];
-          displayMusicLibrary();
-          break;
-      }
-    }
-
-function updateDebugPanel(updates = {}) {
-  // Read live state from peer connection if not explicitly provided
-  const connState = updates.connState || (state.peerConnection ? state.peerConnection.connectionState : 'new');
-  const iceState = updates.iceState || (state.peerConnection ? state.peerConnection.iceConnectionState : 'new');
-  const dataChannelState = updates.dataChannel || (state.dataChannel ?
-    (state.dataChannel.readyState === 'open' ? 'open (buffered: ' + state.dataChannel.bufferedAmount + ')' : state.dataChannel.readyState)
-    : 'Not connected');
-
-  // Update Connection State
-  const connElem = document.getElementById('debugConnState');
-  connElem.textContent = connState;
-  connElem.className = 'debug-value ' + (connState === 'connected' ? 'success' : connState === 'connecting' ? '' : 'error');
-
-  // Update ICE State
-  const iceElem = document.getElementById('debugIceState');
-  iceElem.textContent = iceState;
-  iceElem.className = 'debug-value ' + (iceState === 'completed' || iceState === 'connected' ? 'success' : iceState === 'checking' ? '' : 'error');
-
-  // Update DataChannel State
-  const dcElem = document.getElementById('debugDataChannel');
-  dcElem.textContent = dataChannelState;
-  dcElem.className = 'debug-value ' + (dataChannelState.startsWith('open') ? 'success' : 'error');
-
-  // Update other fields if provided
-  if (updates.audioTrack) {
-    document.getElementById('debugAudioTrack').textContent = updates.audioTrack;
-  }
-  if (updates.streamActive !== undefined) {
-    document.getElementById('debugStreamActive').textContent = updates.streamActive;
-  }
-  if (updates.audioElement) {
-    document.getElementById('debugAudioElement').textContent = updates.audioElement;
-  }
-  if (updates.msgCount !== undefined) {
-    document.getElementById('debugMsgCount').textContent = updates.msgCount;
-  }
-  if (updates.lastMsg) {
-    document.getElementById('debugLastMsg').textContent = updates.lastMsg;
-  }
-}
 
     async function leaveRoom() {
+      if (!state.currentRoom) return;
+
       try {
-        if (state.peerConnection) {
-          state.peerConnection.close();
+        // Close all peer connections
+        for (let [listenerId, pc] of state.peerConnections) {
+          pc.close();
+        }
+        state.peerConnections.clear();
+
+        // Stop audio
+        if (state.audioElement) {
+          state.audioElement.pause();
+          state.audioElement.src = '';
+        }
+        if (state.audioContext) {
+          state.audioContext.close();
         }
 
+        // Close WebSocket
+        if (state.websocket) {
+          state.websocket.close();
+        }
+
+        // Leave room
         await fetch(`${API_BASE}/room/${state.currentRoom.id}/leave`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ client_id: state.clientId })
         });
 
+        // Reset state
         state.currentRoom = null;
-        state.clientId = null;
-        state.peerConnection = null;
-        state.dataChannel = null;
+        state.userRole = null;
 
-        document.getElementById('roomView').classList.add('hidden');
-        document.getElementById('homeView').classList.remove('hidden');
+        // Reset UI
+        document.getElementById('roomScreen').classList.add('hidden');
+        document.getElementById('landingScreen').classList.remove('hidden');
+        history.pushState({}, '', '/');
 
-        window.history.pushState({}, '', '/');
-        loadRooms();
+        await loadRooms();
+
       } catch (error) {
-        console.error('Error leaving room:', error);
+        console.error('❌ Leave room error:', error);
       }
     }
 
-    async function loadMusicLibrary() {
-      try {
-        const response = await fetch(`${API_BASE}/room/${state.currentRoom.id}/library`);
-        const data = await response.json();
-        state.tracks = data.tracks || [];
-        displayMusicLibrary();
-      } catch (error) {
-        console.error('Error loading library:', error);
+    // =====================================================
+    // WEBSOCKET SIGNALING
+    // =====================================================
+    function connectWebSocket(roomId) {
+      state.websocket = new WebSocket(WS_URL);
+
+      state.websocket.onopen = () => {
+        log('🔌 WebSocket connected');
+
+        // Register with server
+        state.websocket.send(JSON.stringify({
+          type: 'register',
+          client_id: state.clientId,
+          room_id: roomId
+        }));
+      };
+
+      state.websocket.onmessage = async (event) => {
+        try {
+          const data = JSON.parse(event.data);
+          await handleSignalingMessage(data);
+        } catch (error) {
+          console.error('❌ WebSocket message error:', error);
+        }
+      };
+
+      state.websocket.onerror = (error) => {
+        console.error('❌ WebSocket error:', error);
+      };
+
+      state.websocket.onclose = () => {
+        log('🔌 WebSocket disconnected');
+      };
+    }
+
+    async function handleSignalingMessage(data) {
+      const { type } = data;
+
+      switch (type) {
+        case 'room_state':
+          updateRoomState(data);
+          break;
+
+        case 'offer':
+          await handleOffer(data);
+          break;
+
+        case 'answer':
+          await handleAnswer(data);
+          break;
+
+        case 'ice-candidate':
+          await handleRemoteIceCandidate(data);
+          break;
+
+        case 'client_left':
+          handleClientLeft(data);
+          break;
+
+        case 'play':
+        case 'pause':
+        case 'track_change':
+          updatePlaybackState(data);
+          break;
       }
     }
 
-    function displayMusicLibrary() {
-      const djList = document.getElementById('trackList');
-      const listenerList = document.getElementById('listenerTrackList');
+    function updateRoomState(data) {
+      state.djClientId = data.dj_client_id;
 
-      if (state.tracks.length === 0) {
-        const emptyMsg = '<p style="text-align: center; color: #999; padding: 20px;">No tracks uploaded yet</p>';
-        if (djList) djList.innerHTML = emptyMsg;
-        if (listenerList) listenerList.innerHTML = emptyMsg;
+      if (state.userRole === 'listener' && state.djClientId) {
+        // Listener should request stream from DJ
+        log('📡 DJ is online, awaiting stream...');
+      }
+
+      if (state.userRole === 'dj') {
+        // Update listener list
+        state.listeners = new Set(data.clients.filter(id => id !== state.clientId));
+        updateListenerCount();
+        updatePeerList();
+      }
+    }
+
+    function updateListenerCount() {
+      const count = state.listeners.size;
+      document.getElementById('listenerCount').textContent = `${count} listener${count !== 1 ? 's' : ''}`;
+    }
+
+    // =====================================================
+    // AUDIO SOURCE SELECTION
+    // =====================================================
+    function selectAudioSource(source) {
+      // Only 'file' is enabled for now
+      if (source !== 'file') {
         return;
       }
 
-      const tracksHTML = state.tracks.map(track => `
-        <div class="track-item" onclick="${state.userRole === 'dj' ? `playTrack('${track.id}')` : ''}">
-          <div>
-            <div class="track-name">${track.original_name}</div>
-            <div class="track-meta">${Math.floor(track.duration / 60)}:${String(Math.floor(track.duration % 60)).padStart(2, '0')}</div>
-          </div>
-          ${state.userRole === 'dj' ? '<div class="play-icon">▶</div>' : ''}
-        </div>
-      `).join('');
+      state.audioSource = source;
 
-      if (djList) djList.innerHTML = tracksHTML;
-      if (listenerList) listenerList.innerHTML = tracksHTML;
+      // Update UI
+      document.querySelectorAll('.audio-source-btn').forEach(btn => {
+        btn.classList.remove('active');
+      });
+      document.getElementById(`source${source.charAt(0).toUpperCase() + source.slice(1)}`).classList.add('active');
+
+      // Show appropriate controls
+      document.getElementById('fileSourceControls').classList.toggle('hidden', source !== 'file');
+      document.getElementById('micSourceControls').classList.toggle('hidden', source !== 'mic');
+      document.getElementById('interfaceSourceControls').classList.toggle('hidden', source !== 'interface');
     }
 
-    async function uploadAudio(event) {
+    // =====================================================
+    // FILE-BASED AUDIO STREAMING (DJ)
+    // =====================================================
+    async function handleFileSelect(event) {
       const file = event.target.files[0];
       if (!file) return;
 
-      const formData = new FormData();
-      formData.append('audio', file);
+      log(`📁 Selected file: ${file.name}`);
 
-      try {
-        const response = await fetch(`${API_BASE}/room/${state.currentRoom.id}/upload`, {
-          method: 'POST',
-          body: formData
-        });
+      // Create audio element
+      const url = URL.createObjectURL(file);
+      state.audioElement = new Audio(url);
 
-        const data = await response.json();
-        if (data.success) {
-          console.log('✅', data.audio.original_name, 'uploaded');
-        }
-
-        event.target.value = '';
-      } catch (error) {
-        console.error('Upload error:', error);
-        alert('Upload failed');
+      // Create Web Audio API context
+      if (!state.audioContext) {
+        state.audioContext = new (window.AudioContext || window.webkitAudioContext)();
       }
+
+      // Create media stream from audio element
+      const source = state.audioContext.createMediaElementSource(state.audioElement);
+      const destination = state.audioContext.createMediaStreamDestination();
+
+      // Connect: source → destination (for streaming) + audioContext.destination (for DJ to hear)
+      source.connect(destination);
+      source.connect(state.audioContext.destination);
+
+      state.audioStream = destination.stream;
+
+      // Update UI
+      document.getElementById('trackInfo').innerHTML = `<strong>${file.name}</strong><br>Ready to stream`;
+      document.getElementById('playBtn').disabled = false;
+      document.getElementById('pauseBtn').disabled = false;
+      document.getElementById('stopBtn').disabled = false;
+
+      log('✅ Audio stream ready');
     }
 
-    async function playTrack(trackId) {
-      if (state.userRole !== 'dj') return;
-
-      try {
-        const response = await fetch(`${API_BASE}/room/${state.currentRoom.id}/play`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ track_id: trackId })
-        });
-
-        if (response.ok) {
-          state.currentTrack = trackId;
-          state.isPlaying = true;
-
-          const track = state.tracks.find(t => t.id === trackId);
-          if (track) {
-            document.getElementById('loadedTrack').textContent = track.original_name;
-            document.getElementById('nowPlayingTrack').textContent = track.original_name;
-          }
-
-          await fetch(`${API_BASE}/room/${state.currentRoom.id}/resume`, {
-            method: 'POST'
-          });
-
-          updatePlayPauseButton();
-          console.log('▶️ Playing track');
-        }
-      } catch (error) {
-        console.error('Error playing track:', error);
-      }
-    }
-
-    async function togglePlayPause() {
-      if (!state.currentTrack) {
-        alert('Please select a track first');
+    async function playAudio() {
+      if (!state.audioElement || !state.audioStream) {
+        alert('Please select an audio file first');
         return;
       }
 
       try {
-        const endpoint = state.isPlaying ? 'pause' : 'resume';
-        await fetch(`${API_BASE}/room/${state.currentRoom.id}/${endpoint}`, {
-          method: 'POST'
+        await state.audioElement.play();
+        log('▶️ Playing audio');
+
+        // Create peer connections to all listeners
+        await createPeerConnectionsToListeners();
+
+        // Broadcast play event
+        broadcastMessage({
+          type: 'play',
+          room_id: state.currentRoom.id
         });
 
-        state.isPlaying = !state.isPlaying;
-        updatePlayPauseButton();
       } catch (error) {
-        console.error('Error toggling playback:', error);
+        console.error('❌ Play error:', error);
+        alert('Failed to play audio: ' + error.message);
       }
     }
 
-    function updatePlayPauseButton() {
-      const btn = document.getElementById('playPauseBtn');
-      if (btn) {
-        btn.textContent = state.isPlaying ? '⏸' : '▶';
+    function pauseAudio() {
+      if (state.audioElement) {
+        state.audioElement.pause();
+        log('⏸️ Paused audio');
+
+        broadcastMessage({
+          type: 'pause',
+          room_id: state.currentRoom.id
+        });
       }
     }
 
-    function switchTab(tabName) {
-      document.querySelectorAll('.tab').forEach(tab => tab.classList.remove('active'));
-      document.querySelectorAll('.tab-content').forEach(content => content.classList.remove('active'));
+    function stopAudio() {
+      if (state.audioElement) {
+        state.audioElement.pause();
+        state.audioElement.currentTime = 0;
+        log('⏹️ Stopped audio');
 
-      event.target.classList.add('active');
-      document.getElementById(tabName + 'Tab').classList.add('active');
+        broadcastMessage({
+          type: 'pause',
+          room_id: state.currentRoom.id
+        });
+      }
     }
 
-    async function initApp() {
-      await identifyUser();
-
-      const path = window.location.pathname;
-      const roomMatch = path.match(/^\/room\/([a-z0-9]+)$/);
-
-      if (roomMatch) {
-        const roomId = roomMatch[1];
-        try {
-          const response = await fetch(`${API_BASE}/api/room/${roomId}`);
-          if (response.ok) {
-            await joinRoom(roomId);
-          } else {
-            window.history.replaceState({}, '', '/');
-            loadRooms();
-          }
-        } catch (error) {
-          console.error('Error loading room:', error);
-          window.history.replaceState({}, '', '/');
-          loadRooms();
+    // =====================================================
+    // P2P CONNECTION MANAGEMENT (DJ)
+    // =====================================================
+    async function createPeerConnectionsToListeners() {
+      for (let listenerId of state.listeners) {
+        if (state.peerConnections.has(listenerId)) {
+          continue; // Already connected
         }
-      } else {
-        loadRooms();
-        setInterval(loadRooms, 5000);
+
+        await createPeerConnection(listenerId);
       }
-
-      const savedVolume = Storage.getVolume();
-      const volumeSlider = document.getElementById('volumeSlider');
-      volumeSlider.value = savedVolume;
-      document.getElementById('volumeValue').textContent = savedVolume + '%';
-
-      const djAudio = document.getElementById('remoteAudio');
-      const listenerAudio = document.getElementById('listenerAudio');
-      djAudio.volume = savedVolume / 100;
-      listenerAudio.volume = savedVolume / 100;
-
-      volumeSlider.addEventListener('input', (e) => {
-        const volume = e.target.value / 100;
-        djAudio.volume = volume;
-        listenerAudio.volume = volume;
-        document.getElementById('volumeValue').textContent = e.target.value + '%';
-
-        Storage.saveVolume(e.target.value);
-      });
     }
 
-    document.addEventListener('keypress', (e) => {
-      if (e.key === 'Enter' && document.getElementById('createRoomModal').classList.contains('show')) {
-        createRoom();
+    async function createPeerConnection(listenerId) {
+      log(`🔗 Creating peer connection to ${listenerId}`);
+
+      const pc = new RTCPeerConnection(ICE_CONFIG);
+      state.peerConnections.set(listenerId, pc);
+
+      // Add audio track
+      if (state.audioStream) {
+        state.audioStream.getTracks().forEach(track => {
+          pc.addTrack(track, state.audioStream);
+          log(`🎵 Added track to peer connection: ${track.kind}`);
+        });
+      }
+
+      // Handle ICE candidates
+      pc.onicecandidate = (event) => {
+        if (event.candidate) {
+          sendSignalingMessage({
+            type: 'ice-candidate',
+            target: listenerId,
+            from: state.clientId,
+            candidate: event.candidate
+          });
+        }
+      };
+
+      // Handle connection state
+      pc.onconnectionstatechange = () => {
+        log(`🔗 Connection to ${listenerId}: ${pc.connectionState}`);
+        updatePeerList();
+      };
+
+      // Create and send offer
+      try {
+        const offer = await pc.createOffer();
+        await pc.setLocalDescription(offer);
+
+        sendSignalingMessage({
+          type: 'offer',
+          target: listenerId,
+          from: state.clientId,
+          sdp: pc.localDescription.sdp,
+          sdpType: pc.localDescription.type
+        });
+
+        log(`📤 Sent offer to ${listenerId}`);
+
+      } catch (error) {
+        console.error(`❌ Failed to create offer for ${listenerId}:`, error);
+      }
+    }
+
+    // =====================================================
+    // P2P CONNECTION MANAGEMENT (LISTENER)
+    // =====================================================
+    async function handleOffer(data) {
+      const { from, sdp, sdpType } = data;
+
+      log(`📥 Received offer from ${from}`);
+
+      const pc = new RTCPeerConnection(ICE_CONFIG);
+      state.peerConnections.set(from, pc);
+
+      // Handle incoming audio track
+      pc.ontrack = (event) => {
+        log('🎵 Received audio track from DJ');
+        const audioPlayer = document.getElementById('audioPlayer');
+        audioPlayer.srcObject = event.streams[0];
+
+        // Auto-play
+        audioPlayer.play().then(() => {
+          log('✅ Audio playback started');
+        }).catch(error => {
+          console.error('❌ Autoplay error:', error);
+        });
+      };
+
+      // Handle ICE candidates
+      pc.onicecandidate = (event) => {
+        if (event.candidate) {
+          sendSignalingMessage({
+            type: 'ice-candidate',
+            target: from,
+            from: state.clientId,
+            candidate: event.candidate
+          });
+        }
+      };
+
+      // Handle connection state
+      pc.onconnectionstatechange = () => {
+        log(`🔗 Connection to DJ: ${pc.connectionState}`);
+        updateDebugPanel();
+      };
+
+      // Set remote description and create answer
+      try {
+        await pc.setRemoteDescription({ type: sdpType, sdp });
+
+        // Process any pending ICE candidates
+        if (state.pendingCandidates.has(from)) {
+          for (let candidate of state.pendingCandidates.get(from)) {
+            await pc.addIceCandidate(candidate);
+          }
+          state.pendingCandidates.delete(from);
+        }
+
+        const answer = await pc.createAnswer();
+        await pc.setLocalDescription(answer);
+
+        sendSignalingMessage({
+          type: 'answer',
+          target: from,
+          from: state.clientId,
+          sdp: pc.localDescription.sdp,
+          sdpType: pc.localDescription.type
+        });
+
+        log(`📤 Sent answer to ${from}`);
+
+      } catch (error) {
+        console.error('❌ Failed to handle offer:', error);
+      }
+    }
+
+    async function handleAnswer(data) {
+      const { from, sdp, sdpType } = data;
+
+      log(`📥 Received answer from ${from}`);
+
+      const pc = state.peerConnections.get(from);
+      if (!pc) {
+        console.error(`❌ No peer connection found for ${from}`);
+        return;
+      }
+
+      try {
+        await pc.setRemoteDescription({ type: sdpType, sdp });
+
+        // Process any pending ICE candidates
+        if (state.pendingCandidates.has(from)) {
+          for (let candidate of state.pendingCandidates.get(from)) {
+            await pc.addIceCandidate(candidate);
+          }
+          state.pendingCandidates.delete(from);
+        }
+
+        log(`✅ Set remote description for ${from}`);
+
+      } catch (error) {
+        console.error('❌ Failed to handle answer:', error);
+      }
+    }
+
+    async function handleRemoteIceCandidate(data) {
+      const { from, candidate } = data;
+
+      const pc = state.peerConnections.get(from);
+      if (!pc) {
+        // Store for later
+        if (!state.pendingCandidates.has(from)) {
+          state.pendingCandidates.set(from, []);
+        }
+        state.pendingCandidates.get(from).push(candidate);
+        return;
+      }
+
+      try {
+        if (pc.remoteDescription) {
+          await pc.addIceCandidate(new RTCIceCandidate(candidate));
+        } else {
+          // Store for later
+          if (!state.pendingCandidates.has(from)) {
+            state.pendingCandidates.set(from, []);
+          }
+          state.pendingCandidates.get(from).push(candidate);
+        }
+      } catch (error) {
+        console.error('❌ Failed to add ICE candidate:', error);
+      }
+    }
+
+    function handleClientLeft(data) {
+      const { client_id } = data;
+
+      log(`👋 Client left: ${client_id}`);
+
+      // Remove from listeners
+      state.listeners.delete(client_id);
+      updateListenerCount();
+
+      // Close peer connection
+      const pc = state.peerConnections.get(client_id);
+      if (pc) {
+        pc.close();
+        state.peerConnections.delete(client_id);
+      }
+
+      updatePeerList();
+    }
+
+    // =====================================================
+    // UI UPDATES
+    // =====================================================
+    function updatePeerList() {
+      const container = document.getElementById('peerConnections');
+      if (state.peerConnections.size === 0) {
+        container.innerHTML = '<p style="color: #999;">No active connections</p>';
+        return;
+      }
+
+      container.innerHTML = Array.from(state.peerConnections.entries()).map(([id, pc]) => {
+        const state = pc.connectionState;
+        const stateClass = state === 'connected' ? 'status-connected' :
+                          state === 'connecting' ? 'status-connecting' : 'status-disconnected';
+
+        return `
+          <div class="peer-item">
+            <span><span class="status-indicator ${stateClass}"></span>${id.substr(0, 12)}...</span>
+            <span>${state}</span>
+          </div>
+        `;
+      }).join('');
+    }
+
+    function updatePlaybackState(data) {
+      if (state.userRole === 'listener') {
+        const info = document.getElementById('nowPlayingInfo');
+        if (data.type === 'play') {
+          info.textContent = 'DJ is playing music 🎵';
+        } else if (data.type === 'pause') {
+          info.textContent = 'DJ paused playback ⏸️';
+        }
+      }
+    }
+
+    function updateDebugPanel() {
+      const panel = document.getElementById('debugPanel');
+
+      let html = '<div>Client ID: ' + state.clientId.substr(0, 12) + '...</div>';
+      html += '<div>Role: ' + (state.userRole || 'None') + '</div>';
+      html += '<div>Room: ' + (state.currentRoom ? state.currentRoom.name : 'None') + '</div>';
+      html += '<div>WebSocket: ' + (state.websocket && state.websocket.readyState === 1 ? '✅ Connected' : '❌ Disconnected') + '</div>';
+      html += '<div>Peer Connections: ' + state.peerConnections.size + '</div>';
+
+      if (state.userRole === 'dj') {
+        html += '<div>Listeners: ' + state.listeners.size + '</div>';
+        html += '<div>Audio Stream: ' + (state.audioStream ? '✅ Active' : '❌ None') + '</div>';
+      }
+
+      for (let [id, pc] of state.peerConnections) {
+        html += `<div>  ${id.substr(0, 10)}: ${pc.connectionState}</div>`;
+      }
+
+      panel.innerHTML = html;
+    }
+
+    // =====================================================
+    // UTILITIES
+    // =====================================================
+    function sendSignalingMessage(message) {
+      if (state.websocket && state.websocket.readyState === 1) {
+        state.websocket.send(JSON.stringify(message));
+      }
+    }
+
+    function broadcastMessage(message) {
+      sendSignalingMessage(message);
+    }
+
+    function log(message) {
+      console.log(message);
+      updateDebugPanel();
+    }
+
+    // =====================================================
+    // AUTO-REFRESH & CLEANUP
+    // =====================================================
+    setInterval(() => {
+      if (document.getElementById('landingScreen').classList.contains('hidden') === false) {
+        loadRooms();
+      }
+    }, 5000);
+
+    window.addEventListener('beforeunload', () => {
+      if (state.currentRoom) {
+        leaveRoom();
       }
     });
 
-    initApp();
+    // =====================================================
+    // START
+    // =====================================================
+    init();
   </script>
 </body>
 </html>
