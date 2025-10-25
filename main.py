@@ -19,6 +19,7 @@ from typing import Dict, Set, Optional
 from dataclasses import dataclass, field, asdict
 from datetime import datetime
 from fractions import Fraction
+from aiortc import RTCPeerConnection, RTCSessionDescription, RTCConfiguration, RTCIceServer
 
 try:
     from aiohttp import web
@@ -746,7 +747,9 @@ class SilentDiscoServer:
 
             logger.info(f"📨 Received WebRTC offer from {client_id} for room {room_id}")
 
-            peer = RTCPeerConnection()
+            peer = RTCPeerConnection(configuration=RTCConfiguration(
+                iceServers=[RTCIceServer(urls=["stun:stun.l.google.com:19302"])]
+            ))
             self.peers[client_id] = peer
 
             # Create DataChannel
@@ -870,14 +873,28 @@ class SilentDiscoServer:
                 logger.warning(f"⚠️  ICE candidate for unknown peer: {peer_id}")
                 return web.json_response({'error': 'Peer not found'}, status=404)
 
-            candidate = data.get('candidate')
-            if candidate:
+            candidate_dict = data.get('candidate')
+            if candidate_dict and candidate_dict.get('candidate'):
+                # ✅ FIX: Use aiortc's candidate_from_sdp to parse the SDP string
+                from aiortc.sdp import candidate_from_sdp
+
+                sdp_string = candidate_dict['candidate']
+                sdp_mid = candidate_dict.get('sdpMid')
+                sdp_mline_index = candidate_dict.get('sdpMLineIndex')
+
+                # Parse the candidate from the SDP string
+                candidate = candidate_from_sdp(sdp_string)
+                candidate.sdpMid = sdp_mid
+                candidate.sdpMLineIndex = sdp_mline_index
+
                 await self.peers[peer_id].addIceCandidate(candidate)
                 logger.debug(f"🧊 Added ICE candidate for {peer_id}")
 
             return web.json_response({'success': True})
         except Exception as e:
             logger.error(f"❌ ICE candidate error: {e}")
+            import traceback
+            traceback.print_exc()
             return web.json_response({'error': str(e)}, status=500)
 
     async def _handle_health(self, request: web.Request) -> web.Response:

@@ -523,7 +523,7 @@
   </div>
 
   <audio id="remoteAudio" autoplay style="display: none;"></audio>
-  <audio id="listenerAudio" autoplay style="display: none;"></audio>
+  <audio id="listenerAudio" autoplay muted style="display: none;">
 
   <script>
     const API_BASE = window.location.origin;
@@ -680,46 +680,72 @@
         iceServers: [{ urls: 'stun:stun.l.google.com:19302' }]
       });
 
+      // ✅ CRITICAL: Set this BEFORE creating offer
+      state.peerConnection.onicecandidate = async (event) => {
+        if (event.candidate) {
+          // Skip unresolvable .local candidates
+          if (event.candidate.candidate && event.candidate.candidate.includes('.local')) {
+            console.log('🧊 Skipping .local candidate');
+            return;
+          }
+
+          console.log(`🧊 Sending ICE candidate`);
+          await fetch(`${API_BASE}/ice-candidate`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              client_id: state.clientId,
+              candidate: event.candidate
+            })
+          });
+        }
+      };
+
+      state.peerConnection.ondatachannel = (event) => {
+        console.log('📡 DataChannel received from server');
+        state.dataChannel = event.channel;
+        setupDataChannel();
+      };
+
+      state.peerConnection.onconnectionstatechange = () => {
+        console.log('🔗 Connection state:', state.peerConnection.connectionState);
+        updateDebugPanel(); // ✅ FIX: Update UI when connection state changes
+      };
+
+      state.peerConnection.oniceconnectionstatechange = () => {
+        console.log('🧊 ICE state:', state.peerConnection.iceConnectionState);
+        updateDebugPanel(); // ✅ FIX: Update UI when ICE state changes
+      };
       // ✅ CRITICAL FIX: Add audio transceiver BEFORE creating offer
       state.peerConnection.addTransceiver('audio', { direction: 'recvonly' });
       console.log('🎵 Added audio transceiver');
-        state.peerConnection.ontrack = (event) => {
-          console.log('🎵 ontrack event:', event.streams.length, 'streams');
-          const audio = state.userRole === 'dj'
-            ? document.getElementById('remoteAudio')
-            : document.getElementById('listenerAudio');
+      state.peerConnection.ontrack = async (event) => {
+        console.log('🎵 ontrack event:', event.streams.length, 'streams');
+        const audio = state.userRole === 'dj'
+          ? document.getElementById('remoteAudio')
+          : document.getElementById('listenerAudio');
 
-          if (audio.srcObject !== event.streams[0]) {
-            audio.srcObject = event.streams[0];
-            console.log('🔊 Audio stream attached to element');
+        if (audio.srcObject !== event.streams[0]) {
+          audio.srcObject = event.streams[0];
+          console.log('🔊 Audio stream attached to element');
 
-            updateDebugPanel({
-              audioTrack: 'Enabled (' + (event.streams[0].active ? 'live' : 'inactive') + ')',
-              streamActive: event.streams[0].active ? '✅ Yes' : '❌ No',
-              audioElement: audio.srcObject ? 'Connected' : 'No source'
-            });
+          // ✅ FIX: Explicitly play the audio
+          try {
+            await audio.play();
+            audio.muted = false;  // Unmute after successful play
+            console.log('✅ Audio playback started');
+          } catch (e) {
+            console.error('❌ Autoplay blocked:', e.message);
+            console.log('💡 User interaction required or audio must be muted');
           }
 
-          if (state.userRole === 'listener') {
-            document.getElementById('waveformContainer').classList.remove('hidden');
-          }
-        };
+          updateDebugPanel({
+            audioTrack: 'Enabled (' + (event.streams[0].active ? 'live' : 'inactive') + ')',
+            streamActive: event.streams[0].active
+          });
+        }
+      };
 
-        state.peerConnection.ondatachannel = (event) => {
-          console.log('📡 DataChannel received from server');
-          state.dataChannel = event.channel;
-          setupDataChannel();
-        };
-
-        state.peerConnection.onconnectionstatechange = () => {
-          console.log('🔗 Connection state:', state.peerConnection.connectionState);
-          updateDebugPanel(); // ✅ FIX: Update UI when connection state changes
-        };
-
-        state.peerConnection.oniceconnectionstatechange = () => {
-          console.log('🧊 ICE state:', state.peerConnection.iceConnectionState);
-          updateDebugPanel(); // ✅ FIX: Update UI when ICE state changes
-        };
         const offer = await state.peerConnection.createOffer();
         await state.peerConnection.setLocalDescription(offer);
         console.log('📤 Sending offer to server');
@@ -751,36 +777,26 @@
       }
     }
 
-function setupDataChannel() {
-  state.dataChannel.onopen = () => {
-    console.log('✅ DataChannel OPENED');
-    updateDebugPanel();
-  };
+    function setupDataChannel() {
+      if (!state.dataChannel) return;
 
-  state.dataChannel.onmessage = (event) => {
-    try {
-      const message = JSON.parse(event.data);
-      state.debugMessageCount++; // ✅ FIX: Use debugMessageCount not messageCount
-      updateDebugPanel({
-        msgCount: state.debugMessageCount,
-        lastMsg: message.type
-      });
-      handleDataChannelMessage(message);
-    } catch (error) {
-      console.error('DataChannel message error:', error);
+      state.dataChannel.onopen = () => {
+        console.log('✅ DataChannel opened');
+        updateDebugPanel();
+      };
+
+      state.dataChannel.onmessage = (event) => {
+        const message = JSON.parse(event.data);
+        state.debugMessageCount++;
+        console.log('📩 Message:', message.type);
+        handleDataChannelMessage(message);
+        updateDebugPanel();
+      };
+
+      state.dataChannel.onerror = (error) => {
+        console.error('❌ DataChannel error:', error);
+      };
     }
-  };
-
-  state.dataChannel.onerror = (error) => {
-    console.error('❌ DataChannel error:', error);
-    updateDebugPanel();
-  };
-
-  state.dataChannel.onclose = () => {
-    console.log('🔌 DataChannel CLOSED');
-    updateDebugPanel();
-  };
-}
 
     function handleDataChannelMessage(message) {
       switch (message.type) {
