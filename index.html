@@ -365,13 +365,11 @@ async function publish(track) {
     state.localTrack = track;
     state.currentPub = pub;
 
-    // setMuted may not be available immediately; check first
-    if (pub && typeof pub.setMuted === 'function') {
-      await pub.setMuted(!state.onAir);
+    if (state.onAir) {
+      await pub.track.unmute();
     } else {
-      log('Warning: setMuted not available on publication');
+      await pub.track.mute();
     }
-
     refreshDjWave();
     log('Published single audio (stereo); onAir=', state.onAir);
   } catch (e) {
@@ -398,13 +396,6 @@ async function ensurePublishedPresence() {
     }
     if (track) await publish(track);
   } else {
-    try {
-      if (state.currentPub && typeof state.currentPub.setMuted === 'function') {
-        await state.currentPub.setMuted(!state.onAir);
-      }
-    } catch (e) {
-      log('setMuted error:', e?.message || e);
-    }
   }
 }
 
@@ -624,8 +615,12 @@ btnOnAir.onclick = async ()=> {
     }
     if (track) await publish(track);
   }
-  if (state.currentPub) { try { await state.currentPub.setMuted(!targetOnAir); } catch (e) { log('mute toggle error', e?.message||e); } }
   state.onAir = targetOnAir;
+  if (state.onAir) {
+    await state.currentPub.track.unmute();
+  } else {
+    await state.currentPub.track.mute();
+  }
   updateOnAirButton();
   refreshDjWave();
 };
