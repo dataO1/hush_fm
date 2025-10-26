@@ -334,35 +334,77 @@ async function connectRoom(url, token) {
 }
 
 function isAudioPublished() {
-  const room = state.lkRoom; if (!room) return false;
-  const pubs = [...room.localParticipant.tracks.values()];
+  const room = state.lkRoom;
+  if (!room || !room.localParticipant || !room.localParticipant.trackPublications) return false;
+  const pubs = [...room.localParticipant.trackPublications.values()];
   return pubs.some(p => (p.track && p.track.kind === 'audio') || p.kind === 'audio');
 }
 
 async function publish(track) {
-  const room = state.lkRoom; if (!room) return;
+  const room = state.lkRoom;
+  if (!room || !room.localParticipant) {
+    log('Room not ready for publishing');
+    return;
+  }
+
   // Single-output: unpublish prior audio without stopping
-  try { for (const p of [...room.localParticipant.tracks.values()]) { if (p.track?.kind === 'audio') await room.localParticipant.unpublishTrack(p.track, { stop:false }); } } catch {}
-  const pub = await room.localParticipant.publishTrack(track, { dtx:true, red:true, forceStereo:true });
-  state.localTrack = track;
-  state.currentPub = pub;
-  await pub.setMuted(!state.onAir);
-  refreshDjWave();
-  log('Published single audio (stereo); onAir=', state.onAir);
+  try {
+    if (room.localParticipant.trackPublications) {
+      for (const p of [...room.localParticipant.trackPublications.values()]) {
+        if (p.track?.kind === 'audio') {
+          await room.localParticipant.unpublishTrack(p.track, { stop: false });
+        }
+      }
+    }
+  } catch (e) {
+    log('Unpublish error (non-fatal):', e?.message || e);
+  }
+
+  try {
+    const pub = await room.localParticipant.publishTrack(track, { dtx: true, red: true, forceStereo: true });
+    state.localTrack = track;
+    state.currentPub = pub;
+
+    // setMuted may not be available immediately; check first
+    if (pub && typeof pub.setMuted === 'function') {
+      await pub.setMuted(!state.onAir);
+    } else {
+      log('Warning: setMuted not available on publication');
+    }
+
+    refreshDjWave();
+    log('Published single audio (stereo); onAir=', state.onAir);
+  } catch (e) {
+    log('Publish error:', e?.message || e);
+  }
 }
 
 async function ensurePublishedPresence() {
-  if (state.role !== 'dj' || !state.lkRoom) return;
+  if (state.role !== 'dj' || !state.lkRoom || !state.lkRoom.localParticipant) return;
+
   if (!isAudioPublished() || !state.currentPub) {
     let track = state.localTrack;
     if (!track) {
-      if (state.source === 'mic') track = await createMicTrack();
-      else if (state.source === 'external') track = await createExternalTrack(state.extDeviceId);
-      else if (state.source === 'file' && state.file) { ({ track } = await createFileTrack(state.file)); }
+      try {
+        if (state.source === 'mic') track = await createMicTrack();
+        else if (state.source === 'external') track = await createExternalTrack(state.extDeviceId);
+        else if (state.source === 'file' && state.file) {
+          ({ track } = await createFileTrack(state.file));
+        }
+      } catch (e) {
+        log('Track creation error:', e?.message || e);
+        return;
+      }
     }
     if (track) await publish(track);
   } else {
-    try { await state.currentPub.setMuted(!state.onAir); } catch {}
+    try {
+      if (state.currentPub && typeof state.currentPub.setMuted === 'function') {
+        await state.currentPub.setMuted(!state.onAir);
+      }
+    } catch (e) {
+      log('setMuted error:', e?.message || e);
+    }
   }
 }
 
