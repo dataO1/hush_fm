@@ -1,7 +1,6 @@
 # Port for HTTP/WebSocket signaling (default 7880)
 port: 7880
 
-
 # Path to keyfile for JWT authentication
 key_file: ./livekit.keys
 
@@ -9,13 +8,13 @@ key_file: ./livekit.keys
 rtc:
   # Single UDP port for media (RTP/RTCP)
   # udp_port: 7882
-  tcp_port: 0  # Disable TCP fallback (UDP-only)
+  # tcp_port: 0  # Disable TCP fallback (UDP-only)
   port_range_start: 7882
   port_range_end: 7882
   use_external_ip: false
-  node_ip: "127.0.0.1"  # Force IPv4 only
-  # Disable IPv6 at OS level:
-  # sudo sysctl -w net.ipv6.conf.all.disable_ipv6=1
-
-# Development mode settings
-# log_level: debug
+  node_ip: 127.0.0.1  # Force IPv4 only
+# Disable TURN (not needed for local network)
+turn:
+  enabled: false
+logging:
+  level: debug

@@ -1,5 +1,6 @@
 // LiveKit room connection and publishing
 import { state, log } from "./state.js";
+import { switchAudioSource } from "./audio.js"; // Add this import
 import {
   createMicTrack,
   createExternalTrack,
@@ -13,6 +14,16 @@ const LK = window.LivekitClient;
 
 export async function connectRoom(url, token) {
   const { Room, RoomEvent, setLogLevel, LogLevel } = LK;
+  // ✅ CRITICAL FIX: Disconnect existing room first
+  if (state.lkRoom && state.lkRoom.state !== "disconnected") {
+    log("⚠️ Disconnecting existing room before reconnecting");
+    try {
+      await state.lkRoom.disconnect();
+    } catch (e) {
+      log("Disconnect error (non-fatal):", e?.message || e);
+    }
+    state.lkRoom = null;
+  }
   setLogLevel(LogLevel.warn);
   const room = new Room({
     adaptiveStream: false,
@@ -42,11 +53,26 @@ export async function connectRoom(url, token) {
   room.on(RoomEvent.ParticipantConnected, async () => {
     await ensurePublishedPresence();
   });
-  room.on(RoomEvent.Disconnected, () => {
-    log("LiveKit disconnected");
+  room.on(RoomEvent.Disconnected, (reason) => {
+    log("LiveKit disconnected:", reason);
     stopStatsMonitor();
-  });
 
+    // ✅ Handle token expiration
+    if (reason === "TOKEN_EXPIRED") {
+      log("Token expired, fetching new token...");
+      setTimeout(async () => {
+        try {
+          const { url: newUrl, token: newToken } = await fetchLkToken(
+            state.role,
+            state.roomId,
+          );
+          await connectRoom(newUrl, newToken);
+        } catch (e) {
+          log("Token refresh failed:", e?.message || e);
+        }
+      }, 1000);
+    }
+  });
   room.on(RoomEvent.DataReceived, (payload, participant, kind) => {
     try {
       const msg = new TextDecoder().decode(payload);
@@ -143,6 +169,7 @@ export async function publish(track) {
 export async function ensurePublishedPresence() {
   if (state.role !== "dj" || !state.lkRoom || !state.lkRoom.localParticipant)
     return;
+
   if (!isAudioPublished() || !state.currentPub) {
     let track = state.localTrack;
     if (!track) {
@@ -158,7 +185,7 @@ export async function ensurePublishedPresence() {
         return;
       }
     }
-    if (track) await publish(track);
+    if (track) await switchAudioSource(track); // ← Changed from publish()
   } else {
     try {
       if (state.currentPub && state.currentPub.track) {
