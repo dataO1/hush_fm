@@ -4,7 +4,7 @@
   <meta charset="utf-8" />
   <title>Silent Disco — Rooms</title>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <!-- Load LiveKit client first -->
+  <!-- Load LiveKit Web SDK (place the bundle in /static). It exposes window.LivekitClient -->
   <script src="/static/livekit-client.min.js"></script>
   <style>
     :root {
@@ -18,14 +18,14 @@
       --radius: 14px;
     }
     * { box-sizing: border-box; }
-    html, body { margin:0; padding:0; background: radial-gradient(1200px 600px at 80% -10%, #181828, transparent), var(--bg); color: var(--text); font-family: Inter, ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, "Helvetica Neue", Arial, "Noto Sans", "Apple Color Emoji", "Segoe UI Emoji"; }
+    html, body { margin:0; padding:0; background: radial-gradient(1200px 600px at 80% -10%, #181828, transparent), var(--bg); color: var(--text); font-family: Inter, ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, "Helvetica Neue", Arial, "Noto Sans"; }
     .wrap { max-width: 1100px; margin: 0 auto; padding: 16px; }
     header { display:flex; justify-content: space-between; align-items:center; padding: 8px 0; }
     .brand { font-weight: 800; letter-spacing: .4px; }
     .pill { padding: 8px 14px; border-radius: 999px; border: 1px solid #2a2a39; background: #101018; color: var(--muted); font-size: 12px; }
     .grid { display:grid; gap: 16px; grid-template-columns: repeat(12, 1fr); }
     .card { background: linear-gradient(180deg, #12121b 0%, #0f0f16 100%); border: 1px solid #262636; border-radius: var(--radius); padding: 16px; }
-    .rooms { grid-column: 1 / -1; display:grid; gap: 12px; }
+    .rooms { display:grid; gap: 12px; }
     .room-item { display:flex; justify-content: space-between; align-items:center; padding: 12px; border-radius: 12px; background: #141421; border: 1px solid #232334; }
     .room-meta { display:flex; gap: 12px; align-items:center; }
     .badge { font-size: 12px; padding: 6px 10px; border-radius: 999px; background: #1a1a28; color: var(--muted); border: 1px solid #26263a; }
@@ -37,7 +37,6 @@
     .row { display:flex; gap: 10px; flex-wrap: wrap; }
     .hidden { display:none !important; }
     .accent { color: var(--accent2); }
-    /* Mobile-first adjustments */
     @media (max-width: 720px) {
       .grid { grid-template-columns: repeat(6, 1fr); }
       .room-item { flex-direction: column; align-items: flex-start; gap: 8px; }
@@ -49,13 +48,14 @@
     .file { border: 1px dashed #2b2b3d; padding: 12px; border-radius: 12px; background: #101018; color: var(--muted); }
     /* Waveform */
     #wave { width: 100%; height: 80px; background: #0f0f18; border-radius: 10px; border: 1px solid #232334; }
+    #offline { color: var(--muted); font-size: 13px; margin-top: 6px; }
   </style>
 </head>
 <body>
   <div class="wrap">
     <header>
       <div class="brand">Silent <span class="accent">Disco</span></div>
-      <div class="pill">Ultra‑low latency Opus • SFU</div>
+      <div class="pill">Opus • SFU • Low latency</div>
     </header>
 
     <!-- Landing -->
@@ -67,7 +67,7 @@
             <div class="section-title">No codes — just tap and play</div>
           </div>
           <div class="row">
-            <button id="btnIdentify" class="btn secondary">Identify</button>
+            <!-- Identify removed; we auto-identify -->
             <button id="btnCreate" class="btn">Create room (DJ)</button>
           </div>
         </div>
@@ -94,7 +94,7 @@
         </div>
         <div id="fileBox" class="file hidden">
           <input id="fileInput" type="file" accept="audio/*" />
-          <div class="section-title">Choose a local audio file; it stays on your device and is streamed live to listeners</div>
+          <div class="section-title">Choose a local audio file; it stays on your device and streams live</div>
         </div>
         <div class="row">
           <button id="btnPublish" class="btn">Publish</button>
@@ -109,6 +109,7 @@
       <div class="card" style="grid-column: 1 / -1;">
         <div class="title" id="lsTitle">Listening</div>
         <div class="section-title">Room <span id="lsRoomId"></span> • DJ <span id="lsDj"></span> • Listeners <span id="lsCount"></span></div>
+        <div id="offline" class="hidden">DJ offline, waiting for stream…</div>
       </div>
       <div class="card" style="grid-column: 1 / -1;">
         <canvas id="wave" height="80"></canvas>
@@ -127,33 +128,51 @@
 
 <script>
 const t0 = performance.now();
-const ts = ()=>(performance.now()-t0).toFixed(1);
+const ts = () => (performance.now()-t0).toFixed(1);
 const logEl = document.getElementById('log');
 const log = (...a)=>{ console.log(...a); logEl.textContent += `[${ts()}ms] `+a.map(x=> typeof x==='string'?x:JSON.stringify(x)).join(' ') + '\n'; };
 
-if (!LivekitClient) { console.error('LiveKit SDK not loaded. Ensure /static/livekit-client.min.js exists.'); }
+// Use LivekitClient global (not window.livekit)
+const LK = window.LivekitClient;
+if (!LK) console.error('LiveKit SDK not loaded. Ensure /static/livekit-client.min.js provides window.LivekitClient.');
 
-let ICE_CONFIG = { iceServers: [] }; // kept for compat
+let ICE_CONFIG = { iceServers: [] }; // compat
 const state = {
   clientId: null, name: null, role: null, roomId: null,
   lkRoom: null,
-  localTrack: null,  // LiveKit LocalAudioTrack or MediaStreamTrack
-  source: 'mic',     // 'mic' | 'file'
+  localTrack: null,
+  source: 'mic',   // 'mic' | 'file'
   file: null,
   analyser: null, raf: 0, audioCtx: null, waveSrc: null
 };
 
-// UI elements
+// Sections
 const landing = document.getElementById('landing');
 const djView = document.getElementById('djView');
 const listenerView = document.getElementById('listenerView');
 const roomsList = document.getElementById('roomsList');
+const offline = document.getElementById('offline');
 
 function show(section) {
   landing.classList.add('hidden');
   djView.classList.add('hidden');
   listenerView.classList.add('hidden');
   section.classList.remove('hidden');
+}
+
+function parseRoute() {
+  const path = location.pathname.replace(/\/+$/, '');
+  const m = path.match(/^\/r\/([a-f0-9]{8})$/i);
+  const params = new URLSearchParams(location.search);
+  return {
+    roomId: m ? m[1] : null,
+    asDj: params.get('dj') === '1'
+  };
+}
+
+function navigateToRoom(roomId, asDj=false) {
+  const url = `/r/${roomId}${asDj ? '?dj=1' : ''}`;
+  history.pushState({}, '', url);
 }
 
 async function loadIceConfig() {
@@ -163,9 +182,12 @@ async function loadIceConfig() {
 }
 
 async function identify() {
-  const res = await fetch('/user/identify',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({})});
+  const reuse = localStorage.getItem('sd_client_id');
+  const payload = reuse ? { client_id: reuse } : {};
+  const res = await fetch('/user/identify',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
   const data = await res.json();
   state.clientId = data.client_id; state.name = data.name;
+  localStorage.setItem('sd_client_id', state.clientId);
   log('Identified', state.name, state.clientId);
 }
 
@@ -176,12 +198,13 @@ async function listRooms() {
   for (const r of data.rooms) {
     const div = document.createElement('div');
     div.className = 'room-item';
+    const status = r.dj_online ? 'online' : 'offline';
     div.innerHTML = `
       <div class="room-meta">
         <span class="badge">#${r.id}</span>
         <div>
           <div><strong>${r.name || 'Room'}</strong></div>
-          <div class="section-title">DJ ${r.dj_name || '—'} • ${r.listener_count} listening</div>
+          <div class="section-title">DJ ${r.dj_name || '—'} • ${r.listener_count} listening • ${status}</div>
         </div>
       </div>
       <div class="row">
@@ -193,6 +216,7 @@ async function listRooms() {
   roomsList.querySelectorAll('.join').forEach(btn=>{
     btn.onclick = async () => {
       const rid = btn.getAttribute('data-id'); const role = btn.getAttribute('data-role');
+      navigateToRoom(rid, role === 'dj');
       await enterRoom(rid, role);
     };
   });
@@ -204,81 +228,124 @@ async function fetchLkToken(role, roomId) {
 }
 
 async function connectRoom(url, token) {
-  const { Room, RoomEvent, setLogLevel, LogLevel } = LivekitClient;
+  const { Room, RoomEvent, setLogLevel, LogLevel } = LK;
+  setLogLevel(LogLevel.warn);
   const room = new Room({ adaptiveStream:false, dynacast:false });
-  room.on(RoomEvent.Connected, ()=> log('LiveKit connected'));
+
+  room.on(RoomEvent.Connected, ()=> {
+    log('LiveKit connected');
+    // Ensure DJ stream is published upon (re)connect
+    ensurePublishedIfDj();
+  });
+  room.on(RoomEvent.Reconnected, ()=> {
+    log('LiveKit reconnected');
+    ensurePublishedIfDj();
+  });
+  room.on(RoomEvent.ParticipantConnected, (p)=> {
+    log('participant joined', p.identity);
+    // When a new listener joins, make sure DJ stream is still published
+    ensurePublishedIfDj();
+  });
   room.on(RoomEvent.Disconnected, ()=> log('LiveKit disconnected'));
+
   room.on(RoomEvent.TrackSubscribed, (track, pub, participant) => {
     if (track.kind === 'audio') {
       const el = document.getElementById('listenerAudio');
       track.attach(el);
       el.play().catch(()=>{});
+      offline.classList.add('hidden');
       startWaveform(el);
       log('Subscribed audio from', participant.identity);
     }
   });
+  room.on(RoomEvent.TrackUnsubscribed, (track) => {
+    if (track.kind === 'audio') {
+      offline.classList.remove('hidden');
+      stopWaveform();
+      log('Audio unsubscribed');
+    }
+  });
+
   await room.connect(url, token);
   state.lkRoom = room;
   return room;
 }
 
-// DJ: capture mic
+// DJ sources
 async function createMicTrack() {
-  const { createLocalAudioTrack } = LivekitClient;
   const stream = await navigator.mediaDevices.getUserMedia({
     audio: { channelCount: 2, sampleRate: 48000, echoCancellation:false, noiseSuppression:false, autoGainControl:false }, video:false
   });
-  // Let SDK create a local track via deviceId, but we can also pass MediaStreamTrack directly when publishing
-  const track = stream.getAudioTracks()[0];
-  return track;
+  return stream.getAudioTracks()[0];
 }
 
-// DJ: file to track via WebAudio
 async function createFileTrack(file) {
   const url = URL.createObjectURL(file);
   const audioEl = new Audio();
   audioEl.src = url; audioEl.crossOrigin = 'anonymous';
-  await audioEl.play().catch(()=>{}); // start buffering
+  await audioEl.play().catch(()=>{}); // buffer prime
   const ctx = new (window.AudioContext||window.webkitAudioContext)();
   const src = ctx.createMediaElementSource(audioEl);
   const dst = ctx.createMediaStreamDestination();
   src.connect(dst);
-  src.connect(ctx.destination); // local monitor path (will be controlled by "Monitor" button)
+  src.connect(ctx.destination); // local monitor
   const track = dst.stream.getAudioTracks()[0];
-  // Save references for monitor control
   state.audioCtx = ctx; state.waveSrc = src;
   return { track, audioEl };
 }
 
 async function publish(track) {
-  const room = state.lkRoom;
-  if (!room) return;
+  const room = state.lkRoom; if (!room) return;
   // Unpublish previous
   try {
     const pubs = [...room.localParticipant.tracks.values()];
-    for (const p of pubs) { if (p.track?.kind === 'audio') await room.localParticipant.unpublishTrack(p.track, { stop:true }); }
+    for (const p of pubs) { if (p.track?.kind === 'audio') await room.localParticipant.unpublishTrack(p.track, { stop:false }); }
   } catch {}
-  // Publish new
   await room.localParticipant.publishTrack(track, { dtx:false, red:true });
   state.localTrack = track;
   log('Published audio source');
 }
 
+function isAudioPublished() {
+  const room = state.lkRoom; if (!room) return false;
+  const pubs = [...room.localParticipant.tracks.values()];
+  return pubs.some(p => (p.track && p.track.kind === 'audio') || p.kind === 'audio');
+}
+
+async function ensurePublishedIfDj() {
+  if (state.role !== 'dj' || !state.lkRoom) return;
+  if (isAudioPublished()) return;
+  try {
+    if (state.localTrack) {
+      await publish(state.localTrack);
+      return;
+    }
+    if (state.source === 'mic') {
+      const track = await createMicTrack();
+      await publish(track);
+    } else {
+      // File sources can't be auto-resumed after a reload; keep UI state and wait for user to pick a file again
+      log('Waiting for file selection to republish');
+    }
+  } catch (e) {
+    log('ensurePublished error', e?.message || e);
+  }
+}
+
 function stopPublishing() {
-  const room = state.lkRoom;
-  if (!room) return;
+  const room = state.lkRoom; if (!room) return;
   try {
     const pubs = [...room.localParticipant.tracks.values()];
-    for (const p of pubs) { if (p.track?.kind === 'audio') room.localParticipant.unpublishTrack(p.track, { stop:true }); }
+    for (const p of pubs) { if (p.track?.kind === 'audio') room.localParticipant.unpublishTrack(p.track, { stop:false }); }
   } catch {}
   state.localTrack = null;
   log('Stopped publishing');
 }
 
-// Waveform for listener
+// Waveform
 function startWaveform(audioEl) {
   try {
-    if (state.raf) cancelAnimationFrame(state.raf);
+    stopWaveform();
     const ctx = new (window.AudioContext||window.webkitAudioContext)();
     const src = ctx.createMediaStreamSource(audioEl.srcObject);
     const analyser = ctx.createAnalyser(); analyser.fftSize = 2048;
@@ -302,8 +369,19 @@ function startWaveform(audioEl) {
     draw();
   } catch (e) { log('waveform error', e?.message||e); }
 }
+function stopWaveform() {
+  if (state.raf) cancelAnimationFrame(state.raf);
+  state.raf = 0; state.analyser = null;
+}
 
-// Views
+// Heartbeat
+setInterval(()=> {
+  if (!state.clientId || !state.roomId) return;
+  fetch('/presence/beat', { method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({ client_id: state.clientId, room_id: state.roomId, role: state.role }) });
+}, 15000);
+
+// Enter room flow
 async function enterRoom(roomId, role) {
   state.roomId = roomId; state.role = role;
   const joinRes = await fetch(`/room/${roomId}/join`, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ client_id: state.clientId, role }) });
@@ -314,19 +392,20 @@ async function enterRoom(roomId, role) {
     document.getElementById('djRoomId').textContent = roomId;
     document.getElementById('djName').textContent = state.name;
     show(djView);
+    // Try to auto-publish mic on first entry if source=mic
+    ensurePublishedIfDj();
   } else {
-    // Fill metadata
     const rooms = await (await fetch('/rooms')).json();
     const r = rooms.rooms.find(x=>x.id===roomId) || {};
     document.getElementById('lsRoomId').textContent = roomId;
     document.getElementById('lsDj').textContent = r.dj_name || '—';
     document.getElementById('lsCount').textContent = r.listener_count ?? '—';
+    if (!r.dj_online) offline.classList.remove('hidden');
     show(listenerView);
   }
 }
 
 // UI wiring
-document.getElementById('btnIdentify').onclick = async ()=>{ await identify(); await loadIceConfig(); await listRooms(); };
 document.getElementById('btnCreate').onclick = async ()=> {
   if (!state.clientId) { await identify(); }
   const name = `Room ${state.name}`;
@@ -334,16 +413,19 @@ document.getElementById('btnCreate').onclick = async ()=> {
   const data = await res.json();
   if (!data.ok) { log('create failed', data.error||''); return; }
   const rid = data.room_id;
+  navigateToRoom(rid, true);
   await enterRoom(rid, 'dj');
 };
 
 document.getElementById('srcMic').onclick = ()=> {
   state.source = 'mic';
   document.getElementById('fileBox').classList.add('hidden');
+  localStorage.setItem('sd_last_source', 'mic');
 };
 document.getElementById('srcTrack').onclick = ()=> {
   state.source = 'file';
   document.getElementById('fileBox').classList.remove('hidden');
+  localStorage.setItem('sd_last_source', 'file');
 };
 document.getElementById('fileInput').onchange = (e)=> { state.file = e.target.files?.[0] || null; };
 
@@ -362,10 +444,8 @@ document.getElementById('btnPublish').onclick = async ()=> {
 document.getElementById('btnStop').onclick = ()=> stopPublishing();
 
 document.getElementById('btnPlayLocal').onclick = async ()=> {
-  // Local monitor: if file source was used, resume element; for mic, quickly attach to a temp audio
   try {
     if (state.source === 'file' && state.audioCtx) {
-      // Nothing extra: file element is already connected to speakers
       log('Monitoring file locally');
     } else if (state.localTrack) {
       const el = new Audio(); el.srcObject = new MediaStream([state.localTrack]);
@@ -376,12 +456,39 @@ document.getElementById('btnPlayLocal').onclick = async ()=> {
   } catch (e) { log('monitor error', e?.message||e); }
 };
 
-// Auto boot: identify & list rooms
+// Router
+window.addEventListener('popstate', async ()=> {
+  const route = parseRoute();
+  if (route.roomId) {
+    await ensureIdentityReady();
+    await enterRoom(route.roomId, route.asDj ? 'dj' : 'listener');
+  } else {
+    show(landing);
+  }
+});
+
+async function ensureIdentityReady() {
+  if (!state.clientId) {
+    await identify();
+    await loadIceConfig();
+  }
+}
+
+// Auto boot: identity + route
 window.addEventListener('load', async ()=>{
-  try { await identify(); } catch {}
-  await loadIceConfig();
+  await ensureIdentityReady();
   await listRooms();
   setInterval(listRooms, 4000);
+
+  const lastSource = localStorage.getItem('sd_last_source') || 'mic';
+  state.source = lastSource;
+
+  const route = parseRoute();
+  if (route.roomId) {
+    await enterRoom(route.roomId, route.asDj ? 'dj' : 'listener');
+  } else {
+    show(landing);
+  }
 });
 </script>
 </body>
