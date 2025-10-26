@@ -2,10 +2,10 @@
 <html lang="en">
 <head>
   <meta charset="utf-8" />
-  <title>Silent Disco (P2P via Simple-Peer)</title>
+  <title>Silent Disco (SFU)</title>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <!-- Place simplepeer.min.js into ./static/simplepeer.min.js -->
-  <script src="/static/simplepeer.min.js"></script>
+  <!-- Place livekit-client.min.js into ./static/ (no external URLs) -->
+  <script src="/static/livekit-client.min.js"></script>
   <style>
     body { font-family: system-ui, sans-serif; margin: 16px; }
     .row { display:flex; gap:16px; flex-wrap:wrap; }
@@ -15,7 +15,7 @@
   </style>
 </head>
 <body>
-  <h2>Silent Disco (Simple-Peer)</h2>
+  <h2>Silent Disco (SFU)</h2>
 
   <div class="row">
     <div class="card">
@@ -52,16 +52,16 @@ const ts = () => (performance.now() - t0).toFixed(1);
 const logEl = document.getElementById('log');
 const log = (...a) => { console.log(...a); logEl.textContent += `[${ts()}ms] ` + a.map(x => typeof x === 'string' ? x : JSON.stringify(x)).join(' ') + '\n'; };
 
-let ICE_CONFIG = { iceServers: [] };
-let ws = null;
+let ws = null; // retained for UX parity; LiveKit handles signaling internally
+let ICE_CONFIG = { iceServers: [] }; // unused in SFU path; kept for compatibility
 
 const state = {
   clientId: null,
   name: null,
-  role: null,          // 'dj' or 'listener'
+  role: null,      // 'dj' or 'listener'
   roomId: null,
-  audioStream: null,   // DJ local stream (real or dummy)
-  peers: new Map(),    // peerId -> SimplePeer instance
+  lkRoom: null,    // LiveKit Room
+  localTrack: null // DJ local audio track
 };
 
 async function loadIceConfig() {
@@ -72,7 +72,7 @@ async function loadIceConfig() {
 }
 
 async function identify() {
-  const res = await fetch('/user/identify', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({}) });
+  const res = await fetch('/user/identify', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({}) });
   const data = await res.json();
   state.clientId = data.client_id;
   state.name = data.name;
@@ -82,132 +82,88 @@ async function identify() {
 }
 
 async function connectWS() {
-  if (!state.clientId) return;
-  ws = new WebSocket(`ws://${location.host}/ws?client_id=${state.clientId}`);
-  ws.onopen = () => log('WebSocket connected');
-  ws.onclose = () => log('WebSocket disconnected');
-  ws.onerror = (e) => log('WebSocket error', e);
-  ws.onmessage = (ev) => {
-    let msg = {};
-    try { msg = JSON.parse(ev.data); } catch { return; }
-    if (msg.type === 'new_listener') {
-      // Only DJ receives this
-      const listenerId = msg.listener_id;
-      log('new_listener', listenerId);
-      if (state.role === 'dj') {
-        createPeerForListener(listenerId);
-      }
-      return;
+  // Optional: if you still want presence/events; not required for LiveKit media
+  ws = { readyState: 1, send: () => {} };
+  log('WebSocket placeholder ready');
+}
+
+// LiveKit helpers
+async function fetchLkToken(role, roomId) {
+  const res = await fetch('/lk/token', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ client_id: state.clientId, role, room_id: roomId }) });
+  const data = await res.json();
+  if (!data.ok) throw new Error(data.error || 'lk token failed');
+  return data;
+}
+
+async function createLkRoomAndConnect(url, token) {
+  const { Room, RoomEvent, setLogLevel, LogLevel, AudioPresets } = window.livekit;
+  setLogLevel(LogLevel.warn);
+  const room = new Room({
+    // Keep latency low; SFU will forward without mixing/transcoding
+    adaptiveStream: false,
+    dynacast: false
+  });
+  room.on(RoomEvent.Connected, () => log('LiveKit connected'));
+  room.on(RoomEvent.Disconnected, () => log('LiveKit disconnected'));
+  room.on(RoomEvent.ConnectionQualityChanged, (_, q) => log('conn quality', q));
+  room.on(RoomEvent.ParticipantConnected, (p) => log('participant joined', p.identity));
+  room.on(RoomEvent.ParticipantDisconnected, (p) => log('participant left', p.identity));
+
+  // Subscribe to audio
+  room.on(RoomEvent.TrackSubscribed, (track, pub, participant) => {
+    if (track.kind === 'audio') {
+      const el = document.getElementById('listenerAudio');
+      track.attach(el);
+      el.setAttribute('preload', 'auto');
+      el.play().then(() => log('listener audio playing')).catch(e => log('play error', e?.message || e));
+      log('subscribed audio from', participant.identity);
     }
-    if (msg.type === 'listener_left') {
-      const lid = msg.listener_id;
-      const p = state.peers.get(lid);
-      if (p) { try { p.destroy(); } catch {} state.peers.delete(lid); }
-      log('listener_left', lid);
-      return;
-    }
-    if (msg.type === 'room_closed') {
-      log('Room closed');
-      return;
-    }
-    if (msg.type === 'sp-signal') {
-      const from = msg.from;
-      const payload = msg.payload;
-      onSimplePeerSignal(from, payload);
-      return;
+  });
+  room.on(RoomEvent.TrackUnsubscribed, (track) => { try { track.detach(); } catch {} });
+
+  await room.connect(url, token);
+  state.lkRoom = room;
+  return room;
+}
+
+async function ensureDjAudioTrack() {
+  if (state.localTrack) return state.localTrack;
+  const { LocalAudioTrack, createLocalAudioTrack, TrackPublishOptions, AudioCaptureOptions } = window.livekit;
+  // Music-friendly capture: stereo, 48k, disable AGC/NS/EC to avoid coloration
+  const constraints = {
+    audio: {
+      channelCount: 2,
+      sampleRate: 48000,
+      echoCancellation: false,
+      noiseSuppression: false,
+      autoGainControl: false
     }
   };
+  const stream = await navigator.mediaDevices.getUserMedia(constraints);
+  const track = await createLocalAudioTrack({
+    deviceId: stream.getAudioTracks()[0].getSettings().deviceId,
+    // LiveKit will pick Opus; keep it low-latency
+  });
+  // Replace the underlying MediaStreamTrack with our captured one
+  await track.restart({ noiseSuppression: false, echoCancellation: false, autoGainControl: false, channelCount: 2, sampleRate: 48000 });
+  state.localTrack = track;
+  log('DJ audio track ready (stereo 48k)');
+  return track;
 }
 
-function send(msg) {
-  if (!ws || ws.readyState !== WebSocket.OPEN) return;
-  ws.send(JSON.stringify(msg));
+async function publishDjAudio(room) {
+  // Publish with options tuned for music: disable DTX, enable RED if supported
+  const opts = {
+    dtx: false,   // keep continuous frames for music
+    red: true,    // redundancy improves loss resilience if supported
+    // bitrate left to auto; SFU + Opus will negotiate
+  };
+  const track = await ensureDjAudioTrack();
+  await room.localParticipant.publishTrack(track, opts);
+  log('Published DJ audio');
 }
 
-// Ensure we have an audio track before offering (dummy if needed)
-async function ensureAudioTrack() {
-  if (state.audioStream && state.audioStream.getAudioTracks()[0]) return;
-  try {
-    // Try getting a real mic track (or your DJ audio source)
-    const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
-    state.audioStream = stream;
-    log('Attached real audio track for DJ');
-  } catch {
-    // Fallback: silent oscillator to stabilize negotiation
-    const ctx = new (window.AudioContext || window.webkitAudioContext)();
-    const dst = ctx.createMediaStreamDestination();
-    const osc = ctx.createOscillator(); osc.frequency.value = 0; osc.connect(dst); osc.start();
-    state.audioStream = dst.stream;
-    log('Attached dummy silent track for initial offer');
-  }
-}
-
-function createPeerForListener(listenerId) {
-  // DJ -> create initiator peer
-  const p = new SimplePeer({
-    initiator: true,
-    trickle: true,
-    stream: state.audioStream || undefined,
-    config: ICE_CONFIG
-  });
-
-  wirePeerEvents(p, listenerId, 'dj');
-  state.peers.set(listenerId, p);
-}
-
-function ensurePeerForDj(djId) {
-  // Listener -> ensure responder peer
-  if (state.peers.has(djId)) return state.peers.get(djId);
-  const p = new SimplePeer({
-    initiator: false,
-    trickle: true,
-    config: ICE_CONFIG
-  });
-  wirePeerEvents(p, djId, 'listener');
-  state.peers.set(djId, p);
-  return p;
-}
-
-function wirePeerEvents(p, peerId, role) {
-  p.on('signal', (payload) => {
-    // Send any SDP/ICE from Simple-Peer
-    send({ type: 'sp-signal', target: peerId, from: state.clientId, payload });
-    log(role === 'dj' ? 'DJ sp-signal →' : 'Listener sp-signal →', peerId, typeof payload === 'string' ? payload.slice(0, 40) + '...' : Object.keys(payload));
-  });
-  p.on('connect', () => {
-    log('peer connected', peerId);
-  });
-  p.on('stream', (remoteStream) => {
-    if (role === 'listener') {
-      const el = document.getElementById('listenerAudio');
-      el.srcObject = remoteStream;
-      el.play().then(() => log('listener audio playing')).catch(e => log('listener play error', e));
-    }
-  });
-  p.on('error', (err) => {
-    log('peer error', peerId, err?.message || err);
-  });
-  p.on('close', () => {
-    log('peer closed', peerId);
-  });
-}
-
-function onSimplePeerSignal(fromPeerId, payload) {
-  // If listener, fromPeerId is the DJ; if DJ, fromPeerId is a listener
-  const p = state.peers.get(fromPeerId) || (state.role === 'listener' ? ensurePeerForDj(fromPeerId) : null);
-  if (!p) {
-    log('signal for missing peer', fromPeerId);
-    return;
-  }
-  try {
-    p.signal(payload);
-    log('sp-signal applied from', fromPeerId, typeof payload === 'string' ? payload.slice(0, 40) + '...' : Object.keys(payload));
-  } catch (e) {
-    log('signal apply error', fromPeerId, e?.message || e);
-  }
-}
-
-// UI actions
+// UI handlers
 document.getElementById('btnIdentify').onclick = async () => { await identify(); await loadIceConfig(); await connectWS(); };
 
 document.getElementById('btnCreate').onclick = async () => {
@@ -220,23 +176,23 @@ document.getElementById('btnCreate').onclick = async () => {
   state.role = 'dj';
   document.getElementById('roomId').textContent = state.roomId;
   document.getElementById('role').textContent = 'dj';
+
+  const { url, token } = await fetchLkToken('dj', state.roomId);
+  const room = await createLkRoomAndConnect(url, token);
+  await publishDjAudio(room);
   document.getElementById('btnPlayLocal').disabled = false;
-  // Join as DJ
-  await fetch(`/room/${state.roomId}/join`, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ client_id: state.clientId, role: 'dj' }) });
-  // Ensure audio ready for first initiations
-  await ensureAudioTrack();
-  log('DJ ready; will create peers on new_listener');
+  log('DJ ready; published to SFU');
 };
 
 document.getElementById('btnPlayLocal').onclick = async () => {
-  // Local monitoring for DJ
-  if (!state.audioStream) { await ensureAudioTrack(); }
-  const localAudio = new Audio();
-  localAudio.srcObject = state.audioStream;
-  localAudio.muted = false;
-  localAudio.autoplay = true;
-  localAudio.playsInline = true;
-  localAudio.play().then(() => log('Playing (local)')).catch(e => log('Local play error', e));
+  // Local monitor for DJ
+  await ensureDjAudioTrack();
+  const el = new Audio();
+  el.srcObject = new MediaStream([state.localTrack.mediaStreamTrack]);
+  el.autoplay = true;
+  el.playsInline = true;
+  el.muted = false;
+  el.play().then(() => log('Playing (local)')).catch(e => log('Local play error', e?.message || e));
 };
 
 document.getElementById('btnJoin').onclick = async () => {
@@ -246,13 +202,13 @@ document.getElementById('btnJoin').onclick = async () => {
   state.roomId = rid;
   state.role = 'listener';
   document.getElementById('role2').textContent = 'listener';
-  const res = await fetch(`/room/${state.roomId}/join`, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ client_id: state.clientId, role: 'listener' }) });
-  const data = await res.json();
-  if (!data.ok) { log('join failed', data.error || ''); return; }
-  log('Joined room as listener; wait for DJ signaling');
+
+  const { url, token } = await fetchLkToken('listener', state.roomId);
+  await createLkRoomAndConnect(url, token);
+  log('Listener ready; waiting for DJ track');
 };
 
-// Auto-identify on load for convenience
+// Auto-identify on load
 window.addEventListener('load', async () => {
   await identify();
   await loadIceConfig();

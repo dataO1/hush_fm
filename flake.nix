@@ -41,6 +41,7 @@
           pkgs.openssl
           pkgs.zlib
           pkgs.coturn
+          pkgs.livekit
         ];
 
       in
@@ -94,6 +95,11 @@
             export PKG_CONFIG_PATH="${pkgs.ffmpeg}/lib/pkgconfig:$PKG_CONFIG_PATH"
             export CFLAGS="-I${pkgs.ffmpeg}/include -I${pkgs.libffi}/include"
             export LDFLAGS="-L${pkgs.ffmpeg}/lib -L${pkgs.lib.makeLibraryPath cppLibs}"
+
+            # Livekit
+            export LIVEKIT_WS_URL=ws://127.0.0.1:7880
+            export LIVEKIT_API_KEY=devkey
+            export LIVEKIT_API_SECRET=secret
 
             # Install/upgrade pip
             echo "📥 Upgrading pip..."
