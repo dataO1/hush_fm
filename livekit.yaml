@@ -3,7 +3,7 @@ port: 7880
 
 
 # Path to keyfile for JWT authentication
-keys_file: ./livekit.keys
+key_file: ./livekit.keys
 
 # RTC (media transport) configuration
 rtc:
