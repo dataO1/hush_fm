@@ -49,7 +49,6 @@
     <div id="listenerCard" class="card" style="display:none;">
       <h3>Listener <span id="liRoom" class="muted"></span></h3>
       <audio id="listenerAudio" autoplay controls></audio>
-      <div class="muted" style="margin-top:6px;">Live WebRTC stream plays continuously; no buffering or remote pause.</div>
     </div>
 
     <div class="card">
@@ -72,13 +71,38 @@
       listeners: new Set(), audioStream: null, senders: new Map()
     };
 
-    function log(msg) {
-      console.log(msg);
+    state.pending ??= new Map();
+
+    // Add near top of index.html
+    const t0 = performance.now();
+    const ts = () => (performance.now() - t0).toFixed(1);
+    const log = (...a) => {
+      console.log(`[${ts()}ms]`, ...a)
+
       const el = document.getElementById('log');
       if (el) {
-        el.insertAdjacentHTML('beforeend', `<div>[${new Date().toLocaleTimeString()}] ${msg}</div>`);
+        el.insertAdjacentHTML('beforeend', `<div>[${new Date().toLocaleTimeString()}] ${a}</div>`);
         el.scrollTop = el.scrollHeight;
       }
+
+    };
+
+    // Wrap your signaling send()
+    function send(msg) {
+      const json = JSON.stringify(msg);
+      log('WS →', msg.type, 'bytes=', json.length, 'target=', msg.target, 'from=', msg.from);
+      ws.send(json);
+    }
+
+    // Parse ICE for logging
+    function describeCandidate(c) {
+      const s = (c.candidate || '').trim();
+      const type = (s.match(/ typ ([a-z]+)/) || [])[1] || 'unknown';
+      const proto = (s.match(/ udp| tcp/) || [])[0]?.trim() || 'unknown';
+      const addr = (s.match(/candidate:.* ([0-9a-zA-Z\.\-:]+) \d+ typ/) || [])[1] || 'addr?';
+      const isMdns = /\.local(?:domain)?$/.test(addr);
+      const isLoop = addr === '127.0.0.1' || addr === '::1';
+      return { type, proto, addr, isMdns, isLoop };
     }
 
     function cid() { return 'client_' + Math.random().toString(36).slice(2, 11); }
@@ -244,116 +268,186 @@
       }
     }
 
+    async function ensureAudioBeforeOffer(pc) {
+      const ctx = new (window.AudioContext || window.webkitAudioContext)();
+      const dst = ctx.createMediaStreamDestination();
+      const osc = ctx.createOscillator(); osc.frequency.value = 0; osc.connect(dst); osc.start();
+      const track = dst.stream.getAudioTracks()[0];
+      pc.addTransceiver('audio', { direction: 'sendonly' }).sender.replaceTrack(track);
+      log('attached dummy silent track before offer');
+    }
+
+
+    function attachRecovery(pc, peerId, recreateFn) {
+      let recovering = false;
+      pc.onconnectionstatechange = async () => {
+        log('conn=', pc.connectionState, 'peer=', peerId);
+        if (pc.connectionState === 'failed' && !recovering) {
+          recovering = true;
+          try {
+            const off = await pc.createOffer({ iceRestart: true });
+            await pc.setLocalDescription(off);
+            send({ type:'offer', sdp:off.sdp, sdpType:off.type, target:peerId, from:state.clientId });
+            log('ICE restart sent', peerId);
+          } catch (e) { log('restart error', e); }
+          setTimeout(async () => {
+            if (pc.connectionState !== 'connected') {
+              try { pc.close(); } catch {}
+              state.pcs.delete(peerId);
+              log('recreate PC', peerId);
+              await recreateFn(peerId);
+            }
+            recovering = false;
+          }, 3000);
+        }
+      };
+    }
+
     // DJ: create PC for listener; use transceiver-first approach and later replaceTrack
+    // DJ: create a PC for a specific listener and send ICE to that listenerId
     async function createPCForListener(listenerId) {
-      log(`Creating PC to ${listenerId}`);
       const pc = new RTCPeerConnection(ICE_CONFIG);
+      await ensureAudioBeforeOffer(pc);
+      const tx = pc.addTransceiver('audio', { direction:'sendonly' });
+      const track = state.audioStream.getAudioTracks()[0];
+      await tx.sender.replaceTrack(track);
       state.pcs.set(listenerId, pc);
 
-      const transceiver = pc.addTransceiver('audio', { direction: 'sendonly' });
-      const sender = transceiver.sender;
-      state.senders.set?.(listenerId, sender);
+      log('PC[dj]', listenerId, 'created, cfg iceServers=', ICE_CONFIG.iceServers?.length);
 
-      if (state.audioStream) {
-        const track = state.audioStream.getAudioTracks()[0];
-        if (track) {
-          await sender.replaceTrack(track);
-          log(`Attached real track to ${listenerId}`);
-        }
-      }
+      pc.onicegatheringstatechange = () => log('gathering=', pc.iceGatheringState);
+      pc.oniceconnectionstatechange = () => log('ice=', pc.iceConnectionState);
+      pc.onconnectionstatechange = () => log('conn=', pc.connectionState);
+      pc.onsignalingstatechange = () => log('signal=', pc.signalingState);
 
       pc.onicecandidate = (e) => {
-        if (e.candidate) send({ type: 'ice-candidate', candidate: e.candidate, target: listenerId, from: state.clientId });
+        if (!e.candidate) { log('ICE gather complete'); return; }
+        const s = e.candidate.candidate || '';
+        const type = (s.match(/ typ ([a-z]+)/)||[])[1] || 'unknown';
+        const proto = (s.match(/ udp| tcp/)||[])[0]?.trim() || 'unknown';
+        const addr = (s.match(/candidate:.* ([0-9a-zA-Z\.\-:]+) \d+ typ/)||[])[1] || 'addr?';
+        const isMdns = /\.local(?:domain)?$/.test(addr);
+        const isLoop = addr === '127.0.0.1' || addr === '::1';
+        log('send ICE', {type, proto, addr, isMdns, isLoop});
+        send({ type:'ice-candidate', candidate:e.candidate, target:listenerId, from:state.clientId });
       };
+      // Poll stats to confirm nomination
 
-      pc.onconnectionstatechange = async () => {
-        log(`PC(${listenerId}) ${pc.connectionState}`);
-        renderPeers();
-        if (pc.connectionState === 'failed') {
-          try {
-            pc.onicecandidate = null;
-            pc.onconnectionstatechange = null;
-            pc.close();
-            state.pcs.delete(listenerId);
-            state.senders.delete(listenerId);
-            log(`Rebuilding PC for ${listenerId} after failure...`);
-            await new Promise(r => setTimeout(r, 250));
-            await createPCForListener(listenerId);
-          } catch (err) {
-            log(`Retry failed for ${listenerId}: ${err.message}`);
-          }
-        }
-      };
-
+      const statsTimer = setInterval(async () => {
+        try {
+          if (['failed','closed'].includes(pc.connectionState)) { clearInterval(statsTimer); return; }
+          const stats = await pc.getStats();
+          // inspect candidate-pair for nomination
+          stats.forEach(r => {
+            if (r.type === 'candidate-pair' && r.nominated && r.state === 'succeeded') {
+              log('selected pair', {local:r.localCandidateId, remote:r.remoteCandidateId, proto:r.protocol});
+            }
+          });
+        } catch { clearInterval(statsTimer); }
+      }, 500);
+      attachRecovery(pc, listenerId, createPCForListener);
       const offer = await pc.createOffer();
       await pc.setLocalDescription(offer);
+      log('PC[dj]', listenerId, 'setLocalDescription offer len=', offer.sdp.length);
       send({ type: 'offer', sdp: offer.sdp, sdpType: offer.type, target: listenerId, from: state.clientId });
-      log(`Offer sent to ${listenerId}`);
     }
 
     // Listener: handle offer → answer
+    // Listener: capture djId from the offer and send ICE back to that djId
     async function onOffer({ from, sdp, sdpType }) {
-      log(`📥 Received offer from ${from}`);
-      const pc = new RTCPeerConnection(ICE_CONFIG);
-      state.pcs.set(from, pc);
+      const djId = from;
+      let pc = state.pcs.get(djId);
+      if (!pc) {
+        pc = new RTCPeerConnection(ICE_CONFIG);
+        state.pcs.set(djId, pc);
+        state.pending ??= new Map();
+        log('PC[listener]', djId, 'created');
 
-      pc.ontrack = (ev) => {
-        log('🎵 Received audio track from DJ');
-        const el = document.getElementById('listenerAudio');
-        el.srcObject = ev.streams[0];
-        el.play().then(() => log('✅ Audio playing')).catch(err => log(`Autoplay error: ${err.message}`));
-      };
+        pc.onicegatheringstatechange = () => log('gathering=', pc.iceGatheringState);
+        pc.oniceconnectionstatechange = () => log('ice=', pc.iceConnectionState);
+        pc.onconnectionstatechange = () => log('conn=', pc.connectionState);
+        pc.onsignalingstatechange = () => log('signal=', pc.signalingState);
 
-      pc.onicecandidate = (e) => {
-        if (e.candidate) send({ type: 'ice-candidate', candidate: e.candidate, target: from, from: state.clientId });
-      };
+        pc.onicecandidate = (e) => {
+          if (!e.candidate) { log('ICE gather complete'); return; }
+          const s = e.candidate.candidate || '';
+          const type = (s.match(/ typ ([a-z]+)/)||[])[1] || 'unknown';
+          const proto = (s.match(/ udp| tcp/)||[])[0]?.trim() || 'unknown';
+          const addr = (s.match(/candidate:.* ([0-9a-zA-Z\.\-:]+) \d+ typ/)||[])[1] || 'addr?';
+          const isMdns = /\.local(?:domain)?$/.test(addr);
+          const isLoop = addr === '127.0.0.1' || addr === '::1';
+          log('send ICE', {type, proto, addr, isMdns, isLoop});
+          send({ type:'ice-candidate', candidate:e.candidate, target:djId, from:state.clientId });
+        };
 
-      await pc.setRemoteDescription(new RTCSessionDescription({ type: sdpType, sdp }));
+        // Poll stats to confirm nomination
+        const statsTimer = setInterval(async () => {
+          try {
+            if (['failed','closed'].includes(pc.connectionState)) { clearInterval(statsTimer); return; }
+            const stats = await pc.getStats();
+            // inspect candidate-pair for nomination
+            stats.forEach(r => {
+              if (r.type === 'candidate-pair' && r.nominated && r.state === 'succeeded') {
+                log('selected pair', {local:r.localCandidateId, remote:r.remoteCandidateId, proto:r.protocol});
+              }
+            });
+          } catch { clearInterval(statsTimer); }
+        }, 500);
+        pc.ontrack = (ev) => {
+          log('PC[listener]', djId, 'ontrack streams=', ev.streams?.length || 0);
+          const el = document.getElementById('listenerAudio');
+          el.srcObject = ev.streams[0];
+          el.play().then(()=>log('PC[listener]', djId, 'audio playing')).catch(e=>log('PC[listener]', djId, 'play error', e));
+        };
 
-      const pend = state.pending.get(from);
-      if (pend) {
-        for (const c of pend) await pc.addIceCandidate(new RTCIceCandidate(c));
-        state.pending.delete(from);
+        const recreateForDj = async (peerId) => {
+        // here you might send a control message to request a new offer,
+        // or just rely on the DJ’s recovery to re-offer automatically
+          log('listener awaiting new offer from', peerId);
+        };
+        attachRecovery(pc, djId, recreateForDj);
       }
+
+      await pc.setRemoteDescription({ type: sdpType, sdp });
+      log('PC[listener]', djId, 'setRemoteDescription offer len=', sdp.length);
+
+      const pend = state.pending.get(djId) || [];
+      if (pend.length) { log('PC[listener]', djId, 'draining pending ICE count=', pend.length); }
+      for (const c of pend) await pc.addIceCandidate(new RTCIceCandidate(c));
+      state.pending.delete(djId);
 
       const answer = await pc.createAnswer();
       await pc.setLocalDescription(answer);
-      send({ type: 'answer', sdp: answer.sdp, sdpType: answer.type, target: from, from: state.clientId });
-      log('📤 Sent answer to DJ');
+      send({ type: 'answer', sdp: answer.sdp, sdpType: answer.type, target: djId, from: state.clientId });
     }
 
     async function onAnswer({ from, sdp, sdpType }) {
       const pc = state.pcs.get(from);
-      if (!pc) { log(`No PC for ${from}`); return; }
-      await pc.setRemoteDescription(new RTCSessionDescription({ type: sdpType, sdp }));
-      const pend = state.pending.get(from);
-      if (pend) {
+      if (!pc) return log('PC[dj]', from, 'answer for missing pc');
+      await pc.setRemoteDescription({ type: sdpType, sdp });
+      log('PC[dj]', from, 'setRemoteDescription answer len=', sdp.length);
+
+      const pend = state.pending?.get(from);
+      if (pend?.length) {
+        log('PC[dj]', from, 'draining pending ICE count=', pend.length);
         for (const c of pend) await pc.addIceCandidate(new RTCIceCandidate(c));
         state.pending.delete(from);
       }
-      log(`Answer set from ${from}`);
     }
 
     async function onIce({ from, candidate }) {
       const pc = state.pcs.get(from);
-      if (!pc) {
+      if (!pc || !pc.remoteDescription) {
         const list = state.pending.get(from) || [];
         list.push(candidate);
         state.pending.set(from, list);
-        log(`⏳ Queued ICE from ${from}`);
+        log('PC[listener]', from, 'queued ICE (no remoteDesc) count=', list.length);
         return;
       }
-      if (pc.remoteDescription) {
-        await pc.addIceCandidate(new RTCIceCandidate(candidate));
-        log(`✅ Added ICE from ${from}`);
-      } else {
-        const list = state.pending.get(from) || [];
-        list.push(candidate);
-        state.pending.set(from, list);
-        log(`⏳ Queued ICE (no remote desc) from ${from}`);
-      }
+      const d = describeCandidate(candidate);
+      await pc.addIceCandidate(new RTCIceCandidate(candidate));
+      log('PC[listener]', from, 'added ICE', d);
     }
-
     // DJ setup — real stream created on file select; replaceTrack on all senders
     function setupDJ() {
       const file = document.getElementById('audioFile');

@@ -273,16 +273,30 @@ class SilentDiscoServer:
                     room = self.rooms[room_id]
                     await ws.send_json({'type': 'room_state', 'clients': list(room.clients.keys())})
 
+            # In _handle_websocket_message, when relaying
             elif msg_type in ['offer', 'answer', 'ice-candidate']:
                 target_client = data.get('target')
+                src = data.get('from')
+                size = len(json.dumps(data))
                 if target_client and target_client in self.websockets:
                     await self.websockets[target_client].send_json(data)
-                    logger.debug(f"📡 Relayed {msg_type} from {client_id} to {target_client}")
+                    if msg_type == 'ice-candidate':
+                        cand = data.get('candidate', {}).get('candidate', '') or ''
+                        # crude parse of candidate type
+                        import re
+                        m = re.search(r' typ ([a-z]+)', cand)
+                        ctype = m.group(1) if m else 'unknown'
+                        # When relaying ice-candidate
+                        cand = data.get('candidate', {}).get('candidate', '') or ''
+                        m = re.search(r' typ ([a-z]+)', cand); ctype = m.group(1) if m else 'unknown'
+                        logger.debug(f"📡 Relayed ice-candidate {src} → {target_client} type={ctype}")
+                    else:
+                        logger.debug(f"📡 Relayed {msg_type} {src} → {target_client} bytes={size}")
                 elif target_client:
                     self.pending_messages.setdefault(target_client, []).append(data)
-                    logger.debug(f"📦 Buffered {msg_type} for {target_client}")
+                    logger.debug(f"📦 Buffered {msg_type} for {target_client} (buf={len(self.pending_messages[target_client])})")
                 else:
-                    logger.warning(f"⚠️ No target client specified for {msg_type}")
+                    logger.warning(f"⚠️ No target for {msg_type} from {src}")
 
             elif msg_type in ['seek', 'volume']:
                 room_id = self.client_to_room.get(client_id)
@@ -322,29 +336,11 @@ class SilentDiscoServer:
         Always include STUN; optionally include TURN if env vars are present:
         SD_TURN_URLS (comma-separated), SD_TURN_USERNAME, SD_TURN_CREDENTIAL
         """
-        stun = [
+
+        return web.json_response({"iceServers": [
             {"urls": "stun:stun.l.google.com:19302"},
-            {
-              "urls": ["turn:your.domain:3478", "turns:your.domain:5349"],
-              "username": "turn",
-              "credential": "turn"
-            }
-          ]
-        ice_servers: List[dict] = list(stun)
-
-        turn_urls = os.getenv("SD_TURN_URLS", "").strip()
-        turn_username = os.getenv("SD_TURN_USERNAME", "").strip()
-        turn_credential = os.getenv("SD_TURN_CREDENTIAL", "").strip()
-
-        if turn_urls and turn_username and turn_credential:
-            urls = [u.strip() for u in turn_urls.split(",") if u.strip()]
-            if urls:
-                ice_servers.append({
-                    "urls": urls,
-                    "username": turn_username,
-                    "credential": turn_credential
-                })
-        return web.json_response({"iceServers": ice_servers})
+            {"urls": "stun:stun1.l.google.com:19302"}
+        ]})
 
 def create_app():
     server = SilentDiscoServer()
