@@ -110,8 +110,10 @@ export async function publish(track) {
   try {
     if (room.localParticipant.trackPublications) {
       for (const p of [...room.localParticipant.trackPublications.values()]) {
-        if (p.track?.kind === "audio")
+        if (p.track?.kind === "audio") {
+          log("Unpublishing old track:", p.track.sid);
           await room.localParticipant.unpublishTrack(p.track, { stop: false });
+        }
       }
     }
   } catch (e) {
