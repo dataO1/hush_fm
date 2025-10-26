@@ -1,10 +1,16 @@
 // Audio track creation and waveform rendering
-import { state, log } from './state.js';
+import { state, log } from "./state.js";
 
 export async function createMicTrack() {
   const stream = await navigator.mediaDevices.getUserMedia({
-    audio: { channelCount: 2, sampleRate: 48000, echoCancellation: false, noiseSuppression: false, autoGainControl: false },
-    video: false
+    audio: {
+      channelCount: 2,
+      sampleRate: 48000,
+      echoCancellation: false,
+      noiseSuppression: false,
+      autoGainControl: false,
+      latency: 0.01, // Request 10ms latency
+    },
   });
   return stream.getAudioTracks()[0];
 }
@@ -17,9 +23,9 @@ export async function createExternalTrack(deviceId) {
       sampleRate: 48000,
       echoCancellation: false,
       noiseSuppression: false,
-      autoGainControl: false
+      autoGainControl: false,
     },
-    video: false
+    video: false,
   };
   const stream = await navigator.mediaDevices.getUserMedia(constraints);
   return stream.getAudioTracks()[0];
@@ -29,7 +35,7 @@ export async function createFileTrack(file) {
   const url = URL.createObjectURL(file);
   const audioEl = new Audio();
   audioEl.src = url;
-  audioEl.crossOrigin = 'anonymous';
+  audioEl.crossOrigin = "anonymous";
   audioEl.muted = true;
   await audioEl.play().catch(() => {});
   const ctx = new (window.AudioContext || window.webkitAudioContext)();
@@ -48,21 +54,27 @@ export function refreshDjWave() {
   if (!state.localTrack) return;
   try {
     const ctx = new (window.AudioContext || window.webkitAudioContext)();
-    const src = ctx.createMediaStreamSource(new MediaStream([state.localTrack]));
+    const src = ctx.createMediaStreamSource(
+      new MediaStream([state.localTrack]),
+    );
     const analyser = ctx.createAnalyser();
     analyser.fftSize = 1024;
     src.connect(analyser);
     state.djAnalyser = analyser;
-    const cvs = document.getElementById('djWave');
-    const g = cvs.getContext('2d');
+    const cvs = document.getElementById("djWave");
+    const g = cvs.getContext("2d");
     const data = new Uint8Array(analyser.frequencyBinCount);
     const draw = () => {
       state.djRaf = requestAnimationFrame(draw);
       analyser.getByteTimeDomainData(data);
       g.clearRect(0, 0, cvs.width, cvs.height);
       g.strokeStyle = state.onAir
-        ? getComputedStyle(document.documentElement).getPropertyValue('--wave-on').trim()
-        : getComputedStyle(document.documentElement).getPropertyValue('--wave-off').trim();
+        ? getComputedStyle(document.documentElement)
+            .getPropertyValue("--wave-on")
+            .trim()
+        : getComputedStyle(document.documentElement)
+            .getPropertyValue("--wave-off")
+            .trim();
       g.lineWidth = 2;
       g.beginPath();
       const step = cvs.width / data.length;
@@ -77,7 +89,7 @@ export function refreshDjWave() {
     };
     draw();
   } catch (e) {
-    log('dj waveform error', e?.message || e);
+    log("dj waveform error", e?.message || e);
   }
 }
 
@@ -96,14 +108,14 @@ export function startWaveform(audioEl) {
     analyser.fftSize = 2048;
     src.connect(analyser);
     state.analyser = analyser;
-    const cvs = document.getElementById('wave');
-    const g = cvs.getContext('2d');
+    const cvs = document.getElementById("wave");
+    const g = cvs.getContext("2d");
     const data = new Uint8Array(analyser.frequencyBinCount);
     const draw = () => {
       state.raf = requestAnimationFrame(draw);
       analyser.getByteTimeDomainData(data);
       g.clearRect(0, 0, cvs.width, cvs.height);
-      g.strokeStyle = '#7c5cff';
+      g.strokeStyle = "#7c5cff";
       g.lineWidth = 2;
       g.beginPath();
       const step = cvs.width / data.length;
@@ -118,7 +130,7 @@ export function startWaveform(audioEl) {
     };
     draw();
   } catch (e) {
-    log('waveform error', e?.message || e);
+    log("waveform error", e?.message || e);
   }
 }
 
@@ -131,11 +143,11 @@ export function stopWaveform() {
 export async function ensureDeviceList() {
   try {
     const devices = await navigator.mediaDevices.enumerateDevices();
-    const audIns = devices.filter(d => d.kind === 'audioinput');
+    const audIns = devices.filter((d) => d.kind === "audioinput");
     if (!state.extDeviceId && audIns[0]) state.extDeviceId = audIns[0].deviceId;
     return audIns;
   } catch (e) {
-    log('device list error', e?.name || e?.message || e);
+    log("device list error", e?.name || e?.message || e);
     return [];
   }
 }
