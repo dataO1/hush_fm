@@ -11,8 +11,19 @@
       # Common package definition for all systems
       mkPackage = pkgs: system:
         let
-          pythonExplicit = pkgs.python311;
+          # Use Python 3.11
+          python = pkgs.python311;
 
+          # Define Python dependencies
+          pythonEnv = python.withPackages (ps: with ps; [
+            aiohttp
+            aiohttp-cors
+            pyjwt
+            livekit-api
+            livekit-protocol
+          ]);
+
+          # Audio/video libraries
           audioVideoLibs = [
             pkgs.ffmpeg
             pkgs.libopus
@@ -22,20 +33,11 @@
             pkgs.x265
           ];
 
+          # C++ runtime libraries
           cppLibs = [
             pkgs.stdenv.cc.cc.lib
             pkgs.gcc.cc.lib
             pkgs.glibc
-          ];
-
-          buildInputs = audioVideoLibs ++ cppLibs ++ [
-            pythonExplicit
-            pkgs.gcc
-            pkgs.pkg-config
-            pkgs.git
-            pkgs.libffi
-            pkgs.openssl
-            pkgs.zlib
           ];
 
         in pkgs.stdenv.mkDerivation {
@@ -44,76 +46,39 @@
 
           src = ./.;
 
-          buildInputs = buildInputs;
-
           nativeBuildInputs = [ pkgs.makeWrapper ];
 
-          buildPhase = ''
-            echo "Building Hush Silent Disco..."
+          buildInputs = audioVideoLibs ++ cppLibs ++ [ pythonEnv ];
+
+          installPhase = ''
+            mkdir -p $out/share/hush
+
+            # Copy all application files
+            cp -r static $out/share/hush/ || true
+            cp -r server $out/share/hush/ || true
+            cp main.py $out/share/hush/
+
+            # Create uploads directory
+            mkdir -p $out/share/hush/uploads
+
+            # Create wrapper script
+            mkdir -p $out/bin
+            makeWrapper ${pythonEnv}/bin/python $out/bin/hush \
+              --add-flags "$out/share/hush/main.py" \
+              --prefix PYTHONPATH : "$out/share/hush" \
+              --prefix LD_LIBRARY_PATH : "${pkgs.lib.makeLibraryPath (audioVideoLibs ++ cppLibs)}" \
+              --set HUSH_STATIC_DIR "$out/share/hush/static" \
+              --set HUSH_SERVER_DIR "$out/share/hush/server" \
+              --chdir "\''${HUSH_DATA_DIR:-/var/lib/hush}"
           '';
 
-        installPhase = ''
-  mkdir -p $out/share/hush
-  mkdir -p $out/share/hush/static
-  mkdir -p $out/share/hush/server
-
-  # Copy application files
-  cp -r static/* $out/share/hush/static/ || true
-  cp -r server/* $out/share/hush/server/ || true
-  cp main.py $out/share/hush/ || true
-  cp requirements*.txt $out/share/hush/ || true
-
-  # Create data directory structure
-  mkdir -p $out/share/hush/uploads
-
-  # Create wrapper script
-  mkdir -p $out/bin
-  cat > $out/bin/hush << EOF
-#!/bin/sh
-set -e
-
-export LD_LIBRARY_PATH="${pkgs.lib.makeLibraryPath (audioVideoLibs ++ cppLibs)}:\$LD_LIBRARY_PATH"
-
-# Use system data dir if available, else local
-DATA_DIR=\''${HUSH_DATA_DIR:-"\$HOME/.local/share/hush"}
-mkdir -p "\$DATA_DIR/uploads"
-cd "\$DATA_DIR"
-
-# Create venv if needed
-if [ ! -d ".venv" ]; then
-  ${pythonExplicit}/bin/python -m venv .venv
-fi
-
-source .venv/bin/activate
-
-# Install requirements if needed
-if [ ! -f ".venv/.installed" ]; then
-  if [ -f "$out/share/hush/requirements-webrtc.txt" ]; then
-    pip install -r "$out/share/hush/requirements-webrtc.txt"
-  elif [ -f "$out/share/hush/requirements.txt" ]; then
-    pip install -r "$out/share/hush/requirements.txt"
-  fi
-  touch .venv/.installed
-fi
-
-# Copy static files to data dir if needed
-if [ ! -d "static" ]; then
-  cp -r $out/share/hush/static .
-fi
-
-if [ ! -d "server" ]; then
-  cp -r $out/share/hush/server .
-fi
-
-if [ ! -f "main.py" ]; then
-  cp $out/share/hush/main.py .
-fi
-
-exec python main.py "\''${@}"
-EOF
-  chmod +x $out/bin/hush
-  '';
-};
+          meta = with pkgs.lib; {
+            description = "Hush - Silent Disco WebRTC Audio Streaming";
+            homepage = "https://github.com/youruser/hush";
+            license = licenses.mit;
+            platforms = platforms.linux;
+          };
+        };
     in
     # Per-system outputs
     flake-utils.lib.eachDefaultSystem (system:
@@ -126,22 +91,29 @@ EOF
         devShells.default = pkgs.mkShell {
           buildInputs = hushPackage.buildInputs ++ [
             pkgs.livekit
-            pkgs.coturn
+            pkgs.python311Packages.pip
+            pkgs.python311Packages.virtualenv
           ];
 
           shellHook = ''
             echo "🎧 Hush Development Environment"
             echo "=============================="
             echo ""
-            echo "Available commands:"
-            echo "  python main.py          - Start development server"
-            echo "  livekit-server --dev    - Start LiveKit in dev mode"
+            echo "Commands:"
+            echo "  python main.py          - Start dev server"
+            echo "  livekit-server --dev    - Start LiveKit"
             echo ""
 
-            # Auto-activate venv if it exists
-            if [ -d ".venv" ]; then
-              source .venv/bin/activate
-            fi
+            export HUSH_DATA_DIR="$PWD/data"
+            mkdir -p "$HUSH_DATA_DIR/uploads"
+
+            # LiveKit environment variables for testing
+            export LIVEKIT_WS_URL="ws://localhost:7880"
+            export LIVEKIT_API_KEY="devkey"
+            export LIVEKIT_API_SECRET="secret"
+
+            # Server settings
+            export PORT="3000"
           '';
         };
 
@@ -195,7 +167,7 @@ EOF
             apiSecret = mkOption {
               type = types.str;
               default = "secret";
-              description = "LiveKit API secret";
+              description = "LiveKit API secret (use agenix for production!)";
             };
 
             dataDir = mkOption {
@@ -209,10 +181,16 @@ EOF
               default = true;
               description = "Open firewall ports automatically";
             };
+
+            logLevel = mkOption {
+              type = types.enum [ "debug" "info" "warn" "error" ];
+              default = "info";
+              description = "LiveKit log level";
+            };
           };
 
           config = mkIf cfg.enable {
-            # Install LiveKit
+            # Install packages
             environment.systemPackages = [
               pkgs.livekit
               hushPackage
@@ -253,15 +231,21 @@ EOF
                     --bind 0.0.0.0 \
                     --port ${toString cfg.livekitPort} \
                     --udp-port ${toString cfg.rtcPort} \
-                    --keys "${cfg.apiKey}: ${cfg.apiSecret}"
+                    --tcp-port ${toString (cfg.rtcPort + 1)} \
+                    --keys "${cfg.apiKey}: ${cfg.apiSecret}" \
+                    --log-level ${cfg.logLevel}
                 '';
 
-                # Security
+                # Security hardening
                 NoNewPrivileges = true;
                 PrivateTmp = true;
                 ProtectSystem = "strict";
                 ProtectHome = true;
                 ReadWritePaths = [ "${cfg.dataDir}/logs" ];
+
+                # Resource limits
+                LimitNOFILE = 65536;
+                LimitNPROC = 512;
               };
             };
 
@@ -290,18 +274,25 @@ EOF
 
                 ExecStart = "${hushPackage}/bin/hush";
 
-                # Security
+                # Security hardening
                 NoNewPrivileges = true;
                 PrivateTmp = true;
                 ProtectSystem = "strict";
                 ProtectHome = true;
                 ReadWritePaths = [ cfg.dataDir ];
+
+                # Resource limits
+                LimitNOFILE = 4096;
               };
             };
 
             # Firewall
             networking.firewall = mkIf cfg.openFirewall {
-              allowedTCPPorts = [ cfg.port cfg.livekitPort (cfg.rtcPort + 1) ];
+              allowedTCPPorts = [
+                cfg.port
+                cfg.livekitPort
+                (cfg.rtcPort + 1)  # TCP fallback
+              ];
               allowedUDPPorts = [ cfg.rtcPort ];
             };
           };
