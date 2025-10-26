@@ -1,385 +1,201 @@
 #!/usr/bin/env python3
-
-"""
-Silent Disco - TRUE P2P Architecture
-Server handles ONLY signaling - DJ browser streams directly to listeners
-"""
-
 import os
 import sys
 import json
 import asyncio
 import logging
-import hashlib
 import random
+import string
 from pathlib import Path
-from typing import Dict, Optional, List
-from dataclasses import dataclass, field, asdict
-from datetime import datetime
+from typing import Dict, Optional, Set
 
-try:
-    from aiohttp import web
-    from aiohttp_cors import setup as cors_setup, ResourceOptions
-    import aiofiles
-    import aiohttp
-except ImportError as e:
-    print(f"❌ Required packages not installed: {e}")
-    print("Run: pip install aiohttp aiohttp-cors aiofiles")
-    sys.exit(1)
+from aiohttp import web
 
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-)
-
+logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
 
-ADJECTIVES = ['Funky', 'Groovy', 'Electric', 'Cosmic', 'Disco', 'Neon', 'Retro', 'Stellar',
-              'Jazzy', 'Psychedelic', 'Vibrant', 'Rhythmic', 'Melodic', 'Sonic', 'Dynamic']
-NOUNS = ['Beats', 'Vibes', 'Dancer', 'Wave', 'Star', 'Sound', 'Echo', 'Dream', 'Soul',
-         'Rhythm', 'Flow', 'Pulse', 'Groove', 'Spirit', 'Energy']
+THIS_DIR = Path(__file__).parent.resolve()
+INDEX_FILE = THIS_DIR / "index.html"
+STATIC_DIR = THIS_DIR / "static"
+STATIC_DIR.mkdir(exist_ok=True)  # place simplepeer.min.js here
 
-def generate_user_id() -> str:
-    return hashlib.md5(os.urandom(16)).hexdigest()
+# In-memory state (signaling only)
+rooms: Dict[str, dict] = {}
+clients: Dict[str, dict] = {}  # client_id -> { 'ws': WebSocketResponse|None, 'room_id': str|None, 'role': 'dj'|'listener'|None, 'name': str }
 
-def generate_room_id() -> str:
-    return hashlib.md5(os.urandom(8)).hexdigest()[:8]
+def _rand_id(n=9) -> str:
+    alphabet = string.ascii_lowercase + string.digits
+    return "client_" + "".join(random.choice(alphabet) for _ in range(n))
 
-def generate_username() -> str:
-    adj = random.choice(ADJECTIVES)
-    noun = random.choice(NOUNS)
-    num = random.randint(1, 99)
-    return f"{adj}{noun}{num}"
+def _room_id() -> str:
+    return "".join(random.choice("abcdef0123456789") for _ in range(8))
 
-@dataclass
-class User:
-    user_id: str
-    username: str
-    created_at: float = field(default_factory=lambda: datetime.now().timestamp())
-    def to_dict(self): return asdict(self)
+def _client_name() -> str:
+    adjectives = ["Funky", "Groovy", "Electric", "Cosmic", "Disco", "Neon", "Retro", "Stellar", "Jazzy", "Vibrant", "Rhythmic", "Melodic", "Sonic", "Dynamic"]
+    nouns = ["Beats", "Rhythm", "Vibes", "Groove", "Tempo", "Harmony", "Sound", "Wave", "Flow", "Pulse", "Chords", "Bass", "Echo", "Dancer"]
+    return random.choice(adjectives) + random.choice(nouns) + str(random.randint(1, 99))
 
-@dataclass
-class Room:
-    room_id: str
-    name: str
-    dj_user_id: str
-    dj_client_id: Optional[str]
-    created_at: float
-    clients: Dict[str, str] = field(default_factory=dict)  # client_id -> role
-    def to_dict(self):
-        return {
-            'room_id': self.room_id,
-            'name': self.name,
-            'dj_username': None,
-            'listener_count': sum(1 for role in self.clients.values() if role == 'listener'),
-            'created_at': self.created_at,
-            'is_live': self.dj_client_id is not None
-        }
+async def serve_index(request: web.Request) -> web.StreamResponse:
+    return web.FileResponse(INDEX_FILE)
 
-class SilentDiscoServer:
-    def __init__(self):
-        self.users: Dict[str, User] = {}
-        self.rooms: Dict[str, Room] = {}
-        self.websockets: Dict[str, web.WebSocketResponse] = {}
-        self.client_to_room: Dict[str, str] = {}
-        self.client_to_user: Dict[str, str] = {}
-        self.pending_messages: Dict[str, List[dict]] = {}
-
-    async def _handle_identify(self, request):
-        try:
-            data = await request.json()
-            existing_user_id = data.get('user_id')
-            if existing_user_id and existing_user_id in self.users:
-                user = self.users[existing_user_id]
-                logger.info(f"🔁 Returning user: {user.username} ({user.user_id[:16]})")
-            else:
-                user = User(user_id=generate_user_id(), username=generate_username())
-                self.users[user.user_id] = user
-                logger.info(f"👤 New user: {user.username} ({user.user_id[:16]})")
-            return web.json_response({'success': True, 'user': user.to_dict()})
-        except Exception as e:
-            logger.error(f"Error in identify: {e}")
-            return web.json_response({'success': False, 'error': str(e)}, status=400)
-
-    async def _handle_create_room(self, request):
-        try:
-            data = await request.json()
-            user_id = data.get('user_id')
-            room_name = data.get('room_name', 'Untitled Room')
-            if not user_id or user_id not in self.users:
-                return web.json_response({'success': False, 'error': 'Invalid user'}, status=400)
-            room_id = generate_room_id()
-            room = Room(room_id=room_id, name=room_name, dj_user_id=user_id, dj_client_id=None,
-                        created_at=datetime.now().timestamp())
-            self.rooms[room_id] = room
-            user = self.users[user_id]
-            logger.info(f"🎪 Room created: {room_name} by {user.username} (ID: {room_id})")
-            room_dict = room.to_dict()
-            room_dict['dj_username'] = user.username
-            return web.json_response({'success': True, 'room': room_dict})
-        except Exception as e:
-            logger.error(f"Error creating room: {e}")
-            return web.json_response({'success': False, 'error': str(e)}, status=400)
-
-    async def _handle_list_rooms(self, request):
-        try:
-            rooms_list = []
-            for room in self.rooms.values():
-                room_dict = room.to_dict()
-                dj_user = self.users.get(room.dj_user_id)
-                room_dict['dj_username'] = dj_user.username if dj_user else 'Unknown'
-                rooms_list.append(room_dict)
-            return web.json_response({'success': True, 'rooms': rooms_list})
-        except Exception as e:
-            logger.error(f"Error listing rooms: {e}")
-            return web.json_response({'success': False, 'error': str(e)}, status=400)
-
-    async def _handle_join_room(self, request):
-        try:
-            room_id = request.match_info['room_id']
-            data = await request.json()
-            user_id = data.get('user_id')
-            role = data.get('role', 'listener')
-            client_id = data.get('client_id')
-            if not user_id or user_id not in self.users:
-                return web.json_response({'success': False, 'error': 'Invalid user'}, status=400)
-            if room_id not in self.rooms:
-                return web.json_response({'success': False, 'error': 'Room not found'}, status=404)
-            room = self.rooms[room_id]
-            user = self.users[user_id]
-            if role == 'dj' and user_id != room.dj_user_id:
-                return web.json_response({'success': False, 'error': 'Not the DJ of this room'}, status=403)
-
-            room.clients[client_id] = role
-            self.client_to_room[client_id] = room_id
-            self.client_to_user[client_id] = user_id
-            if role == 'dj':
-                room.dj_client_id = client_id
-            logger.info(f"✅ {user.username} ({role}) joined {room.name} [Client: {client_id}]")
-
-            clients_info = []
-            for cid, crole in room.clients.items():
-                cuser_id = self.client_to_user.get(cid)
-                cuser = self.users.get(cuser_id)
-                if cuser:
-                    clients_info.append({'client_id': cid, 'username': cuser.username, 'role': crole})
-
-            if role == 'listener':
-                asyncio.create_task(self._delayed_new_listener_notification(room_id, client_id, user.username))
-
-            return web.json_response({
-                'success': True,
-                'room_id': room_id,
-                'client_id': client_id,
-                'role': role,
-                'clients': clients_info
-            })
-        except Exception as e:
-            logger.error(f"Error joining room: {e}")
-            return web.json_response({'success': False, 'error': str(e)}, status=400)
-
-    async def _delayed_new_listener_notification(self, room_id: str, client_id: str, username: str):
-        await asyncio.sleep(0.15)
-        await self._broadcast_to_room(room_id, {
-            'type': 'new_listener',
-            'client_id': client_id,
-            'username': username
-        }, exclude_client=client_id)
-
-    async def _handle_leave_room(self, request):
-        try:
-            room_id = request.match_info['room_id']
-            data = await request.json()
-            client_id = data.get('client_id')
-            if room_id not in self.rooms:
-                return web.json_response({'success': False, 'error': 'Room not found'}, status=404)
-            room = self.rooms[room_id]
-            if client_id in room.clients:
-                role = room.clients[client_id]
-                del room.clients[client_id]
-                if client_id in self.client_to_room: del self.client_to_room[client_id]
-                if client_id in self.client_to_user: del self.client_to_user[client_id]
-                if role == 'dj':
-                    logger.info(f"🚪 DJ left, closing room {room.name}")
-                    await self._broadcast_to_room(room_id, {'type': 'room_closed'})
-                    del self.rooms[room_id]
-                else:
-                    logger.info(f"🚪 Listener left {room.name}")
-                    await self._broadcast_to_room(room_id, {'type': 'listener_left', 'client_id': client_id})
-            return web.json_response({'success': True})
-        except Exception as e:
-            logger.error(f"Error leaving room: {e}")
-            return web.json_response({'success': False, 'error': str(e)}, status=400)
-
-    async def _broadcast_to_room(self, room_id: str, message: dict, exclude_client: Optional[str] = None):
-        if room_id not in self.rooms: return
-        room = self.rooms[room_id]
-        message_type = message.get('type', 'unknown')
-        sent_count = 0
-        for cid in list(room.clients.keys()):
-            if cid == exclude_client: continue
-            if cid in self.websockets:
-                ws = self.websockets[cid]
-                try:
-                    await ws.send_json(message)
-                    sent_count += 1
-                except Exception as e:
-                    logger.error(f"Failed to send to {cid}: {e}")
-        logger.debug(f"📡 Broadcast to {room.name}: {message_type} ({sent_count} clients)")
-
-    async def _handle_websocket(self, request):
-        ws = web.WebSocketResponse(heartbeat=30)
-        await ws.prepare(request)
-        client_id = None
-        logger.info("🔌 New WebSocket connection")
-        try:
-            async for msg in ws:
-                if msg.type == aiohttp.WSMsgType.TEXT:
-                    data = json.loads(msg.data)
-                    await self._handle_websocket_message(ws, data, client_id)
-                    if data.get('type') == 'register' and 'client_id' in data:
-                        client_id = data['client_id']
-                elif msg.type == aiohttp.WSMsgType.ERROR:
-                    logger.error(f'WebSocket error: {ws.exception()}')
-        except Exception as e:
-            logger.error(f"WebSocket error: {e}")
-        finally:
-            if client_id:
-                await self._handle_client_disconnect(client_id)
-                if client_id in self.websockets: del self.websockets[client_id]
-                if client_id in self.pending_messages: del self.pending_messages[client_id]
-            logger.info(f"🔌 WebSocket closed: {client_id}")
-        return ws
-
-    async def _handle_websocket_message(self, ws: web.WebSocketResponse, data: dict, client_id: Optional[str]):
-        msg_type = data.get('type')
-        try:
-            if msg_type == 'register':
-                cid = data.get('client_id')
-                room_id = data.get('room_id')
-                if not cid or not room_id:
-                    await ws.send_json({'type': 'error', 'message': 'Missing client_id or room_id'})
-                    return
-                self.websockets[cid] = ws
-                logger.info(f"✅ Client registered: {cid} in room {room_id}")
-
-                if cid in self.pending_messages:
-                    pending = self.pending_messages[cid]
-                    logger.info(f"📤 Sending {len(pending)} buffered messages to {cid}")
-                    for msg in pending: await ws.send_json(msg)
-                    del self.pending_messages[cid]
-
-                if room_id in self.rooms:
-                    room = self.rooms[room_id]
-                    await ws.send_json({'type': 'room_state', 'clients': list(room.clients.keys())})
-
-            # In _handle_websocket_message, when relaying
-            elif msg_type in ['offer', 'answer', 'ice-candidate']:
-                target_client = data.get('target')
-                src = data.get('from')
-                size = len(json.dumps(data))
-                if target_client and target_client in self.websockets:
-                    await self.websockets[target_client].send_json(data)
-                    if msg_type == 'ice-candidate':
-                        cand = data.get('candidate', {}).get('candidate', '') or ''
-                        # crude parse of candidate type
-                        import re
-                        m = re.search(r' typ ([a-z]+)', cand)
-                        ctype = m.group(1) if m else 'unknown'
-                        # When relaying ice-candidate
-                        cand = data.get('candidate', {}).get('candidate', '') or ''
-                        m = re.search(r' typ ([a-z]+)', cand); ctype = m.group(1) if m else 'unknown'
-                        logger.debug(f"📡 Relayed ice-candidate {src} → {target_client} type={ctype}")
-                    else:
-                        logger.debug(f"📡 Relayed {msg_type} {src} → {target_client} bytes={size}")
-                elif target_client:
-                    self.pending_messages.setdefault(target_client, []).append(data)
-                    logger.debug(f"📦 Buffered {msg_type} for {target_client} (buf={len(self.pending_messages[target_client])})")
-                else:
-                    logger.warning(f"⚠️ No target for {msg_type} from {src}")
-
-            elif msg_type in ['seek', 'volume']:
-                room_id = self.client_to_room.get(client_id)
-                if room_id:
-                    await self._broadcast_to_room(room_id, data, exclude_client=client_id)
-
-        except Exception as e:
-            logger.error(f"Error handling WebSocket message: {e}")
-            await ws.send_json({'type': 'error', 'message': str(e)})
-
-    async def _handle_client_disconnect(self, client_id: str):
-        room_id = self.client_to_room.get(client_id)
-        if room_id and room_id in self.rooms:
-            room = self.rooms[room_id]
-            role = room.clients.get(client_id)
-            if role == 'dj':
-                logger.info(f"🚪 DJ disconnected, closing room {room.name}")
-                await self._broadcast_to_room(room_id, {'type': 'room_closed'})
-                del self.rooms[room_id]
-            else:
-                logger.info(f"🚪 Listener disconnected from {room.name}")
-                if client_id in room.clients: del room.clients[client_id]
-                await self._broadcast_to_room(room_id, {'type': 'listener_left', 'client_id': client_id})
-            if client_id in self.client_to_room: del self.client_to_room[client_id]
-
-    async def _serve_index(self, request):
-        index_path = Path(__file__).parent / 'index.html'
-        if not index_path.exists():
-            return web.Response(text="index.html not found", status=404)
-        async with aiofiles.open(index_path, 'r') as f:
-            content = await f.read()
-        return web.Response(text=content, content_type='text/html')
-
-    async def _serve_config(self, request):
-        """
-        Return ICE servers config.
-        Always include STUN; optionally include TURN if env vars are present:
-        SD_TURN_URLS (comma-separated), SD_TURN_USERNAME, SD_TURN_CREDENTIAL
-        """
-
-        return web.json_response({"iceServers": [
+async def serve_config(request: web.Request) -> web.Response:
+    # Return only STUN here; add TURN later without changing client logic
+    payload = {
+        "iceServers": [
             {"urls": "stun:stun.l.google.com:19302"},
             {"urls": "stun:stun1.l.google.com:19302"}
-        ]})
+        ]
+    }
+    return web.json_response(payload)
 
-def create_app():
-    server = SilentDiscoServer()
-    app = web.Application()
+async def api_identify(request: web.Request) -> web.Response:
+    data = await request.json()
+    name = data.get("name") or _client_name()
+    client_id = _rand_id()
+    clients[client_id] = {"ws": None, "room_id": None, "role": None, "name": name}
+    logger.info("👤 New user: %s (%s)", name, client_id)
+    return web.json_response({"ok": True, "client_id": client_id, "name": name})
 
-    app.router.add_get('/', server._serve_index)
-    app.router.add_get('/config', server._serve_config)
-    app.router.add_post('/user/identify', server._handle_identify)
-    app.router.add_post('/room/create', server._handle_create_room)
-    app.router.add_get('/rooms', server._handle_list_rooms)
-    app.router.add_post('/room/{room_id}/join', server._handle_join_room)
-    app.router.add_post('/room/{room_id}/leave', server._handle_leave_room)
-    app.router.add_get('/ws', server._handle_websocket)
-
-    cors = cors_setup(app)
-    for route in list(app.router.routes()):
-        cors.add(route, {
-            "*": ResourceOptions(
-                allow_credentials=True,
-                expose_headers="*",
-                allow_headers="*",
-                allow_methods="*"
-            )
+async def api_rooms(request: web.Request) -> web.Response:
+    items = []
+    for rid, r in rooms.items():
+        items.append({
+            "id": rid,
+            "name": r["name"],
+            "dj": r.get("dj_client"),
+            "listeners": list(r["listeners"])
         })
+    return web.json_response({"ok": True, "rooms": items})
+
+async def api_room_create(request: web.Request) -> web.Response:
+    data = await request.json()
+    client_id = data.get("client_id")
+    name = data.get("name") or "My Disco"
+    if client_id not in clients:
+        return web.json_response({"ok": False, "error": "unknown client"}, status=400)
+    rid = _room_id()
+    rooms[rid] = {"name": name, "dj_client": None, "listeners": set()}
+    logger.info("🎪 Room created: %s by %s (ID: %s)", name, clients[client_id]["name"], rid)
+    # Auto-join as DJ
+    clients[client_id]["room_id"] = rid
+    clients[client_id]["role"] = "dj"
+    rooms[rid]["dj_client"] = client_id
+    return web.json_response({"ok": True, "room_id": rid})
+
+async def api_room_join(request: web.Request) -> web.Response:
+    rid = request.match_info["room_id"]
+    data = await request.json()
+    client_id = data.get("client_id")
+    role = data.get("role")  # 'dj' or 'listener'
+    if client_id not in clients:
+        return web.json_response({"ok": False, "error": "unknown client"}, status=400)
+    if rid not in rooms:
+        return web.json_response({"ok": False, "error": "unknown room"}, status=404)
+
+    room = rooms[rid]
+    if role == "dj":
+        room["dj_client"] = client_id
+    else:
+        room["listeners"].add(client_id)
+    clients[client_id]["room_id"] = rid
+    clients[client_id]["role"] = role
+    logger.info("✅ %s (%s) joined %s [Client: %s]", clients[client_id]["name"], role, room["name"], client_id)
+    return web.json_response({"ok": True})
+
+async def ws_handler(request: web.Request) -> web.StreamResponse:
+    ws = web.WebSocketResponse()
+    await ws.prepare(request)
+
+    # Expect client_id as query param
+    client_id = request.query.get("client_id")
+    if not client_id or client_id not in clients:
+        await ws.close(message=b"unknown client")
+        return ws
+    clients[client_id]["ws"] = ws
+    room_id = clients[client_id].get("room_id")
+    role = clients[client_id].get("role")
+    logger.info("🔌 New WebSocket connection")
+
+    # If a new listener connects, notify DJ
+    if room_id and role == "listener":
+        room = rooms.get(room_id)
+        dj_id = room.get("dj_client") if room else None
+        if dj_id and clients.get(dj_id, {}).get("ws"):
+            await clients[dj_id]["ws"].send_json({"type": "new_listener", "listener_id": client_id})
+        logger.debug("📡 Broadcast to %s: new_listener (1 clients)", room["name"] if room else room_id)
+
+    try:
+        async for msg in ws:
+            if msg.type != web.WSMsgType.TEXT:
+                continue
+            data = json.loads(msg.data)
+            msg_type = data.get("type")
+            target = data.get("target")
+            src = data.get("from")
+
+            # Simple-Peer signaling relay
+            if msg_type == "sp-signal":
+                if target in clients and clients[target].get("ws"):
+                    await clients[target]["ws"].send_json(data)
+                    logger.debug("📡 Relayed sp-signal %s → %s bytes=%d", src, target, len(msg.data))
+                continue
+
+            # Back-compat (if any old client still sends these)
+            if msg_type in ("offer", "answer", "ice-candidate"):
+                if target in clients and clients[target].get("ws"):
+                    await clients[target]["ws"].send_json(data)
+                    logger.debug("📡 Relayed %s %s → %s bytes=%d", msg_type, src, target, len(msg.data))
+                continue
+
+    except Exception as e:
+        logger.warning("WS error: %r", e)
+    finally:
+        # Cleanup on disconnect
+        if client_id in clients:
+            cinfo = clients[client_id]
+            rid = cinfo.get("room_id")
+            role = cinfo.get("role")
+            cinfo["ws"] = None
+            if rid and rid in rooms:
+                room = rooms[rid]
+                if role == "listener" and client_id in room["listeners"]:
+                    room["listeners"].discard(client_id)
+                    logger.info("🚪 Listener disconnected from %s", room["name"])
+                    # Inform DJ
+                    dj_id = room.get("dj_client")
+                    if dj_id and clients.get(dj_id, {}).get("ws"):
+                        await clients[dj_id]["ws"].send_json({"type": "listener_left", "listener_id": client_id})
+                        logger.debug("📡 Broadcast to %s: listener_left (1 clients)", room["name"])
+                if role == "dj" and room.get("dj_client") == client_id:
+                    logger.info("🚪 DJ disconnected, closing room %s", room["name"])
+                    # Inform listeners
+                    for lid in list(room["listeners"]):
+                        if clients.get(lid, {}).get("ws"):
+                            await clients[lid]["ws"].send_json({"type": "room_closed"})
+                            logger.debug("📡 Broadcast to %s: room_closed (1 clients)", room["name"])
+                    del rooms[rid]
+        logger.info("🔌 WebSocket closed: %s", client_id)
+    return ws
+
+def create_app() -> web.Application:
+    app = web.Application()
+    app.router.add_get("/", serve_index)
+    app.router.add_get("/config", serve_config)
+    app.router.add_post("/user/identify", api_identify)
+    app.router.add_get("/rooms", api_rooms)
+    app.router.add_post("/room/create", api_room_create)
+    app.router.add_post("/room/{room_id}/join", api_room_join)
+    app.router.add_get("/ws", ws_handler)
+    # Serve /static for simplepeer.min.js
+    app.router.add_static("/static/", path=str(STATIC_DIR), name="static")
+    logger.info("🎧 P2P Silent Disco Server (Signaling Only)")
+    logger.info("🚀 P2P Silent Disco (Signaling Server) on http://0.0.0.0:3000")
+    logger.info("📡 Pure WebSocket signaling - No audio processing")
     return app
 
 def main():
-    import argparse
-    parser = argparse.ArgumentParser(description='Silent Disco P2P Server')
-    parser.add_argument('--host', default='0.0.0.0', help='Host to bind to')
-    parser.add_argument('--port', type=int, default=3000, help='Port to bind to')
-    parser.add_argument('--debug', action='store_true', help='Enable debug logging')
-    args = parser.parse_args()
-    if args.debug: logging.getLogger().setLevel(logging.DEBUG)
-    logger.info("🎧 P2P Silent Disco Server (Signaling Only)")
-    logger.info(f"🚀 P2P Silent Disco (Signaling Server) on http://{args.host}:{args.port}")
-    logger.info("📡 Pure WebSocket signaling - No audio processing")
     app = create_app()
-    web.run_app(app, host=args.host, port=args.port, print=None)
+    web.run_app(app, host="0.0.0.0", port=3000)
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()

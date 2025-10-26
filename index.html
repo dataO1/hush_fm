@@ -1,496 +1,263 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8"/>
-  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>Silent Disco - P2P</title>
+  <meta charset="utf-8" />
+  <title>Silent Disco (P2P via Simple-Peer)</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <!-- Place simplepeer.min.js into ./static/simplepeer.min.js -->
+  <script src="/static/simplepeer.min.js"></script>
   <style>
-    body { font-family: system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, Arial, sans-serif; margin:0; padding:20px; background:#f5f7fb; color:#222; }
-    .container { max-width: 960px; margin: 0 auto; }
-    .card { background:#fff; border-radius:16px; box-shadow:0 8px 24px rgba(0,0,0,.08); padding:24px; margin:16px 0; }
-    .btn { border:none; padding:10px 16px; border-radius:8px; background:#6366f1; color:#fff; cursor:pointer; margin-right:8px; }
-    .btn.secondary { background:#0ea5e9; }
-    .btn.danger { background:#ef4444; }
-    audio { width:100%; margin-top:8px; }
-    .muted { color:#888; font-size:.9rem; }
-    .log { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace; background:#0b1220; color:#d1ffea; border-radius:12px; padding:12px; height:220px; overflow:auto; }
+    body { font-family: system-ui, sans-serif; margin: 16px; }
+    .row { display:flex; gap:16px; flex-wrap:wrap; }
+    .card { border:1px solid #ddd; border-radius:8px; padding:12px; min-width:280px; }
+    #log { white-space: pre-wrap; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; background:#fafafa; border:1px solid #eee; padding:8px; max-height:260px; overflow:auto; }
+    button { cursor: pointer; }
   </style>
 </head>
 <body>
-  <div class="container">
+  <h2>Silent Disco (Simple-Peer)</h2>
+
+  <div class="row">
     <div class="card">
-      <h2>Silent Disco (P2P)</h2>
-      <div id="whoami" class="muted">Not identified</div>
-    </div>
-
-    <div id="controls" class="card">
-      <input id="roomName" placeholder="Room name" style="width:100%; padding:10px; border-radius:8px; border:1px solid #ddd;"/>
-      <div style="margin-top:10px;">
-        <button class="btn" id="createBtn">Create room</button>
-      </div>
-      <div id="rooms" style="margin-top:12px;"></div>
-    </div>
-
-    <div id="djCard" class="card" style="display:none;">
-      <h3>DJ Controls <span id="djRoom" class="muted"></span></h3>
-      <input type="file" id="audioFile" accept="audio/*"/>
-      <audio id="djAudio" controls></audio>
-      <div style="margin-top:8px;">
-        <button class="btn" id="djPlay">Play (local)</button>
-        <button class="btn secondary" id="djPause">Pause (local)</button>
-        <button class="btn danger" id="djStop">Stop (local)</button>
-      </div>
-      <div style="margin-top:12px;">
-        <strong>Connected listeners</strong>
-        <div id="peers" class="muted">None</div>
-      </div>
-    </div>
-
-    <div id="listenerCard" class="card" style="display:none;">
-      <h3>Listener <span id="liRoom" class="muted"></span></h3>
-      <audio id="listenerAudio" autoplay controls></audio>
+      <h3>Identity</h3>
+      <div>Client: <span id="clientId">-</span></div>
+      <div>Name: <span id="clientName">-</span></div>
+      <button id="btnIdentify">Identify</button>
     </div>
 
     <div class="card">
-      <h3>Log</h3>
-      <div id="log" class="log"></div>
+      <h3>Create Room (DJ)</h3>
+      <input id="roomName" placeholder="Room name" value="My Disco" />
+      <button id="btnCreate">Create as DJ</button>
+      <div>Room: <span id="roomId">-</span></div>
+      <div>Role: <span id="role">-</span></div>
+      <button id="btnPlayLocal" disabled>Play DJ Local</button>
+    </div>
+
+    <div class="card">
+      <h3>Join Room (Listener)</h3>
+      <input id="joinRoomId" placeholder="Room ID" />
+      <button id="btnJoin">Join as Listener</button>
+      <div>Role: <span id="role2">-</span></div>
+      <audio id="listenerAudio" controls autoplay playsinline></audio>
     </div>
   </div>
 
-  <script>
-    const API = location.origin;
-    const WS_URL = `ws://${location.host}/ws`;
+  <h3>Log</h3>
+  <div id="log"></div>
 
-    // Dynamic ICE config (STUN + optional TURN from server)
-    let ICE_CONFIG = { iceServers: [] };
+<script>
+const t0 = performance.now();
+const ts = () => (performance.now() - t0).toFixed(1);
+const logEl = document.getElementById('log');
+const log = (...a) => { console.log(...a); logEl.textContent += `[${ts()}ms] ` + a.map(x => typeof x === 'string' ? x : JSON.stringify(x)).join(' ') + '\n'; };
 
-    const state = {
-      userId: null, username: null,
-      roomId: null, role: null, clientId: null,
-      ws: null, pcs: new Map(), pending: new Map(),
-      listeners: new Set(), audioStream: null, senders: new Map()
-    };
+let ICE_CONFIG = { iceServers: [] };
+let ws = null;
 
-    state.pending ??= new Map();
+const state = {
+  clientId: null,
+  name: null,
+  role: null,          // 'dj' or 'listener'
+  roomId: null,
+  audioStream: null,   // DJ local stream (real or dummy)
+  peers: new Map(),    // peerId -> SimplePeer instance
+};
 
-    // Add near top of index.html
-    const t0 = performance.now();
-    const ts = () => (performance.now() - t0).toFixed(1);
-    const log = (...a) => {
-      console.log(`[${ts()}ms]`, ...a)
+async function loadIceConfig() {
+  const res = await fetch('/config');
+  const data = await res.json();
+  ICE_CONFIG = { iceServers: data.iceServers || [] };
+  log('Loaded ICE servers', ICE_CONFIG.iceServers?.length || 0);
+}
 
-      const el = document.getElementById('log');
-      if (el) {
-        el.insertAdjacentHTML('beforeend', `<div>[${new Date().toLocaleTimeString()}] ${a}</div>`);
-        el.scrollTop = el.scrollHeight;
+async function identify() {
+  const res = await fetch('/user/identify', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({}) });
+  const data = await res.json();
+  state.clientId = data.client_id;
+  state.name = data.name;
+  document.getElementById('clientId').textContent = state.clientId;
+  document.getElementById('clientName').textContent = state.name;
+  log('User identified', state.name, state.clientId);
+}
+
+async function connectWS() {
+  if (!state.clientId) return;
+  ws = new WebSocket(`ws://${location.host}/ws?client_id=${state.clientId}`);
+  ws.onopen = () => log('WebSocket connected');
+  ws.onclose = () => log('WebSocket disconnected');
+  ws.onerror = (e) => log('WebSocket error', e);
+  ws.onmessage = (ev) => {
+    let msg = {};
+    try { msg = JSON.parse(ev.data); } catch { return; }
+    if (msg.type === 'new_listener') {
+      // Only DJ receives this
+      const listenerId = msg.listener_id;
+      log('new_listener', listenerId);
+      if (state.role === 'dj') {
+        createPeerForListener(listenerId);
       }
-
-    };
-
-    // Wrap your signaling send()
-    function send(msg) {
-      const json = JSON.stringify(msg);
-      log('WS →', msg.type, 'bytes=', json.length, 'target=', msg.target, 'from=', msg.from);
-      ws.send(json);
+      return;
     }
-
-    // Parse ICE for logging
-    function describeCandidate(c) {
-      const s = (c.candidate || '').trim();
-      const type = (s.match(/ typ ([a-z]+)/) || [])[1] || 'unknown';
-      const proto = (s.match(/ udp| tcp/) || [])[0]?.trim() || 'unknown';
-      const addr = (s.match(/candidate:.* ([0-9a-zA-Z\.\-:]+) \d+ typ/) || [])[1] || 'addr?';
-      const isMdns = /\.local(?:domain)?$/.test(addr);
-      const isLoop = addr === '127.0.0.1' || addr === '::1';
-      return { type, proto, addr, isMdns, isLoop };
+    if (msg.type === 'listener_left') {
+      const lid = msg.listener_id;
+      const p = state.peers.get(lid);
+      if (p) { try { p.destroy(); } catch {} state.peers.delete(lid); }
+      log('listener_left', lid);
+      return;
     }
-
-    function cid() { return 'client_' + Math.random().toString(36).slice(2, 11); }
-
-    async function api(path, body) {
-      const res = await fetch(API + path, {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify(body || {})
-      });
-      return res.json();
+    if (msg.type === 'room_closed') {
+      log('Room closed');
+      return;
     }
-
-    async function loadIceConfig() {
-      try {
-        const res = await fetch(API + '/config');
-        const data = await res.json();
-        if (data && Array.isArray(data.iceServers)) {
-          ICE_CONFIG = { iceServers: data.iceServers };
-          log(`Loaded ICE servers (${data.iceServers.length})`);
-        } else {
-          throw new Error('Invalid ICE config');
-        }
-      } catch (e) {
-        // Fallback to STUN-only if server config fails
-        ICE_CONFIG = { iceServers: [
-          { urls: 'stun:stun.l.google.com:19302' },
-          { urls: 'stun:stun1.l.google.com:19302' },
-        ]};
-        log(`Using default STUN-only ICE (config error: ${e.message})`);
-      }
+    if (msg.type === 'sp-signal') {
+      const from = msg.from;
+      const payload = msg.payload;
+      onSimplePeerSignal(from, payload);
+      return;
     }
+  };
+}
 
-    async function identify() {
-      const existing = localStorage.getItem('userId');
-      const data = await api('/user/identify', { user_id: existing });
-      if (data.success) {
-        state.userId = data.user.user_id;
-        state.username = data.user.username;
-        localStorage.setItem('userId', state.userId);
-        const who = document.getElementById('whoami');
-        if (who) who.textContent = `Welcome ${state.username} (${state.userId.slice(0, 8)})`;
-        log(`User identified: ${state.username}`);
-        await listRooms();
-      }
+function send(msg) {
+  if (!ws || ws.readyState !== WebSocket.OPEN) return;
+  ws.send(JSON.stringify(msg));
+}
+
+// Ensure we have an audio track before offering (dummy if needed)
+async function ensureAudioTrack() {
+  if (state.audioStream && state.audioStream.getAudioTracks()[0]) return;
+  try {
+    // Try getting a real mic track (or your DJ audio source)
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+    state.audioStream = stream;
+    log('Attached real audio track for DJ');
+  } catch {
+    // Fallback: silent oscillator to stabilize negotiation
+    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    const dst = ctx.createMediaStreamDestination();
+    const osc = ctx.createOscillator(); osc.frequency.value = 0; osc.connect(dst); osc.start();
+    state.audioStream = dst.stream;
+    log('Attached dummy silent track for initial offer');
+  }
+}
+
+function createPeerForListener(listenerId) {
+  // DJ -> create initiator peer
+  const p = new SimplePeer({
+    initiator: true,
+    trickle: true,
+    stream: state.audioStream || undefined,
+    config: ICE_CONFIG
+  });
+
+  wirePeerEvents(p, listenerId, 'dj');
+  state.peers.set(listenerId, p);
+}
+
+function ensurePeerForDj(djId) {
+  // Listener -> ensure responder peer
+  if (state.peers.has(djId)) return state.peers.get(djId);
+  const p = new SimplePeer({
+    initiator: false,
+    trickle: true,
+    config: ICE_CONFIG
+  });
+  wirePeerEvents(p, djId, 'listener');
+  state.peers.set(djId, p);
+  return p;
+}
+
+function wirePeerEvents(p, peerId, role) {
+  p.on('signal', (payload) => {
+    // Send any SDP/ICE from Simple-Peer
+    send({ type: 'sp-signal', target: peerId, from: state.clientId, payload });
+    log(role === 'dj' ? 'DJ sp-signal →' : 'Listener sp-signal →', peerId, typeof payload === 'string' ? payload.slice(0, 40) + '...' : Object.keys(payload));
+  });
+  p.on('connect', () => {
+    log('peer connected', peerId);
+  });
+  p.on('stream', (remoteStream) => {
+    if (role === 'listener') {
+      const el = document.getElementById('listenerAudio');
+      el.srcObject = remoteStream;
+      el.play().then(() => log('listener audio playing')).catch(e => log('listener play error', e));
     }
+  });
+  p.on('error', (err) => {
+    log('peer error', peerId, err?.message || err);
+  });
+  p.on('close', () => {
+    log('peer closed', peerId);
+  });
+}
 
-    async function listRooms() {
-      const res = await fetch(API + '/rooms');
-      const data = await res.json();
-      const el = document.getElementById('rooms');
-      if (!el) return;
-      el.innerHTML = '';
-      if (!data.success || data.rooms.length === 0) {
-        el.innerHTML = '<div class="muted">No rooms yet</div>';
-        return;
-      }
-      data.rooms.forEach(r => {
-        const live = r.is_live ? 'LIVE' : 'Offline';
-        const div = document.createElement('div');
-        div.className = 'card';
-        div.innerHTML = `
-          <div><strong>${r.name}</strong> (${live})</div>
-          <div class="muted">DJ: ${r.dj_username} • listeners: ${r.listener_count}</div>
-          <div style="margin-top:8px;"><button class="btn" data-room="${r.room_id}">Join as listener</button></div>`;
-        div.querySelector('button').onclick = () => join(r.room_id, 'listener');
-        el.appendChild(div);
-      });
-    }
+function onSimplePeerSignal(fromPeerId, payload) {
+  // If listener, fromPeerId is the DJ; if DJ, fromPeerId is a listener
+  const p = state.peers.get(fromPeerId) || (state.role === 'listener' ? ensurePeerForDj(fromPeerId) : null);
+  if (!p) {
+    log('signal for missing peer', fromPeerId);
+    return;
+  }
+  try {
+    p.signal(payload);
+    log('sp-signal applied from', fromPeerId, typeof payload === 'string' ? payload.slice(0, 40) + '...' : Object.keys(payload));
+  } catch (e) {
+    log('signal apply error', fromPeerId, e?.message || e);
+  }
+}
 
-    async function createRoom() {
-      const name = document.getElementById('roomName').value || 'My Disco';
-      const data = await api('/room/create', { user_id: state.userId, room_name: name });
-      if (data.success) await join(data.room.room_id, 'dj');
-    }
+// UI actions
+document.getElementById('btnIdentify').onclick = async () => { await identify(); await loadIceConfig(); await connectWS(); };
 
-    async function join(roomId, role) {
-      state.clientId = cid();
-      state.role = role;
-      state.roomId = roomId;
-      const data = await api(`/room/${roomId}/join`, { user_id: state.userId, role, client_id: state.clientId });
-      if (!data.success) return;
+document.getElementById('btnCreate').onclick = async () => {
+  if (!state.clientId) { await identify(); await loadIceConfig(); await connectWS(); }
+  const name = (document.getElementById('roomName').value || 'My Disco').trim();
+  const res = await fetch('/room/create', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ client_id: state.clientId, name }) });
+  const data = await res.json();
+  if (!data.ok) { log('create failed', data.error || ''); return; }
+  state.roomId = data.room_id;
+  state.role = 'dj';
+  document.getElementById('roomId').textContent = state.roomId;
+  document.getElementById('role').textContent = 'dj';
+  document.getElementById('btnPlayLocal').disabled = false;
+  // Join as DJ
+  await fetch(`/room/${state.roomId}/join`, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ client_id: state.clientId, role: 'dj' }) });
+  // Ensure audio ready for first initiations
+  await ensureAudioTrack();
+  log('DJ ready; will create peers on new_listener');
+};
 
-      if (role === 'dj') {
-        document.getElementById('djCard').style.display = '';
-        document.getElementById('listenerCard').style.display = 'none';
-        document.getElementById('djRoom').textContent = roomId;
-        setupDJ();
-      } else {
-        document.getElementById('listenerCard').style.display = '';
-        document.getElementById('djCard').style.display = 'none';
-        document.getElementById('liRoom').textContent = roomId;
-      }
-      connectWS();
-      log(`✅ Joined room as ${role}`);
-    }
+document.getElementById('btnPlayLocal').onclick = async () => {
+  // Local monitoring for DJ
+  if (!state.audioStream) { await ensureAudioTrack(); }
+  const localAudio = new Audio();
+  localAudio.srcObject = state.audioStream;
+  localAudio.muted = false;
+  localAudio.autoplay = true;
+  localAudio.playsInline = true;
+  localAudio.play().then(() => log('Playing (local)')).catch(e => log('Local play error', e));
+};
 
-    async function leave() {
-      if (state.roomId && state.clientId) await api(`/room/${state.roomId}/leave`, { client_id: state.clientId });
-      for (const [, pc] of state.pcs) pc.close();
-      state.pcs.clear();
-      state.senders?.clear();
-      if (state.ws) { state.ws.close(); state.ws = null; }
-      if (state.audioStream) { state.audioStream.getTracks().forEach(t => t.stop()); state.audioStream = null; }
-      document.getElementById('djCard').style.display = 'none';
-      document.getElementById('listenerCard').style.display = 'none';
-      await listRooms();
-      log('🚪 Left room');
-    }
+document.getElementById('btnJoin').onclick = async () => {
+  if (!state.clientId) { await identify(); await loadIceConfig(); await connectWS(); }
+  const rid = (document.getElementById('joinRoomId').value || '').trim();
+  if (!rid) { log('enter room id'); return; }
+  state.roomId = rid;
+  state.role = 'listener';
+  document.getElementById('role2').textContent = 'listener';
+  const res = await fetch(`/room/${state.roomId}/join`, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ client_id: state.clientId, role: 'listener' }) });
+  const data = await res.json();
+  if (!data.ok) { log('join failed', data.error || ''); return; }
+  log('Joined room as listener; wait for DJ signaling');
+};
 
-    function connectWS() {
-      state.ws = new WebSocket(WS_URL);
-      state.ws.onopen = () => {
-        log('🔌 WebSocket connected');
-        send({ type: 'register', client_id: state.clientId, room_id: state.roomId });
-      };
-      state.ws.onmessage = async (ev) => { const msg = JSON.parse(ev.data); await onSignal(msg); };
-      state.ws.onerror = (e) => log(`WS error: ${e.message || e}`);
-      state.ws.onclose = () => log('🔌 WebSocket disconnected');
-    }
-
-    function send(m) { if (state.ws && state.ws.readyState === 1) state.ws.send(JSON.stringify(m)); }
-
-    async function onSignal(data) {
-      const { type } = data;
-      if (type === 'room_state' && state.role === 'dj') {
-        for (const lid of data.clients) {
-          if (lid === state.clientId) continue;
-          if (!state.pcs.has(lid)) await createPCForListener(lid);
-        }
-      } else if (type === 'new_listener' && state.role === 'dj') {
-        state.listeners.add(data.client_id);
-        await createPCForListener(data.client_id);
-      } else if (type === 'offer' && state.role === 'listener') {
-        await onOffer(data);
-      } else if (type === 'answer' && state.role === 'dj') {
-        await onAnswer(data);
-      } else if (type === 'ice-candidate') {
-        await onIce(data);
-      } else if (type === 'room_closed') {
-        log('Room closed'); await leave();
-      } else if (type === 'listener_left') {
-        const pc = state.pcs.get(data.client_id);
-        if (pc) pc.close();
-        state.pcs.delete(data.client_id);
-        state.listeners.delete(data.client_id);
-        renderPeers();
-      }
-      renderPeers();
-    }
-
-    function renderPeers() {
-      const el = document.getElementById('peers');
-      if (!el) return;
-      if (!state.listeners.size) { el.textContent = 'None'; return; }
-      el.innerHTML = '';
-      for (const lid of state.listeners) {
-        const pc = state.pcs.get(lid);
-        const st = pc ? pc.connectionState : 'init';
-        const div = document.createElement('div');
-        div.textContent = `${lid.slice(0,12)} — ${st}`;
-        el.appendChild(div);
-      }
-    }
-
-    async function ensureAudioBeforeOffer(pc) {
-      const ctx = new (window.AudioContext || window.webkitAudioContext)();
-      const dst = ctx.createMediaStreamDestination();
-      const osc = ctx.createOscillator(); osc.frequency.value = 0; osc.connect(dst); osc.start();
-      const track = dst.stream.getAudioTracks()[0];
-      pc.addTransceiver('audio', { direction: 'sendonly' }).sender.replaceTrack(track);
-      log('attached dummy silent track before offer');
-    }
-
-
-    function attachRecovery(pc, peerId, recreateFn) {
-      let recovering = false;
-      pc.onconnectionstatechange = async () => {
-        log('conn=', pc.connectionState, 'peer=', peerId);
-        if (pc.connectionState === 'failed' && !recovering) {
-          recovering = true;
-          try {
-            const off = await pc.createOffer({ iceRestart: true });
-            await pc.setLocalDescription(off);
-            send({ type:'offer', sdp:off.sdp, sdpType:off.type, target:peerId, from:state.clientId });
-            log('ICE restart sent', peerId);
-          } catch (e) { log('restart error', e); }
-          setTimeout(async () => {
-            if (pc.connectionState !== 'connected') {
-              try { pc.close(); } catch {}
-              state.pcs.delete(peerId);
-              log('recreate PC', peerId);
-              await recreateFn(peerId);
-            }
-            recovering = false;
-          }, 3000);
-        }
-      };
-    }
-
-    // DJ: create PC for listener; use transceiver-first approach and later replaceTrack
-    // DJ: create a PC for a specific listener and send ICE to that listenerId
-    async function createPCForListener(listenerId) {
-      const pc = new RTCPeerConnection(ICE_CONFIG);
-      await ensureAudioBeforeOffer(pc);
-      const tx = pc.addTransceiver('audio', { direction:'sendonly' });
-      const track = state.audioStream.getAudioTracks()[0];
-      await tx.sender.replaceTrack(track);
-      state.pcs.set(listenerId, pc);
-
-      log('PC[dj]', listenerId, 'created, cfg iceServers=', ICE_CONFIG.iceServers?.length);
-
-      pc.onicegatheringstatechange = () => log('gathering=', pc.iceGatheringState);
-      pc.oniceconnectionstatechange = () => log('ice=', pc.iceConnectionState);
-      pc.onconnectionstatechange = () => log('conn=', pc.connectionState);
-      pc.onsignalingstatechange = () => log('signal=', pc.signalingState);
-
-      pc.onicecandidate = (e) => {
-        if (!e.candidate) { log('ICE gather complete'); return; }
-        const s = e.candidate.candidate || '';
-        const type = (s.match(/ typ ([a-z]+)/)||[])[1] || 'unknown';
-        const proto = (s.match(/ udp| tcp/)||[])[0]?.trim() || 'unknown';
-        const addr = (s.match(/candidate:.* ([0-9a-zA-Z\.\-:]+) \d+ typ/)||[])[1] || 'addr?';
-        const isMdns = /\.local(?:domain)?$/.test(addr);
-        const isLoop = addr === '127.0.0.1' || addr === '::1';
-        log('send ICE', {type, proto, addr, isMdns, isLoop});
-        send({ type:'ice-candidate', candidate:e.candidate, target:listenerId, from:state.clientId });
-      };
-      // Poll stats to confirm nomination
-
-      const statsTimer = setInterval(async () => {
-        try {
-          if (['failed','closed'].includes(pc.connectionState)) { clearInterval(statsTimer); return; }
-          const stats = await pc.getStats();
-          // inspect candidate-pair for nomination
-          stats.forEach(r => {
-            if (r.type === 'candidate-pair' && r.nominated && r.state === 'succeeded') {
-              log('selected pair', {local:r.localCandidateId, remote:r.remoteCandidateId, proto:r.protocol});
-            }
-          });
-        } catch { clearInterval(statsTimer); }
-      }, 500);
-      attachRecovery(pc, listenerId, createPCForListener);
-      const offer = await pc.createOffer();
-      await pc.setLocalDescription(offer);
-      log('PC[dj]', listenerId, 'setLocalDescription offer len=', offer.sdp.length);
-      send({ type: 'offer', sdp: offer.sdp, sdpType: offer.type, target: listenerId, from: state.clientId });
-    }
-
-    // Listener: handle offer → answer
-    // Listener: capture djId from the offer and send ICE back to that djId
-    async function onOffer({ from, sdp, sdpType }) {
-      const djId = from;
-      let pc = state.pcs.get(djId);
-      if (!pc) {
-        pc = new RTCPeerConnection(ICE_CONFIG);
-        state.pcs.set(djId, pc);
-        state.pending ??= new Map();
-        log('PC[listener]', djId, 'created');
-
-        pc.onicegatheringstatechange = () => log('gathering=', pc.iceGatheringState);
-        pc.oniceconnectionstatechange = () => log('ice=', pc.iceConnectionState);
-        pc.onconnectionstatechange = () => log('conn=', pc.connectionState);
-        pc.onsignalingstatechange = () => log('signal=', pc.signalingState);
-
-        pc.onicecandidate = (e) => {
-          if (!e.candidate) { log('ICE gather complete'); return; }
-          const s = e.candidate.candidate || '';
-          const type = (s.match(/ typ ([a-z]+)/)||[])[1] || 'unknown';
-          const proto = (s.match(/ udp| tcp/)||[])[0]?.trim() || 'unknown';
-          const addr = (s.match(/candidate:.* ([0-9a-zA-Z\.\-:]+) \d+ typ/)||[])[1] || 'addr?';
-          const isMdns = /\.local(?:domain)?$/.test(addr);
-          const isLoop = addr === '127.0.0.1' || addr === '::1';
-          log('send ICE', {type, proto, addr, isMdns, isLoop});
-          send({ type:'ice-candidate', candidate:e.candidate, target:djId, from:state.clientId });
-        };
-
-        // Poll stats to confirm nomination
-        const statsTimer = setInterval(async () => {
-          try {
-            if (['failed','closed'].includes(pc.connectionState)) { clearInterval(statsTimer); return; }
-            const stats = await pc.getStats();
-            // inspect candidate-pair for nomination
-            stats.forEach(r => {
-              if (r.type === 'candidate-pair' && r.nominated && r.state === 'succeeded') {
-                log('selected pair', {local:r.localCandidateId, remote:r.remoteCandidateId, proto:r.protocol});
-              }
-            });
-          } catch { clearInterval(statsTimer); }
-        }, 500);
-        pc.ontrack = (ev) => {
-          log('PC[listener]', djId, 'ontrack streams=', ev.streams?.length || 0);
-          const el = document.getElementById('listenerAudio');
-          el.srcObject = ev.streams[0];
-          el.play().then(()=>log('PC[listener]', djId, 'audio playing')).catch(e=>log('PC[listener]', djId, 'play error', e));
-        };
-
-        const recreateForDj = async (peerId) => {
-        // here you might send a control message to request a new offer,
-        // or just rely on the DJ’s recovery to re-offer automatically
-          log('listener awaiting new offer from', peerId);
-        };
-        attachRecovery(pc, djId, recreateForDj);
-      }
-
-      await pc.setRemoteDescription({ type: sdpType, sdp });
-      log('PC[listener]', djId, 'setRemoteDescription offer len=', sdp.length);
-
-      const pend = state.pending.get(djId) || [];
-      if (pend.length) { log('PC[listener]', djId, 'draining pending ICE count=', pend.length); }
-      for (const c of pend) await pc.addIceCandidate(new RTCIceCandidate(c));
-      state.pending.delete(djId);
-
-      const answer = await pc.createAnswer();
-      await pc.setLocalDescription(answer);
-      send({ type: 'answer', sdp: answer.sdp, sdpType: answer.type, target: djId, from: state.clientId });
-    }
-
-    async function onAnswer({ from, sdp, sdpType }) {
-      const pc = state.pcs.get(from);
-      if (!pc) return log('PC[dj]', from, 'answer for missing pc');
-      await pc.setRemoteDescription({ type: sdpType, sdp });
-      log('PC[dj]', from, 'setRemoteDescription answer len=', sdp.length);
-
-      const pend = state.pending?.get(from);
-      if (pend?.length) {
-        log('PC[dj]', from, 'draining pending ICE count=', pend.length);
-        for (const c of pend) await pc.addIceCandidate(new RTCIceCandidate(c));
-        state.pending.delete(from);
-      }
-    }
-
-    async function onIce({ from, candidate }) {
-      const pc = state.pcs.get(from);
-      if (!pc || !pc.remoteDescription) {
-        const list = state.pending.get(from) || [];
-        list.push(candidate);
-        state.pending.set(from, list);
-        log('PC[listener]', from, 'queued ICE (no remoteDesc) count=', list.length);
-        return;
-      }
-      const d = describeCandidate(candidate);
-      await pc.addIceCandidate(new RTCIceCandidate(candidate));
-      log('PC[listener]', from, 'added ICE', d);
-    }
-    // DJ setup — real stream created on file select; replaceTrack on all senders
-    function setupDJ() {
-      const file = document.getElementById('audioFile');
-      const djAudio = document.getElementById('djAudio');
-
-      file.onchange = async (e) => {
-        const f = e.target.files[0];
-        if (!f) return;
-        djAudio.src = URL.createObjectURL(f);
-
-        const ctx = new AudioContext();
-        const src = ctx.createMediaElementSource(djAudio);
-        const dst = ctx.createMediaStreamDestination();
-        src.connect(dst);
-        src.connect(ctx.destination);
-        state.audioStream = dst.stream;
-        log('✅ Audio stream ready');
-
-        const track = state.audioStream.getAudioTracks()[0];
-        if (track) {
-          for (const [lid, sender] of state.senders) {
-            try {
-              await sender.replaceTrack(track);
-              log(`Attached real track to ${lid}`);
-            } catch (err) {
-              log(`replaceTrack error (${lid}): ${err.message}`);
-            }
-          }
-        }
-      };
-
-      document.getElementById('djPlay').onclick = () => { djAudio.play(); log('▶️ Playing (local)'); };
-      document.getElementById('djPause').onclick = () => { djAudio.pause(); log('⏸️ Paused (local)'); };
-      document.getElementById('djStop').onclick = () => { djAudio.pause(); djAudio.currentTime = 0; log('⏹️ Stopped (local)'); };
-    }
-
-    // Boot: first load ICE config, then identify
-    document.getElementById('createBtn').onclick = createRoom;
-    window.addEventListener('load', async () => {
-      await loadIceConfig();
-      await identify();
-      setInterval(() => { if (!state.roomId) listRooms(); }, 5000);
-    });
-  </script>
+// Auto-identify on load for convenience
+window.addEventListener('load', async () => {
+  await identify();
+  await loadIceConfig();
+  await connectWS();
+});
+</script>
 </body>
 </html>
