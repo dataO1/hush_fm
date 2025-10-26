@@ -4,7 +4,6 @@
   <meta charset="utf-8" />
   <title>Silent Disco</title>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <!-- LiveKit Web SDK (UMD exposes global LivekitClient) -->
   <script src="/static/livekit-client.min.js"></script>
   <style>
     :root {
@@ -20,6 +19,7 @@
       --ok: #1ae5c9;
       --wave-off: #6a6a7a;
       --wave-on: #7c5cff;
+      --rec: #ff3366;
     }
     * { box-sizing: border-box; }
     html, body { margin:0; padding:0; min-height:100%; background: radial-gradient(1200px 600px at 80% -10%, #181828, transparent), var(--bg); color: var(--text); font-family: Inter, ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, "Helvetica Neue", Arial, "Noto Sans"); }
@@ -35,11 +35,32 @@
     .room-item { display:flex; justify-content: space-between; align-items:center; padding: 12px; border-radius: 12px; background: #141421; border: 1px solid #232334; text-align: left; }
     .room-meta { display:flex; gap: 12px; align-items:center; }
     .badge { font-size: 12px; padding: 6px 10px; border-radius: 999px; background: #1a1a28; color: var(--muted); border: 1px solid #26263a; }
-    .btn { cursor: pointer; appearance: none; border: 0; border-radius: 12px; padding: 12px 16px; font-weight: 700; letter-spacing: .3px; }
+    .btn { cursor: pointer; appearance: none; border: 0; border-radius: 12px; padding: 12px 16px; font-weight: 700; letter-spacing: .3px; transition: all 0.2s; position: relative; }
     .btn.primary { color: #0b0b12; background: linear-gradient(90deg, var(--accent) 0%, var(--accent2) 100%); }
     .btn.secondary { background: #1a1a28; color: var(--text); border: 1px solid #2b2b3d; }
-    .btn.off { background: #1a1a28; color: var(--muted); border: 1px solid var(--off); }
-    .btn.onair { background: var(--danger); color: #fff; }
+    .btn.secondary.active { background: var(--accent); color: #fff; border-color: var(--accent); }
+    .btn.rec { background: var(--rec); color: #fff; font-size: 24px; padding: 14px 20px; }
+    .btn.rec::before { content: '●'; animation: pulse 1.5s ease-in-out infinite; }
+    .btn.stopped { background: #2a2a39; color: var(--muted); border: 1px solid var(--off); font-size: 20px; padding: 14px 20px; }
+    .btn.stopped::before { content: '■'; }
+    @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
+    .btn[title]:hover::after {
+      content: attr(title);
+      position: absolute;
+      bottom: 100%;
+      left: 50%;
+      transform: translateX(-50%);
+      background: #1a1a28;
+      color: var(--text);
+      padding: 6px 10px;
+      border-radius: 6px;
+      font-size: 12px;
+      white-space: nowrap;
+      margin-bottom: 8px;
+      border: 1px solid #2b2b3d;
+      font-weight: 400;
+      z-index: 10;
+    }
     .title { font-size: 22px; margin: 0 0 6px; }
     .room-title { font-size: 24px; font-weight: 800; margin: 0 0 2px; }
     .section-title { margin: 4px 0 8px; font-size: 14px; color: var(--muted); }
@@ -49,6 +70,16 @@
     .field { display:flex; gap:8px; flex-wrap:wrap; align-items:center; justify-content: center; }
     .input { padding: 10px 12px; border-radius: 10px; background: #11111a; color: var(--text); border: 1px solid #2b2b3d; min-width: 220px; }
     .close-float { position:absolute; top: 12px; right: 12px; }
+    .dropdown { position: relative; display: inline-block; }
+    .dropdown-content { display: none; position: absolute; background: #1a1a28; min-width: 200px; box-shadow: 0 8px 16px rgba(0,0,0,0.3); border-radius: 8px; z-index: 1; margin-top: 4px; border: 1px solid #2b2b3d; }
+    .dropdown-content.show { display: block; }
+    .dropdown-item { padding: 10px 14px; cursor: pointer; color: var(--text); border-bottom: 1px solid #2b2b3d; }
+    .dropdown-item:last-child { border-bottom: none; }
+    .dropdown-item:hover { background: #252535; }
+    .stats-table { width: 100%; border-collapse: collapse; margin: 12px 0; font-size: 13px; }
+    .stats-table td { padding: 6px 8px; border-bottom: 1px solid #232334; }
+    .stats-table td:first-child { color: var(--muted); width: 40%; }
+    .stats-table td:last-child { text-align: right; font-weight: 600; }
     @media (max-width: 720px) {
       .grid { grid-template-columns: repeat(6, 1fr); }
       .room-item { flex-direction: column; align-items: flex-start; gap: 8px; }
@@ -57,8 +88,6 @@
       .room-title { font-size: 22px; }
     }
     .src-tabs { display:flex; gap: 8px; margin: 8px 0 12px; flex-wrap: wrap; justify-content: center; }
-    .file, .extbox { border: 1px dashed #2b2b3d; padding: 12px; border-radius: 12px; background: #101018; color: var(--muted); text-align: left; }
-    .select { padding: 10px; border-radius: 10px; background: #11111a; color: var(--text); border: 1px solid #2b2b3d; }
     #wave { width: 100%; height: 80px; background: #0f0f18; border-radius: 10px; border: 1px solid #232334; }
     #djWave { width: 100%; height: 60px; background: #0f0f18; border-radius: 10px; border: 1px solid #232334; }
     #offline { color: var(--muted); font-size: 13px; margin-top: 6px; }
@@ -73,7 +102,7 @@
     </header>
 
     <main class="wrap">
-      <!-- Landing (only on "/") -->
+      <!-- Landing -->
       <section id="landing" class="grid hidden">
         <div class="card" style="grid-column: 1 / -1;">
           <div class="row" style="align-items:center;">
@@ -85,7 +114,7 @@
           <div class="row">
             <div class="field">
               <input id="roomNameInput" class="input" placeholder="Room name (e.g., Neon Groove)" />
-              <button id="btnCreate" class="btn primary">Create room (DJ)</button>
+              <button id="btnCreate" class="btn primary" title="Create DJ room">Create room (DJ)</button>
             </div>
           </div>
         </div>
@@ -99,7 +128,7 @@
       <!-- DJ View -->
       <section id="djView" class="grid hidden">
         <div class="card" style="grid-column: 1 / -1;">
-          <button id="btnClose" class="btn secondary close-float">Close floor</button>
+          <button id="btnClose" class="btn secondary close-float" title="Close room">Close floor</button>
           <div class="room-title" id="djRoomTitle">Room</div>
           <div class="section-title">ID <span id="djRoomId"></span> • You: <span id="djName"></span></div>
         </div>
@@ -108,24 +137,17 @@
           <div class="row" style="gap:16px; align-items:flex-start;">
             <div style="flex: 1 1 320px;">
               <div class="src-tabs">
-                <button id="srcMic" class="btn secondary">Microphone</button>
-                <button id="srcTrack" class="btn secondary">Upload track</button>
-                <button id="srcExternal" class="btn secondary">External device</button>
-              </div>
-
-              <div id="fileBox" class="file hidden">
-                <input id="fileInput" type="file" accept="audio/*" />
-                <div class="section-title">Local file streams live (no local monitor)</div>
-              </div>
-
-              <div id="extBox" class="extbox hidden">
-                <div class="section-title">Select USB/External audio interface</div>
-                <select id="extSelect" class="select"></select>
-                <div class="section-title">Grant mic permission first if the list is empty</div>
+                <button id="srcMic" class="btn secondary" title="Use microphone">Microphone</button>
+                <button id="srcTrack" class="btn secondary" title="Upload audio">Upload track</button>
+                <input type="file" id="fileInput" accept="audio/*" style="display:none;" />
+                <div class="dropdown">
+                  <button id="srcExternal" class="btn secondary" title="External audio">External device ▾</button>
+                  <div id="extDropdown" class="dropdown-content"></div>
+                </div>
               </div>
 
               <div class="row">
-                <button id="btnOnAir" class="btn off">Go On Air</button>
+                <button id="btnMute" class="btn stopped" title="Toggle broadcast"></button>
               </div>
             </div>
 
@@ -149,6 +171,20 @@
         </div>
       </section>
 
+      <!-- Connection Stats -->
+      <section id="statsCard" class="grid hidden">
+        <div class="card" style="grid-column: 1 / -1;">
+          <div class="title">Connection Health</div>
+          <table class="stats-table">
+            <tr><td>State</td><td id="statState">—</td></tr>
+            <tr><td>Latency (RTT)</td><td id="statLatency">—</td></tr>
+            <tr><td>Bitrate</td><td id="statBitrate">—</td></tr>
+            <tr><td>Packet Loss</td><td id="statLoss">—</td></tr>
+            <tr><td>Codec</td><td id="statCodec">—</td></tr>
+          </table>
+        </div>
+      </section>
+
       <!-- Debug Log -->
       <section id="logCard" class="grid">
         <div class="card log" style="grid-column: 1 / -1;">
@@ -167,64 +203,73 @@ const ts = () => (performance.now()-t0).toFixed(1);
 const logEl = document.getElementById('log');
 const log = (...a)=>{ console.log(...a); logEl.textContent += `[${ts()}ms] `+a.map(x=> typeof x==='string'?x:JSON.stringify(x)).join(' ') + '\n'; };
 
-// LiveKit global
 const LK = (typeof LivekitClient !== 'undefined') ? LivekitClient : window.LivekitClient;
 
-let ICE_CONFIG = { iceServers: [] }; // compat
+let ICE_CONFIG = { iceServers: [] };
 const state = {
   clientId: null, name: null, role: null, roomId: null, roomName: '',
   lkRoom: null,
   localTrack: null,
   currentPub: null,
   onAir: false,
-  source: 'mic',          // 'mic' | 'file' | 'external'
+  source: 'mic',
   file: null,
   fileAudioEl: null,
   audioCtx: null, waveSrc: null,
   analyser: null, raf: 0,
   djAnalyser: null, djRaf: 0,
   extDeviceId: null,
-  listenerAttached: false
+  listenerAttached: false,
+  statsInterval: null
 };
 
-// Sections
 const landing = document.getElementById('landing');
 const djView = document.getElementById('djView');
 const listenerView = document.getElementById('listenerView');
+const statsCard = document.getElementById('statsCard');
 const roomsList = document.getElementById('roomsList');
 const offline = document.getElementById('offline');
-const btnOnAir = document.getElementById('btnOnAir');
+const btnMute = document.getElementById('btnMute');
 
-// Routing
 function show(section) {
   landing.classList.add('hidden');
   djView.classList.add('hidden');
   listenerView.classList.add('hidden');
   section.classList.remove('hidden');
+  if (section === djView || section === listenerView) statsCard.classList.remove('hidden');
+  else statsCard.classList.add('hidden');
 }
+
 function parseRoute() {
   const path = location.pathname.replace(/\/+$/, '');
   const m = path.match(/^\/r\/([a-f0-9]{8})$/i);
   const params = new URLSearchParams(location.search);
   return { roomId: m ? m[1] : null, asDj: params.get('dj') === '1' };
 }
-function navigateToRoom(roomId, asDj=false) {
-  const url = `/r/${roomId}${asDj ? '?dj=1' : ''}`;
-  history.pushState({}, '', url);
-}
+
+function navigateToRoom(roomId, asDj=false) { history.pushState({}, '', `/r/${roomId}${asDj ? '?dj=1' : ''}`); }
 function navigateToRoot() { history.pushState({}, '', '/'); }
 
-function updateOnAirButton() {
-  if (state.onAir) { btnOnAir.classList.remove('off'); btnOnAir.classList.add('onair'); btnOnAir.textContent = 'On Air'; }
-  else { btnOnAir.classList.remove('onair'); btnOnAir.classList.add('off'); btnOnAir.textContent = 'Go On Air'; }
+function updateMuteButton() {
+  if (state.onAir) {
+    btnMute.className = 'btn rec';
+  } else {
+    btnMute.className = 'btn stopped';
+  }
 }
 
-// Metadata
+function highlightActiveSource() {
+  document.getElementById('srcMic').classList.toggle('active', state.source === 'mic');
+  document.getElementById('srcTrack').classList.toggle('active', state.source === 'file');
+  document.getElementById('srcExternal').classList.toggle('active', state.source === 'external');
+}
+
 function setDjRoomMeta() {
   document.getElementById('djRoomTitle').textContent = state.roomName || 'Room';
   document.getElementById('djRoomId').textContent = state.roomId || '';
   document.getElementById('djName').textContent = state.name || '';
 }
+
 function setListenerRoomMeta(extra) {
   document.getElementById('lsRoomTitle').textContent = extra?.name || state.roomName || 'Room';
   document.getElementById('lsRoomId').textContent = state.roomId || '';
@@ -232,12 +277,12 @@ function setListenerRoomMeta(extra) {
   document.getElementById('lsCount').textContent = (extra?.listener_count ?? '—');
 }
 
-// Config/identity
 async function loadIceConfig() {
   const res = await fetch('/config'); const data = await res.json();
   ICE_CONFIG = { iceServers: data.iceServers || [] };
   log('Loaded ICE servers', ICE_CONFIG.iceServers?.length || 0);
 }
+
 async function identify() {
   const reuse = localStorage.getItem('sd_client_id');
   const payload = reuse ? { client_id: reuse } : {};
@@ -247,9 +292,9 @@ async function identify() {
   localStorage.setItem('sd_client_id', state.clientId);
   log('Identified', state.name, state.clientId);
 }
+
 async function ensureIdentityReady() { if (!state.clientId) { await identify(); await loadIceConfig(); } }
 
-// Room list
 async function listRooms() {
   const res = await fetch('/rooms'); const data = await res.json();
   if (!data.ok) return;
@@ -264,7 +309,7 @@ async function listRooms() {
         <div class="section-title">DJ ${r.dj_name || '—'} • ${r.listener_count} listening • ${status}</div></div>
       </div>
       <div class="row">
-        ${r.dj_client === state.clientId ? `<button class="btn secondary join" data-id="${r.id}" data-role="dj">Enter (DJ)</button>` : `<button class="btn primary join" data-id="${r.id}" data-role="listener">Join</button>`}
+        ${r.dj_client === state.clientId ? `<button class="btn secondary join" data-id="${r.id}" data-role="dj" title="Enter as DJ">Enter (DJ)</button>` : `<button class="btn primary join" data-id="${r.id}" data-role="listener" title="Join room">Join</button>`}
       </div>
     `;
     roomsList.appendChild(div);
@@ -278,41 +323,35 @@ async function listRooms() {
   });
 }
 
-// Validate room existence
 async function roomExists(roomId) {
   const res = await fetch('/rooms'); const data = await res.json();
   if (!data.ok) return false;
   return !!data.rooms.find(r => r.id === roomId);
 }
 
-// LiveKit
 async function fetchLkToken(role, roomId) {
   const res = await fetch('/lk/token',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({client_id: state.clientId, role, room_id: roomId})});
   const data = await res.json(); if (!data.ok) throw new Error(data.error || 'token failed'); return data;
 }
+
 async function connectRoom(url, token) {
-  const { Room, RoomEvent, setLogLevel, LogLevel, DataPacket_Kind } = LK;
+  const { Room, RoomEvent, setLogLevel, LogLevel } = LK;
   setLogLevel(LogLevel.warn);
   const room = new Room({ adaptiveStream:false, dynacast:false });
 
   room.on(RoomEvent.Connected, async ()=>{ log('LiveKit connected'); await ensurePublishedPresence(); });
   room.on(RoomEvent.Reconnected, async ()=>{ log('LiveKit reconnected'); await ensurePublishedPresence(); });
   room.on(RoomEvent.ParticipantConnected, async ()=>{ await ensurePublishedPresence(); });
-  room.on(RoomEvent.Disconnected, ()=> log('LiveKit disconnected'));
+  room.on(RoomEvent.Disconnected, ()=> { log('LiveKit disconnected'); stopStatsMonitor(); });
 
-  // Optional: react to DJ close via data channel (best-effort)
   room.on(RoomEvent.DataReceived, (payload, participant, kind) => {
     try {
       const msg = new TextDecoder().decode(payload);
       const data = JSON.parse(msg || '{}');
-      if (data?.type === 'room_close') {
-        log('Room closing signal'); try { room.disconnect(); } catch {}
-        navigateToRoot(); show(landing);
-      }
+      if (data?.type === 'room_close') { log('Room closing signal'); try { room.disconnect(); } catch {} navigateToRoot(); show(landing); }
     } catch {}
   });
 
-  // Single attach and immediate playback
   room.on(RoomEvent.TrackSubscribed, (track, pub, participant) => {
     if (track.kind === 'audio') {
       const el = document.getElementById('listenerAudio');
@@ -324,12 +363,14 @@ async function connectRoom(url, token) {
       log('Subscribed audio from', participant.identity);
     }
   });
+
   room.on(RoomEvent.TrackUnsubscribed, (track) => {
     if (track.kind === 'audio') { offline.classList.remove('hidden'); stopWaveform(); }
   });
 
   await room.connect(url, token);
   state.lkRoom = room;
+  startStatsMonitor();
   return room;
 }
 
@@ -342,92 +383,72 @@ function isAudioPublished() {
 
 async function publish(track) {
   const room = state.lkRoom;
-  if (!room || !room.localParticipant) {
-    log('Room not ready for publishing');
-    return;
-  }
-
-  // Single-output: unpublish prior audio without stopping
+  if (!room || !room.localParticipant) { log('Room not ready for publishing'); return; }
   try {
     if (room.localParticipant.trackPublications) {
       for (const p of [...room.localParticipant.trackPublications.values()]) {
-        if (p.track?.kind === 'audio') {
-          await room.localParticipant.unpublishTrack(p.track, { stop: false });
-        }
+        if (p.track?.kind === 'audio') await room.localParticipant.unpublishTrack(p.track, { stop:false });
       }
     }
-  } catch (e) {
-    log('Unpublish error (non-fatal):', e?.message || e);
-  }
-
+  } catch (e) { log('Unpublish error (non-fatal):', e?.message || e); }
   try {
-    const pub = await room.localParticipant.publishTrack(track, { dtx: true, red: true, forceStereo: true });
+    const pub = await room.localParticipant.publishTrack(track, { dtx:true, red:true, forceStereo:true });
     state.localTrack = track;
     state.currentPub = pub;
-
-    if (state.onAir) {
-      await pub.track.unmute();
-    } else {
-      await pub.track.mute();
-    }
+    if (state.onAir) await pub.track.unmute(); else await pub.track.mute();
     refreshDjWave();
     log('Published single audio (stereo); onAir=', state.onAir);
-  } catch (e) {
-    log('Publish error:', e?.message || e);
-  }
+  } catch (e) { log('Publish error:', e?.message || e); }
 }
 
 async function ensurePublishedPresence() {
   if (state.role !== 'dj' || !state.lkRoom || !state.lkRoom.localParticipant) return;
-
   if (!isAudioPublished() || !state.currentPub) {
     let track = state.localTrack;
     if (!track) {
       try {
         if (state.source === 'mic') track = await createMicTrack();
         else if (state.source === 'external') track = await createExternalTrack(state.extDeviceId);
-        else if (state.source === 'file' && state.file) {
-          ({ track } = await createFileTrack(state.file));
-        }
-      } catch (e) {
-        log('Track creation error:', e?.message || e);
-        return;
-      }
+        else if (state.source === 'file' && state.file) ({ track } = await createFileTrack(state.file));
+      } catch (e) { log('Track creation error:', e?.message || e); return; }
     }
     if (track) await publish(track);
   } else {
+    try {
+      if (state.currentPub && state.currentPub.track) {
+        if (state.onAir) await state.currentPub.track.unmute(); else await state.currentPub.track.mute();
+      }
+    } catch (e) { log('mute/unmute error:', e?.message || e); }
   }
 }
 
-// Sources
 async function createMicTrack() {
-  const stream = await navigator.mediaDevices.getUserMedia({
-    audio: { channelCount: 2, sampleRate: 48000, echoCancellation:false, noiseSuppression:false, autoGainControl:false }, video:false
-  });
+  const stream = await navigator.mediaDevices.getUserMedia({ audio: { channelCount: 2, sampleRate: 48000, echoCancellation:false, noiseSuppression:false, autoGainControl:false }, video:false });
   return stream.getAudioTracks()[0];
 }
+
 async function createExternalTrack(deviceId) {
   const constraints = { audio: { deviceId: deviceId ? { exact: deviceId } : undefined, channelCount: 2, sampleRate: 48000, echoCancellation:false, noiseSuppression:false, autoGainControl:false }, video: false };
   const stream = await navigator.mediaDevices.getUserMedia(constraints);
   return stream.getAudioTracks()[0];
 }
+
 async function createFileTrack(file) {
   const url = URL.createObjectURL(file);
   const audioEl = new Audio();
   audioEl.src = url; audioEl.crossOrigin = 'anonymous';
-  audioEl.muted = true; // no local monitor
+  audioEl.muted = true;
   await audioEl.play().catch(()=>{});
   const ctx = new (window.AudioContext||window.webkitAudioContext)();
   const src = ctx.createMediaElementSource(audioEl);
   const dst = ctx.createMediaStreamDestination();
-  src.connect(dst); // do not connect to speakers
+  src.connect(dst);
   const track = dst.stream.getAudioTracks()[0];
   state.fileAudioEl = audioEl;
   state.audioCtx = ctx; state.waveSrc = src;
   return { track, audioEl };
 }
 
-// DJ waveform (color-coded by onAir)
 function refreshDjWave() {
   stopDjWave();
   if (!state.localTrack) return;
@@ -446,19 +467,15 @@ function refreshDjWave() {
       g.strokeStyle = state.onAir ? getComputedStyle(document.documentElement).getPropertyValue('--wave-on').trim() : getComputedStyle(document.documentElement).getPropertyValue('--wave-off').trim();
       g.lineWidth = 2; g.beginPath();
       const step = cvs.width / data.length;
-      for (let i=0;i<data.length;i++){
-        const v = (data[i]-128)/128; const y = cvs.height/2 + v * (cvs.height/2 - 4);
-        const x = i * step;
-        if (i===0) g.moveTo(x,y); else g.lineTo(x,y);
-      }
+      for (let i=0;i<data.length;i++){ const v = (data[i]-128)/128; const y = cvs.height/2 + v * (cvs.height/2 - 4); const x = i * step; if (i===0) g.moveTo(x,y); else g.lineTo(x,y); }
       g.stroke();
     };
     draw();
   } catch (e) { log('dj waveform error', e?.message||e); }
 }
+
 function stopDjWave() { if (state.djRaf) cancelAnimationFrame(state.djRaf); state.djRaf = 0; state.djAnalyser = null; }
 
-// Listener waveform
 function startWaveform(audioEl) {
   try {
     stopWaveform();
@@ -475,57 +492,122 @@ function startWaveform(audioEl) {
       g.clearRect(0,0,cvs.width,cvs.height);
       g.strokeStyle = '#7c5cff'; g.lineWidth = 2; g.beginPath();
       const step = cvs.width / data.length;
-      for (let i=0;i<data.length;i++){
-        const v = (data[i]-128)/128; const y = cvs.height/2 + v * (cvs.height/2 - 4);
-        const x = i * step;
-        if (i===0) g.moveTo(x,y); else g.lineTo(x,y);
-      }
+      for (let i=0;i<data.length;i++){ const v = (data[i]-128)/128; const y = cvs.height/2 + v * (cvs.height/2 - 4); const x = i * step; if (i===0) g.moveTo(x,y); else g.lineTo(x,y); }
       g.stroke();
     };
     draw();
   } catch (e) { log('waveform error', e?.message||e); }
 }
+
 function stopWaveform() { if (state.raf) cancelAnimationFrame(state.raf); state.raf = 0; state.analyser = null; }
 
-// Presence heartbeat
+function startStatsMonitor() {
+  if (state.statsInterval) clearInterval(state.statsInterval);
+  state.statsInterval = setInterval(async () => {
+    if (!state.lkRoom) return;
+    try {
+      document.getElementById('statState').textContent = state.lkRoom.state || '—';
+
+      // Get stats from local participant's audio tracks
+      if (state.role === 'dj' && state.currentPub && state.currentPub.track) {
+        try {
+          const sender = state.currentPub.track.sender;
+          if (sender && typeof sender.getStats === 'function') {
+            const stats = await sender.getStats();
+            stats.forEach(report => {
+              if (report.type === 'outbound-rtp' && report.kind === 'audio') {
+                if (report.bytesSent && report.timestamp) {
+                  const kbps = Math.round((report.bytesSent * 8) / 1000);
+                  document.getElementById('statBitrate').textContent = `${kbps} kbps`;
+                }
+                if (report.codecId) {
+                  const codec = stats.get(report.codecId);
+                  if (codec && codec.mimeType) {
+                    document.getElementById('statCodec').textContent = codec.mimeType.split('/')[1] || codec.mimeType;
+                  }
+                }
+                document.getElementById('statLoss').textContent = report.packetsLost !== undefined ? `${report.packetsLost}` : '0';
+              }
+              if (report.type === 'remote-inbound-rtp' && report.kind === 'audio') {
+                if (report.roundTripTime !== undefined) {
+                  document.getElementById('statLatency').textContent = `${Math.round(report.roundTripTime * 1000)} ms`;
+                }
+              }
+            });
+          }
+        } catch (e) { log('DJ stats error:', e?.message || e); }
+      } else if (state.role === 'listener') {
+        // Listener: get stats from subscribed tracks
+        const audioTracks = Array.from(state.lkRoom.remoteParticipants.values())
+          .flatMap(p => Array.from(p.trackPublications.values()))
+          .filter(pub => pub.kind === 'audio' && pub.track);
+
+        if (audioTracks.length > 0) {
+          const audioTrack = audioTracks[0].track;
+          try {
+            const receiver = audioTrack.receiver;
+            if (receiver && typeof receiver.getStats === 'function') {
+              const stats = await receiver.getStats();
+              stats.forEach(report => {
+                if (report.type === 'inbound-rtp' && report.kind === 'audio') {
+                  if (report.bytesReceived && report.timestamp) {
+                    const kbps = Math.round((report.bytesReceived * 8) / 1000);
+                    document.getElementById('statBitrate').textContent = `${kbps} kbps`;
+                  }
+                  if (report.codecId) {
+                    const codec = stats.get(report.codecId);
+                    if (codec && codec.mimeType) {
+                      document.getElementById('statCodec').textContent = codec.mimeType.split('/')[1] || codec.mimeType;
+                    }
+                  }
+                  document.getElementById('statLoss').textContent = report.packetsLost !== undefined ? `${report.packetsLost}` : '0';
+                  if (report.jitter !== undefined) {
+                    document.getElementById('statLatency').textContent = `${Math.round(report.jitter * 1000)} ms`;
+                  }
+                }
+              });
+            }
+          } catch (e) { log('Listener stats error:', e?.message || e); }
+        }
+      }
+    } catch (e) { log('stats error', e?.message||e); }
+  }, 2000);
+}
+
+function stopStatsMonitor() { if (state.statsInterval) clearInterval(state.statsInterval); state.statsInterval = null; }
+
 setInterval(()=> {
   if (!state.clientId || !state.roomId) return;
-  fetch('/presence/beat', { method:'POST', headers:{'Content-Type':'application/json'},
-    body: JSON.stringify({ client_id: state.clientId, room_id: state.roomId, role: state.role }) });
+  fetch('/presence/beat', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ client_id: state.clientId, room_id: state.roomId, role: state.role }) });
 }, 15000);
 
-// Device list
 async function ensureDeviceList() {
   try {
     const devices = await navigator.mediaDevices.enumerateDevices();
     const audIns = devices.filter(d => d.kind === 'audioinput');
-    const sel = document.getElementById('extSelect');
-    sel.innerHTML = '';
-    audIns.forEach(d => { const opt = document.createElement('option'); opt.value = d.deviceId; opt.textContent = d.label || `audio ${d.deviceId.slice(0,6)}…`; sel.appendChild(opt); });
+    const dropdown = document.getElementById('extDropdown');
+    dropdown.innerHTML = '';
+    audIns.forEach(d => {
+      const item = document.createElement('div');
+      item.className = 'dropdown-item';
+      item.textContent = d.label || `audio ${d.deviceId.slice(0,6)}…`;
+      item.onclick = async () => {
+        state.extDeviceId = d.deviceId;
+        dropdown.classList.remove('show');
+        if (state.role === 'dj' && state.lkRoom) { const track = await createExternalTrack(state.extDeviceId); await publish(track); highlightActiveSource(); }
+      };
+      dropdown.appendChild(item);
+    });
     if (!state.extDeviceId && audIns[0]) state.extDeviceId = audIns[0].deviceId;
   } catch (e) { log('device list error', e?.name || e?.message || e); }
 }
 
-// Enter room
 async function enterRoom(roomId, role) {
-  // redirect unknown rooms to index before join
-  if (!(await roomExists(roomId))) {
-    log('Room not found, redirecting to home');
-    navigateToRoot();
-    show(landing);
-    await listRooms();
-    return;
-  }
+  if (!(await roomExists(roomId))) { log('Room not found, redirecting to home'); navigateToRoot(); show(landing); await listRooms(); return; }
   state.roomId = roomId; state.role = role;
   const joinRes = await fetch(`/room/${roomId}/join`, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ client_id: state.clientId, role }) });
   const ok = await joinRes.json();
-  if (!ok.ok) {
-    log('Join failed', ok.error||'');
-    navigateToRoot();
-    show(landing);
-    await listRooms();
-    return;
-  }
+  if (!ok.ok) { log('Join failed', ok.error||''); navigateToRoot(); show(landing); await listRooms(); return; }
   state.roomName = ok.name || state.roomName || '';
   const { url, token } = await fetchLkToken(role, roomId);
   await connectRoom(url, token);
@@ -534,7 +616,8 @@ async function enterRoom(roomId, role) {
     show(djView);
     await ensureDeviceList();
     await ensurePublishedPresence();
-    updateOnAirButton();
+    updateMuteButton();
+    highlightActiveSource();
   } else {
     const rooms = await (await fetch('/rooms')).json();
     const r = rooms.rooms.find(x=>x.id===roomId) || {};
@@ -544,10 +627,8 @@ async function enterRoom(roomId, role) {
   }
 }
 
-// Close floor
 async function closeFloor() {
   if (!state.roomId || state.role !== 'dj') return;
-  // Best-effort notify via data channel
   try {
     if (state.lkRoom) {
       const msg = new TextEncoder().encode(JSON.stringify({ type: 'room_close' }));
@@ -557,12 +638,12 @@ async function closeFloor() {
   try { await fetch(`/room/${state.roomId}/close`, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ client_id: state.clientId }) }); } catch {}
   try { state.lkRoom?.disconnect(); } catch {}
   state.lkRoom = null; state.localTrack = null; state.currentPub = null; state.onAir = false;
+  stopStatsMonitor();
   navigateToRoot();
   show(landing);
   await listRooms();
 }
 
-// UI actions
 document.getElementById('btnCreate').onclick = async ()=> {
   await ensureIdentityReady();
   const name = (document.getElementById('roomNameInput').value || '').trim() || `Room ${state.name}`;
@@ -576,34 +657,35 @@ document.getElementById('btnCreate').onclick = async ()=> {
 
 document.getElementById('srcMic').onclick = async ()=> {
   state.source = 'mic';
-  document.getElementById('fileBox').classList.add('hidden');
-  document.getElementById('extBox').classList.add('hidden');
-  if (state.role === 'dj' && state.lkRoom) { const track = await createMicTrack(); await publish(track); updateOnAirButton(); }
-};
-document.getElementById('srcTrack').onclick = ()=> {
-  state.source = 'file';
-  document.getElementById('fileBox').classList.remove('hidden');
-  document.getElementById('extBox').classList.add('hidden');
-  updateOnAirButton();
-};
-document.getElementById('srcExternal').onclick = async ()=> {
-  state.source = 'external';
-  document.getElementById('fileBox').classList.add('hidden');
-  document.getElementById('extBox').classList.remove('hidden');
-  try { await navigator.mediaDevices.getUserMedia({ audio:true, video:false }); } catch {}
-  await ensureDeviceList();
-  if (state.role === 'dj' && state.lkRoom && state.extDeviceId) { const track = await createExternalTrack(state.extDeviceId); await publish(track); updateOnAirButton(); }
-};
-document.getElementById('extSelect').onchange = async (e)=> {
-  state.extDeviceId = e.target.value || null;
-  if (state.role === 'dj' && state.lkRoom && state.extDeviceId) { const track = await createExternalTrack(state.extDeviceId); await publish(track); updateOnAirButton(); }
-};
-document.getElementById('fileInput').onchange = async (e)=> {
-  state.file = e.target.files?.[0] || null;
-  if (state.role === 'dj' && state.lkRoom && state.file) { const { track } = await createFileTrack(state.file); await publish(track); updateOnAirButton(); }
+  if (state.role === 'dj' && state.lkRoom) { const track = await createMicTrack(); await publish(track); highlightActiveSource(); }
 };
 
-btnOnAir.onclick = async ()=> {
+document.getElementById('srcTrack').onclick = ()=> {
+  state.source = 'file';
+  document.getElementById('fileInput').click();
+  highlightActiveSource();
+};
+
+document.getElementById('srcExternal').onclick = async (e)=> {
+  e.stopPropagation();
+  state.source = 'external';
+  try { await navigator.mediaDevices.getUserMedia({ audio:true, video:false }); } catch {}
+  await ensureDeviceList();
+  const dropdown = document.getElementById('extDropdown');
+  dropdown.classList.toggle('show');
+  highlightActiveSource();
+};
+
+document.addEventListener('click', (e) => {
+  if (!e.target.closest('.dropdown')) document.getElementById('extDropdown').classList.remove('show');
+});
+
+document.getElementById('fileInput').onchange = async (e)=> {
+  state.file = e.target.files?.[0] || null;
+  if (state.role === 'dj' && state.lkRoom && state.file) { const { track } = await createFileTrack(state.file); await publish(track); highlightActiveSource(); }
+};
+
+btnMute.onclick = async ()=> {
   if (state.role !== 'dj' || !state.lkRoom) return;
   const targetOnAir = !state.onAir;
   if (!isAudioPublished() || !state.currentPub) {
@@ -615,43 +697,34 @@ btnOnAir.onclick = async ()=> {
     }
     if (track) await publish(track);
   }
-  state.onAir = targetOnAir;
-  if (state.onAir) {
-    await state.currentPub.track.unmute();
-  } else {
-    await state.currentPub.track.mute();
+  if (state.currentPub && state.currentPub.track) {
+    try { if (targetOnAir) await state.currentPub.track.unmute(); else await state.currentPub.track.mute(); } catch (e) { log('mute toggle error', e?.message||e); }
   }
-  updateOnAirButton();
+  state.onAir = targetOnAir;
+  updateMuteButton();
   refreshDjWave();
 };
 
 document.getElementById('btnClose').onclick = closeFloor;
 
-// Router
 window.addEventListener('popstate', async ()=> {
   const route = parseRoute();
   if (route.roomId) { await ensureIdentityReady(); await enterRoom(route.roomId, route.asDj ? 'dj' : 'listener'); }
-  else { show(landing); await listRooms(); }
+  else { stopStatsMonitor(); show(landing); await listRooms(); }
 });
 
-// Boot
 window.addEventListener('load', async ()=>{
   await ensureIdentityReady();
   const route = parseRoute();
   if (route.roomId) {
-    if (!(await roomExists(route.roomId))) {
-      navigateToRoot();
-      show(landing);
-      await listRooms();
-      return;
-    }
+    if (!(await roomExists(route.roomId))) { navigateToRoot(); show(landing); await listRooms(); return; }
     await enterRoom(route.roomId, route.asDj ? 'dj' : 'listener');
   } else {
     show(landing);
     await listRooms();
     setInterval(listRooms, 4000);
   }
-  updateOnAirButton();
+  updateMuteButton();
 });
 </script>
 </body>
