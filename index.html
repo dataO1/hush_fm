@@ -2,218 +2,386 @@
 <html lang="en">
 <head>
   <meta charset="utf-8" />
-  <title>Silent Disco (SFU)</title>
+  <title>Silent Disco — Rooms</title>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <!-- Place livekit-client.min.js into ./static/ (no external URLs) -->
+  <!-- Load LiveKit client first -->
   <script src="/static/livekit-client.min.js"></script>
   <style>
-    body { font-family: system-ui, sans-serif; margin: 16px; }
-    .row { display:flex; gap:16px; flex-wrap:wrap; }
-    .card { border:1px solid #ddd; border-radius:8px; padding:12px; min-width:280px; }
-    #log { white-space: pre-wrap; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; background:#fafafa; border:1px solid #eee; padding:8px; max-height:260px; overflow:auto; }
-    button { cursor: pointer; }
+    :root {
+      --bg: #0b0b12;
+      --card: #12121b;
+      --muted: #8b8b9a;
+      --text: #f4f4f7;
+      --accent: #7c5cff;
+      --accent2: #1ae5c9;
+      --danger: #ff5c7a;
+      --radius: 14px;
+    }
+    * { box-sizing: border-box; }
+    html, body { margin:0; padding:0; background: radial-gradient(1200px 600px at 80% -10%, #181828, transparent), var(--bg); color: var(--text); font-family: Inter, ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, "Helvetica Neue", Arial, "Noto Sans", "Apple Color Emoji", "Segoe UI Emoji"; }
+    .wrap { max-width: 1100px; margin: 0 auto; padding: 16px; }
+    header { display:flex; justify-content: space-between; align-items:center; padding: 8px 0; }
+    .brand { font-weight: 800; letter-spacing: .4px; }
+    .pill { padding: 8px 14px; border-radius: 999px; border: 1px solid #2a2a39; background: #101018; color: var(--muted); font-size: 12px; }
+    .grid { display:grid; gap: 16px; grid-template-columns: repeat(12, 1fr); }
+    .card { background: linear-gradient(180deg, #12121b 0%, #0f0f16 100%); border: 1px solid #262636; border-radius: var(--radius); padding: 16px; }
+    .rooms { grid-column: 1 / -1; display:grid; gap: 12px; }
+    .room-item { display:flex; justify-content: space-between; align-items:center; padding: 12px; border-radius: 12px; background: #141421; border: 1px solid #232334; }
+    .room-meta { display:flex; gap: 12px; align-items:center; }
+    .badge { font-size: 12px; padding: 6px 10px; border-radius: 999px; background: #1a1a28; color: var(--muted); border: 1px solid #26263a; }
+    .btn { cursor: pointer; appearance: none; border: 0; border-radius: 12px; padding: 12px 16px; color: #0b0b12; font-weight: 700; letter-spacing: .3px; background: linear-gradient(90deg, var(--accent) 0%, var(--accent2) 100%); }
+    .btn.secondary { background: #1a1a28; color: var(--text); border: 1px solid #2b2b3d; }
+    .btn.danger { background: var(--danger); color: #fff; }
+    .section-title { margin: 4px 0 8px; font-size: 14px; color: var(--muted); }
+    .title { font-size: 22px; margin: 0 0 6px; }
+    .row { display:flex; gap: 10px; flex-wrap: wrap; }
+    .hidden { display:none !important; }
+    .accent { color: var(--accent2); }
+    /* Mobile-first adjustments */
+    @media (max-width: 720px) {
+      .grid { grid-template-columns: repeat(6, 1fr); }
+      .room-item { flex-direction: column; align-items: flex-start; gap: 8px; }
+      header { flex-direction: column; gap: 8px; align-items: flex-start; }
+    }
+    /* DJ controls */
+    .src-tabs { display:flex; gap: 8px; margin-bottom: 8px; }
+    .src-tabs .btn { padding: 10px 12px; font-size: 13px; }
+    .file { border: 1px dashed #2b2b3d; padding: 12px; border-radius: 12px; background: #101018; color: var(--muted); }
+    /* Waveform */
+    #wave { width: 100%; height: 80px; background: #0f0f18; border-radius: 10px; border: 1px solid #232334; }
   </style>
 </head>
 <body>
-  <h2>Silent Disco (SFU)</h2>
+  <div class="wrap">
+    <header>
+      <div class="brand">Silent <span class="accent">Disco</span></div>
+      <div class="pill">Ultra‑low latency Opus • SFU</div>
+    </header>
 
-  <div class="row">
-    <div class="card">
-      <h3>Identity</h3>
-      <div>Client: <span id="clientId">-</span></div>
-      <div>Name: <span id="clientName">-</span></div>
-      <button id="btnIdentify">Identify</button>
-    </div>
+    <!-- Landing -->
+    <section id="landing" class="grid">
+      <div class="card" style="grid-column: 1 / -1;">
+        <div class="row" style="justify-content: space-between; align-items:center;">
+          <div>
+            <div class="title">Pick a room or start as DJ</div>
+            <div class="section-title">No codes — just tap and play</div>
+          </div>
+          <div class="row">
+            <button id="btnIdentify" class="btn secondary">Identify</button>
+            <button id="btnCreate" class="btn">Create room (DJ)</button>
+          </div>
+        </div>
+      </div>
 
-    <div class="card">
-      <h3>Create Room (DJ)</h3>
-      <input id="roomName" placeholder="Room name" value="My Disco" />
-      <button id="btnCreate">Create as DJ</button>
-      <div>Room: <span id="roomId">-</span></div>
-      <div>Role: <span id="role">-</span></div>
-      <button id="btnPlayLocal" disabled>Play DJ Local</button>
-    </div>
+      <div id="roomsCard" class="card" style="grid-column: 1 / -1;">
+        <div class="title">Live rooms</div>
+        <div class="rooms" id="roomsList"></div>
+      </div>
+    </section>
 
-    <div class="card">
-      <h3>Join Room (Listener)</h3>
-      <input id="joinRoomId" placeholder="Room ID" />
-      <button id="btnJoin">Join as Listener</button>
-      <div>Role: <span id="role2">-</span></div>
-      <audio id="listenerAudio" controls autoplay playsinline></audio>
-    </div>
+    <!-- DJ View -->
+    <section id="djView" class="grid hidden">
+      <div class="card" style="grid-column: 1 / -1;">
+        <div class="title">DJ Booth</div>
+        <div class="section-title">Room <span id="djRoomId"></span> • You: <span id="djName"></span></div>
+      </div>
+
+      <div class="card" style="grid-column: 1 / -1;">
+        <div class="section-title">Audio source</div>
+        <div class="src-tabs">
+          <button id="srcMic" class="btn secondary">Microphone</button>
+          <button id="srcTrack" class="btn secondary">Upload track</button>
+        </div>
+        <div id="fileBox" class="file hidden">
+          <input id="fileInput" type="file" accept="audio/*" />
+          <div class="section-title">Choose a local audio file; it stays on your device and is streamed live to listeners</div>
+        </div>
+        <div class="row">
+          <button id="btnPublish" class="btn">Publish</button>
+          <button id="btnStop" class="btn danger">Stop</button>
+          <button id="btnPlayLocal" class="btn secondary">Monitor</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- Listener View -->
+    <section id="listenerView" class="grid hidden">
+      <div class="card" style="grid-column: 1 / -1;">
+        <div class="title" id="lsTitle">Listening</div>
+        <div class="section-title">Room <span id="lsRoomId"></span> • DJ <span id="lsDj"></span> • Listeners <span id="lsCount"></span></div>
+      </div>
+      <div class="card" style="grid-column: 1 / -1;">
+        <canvas id="wave" height="80"></canvas>
+        <audio id="listenerAudio" autoplay playsinline></audio>
+      </div>
+    </section>
+
+    <!-- Debug Log -->
+    <section id="logCard" class="grid">
+      <div class="card" style="grid-column: 1 / -1;">
+        <div class="title">Log</div>
+        <pre id="log" style="white-space:pre-wrap; font-size:12px; color:#b9b9c9; margin:0;"></pre>
+      </div>
+    </section>
   </div>
-
-  <h3>Log</h3>
-  <div id="log"></div>
 
 <script>
 const t0 = performance.now();
-const ts = () => (performance.now() - t0).toFixed(1);
+const ts = ()=>(performance.now()-t0).toFixed(1);
 const logEl = document.getElementById('log');
-const log = (...a) => { console.log(...a); logEl.textContent += `[${ts()}ms] ` + a.map(x => typeof x === 'string' ? x : JSON.stringify(x)).join(' ') + '\n'; };
+const log = (...a)=>{ console.log(...a); logEl.textContent += `[${ts()}ms] `+a.map(x=> typeof x==='string'?x:JSON.stringify(x)).join(' ') + '\n'; };
 
-let ws = null; // retained for UX parity; LiveKit handles signaling internally
-let ICE_CONFIG = { iceServers: [] }; // unused in SFU path; kept for compatibility
+if (!LivekitClient) { console.error('LiveKit SDK not loaded. Ensure /static/livekit-client.min.js exists.'); }
 
+let ICE_CONFIG = { iceServers: [] }; // kept for compat
 const state = {
-  clientId: null,
-  name: null,
-  role: null,      // 'dj' or 'listener'
-  roomId: null,
-  lkRoom: null,    // LiveKit Room
-  localTrack: null // DJ local audio track
+  clientId: null, name: null, role: null, roomId: null,
+  lkRoom: null,
+  localTrack: null,  // LiveKit LocalAudioTrack or MediaStreamTrack
+  source: 'mic',     // 'mic' | 'file'
+  file: null,
+  analyser: null, raf: 0, audioCtx: null, waveSrc: null
 };
 
+// UI elements
+const landing = document.getElementById('landing');
+const djView = document.getElementById('djView');
+const listenerView = document.getElementById('listenerView');
+const roomsList = document.getElementById('roomsList');
+
+function show(section) {
+  landing.classList.add('hidden');
+  djView.classList.add('hidden');
+  listenerView.classList.add('hidden');
+  section.classList.remove('hidden');
+}
+
 async function loadIceConfig() {
-  const res = await fetch('/config');
-  const data = await res.json();
+  const res = await fetch('/config'); const data = await res.json();
   ICE_CONFIG = { iceServers: data.iceServers || [] };
   log('Loaded ICE servers', ICE_CONFIG.iceServers?.length || 0);
 }
 
 async function identify() {
-  const res = await fetch('/user/identify', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({}) });
+  const res = await fetch('/user/identify',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({})});
   const data = await res.json();
-  state.clientId = data.client_id;
-  state.name = data.name;
-  document.getElementById('clientId').textContent = state.clientId;
-  document.getElementById('clientName').textContent = state.name;
-  log('User identified', state.name, state.clientId);
+  state.clientId = data.client_id; state.name = data.name;
+  log('Identified', state.name, state.clientId);
 }
 
-async function connectWS() {
-  // Optional: if you still want presence/events; not required for LiveKit media
-  ws = { readyState: 1, send: () => {} };
-  log('WebSocket placeholder ready');
-}
-
-// LiveKit helpers
-async function fetchLkToken(role, roomId) {
-  const res = await fetch('/lk/token', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ client_id: state.clientId, role, room_id: roomId }) });
-  const data = await res.json();
-  if (!data.ok) throw new Error(data.error || 'lk token failed');
-  return data;
-}
-
-async function createLkRoomAndConnect(url, token) {
-  const { Room, RoomEvent, setLogLevel, LogLevel, AudioPresets } = LivekitClient;
-  setLogLevel(LogLevel.warn);
-  const room = new Room({
-    // Keep latency low; SFU will forward without mixing/transcoding
-    adaptiveStream: false,
-    dynacast: false
+async function listRooms() {
+  const res = await fetch('/rooms'); const data = await res.json();
+  if (!data.ok) return;
+  roomsList.innerHTML = '';
+  for (const r of data.rooms) {
+    const div = document.createElement('div');
+    div.className = 'room-item';
+    div.innerHTML = `
+      <div class="room-meta">
+        <span class="badge">#${r.id}</span>
+        <div>
+          <div><strong>${r.name || 'Room'}</strong></div>
+          <div class="section-title">DJ ${r.dj_name || '—'} • ${r.listener_count} listening</div>
+        </div>
+      </div>
+      <div class="row">
+        ${r.dj_client === state.clientId ? `<button class="btn secondary join" data-id="${r.id}" data-role="dj">Enter (DJ)</button>` : `<button class="btn join" data-id="${r.id}" data-role="listener">Join</button>`}
+      </div>
+    `;
+    roomsList.appendChild(div);
+  }
+  roomsList.querySelectorAll('.join').forEach(btn=>{
+    btn.onclick = async () => {
+      const rid = btn.getAttribute('data-id'); const role = btn.getAttribute('data-role');
+      await enterRoom(rid, role);
+    };
   });
-  room.on(RoomEvent.Connected, () => log('LiveKit connected'));
-  room.on(RoomEvent.Disconnected, () => log('LiveKit disconnected'));
-  room.on(RoomEvent.ConnectionQualityChanged, (_, q) => log('conn quality', q));
-  room.on(RoomEvent.ParticipantConnected, (p) => log('participant joined', p.identity));
-  room.on(RoomEvent.ParticipantDisconnected, (p) => log('participant left', p.identity));
+}
 
-  // Subscribe to audio
+async function fetchLkToken(role, roomId) {
+  const res = await fetch('/lk/token',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({client_id: state.clientId, role, room_id: roomId})});
+  const data = await res.json(); if (!data.ok) throw new Error(data.error || 'token failed'); return data;
+}
+
+async function connectRoom(url, token) {
+  const { Room, RoomEvent, setLogLevel, LogLevel } = LivekitClient;
+  const room = new Room({ adaptiveStream:false, dynacast:false });
+  room.on(RoomEvent.Connected, ()=> log('LiveKit connected'));
+  room.on(RoomEvent.Disconnected, ()=> log('LiveKit disconnected'));
   room.on(RoomEvent.TrackSubscribed, (track, pub, participant) => {
     if (track.kind === 'audio') {
       const el = document.getElementById('listenerAudio');
       track.attach(el);
-      el.setAttribute('preload', 'auto');
-      el.play().then(() => log('listener audio playing')).catch(e => log('play error', e?.message || e));
-      log('subscribed audio from', participant.identity);
+      el.play().catch(()=>{});
+      startWaveform(el);
+      log('Subscribed audio from', participant.identity);
     }
   });
-  room.on(RoomEvent.TrackUnsubscribed, (track) => { try { track.detach(); } catch {} });
-
   await room.connect(url, token);
   state.lkRoom = room;
   return room;
 }
 
-async function ensureDjAudioTrack() {
-  if (state.localTrack) return state.localTrack;
-  const { LocalAudioTrack, createLocalAudioTrack, TrackPublishOptions,
-    AudioCaptureOptions } = LivekitClient;
-  // Music-friendly capture: stereo, 48k, disable AGC/NS/EC to avoid coloration
-  const constraints = {
-    audio: {
-      channelCount: 2,
-      sampleRate: 48000,
-      echoCancellation: false,
-      noiseSuppression: false,
-      autoGainControl: false
-    }
-  };
-  const stream = await navigator.mediaDevices.getUserMedia(constraints);
-  const track = await createLocalAudioTrack({
-    deviceId: stream.getAudioTracks()[0].getSettings().deviceId,
-    // LiveKit will pick Opus; keep it low-latency
+// DJ: capture mic
+async function createMicTrack() {
+  const { createLocalAudioTrack } = LivekitClient;
+  const stream = await navigator.mediaDevices.getUserMedia({
+    audio: { channelCount: 2, sampleRate: 48000, echoCancellation:false, noiseSuppression:false, autoGainControl:false }, video:false
   });
-  // Replace the underlying MediaStreamTrack with our captured one
-  await track.restart({ noiseSuppression: false, echoCancellation: false, autoGainControl: false, channelCount: 2, sampleRate: 48000 });
-  state.localTrack = track;
-  log('DJ audio track ready (stereo 48k)');
+  // Let SDK create a local track via deviceId, but we can also pass MediaStreamTrack directly when publishing
+  const track = stream.getAudioTracks()[0];
   return track;
 }
 
-async function publishDjAudio(room) {
-  // Publish with options tuned for music: disable DTX, enable RED if supported
-  const opts = {
-    dtx: false,   // keep continuous frames for music
-    red: true,    // redundancy improves loss resilience if supported
-    // bitrate left to auto; SFU + Opus will negotiate
-  };
-  const track = await ensureDjAudioTrack();
-  await room.localParticipant.publishTrack(track, opts);
-  log('Published DJ audio');
+// DJ: file to track via WebAudio
+async function createFileTrack(file) {
+  const url = URL.createObjectURL(file);
+  const audioEl = new Audio();
+  audioEl.src = url; audioEl.crossOrigin = 'anonymous';
+  await audioEl.play().catch(()=>{}); // start buffering
+  const ctx = new (window.AudioContext||window.webkitAudioContext)();
+  const src = ctx.createMediaElementSource(audioEl);
+  const dst = ctx.createMediaStreamDestination();
+  src.connect(dst);
+  src.connect(ctx.destination); // local monitor path (will be controlled by "Monitor" button)
+  const track = dst.stream.getAudioTracks()[0];
+  // Save references for monitor control
+  state.audioCtx = ctx; state.waveSrc = src;
+  return { track, audioEl };
 }
 
-// UI handlers
-document.getElementById('btnIdentify').onclick = async () => { await identify(); await loadIceConfig(); await connectWS(); };
+async function publish(track) {
+  const room = state.lkRoom;
+  if (!room) return;
+  // Unpublish previous
+  try {
+    const pubs = [...room.localParticipant.tracks.values()];
+    for (const p of pubs) { if (p.track?.kind === 'audio') await room.localParticipant.unpublishTrack(p.track, { stop:true }); }
+  } catch {}
+  // Publish new
+  await room.localParticipant.publishTrack(track, { dtx:false, red:true });
+  state.localTrack = track;
+  log('Published audio source');
+}
 
-document.getElementById('btnCreate').onclick = async () => {
-  if (!state.clientId) { await identify(); await loadIceConfig(); await connectWS(); }
-  const name = (document.getElementById('roomName').value || 'My Disco').trim();
+function stopPublishing() {
+  const room = state.lkRoom;
+  if (!room) return;
+  try {
+    const pubs = [...room.localParticipant.tracks.values()];
+    for (const p of pubs) { if (p.track?.kind === 'audio') room.localParticipant.unpublishTrack(p.track, { stop:true }); }
+  } catch {}
+  state.localTrack = null;
+  log('Stopped publishing');
+}
+
+// Waveform for listener
+function startWaveform(audioEl) {
+  try {
+    if (state.raf) cancelAnimationFrame(state.raf);
+    const ctx = new (window.AudioContext||window.webkitAudioContext)();
+    const src = ctx.createMediaStreamSource(audioEl.srcObject);
+    const analyser = ctx.createAnalyser(); analyser.fftSize = 2048;
+    src.connect(analyser);
+    state.analyser = analyser;
+    const cvs = document.getElementById('wave'); const g = cvs.getContext('2d');
+    const data = new Uint8Array(analyser.frequencyBinCount);
+    const draw = ()=> {
+      state.raf = requestAnimationFrame(draw);
+      analyser.getByteTimeDomainData(data);
+      g.clearRect(0,0,cvs.width,cvs.height);
+      g.strokeStyle = '#7c5cff'; g.lineWidth = 2; g.beginPath();
+      const step = cvs.width / data.length;
+      for (let i=0;i<data.length;i++){
+        const v = (data[i]-128)/128; const y = cvs.height/2 + v * (cvs.height/2 - 4);
+        const x = i * step;
+        if (i===0) g.moveTo(x,y); else g.lineTo(x,y);
+      }
+      g.stroke();
+    };
+    draw();
+  } catch (e) { log('waveform error', e?.message||e); }
+}
+
+// Views
+async function enterRoom(roomId, role) {
+  state.roomId = roomId; state.role = role;
+  const joinRes = await fetch(`/room/${roomId}/join`, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ client_id: state.clientId, role }) });
+  const ok = await joinRes.json(); if (!ok.ok) { log('join failed', ok.error||''); return; }
+  const { url, token } = await fetchLkToken(role, roomId);
+  await connectRoom(url, token);
+  if (role === 'dj') {
+    document.getElementById('djRoomId').textContent = roomId;
+    document.getElementById('djName').textContent = state.name;
+    show(djView);
+  } else {
+    // Fill metadata
+    const rooms = await (await fetch('/rooms')).json();
+    const r = rooms.rooms.find(x=>x.id===roomId) || {};
+    document.getElementById('lsRoomId').textContent = roomId;
+    document.getElementById('lsDj').textContent = r.dj_name || '—';
+    document.getElementById('lsCount').textContent = r.listener_count ?? '—';
+    show(listenerView);
+  }
+}
+
+// UI wiring
+document.getElementById('btnIdentify').onclick = async ()=>{ await identify(); await loadIceConfig(); await listRooms(); };
+document.getElementById('btnCreate').onclick = async ()=> {
+  if (!state.clientId) { await identify(); }
+  const name = `Room ${state.name}`;
   const res = await fetch('/room/create', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ client_id: state.clientId, name }) });
   const data = await res.json();
-  if (!data.ok) { log('create failed', data.error || ''); return; }
-  state.roomId = data.room_id;
-  state.role = 'dj';
-  document.getElementById('roomId').textContent = state.roomId;
-  document.getElementById('role').textContent = 'dj';
-
-  const { url, token } = await fetchLkToken('dj', state.roomId);
-  const room = await createLkRoomAndConnect(url, token);
-  await publishDjAudio(room);
-  document.getElementById('btnPlayLocal').disabled = false;
-  log('DJ ready; published to SFU');
+  if (!data.ok) { log('create failed', data.error||''); return; }
+  const rid = data.room_id;
+  await enterRoom(rid, 'dj');
 };
 
-document.getElementById('btnPlayLocal').onclick = async () => {
-  // Local monitor for DJ
-  await ensureDjAudioTrack();
-  const el = new Audio();
-  el.srcObject = new MediaStream([state.localTrack.mediaStreamTrack]);
-  el.autoplay = true;
-  el.playsInline = true;
-  el.muted = false;
-  el.play().then(() => log('Playing (local)')).catch(e => log('Local play error', e?.message || e));
+document.getElementById('srcMic').onclick = ()=> {
+  state.source = 'mic';
+  document.getElementById('fileBox').classList.add('hidden');
+};
+document.getElementById('srcTrack').onclick = ()=> {
+  state.source = 'file';
+  document.getElementById('fileBox').classList.remove('hidden');
+};
+document.getElementById('fileInput').onchange = (e)=> { state.file = e.target.files?.[0] || null; };
+
+document.getElementById('btnPublish').onclick = async ()=> {
+  if (!state.lkRoom) return;
+  if (state.source === 'mic') {
+    const track = await createMicTrack();
+    await publish(track);
+  } else {
+    if (!state.file) { log('select a file first'); return; }
+    const { track } = await createFileTrack(state.file);
+    await publish(track);
+  }
 };
 
-document.getElementById('btnJoin').onclick = async () => {
-  if (!state.clientId) { await identify(); await loadIceConfig(); await connectWS(); }
-  const rid = (document.getElementById('joinRoomId').value || '').trim();
-  if (!rid) { log('enter room id'); return; }
-  state.roomId = rid;
-  state.role = 'listener';
-  document.getElementById('role2').textContent = 'listener';
+document.getElementById('btnStop').onclick = ()=> stopPublishing();
 
-  const { url, token } = await fetchLkToken('listener', state.roomId);
-  await createLkRoomAndConnect(url, token);
-  log('Listener ready; waiting for DJ track');
+document.getElementById('btnPlayLocal').onclick = async ()=> {
+  // Local monitor: if file source was used, resume element; for mic, quickly attach to a temp audio
+  try {
+    if (state.source === 'file' && state.audioCtx) {
+      // Nothing extra: file element is already connected to speakers
+      log('Monitoring file locally');
+    } else if (state.localTrack) {
+      const el = new Audio(); el.srcObject = new MediaStream([state.localTrack]);
+      el.autoplay = true; el.playsInline = true; el.muted = false;
+      await el.play().catch(()=>{});
+      log('Monitoring mic locally');
+    }
+  } catch (e) { log('monitor error', e?.message||e); }
 };
 
-// Auto-identify on load
-window.addEventListener('load', async () => {
-  await identify();
+// Auto boot: identify & list rooms
+window.addEventListener('load', async ()=>{
+  try { await identify(); } catch {}
   await loadIceConfig();
-  await connectWS();
+  await listRooms();
+  setInterval(listRooms, 4000);
 });
 </script>
 </body>
