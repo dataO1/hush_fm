@@ -99,7 +99,7 @@
             # Livekit
             export LIVEKIT_WS_URL=ws://127.0.0.1:7880
             export LIVEKIT_API_KEY=devkey
-            export LIVEKIT_API_SECRET=secret
+            export LIVEKIT_API_SECRET=m2yYtSY5XDaekJ26wf8ZKMnHKPQwD2L3
 
             # Install/upgrade pip
             echo "📥 Upgrading pip..."
