@@ -52,32 +52,32 @@
             echo "Building Hush Silent Disco..."
           '';
 
-          installPhase = ''
-            mkdir -p $out/share/hush
-            mkdir -p $out/share/hush/static
-            mkdir -p $out/share/hush/server
+        installPhase = ''
+  mkdir -p $out/share/hush
+  mkdir -p $out/share/hush/static
+  mkdir -p $out/share/hush/server
 
-            # Copy application files
-            cp -r static $out/share/hush/ || true
-            cp -r server $out/share/hush/ || true
-            cp main.py $out/share/hush/ || true
-            cp requirements*.txt $out/share/hush/ || true
+  # Copy application files
+  cp -r static/* $out/share/hush/static/ || true
+  cp -r server/* $out/share/hush/server/ || true
+  cp main.py $out/share/hush/ || true
+  cp requirements*.txt $out/share/hush/ || true
 
-            # Create data directory structure
-            mkdir -p $out/share/hush/uploads
+  # Create data directory structure
+  mkdir -p $out/share/hush/uploads
 
-            # Create wrapper script
-            mkdir -p $out/bin
-            cat > $out/bin/hush << 'EOF'
+  # Create wrapper script
+  mkdir -p $out/bin
+  cat > $out/bin/hush << EOF
 #!/bin/sh
 set -e
 
-export LD_LIBRARY_PATH="${pkgs.lib.makeLibraryPath (audioVideoLibs ++ cppLibs)}:$LD_LIBRARY_PATH"
+export LD_LIBRARY_PATH="${pkgs.lib.makeLibraryPath (audioVideoLibs ++ cppLibs)}:\$LD_LIBRARY_PATH"
 
 # Use system data dir if available, else local
-DATA_DIR=''${HUSH_DATA_DIR:-"$HOME/.local/share/hush"}
-mkdir -p "$DATA_DIR/uploads"
-cd "$DATA_DIR"
+DATA_DIR=\''${HUSH_DATA_DIR:-"\$HOME/.local/share/hush"}
+mkdir -p "\$DATA_DIR/uploads"
+cd "\$DATA_DIR"
 
 # Create venv if needed
 if [ ! -d ".venv" ]; then
@@ -109,11 +109,11 @@ if [ ! -f "main.py" ]; then
   cp $out/share/hush/main.py .
 fi
 
-exec python main.py "''${@}"
+exec python main.py "\''${@}"
 EOF
-            chmod +x $out/bin/hush
-          '';
-        };
+  chmod +x $out/bin/hush
+  '';
+};
     in
     # Per-system outputs
     flake-utils.lib.eachDefaultSystem (system:
