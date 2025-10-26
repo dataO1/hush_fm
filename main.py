@@ -42,14 +42,13 @@ def _client_name() -> str:
     return random.choice(adjectives) + random.choice(nouns) + str(random.randint(1, 99))
 
 async def serve_index(request: web.Request) -> web.StreamResponse:
-    # Single-page app for / and /r/{room_id}
+    # SPA entry for / and /r/{room_id}
     return web.FileResponse(INDEX_FILE)
 
 async def serve_config(request: web.Request) -> web.Response:
-    # Kept for compatibility; SFU handles ICE internally
     return web.json_response({"iceServers": []})
 
-# Identify supports reuse of client_id to auto-restore sessions
+# Identify supports reuse of client_id
 async def api_identify(request: web.Request) -> web.Response:
     data = await request.json()
     reuse_id = data.get("client_id")
@@ -82,14 +81,13 @@ async def api_rooms(request: web.Request) -> web.Response:
         })
     return web.json_response({"ok": True, "rooms": items})
 
-# Enforce: one room per DJ; reuse existing if already created
+# One room per DJ; reuse if exists; accept custom room name
 async def api_room_create(request: web.Request) -> web.Response:
     data = await request.json()
     client_id = data.get("client_id")
     name = data.get("name") or "My Disco"
     if client_id not in clients:
         return web.json_response({"ok": False, "error": "unknown client"}, status=400)
-    # Reuse existing room for this DJ
     for rid, r in rooms.items():
         if r.get("dj_client") == client_id:
             clients[client_id]["room_id"] = rid
@@ -114,7 +112,6 @@ async def api_room_join(request: web.Request) -> web.Response:
         return web.json_response({"ok": False, "error": "unknown room"}, status=404)
     room = rooms[rid]
     if role == "dj":
-        # Enforce single DJ per room
         if room.get("dj_client") not in (None, client_id):
             return web.json_response({"ok": False, "error": "room already has a DJ"}, status=409)
         room["dj_client"] = client_id
@@ -125,12 +122,28 @@ async def api_room_join(request: web.Request) -> web.Response:
     clients[client_id]["role"] = role
     clients[client_id]["last_seen"] = time.time()
     logger.info("✅ %s (%s) joined %s [Client: %s]", clients[client_id]["name"], role, room["name"], client_id)
+    return web.json_response({"ok": True, "name": room.get("name")})
+
+# Close room: DJ-only; removes room and signals clients to exit (clients also detach on 404 join)
+async def api_room_close(request: web.Request) -> web.Response:
+    rid = request.match_info["room_id"]
+    data = await request.json()
+    client_id = data.get("client_id")
+    if rid not in rooms:
+        return web.json_response({"ok": False, "error": "unknown room"}, status=404)
+    if client_id not in clients:
+        return web.json_response({"ok": False, "error": "unknown client"}, status=400)
+    room = rooms[rid]
+    if room.get("dj_client") != client_id:
+        return web.json_response({"ok": False, "error": "only DJ can close room"}, status=403)
+    del rooms[rid]
+    logger.info("🛑 Room closed: %s by %s", rid, clients[client_id]["name"])
     return web.json_response({"ok": True})
 
-# LiveKit token minting (self-hosted)
-LIVEKIT_URL = os.environ.get("LIVEKIT_WS_URL", "")       # e.g., ws://<LAN_IP>:7880
-LIVEKIT_API_KEY = os.environ.get("LIVEKIT_API_KEY", "")  # e.g., devkey
-LIVEKIT_API_SECRET = os.environ.get("LIVEKIT_API_SECRET", "")  # e.g., secret
+# LiveKit token minting
+LIVEKIT_URL = os.environ.get("LIVEKIT_WS_URL", "")
+LIVEKIT_API_KEY = os.environ.get("LIVEKIT_API_KEY", "")
+LIVEKIT_API_SECRET = os.environ.get("LIVEKIT_API_SECRET", "")
 
 def _mint_livekit_token(identity: str, room: str, role: str, name: Optional[str]) -> str:
     now = int(time.time())
@@ -167,35 +180,30 @@ async def api_lk_token(request: web.Request) -> web.Response:
     token = _mint_livekit_token(identity=client_id, room=room_id, role=role, name=clients[client_id]["name"])
     return web.json_response({"ok": True, "url": LIVEKIT_URL, "token": token})
 
-# Lightweight presence to keep room state fresh without DB
+# Presence heartbeat (optional clean-up if you add timers)
 async def api_presence(request: web.Request) -> web.Response:
     data = await request.json()
-    cid = data.get("client_id")
-    rid = data.get("room_id")
-    role = data.get("role")
+    cid = data.get("client_id"); rid = data.get("room_id"); role = data.get("role")
     now = time.time()
-    if cid in clients:
-        clients[cid]["last_seen"] = now
-    if rid in rooms and role == "dj":
-        rooms[rid]["last_seen_dj"] = now
+    if cid in clients: clients[cid]["last_seen"] = now
+    if rid in rooms and role == "dj": rooms[rid]["last_seen_dj"] = now
     return web.json_response({"ok": True})
 
 def create_app() -> web.Application:
     app = web.Application()
-    # SPA entry for root and room deep-links
     app.router.add_get("/", serve_index)
     app.router.add_get("/r/{room_id}", serve_index)
     app.router.add_get("/r/{room_id}/", serve_index)
-
     app.router.add_get("/config", serve_config)
     app.router.add_post("/user/identify", api_identify)
     app.router.add_get("/rooms", api_rooms)
     app.router.add_post("/room/create", api_room_create)
     app.router.add_post("/room/{room_id}/join", api_room_join)
+    app.router.add_post("/room/{room_id}/close", api_room_close)
     app.router.add_post("/lk/token", api_lk_token)
     app.router.add_post("/presence/beat", api_presence)
     app.router.add_static("/static/", path=str(STATIC_DIR), name="static")
-    logger.info("🎧 SFU mode ready (LiveKit) — in‑memory rooms; deep links enabled (/r/<roomId>)")
+    logger.info("🎧 SFU mode ready • deep links • room close endpoint enabled")
     return app
 
 def main():

@@ -1,0 +1,19 @@
+# Port for HTTP/WebSocket signaling (default 7880)
+port: 7880
+
+
+# Path to keyfile for JWT authentication
+keys_file: ./livekit.keys
+
+# RTC (media transport) configuration
+rtc:
+  # Single UDP port for media (RTP/RTCP)
+  udp_port: 7882
+
+  # Node IP - use 127.0.0.1 for localhost-only access
+  # For LAN access, change this to your machine's LAN IP
+  node_ip: 127.0.0.1
+
+
+# Development mode settings
+# log_level: debug
