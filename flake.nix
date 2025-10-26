@@ -97,7 +97,7 @@
             export LDFLAGS="-L${pkgs.ffmpeg}/lib -L${pkgs.lib.makeLibraryPath cppLibs}"
 
             # Livekit
-            export LIVEKIT_WS_URL=ws://127.0.0.1:7880
+            export LIVEKIT_WS_URL=ws://192.168.178.79:7880
             export LIVEKIT_API_KEY=devkey
             export LIVEKIT_API_SECRET=m2yYtSY5XDaekJ26wf8ZKMnHKPQwD2L3
 
