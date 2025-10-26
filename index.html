@@ -96,7 +96,7 @@ async function fetchLkToken(role, roomId) {
 }
 
 async function createLkRoomAndConnect(url, token) {
-  const { Room, RoomEvent, setLogLevel, LogLevel, AudioPresets } = window.livekit;
+  const { Room, RoomEvent, setLogLevel, LogLevel, AudioPresets } = LivekitClient;
   setLogLevel(LogLevel.warn);
   const room = new Room({
     // Keep latency low; SFU will forward without mixing/transcoding
@@ -128,7 +128,8 @@ async function createLkRoomAndConnect(url, token) {
 
 async function ensureDjAudioTrack() {
   if (state.localTrack) return state.localTrack;
-  const { LocalAudioTrack, createLocalAudioTrack, TrackPublishOptions, AudioCaptureOptions } = window.livekit;
+  const { LocalAudioTrack, createLocalAudioTrack, TrackPublishOptions,
+    AudioCaptureOptions } = LivekitClient;
   // Music-friendly capture: stereo, 48k, disable AGC/NS/EC to avoid coloration
   const constraints = {
     audio: {
