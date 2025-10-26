@@ -4,6 +4,8 @@ Silent Disco - Entry point
 Starts the aiohttp server with all routes configured
 """
 import logging
+import ssl
+import os
 from pathlib import Path
 from aiohttp import web
 
@@ -49,11 +51,28 @@ def create_app() -> web.Application:
     logger.info("🎧 Silent Disco server ready • SFU mode • deep links enabled")
     return app
 
-
 def main():
     app = create_app()
     web.run_app(app, host="0.0.0.0", port=3000)
 
-
 if __name__ == "__main__":
-    main()
+    import ssl
+    port = int(os.environ.get("PORT", 3000))
+
+    # Try to use HTTPS if cert exists
+    try:
+        ssl_context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+        ssl_context.load_cert_chain('server.crt', 'server.key')
+        print(f"🔒 Starting HTTPS server on https://0.0.0.0:{port}")
+
+        # Run aiohttp with SSL
+        app = create_app()
+        web.run_app(app, host="0.0.0.0", port=port, ssl_context=ssl_context)
+
+    except FileNotFoundError:
+        print(f"⚠️  No SSL cert found, starting HTTP server")
+        print(f"   Mic access will only work on localhost!")
+        print(f"   Generate cert: openssl req -x509 -newkey rsa:4096 -nodes -keyout server.key -out server.crt -days 365 -subj '/CN=192.168.178.79'")
+
+        # Run aiohttp without SSL
+        main()
