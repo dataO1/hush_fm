@@ -282,7 +282,7 @@
                 LIVEKIT_PORT = toString cfg.livekitPort;
                 LIVEKIT_API_KEY = cfg.apiKey;
                 LIVEKIT_API_SECRET = cfg.apiSecret;
-                LIVEKIT_SECURE = cfg.secure;
+                LIVEKIT_SECURE = lib.boolToString cfg.secure;  # becomes "true" or "false"
                 HUSH_DATA_DIR = cfg.dataDir;
               };
 
