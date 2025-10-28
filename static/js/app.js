@@ -20,6 +20,11 @@ import {
   renderRoomsList,
   initButtons,
 } from "./ui.js";
+import {
+  setupMediaSession,
+  updateMediaSession,
+  stopMediaSession,
+} from "./mediaSession.js";
 
 function parseRoute() {
   const path = location.pathname.replace(/\/+$/, "");
@@ -79,6 +84,8 @@ async function enterRoom(roomId, role) {
 
     // ✅ connectRoom now handles disconnecting old room
     await connectRoom(url, token);
+    // Enable background playback
+    setupMediaSession(roomId);
 
     if (role === "dj") {
       setDjRoomMeta();
@@ -119,6 +126,7 @@ async function closeFloor() {
     }
   } catch {}
   try {
+    stopMediaSession();
     await closeRoom(state.roomId);
   } catch {}
   try {
