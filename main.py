@@ -30,15 +30,17 @@ UPLOADS_DIR = DATA_DIR / 'uploads'
 # Ensure data directory exists
 UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
 
+async def index(request):
+    return web.FileResponse(STATIC_DIR / 'index.html')
 
 def create_app() -> web.Application:
     """Create and configure the aiohttp application"""
     app = web.Application()
 
     # HTML routes
-    app.router.add_get("/", serve_index)
-    app.router.add_get("/r/{room_id}", serve_index)
-    app.router.add_get("/r/{room_id}/", serve_index)
+    app.router.add_get("/", index)
+    app.router.add_get("/r/{room_id}", index)
+    app.router.add_get("/r/{room_id}/", index)
 
     # API routes
     app.router.add_get("/config", serve_config)
@@ -51,7 +53,17 @@ def create_app() -> web.Application:
     app.router.add_post("/presence/beat", api_presence)
 
     # Static files
-    app.router.add_static('/static', STATIC_DIR)
+    app.router.add_static('/static', STATIC_DIR, name='static')
+    print(f"CWD: {os.getcwd()}")
+    print(f"HUSH_STATIC_DIR: {os.getenv('HUSH_STATIC_DIR')}")
+    print(f"Static dir exists: {os.path.exists(os.getenv('HUSH_STATIC_DIR', './static'))}")
+
+    # List files in static dir
+    static_path = os.getenv('HUSH_STATIC_DIR', './static')
+    if os.path.exists(static_path):
+        print(f"Files in static: {os.listdir(static_path)}")
+    else:
+        print(f"Static dir not found at: {static_path}")
     logger.info("🎧 Silent Disco server ready • SFU mode • deep links enabled")
     return app
 
