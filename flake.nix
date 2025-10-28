@@ -190,12 +190,6 @@
               default = true;
               description = "Open firewall ports automatically";
             };
-
-            logLevel = mkOption {
-              type = types.enum [ "debug" "info" "warn" "error" ];
-              default = "info";
-              description = "LiveKit log level";
-            };
           };
 
           config = mkIf cfg.enable {
@@ -241,7 +235,6 @@
                     --port ${toString cfg.livekitPort} \
                     --udp-port ${toString cfg.rtcPort} \
                     --keys "${cfg.apiKey}: ${cfg.apiSecret}" \
-                    --log-level ${cfg.logLevel}
                 '';
 
                 # Security hardening
