@@ -20,6 +20,7 @@ export async function createSystemAudioTrack() {
     const stream = await navigator.mediaDevices.getDisplayMedia({
       video: true,
       audio: true,
+      preferCurrentTab: false,
     });
     // Stop and remove the video track since we don't need it
 
