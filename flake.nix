@@ -93,7 +93,6 @@
           ];
 
           # Environment variables
-          LIVEKIT_WS_URL = "ws://localhost:7880";
           LIVEKIT_API_KEY = "devkey";
           LIVEKIT_API_SECRET = "secret";
           PORT = "3000";
@@ -110,7 +109,6 @@
 
             # Display environment
             echo "Environment:"
-            echo "  LIVEKIT_WS_URL=$LIVEKIT_WS_URL"
             echo "  LIVEKIT_API_KEY=$LIVEKIT_API_KEY"
             echo "  LIVEKIT_API_SECRET=$LIVEKIT_API_SECRET"
             echo "  PORT=$PORT"
@@ -151,12 +149,6 @@
         in {
           options.services.hush = {
             enable = mkEnableOption "Hush Silent Disco server";
-            # Add this new option
-            serverHost = mkOption {
-              type = types.str;
-              default = "0.0.0.0";
-              description = "Server host IP address (use actual IP for production)";
-            };
 
             port = mkOption {
               type = types.int;
@@ -275,8 +267,6 @@
 
               environment = {
                 PORT = toString cfg.port;
-                SERVER_HOST = cfg.serverHost;  # Add this
-                LIVEKIT_WS_URL = "ws://${cfg.serverHost}:${toString cfg.livekitPort}";
                 LIVEKIT_PORT = toString cfg.livekitPort;
                 LIVEKIT_API_KEY = cfg.apiKey;
                 LIVEKIT_API_SECRET = cfg.apiSecret;

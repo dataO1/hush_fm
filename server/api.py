@@ -39,15 +39,17 @@ async def serve_index(request: web.Request) -> web.StreamResponse:
 
 
 async def serve_config(request):
-    """Return client configuration"""
-    # Simply return the pre-configured environment variable
-    livekit_ws_url = os.environ.get('LIVEKIT_WS_URL', 'ws://localhost:7880')
+    """Return client configuration with correct LiveKit URL"""
+    # Get the host from the request (what the client used to connect)
+    host = request.host.split(':')[0]  # e.g., "192.168.178.105" from "192.168.178.105:3000"
+
+    livekit_port = os.environ.get('LIVEKIT_PORT', '7880')
+    livekit_ws_url = f"ws://{host}:{livekit_port}"
 
     return web.json_response({
         "livekit_ws_url": livekit_ws_url,
         "api_key": os.environ.get('LIVEKIT_API_KEY', 'devkey'),
     })
-
 
 # ============================================================
 # USER IDENTITY
