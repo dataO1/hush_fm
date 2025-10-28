@@ -269,11 +269,12 @@ async def api_lk_token(request: web.Request) -> web.Response:
         role=role,
         name=clients[client_id]["name"]
     )
-
-    from .livekit_auth import LIVEKIT_URL
+    host = request.headers.get('Host', '').split(':')[0]
+    livekit_port = os.environ.get('LIVEKIT_PORT', '7880')
+    livekit_ws_url = f"ws://{host}:{livekit_port}"
     return web.json_response({
         "ok": True,
-        "url": LIVEKIT_URL,
+        "url": livekit_ws_url,
         "token": token
     })
 
