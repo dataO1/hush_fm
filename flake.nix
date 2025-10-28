@@ -190,9 +190,30 @@
               default = true;
               description = "Open firewall ports automatically";
             };
+            optimizeKernel = mkOption {
+              type = types.bool;
+              default = true;
+              description = ''
+                Automatically optimize kernel parameters for WebRTC.
+                Increases UDP buffer sizes to prevent packet loss with 50+ clients.
+                Recommended for production deployments.
+              '';
+            };
           };
 
           config = mkIf cfg.enable {
+            boot.kernel.sysctl = mkIf cfg.optimizeKernel {
+              # UDP receive buffer (for incoming WebRTC packets)
+              "net.core.rmem_max" = mkDefault 5000000;        # 5 MB
+              "net.core.rmem_default" = mkDefault 2500000;    # 2.5 MB
+
+              # UDP send buffer (for outgoing WebRTC packets)
+              "net.core.wmem_max" = mkDefault 5000000;        # 5 MB
+              "net.core.wmem_default" = mkDefault 2500000;    # 2.5 MB
+
+              # Connection tracking for many concurrent clients
+              "net.netfilter.nf_conntrack_max" = mkDefault 262144;
+            };
             # Install packages
             environment.systemPackages = [
               pkgs.livekit
