@@ -9,7 +9,7 @@ export async function createMicTrack() {
       echoCancellation: false,
       noiseSuppression: false,
       autoGainControl: false,
-      latency: 0.01, // Request 10ms latency
+      // latency: 0.01, // Request 10ms latency
     },
   });
   return stream.getAudioTracks()[0];
@@ -29,8 +29,8 @@ export async function createSystemAudioTrack() {
     });
     // Stop and remove the video track since we don't need it
 
-    const videoTracks = stream.getVideoTracks();
-    videoTracks.forEach((track) => track.stop());
+    // const videoTracks = stream.getVideoTracks();
+    // videoTracks.forEach((track) => track.stop());
     return stream.getAudioTracks()[0];
   } catch (e) {
     log("System audio capture error:", e?.message || e);
@@ -84,7 +84,7 @@ export async function switchAudioSource(newTrack, source) {
       }
     }
 
-    // Step 2: Unpublish all existing audio tracks in parallel
+    // Step 2: Unpublish all existing audio and video tracks in parallel
     const unpublishPromises = [];
     if (room.localParticipant.trackPublications) {
       for (const pub of [...room.localParticipant.trackPublications.values()]) {
