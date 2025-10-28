@@ -107,14 +107,6 @@
             mkdir -p "$HUSH_DATA_DIR/uploads"
             mkdir -p "$HUSH_DATA_DIR/logs"
 
-            # Display environment
-            echo "Environment:"
-            echo "  LIVEKIT_API_KEY=$LIVEKIT_API_KEY"
-            echo "  LIVEKIT_API_SECRET=$LIVEKIT_API_SECRET"
-            echo "  PORT=$PORT"
-            echo "  HUSH_DATA_DIR=$HUSH_DATA_DIR"
-            echo ""
-
             echo ""
             echo "📋 Commands:"
             echo "   python main.py       - Start Hush web server"
