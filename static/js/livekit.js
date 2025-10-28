@@ -41,6 +41,7 @@ export async function connectRoom(url, token) {
       simulcast: false,
     },
   });
+  room.prepareConnection(url, token);
 
   room.on(RoomEvent.Connected, async () => {
     log("LiveKit connected");
@@ -179,7 +180,7 @@ export async function ensurePublishedPresence() {
           await switchAudioSource(track, "microphone");
         } else if (state.source === "external") {
           await switchAudioSource(track);
-          await switchAudioSource(track, "microphone");
+          await switchAudioSource(track);
         } else if (state.source === "system") {
           track = await createSystemAudioTrack();
           await switchAudioSource(track, "screen_share_audio");

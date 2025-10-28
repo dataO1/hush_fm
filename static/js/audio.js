@@ -68,6 +68,14 @@ export async function switchAudioSource(newTrack, source) {
   }
 
   try {
+
+      // ask for permissions
+      if (source === "screen_share_audio"){
+        const p = room.localParticipant;
+        await p.setScreenShareEnabled(true);
+      }
+
+
     // Step 1: Mute existing publication immediately (prevents audio bleed)
     if (state.currentPub?.track) {
       try {
