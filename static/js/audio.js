@@ -68,13 +68,11 @@ export async function switchAudioSource(newTrack, source) {
   }
 
   try {
-
-      // ask for permissions
-      if (source === "screen_share_audio"){
-        const p = room.localParticipant;
-        await p.setScreenShareEnabled(true);
-      }
-
+    // ask for permissions
+    if (source === "screen_share_audio") {
+      const p = room.localParticipant;
+      await p.setScreenShareEnabled(true);
+    }
 
     // Step 1: Mute existing publication immediately (prevents audio bleed)
     if (state.currentPub?.track) {
@@ -139,6 +137,9 @@ export async function switchAudioSource(newTrack, source) {
     log(`✅ Source switched in ${duration}ms`);
   } catch (e) {
     log("❌ Source switch error:", e?.message || e);
+    const p = room.localParticipant;
+    log("❌ Last Camera error:", p?.lastCameraError || p);
+    log("❌ Last Mic error:", p?.lastMicrophoneError || p);
     // Try to recover by ensuring we have at least one track published
     if (!state.currentPub && newTrack) {
       try {
