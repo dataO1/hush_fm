@@ -270,6 +270,7 @@
               environment = {
                 PORT = toString cfg.port;
                 LIVEKIT_WS_URL = "ws://localhost:${toString cfg.livekitPort}";
+                LIVEKIT_PORT = toString cfg.livekitPort;  # Add this
                 LIVEKIT_API_KEY = cfg.apiKey;
                 LIVEKIT_API_SECRET = cfg.apiSecret;
                 HUSH_DATA_DIR = cfg.dataDir;

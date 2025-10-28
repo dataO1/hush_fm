@@ -3,6 +3,7 @@ HTTP API handlers for Silent Disco
 """
 import time
 import logging
+import os
 from pathlib import Path
 from aiohttp import web
 
@@ -22,13 +23,49 @@ INDEX_FILE = THIS_DIR / "index.html"
 # ============================================================
 
 async def serve_index(request: web.Request) -> web.StreamResponse:
-    """Serve the main HTML page (SPA entry point)"""
-    return web.FileResponse(INDEX_FILE)
+    """Return client configuration with correct LiveKit URL"""
+
+    # Get the host that the client is already connected to
+    host = request.host  # This includes the port, e.g., "192.168.178.105:3000"
+    server_host = host.split(':')[0]  # Just the IP/hostname
+
+    livekit_port = os.environ.get('LIVEKIT_PORT', '7880')
+    livekit_ws_url = f"ws://{server_host}:{livekit_port}"
+
+    return web.json_response({
+        "livekit_ws_url": livekit_ws_url,
+        "api_key": os.environ.get('LIVEKIT_API_KEY', 'devkey'),
+    })
 
 
-async def serve_config(request: web.Request) -> web.Response:
-    """Serve empty ICE config (LiveKit handles ICE internally)"""
-    return web.json_response({"iceServers": []})
+
+async def serve_config(request):
+    """Return client configuration with correct LiveKit URL"""
+
+    # Get the host from the request to build the correct WS URL
+    host = request.headers.get('Host', '').split(':')[0]
+
+    # If host is localhost or empty, try to get server IP
+    if not host or host == 'localhost':
+        import socket
+        try:
+            s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            s.connect(("8.8.8.8", 80))
+            host = s.getsockname()[0]
+            s.close()
+        except:
+            host = "localhost"
+
+    # Use environment variable or default
+    livekit_port = os.environ.get('LIVEKIT_PORT', '7880')
+    livekit_ws_url = f"ws://{host}:{livekit_port}"
+
+    config = {
+        "livekit_ws_url": livekit_ws_url,
+        "api_key": os.environ.get('LIVEKIT_API_KEY', 'devkey'),
+    }
+
+    return web.json_response(config)
 
 
 # ============================================================
