@@ -124,15 +124,11 @@ export function initButtons(enterRoomFn, closeFloorFn) {
     if (isDesktop()) {
       srcSystem.style.display = "block";
       srcSystem.addEventListener("click", async () => {
-        try {
-          state.source = "system";
-          const track = await createSystemAudioTrack();
-          await switchAudioSource(track, "screen_share");
-          highlightActiveSource();
-          log("✅ Switched to system audio");
-        } catch (e) {
-          log("System audio switch error:", e?.message || e);
-        }
+        state.source = "system";
+        const track = await createSystemAudioTrack();
+        await switchAudioSource(track, "screen_share");
+        highlightActiveSource();
+        log("✅ Switched to system audio");
       });
     } else {
       srcSystem.style.display = "none";
