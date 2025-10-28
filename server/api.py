@@ -22,22 +22,6 @@ INDEX_FILE = THIS_DIR / "index.html"
 # HTML SERVING
 # ============================================================
 
-async def serve_index(request: web.Request) -> web.StreamResponse:
-    """Return client configuration with correct LiveKit URL"""
-
-    # Get the host that the client is already connected to
-    host = request.host  # This includes the port, e.g., "192.168.178.105:3000"
-    server_host = host.split(':')[0]  # Just the IP/hostname
-
-    livekit_port = os.environ.get('LIVEKIT_PORT', '7880')
-    livekit_ws_url = f"ws://{server_host}:{livekit_port}"
-
-    return web.json_response({
-        "livekit_ws_url": livekit_ws_url,
-        "api_key": os.environ.get('LIVEKIT_API_KEY', 'devkey'),
-    })
-
-
 async def serve_config(request):
     """Return client configuration with correct LiveKit URL"""
     # Get the host from the request (what the client used to connect)

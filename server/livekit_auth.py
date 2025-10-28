@@ -11,12 +11,7 @@ except ImportError:
     raise ImportError("pyjwt is required: pip install pyjwt")
 
 
-host = request.host  # This includes the port, e.g., "192.168.178.105:3000"
-server_host = host.split(':')[0]  # Just the IP/hostname
-
 # Environment variables for LiveKit configuration
-LIVEKIT_PORT = os.environ.get('LIVEKIT_PORT', '7880')
-LIVEKIT_URL = f"ws://{server_host}:{LIVEKIT_PORT}"
 LIVEKIT_API_KEY = os.environ.get("LIVEKIT_API_KEY", "")
 LIVEKIT_API_SECRET = os.environ.get("LIVEKIT_API_SECRET", "")
 
@@ -60,4 +55,4 @@ def mint_livekit_token(identity: str, room: str, role: str, name: Optional[str] 
 
 def is_livekit_configured() -> bool:
     """Check if LiveKit environment variables are set"""
-    return bool(LIVEKIT_URL and LIVEKIT_API_KEY and LIVEKIT_API_SECRET)
+    return bool(LIVEKIT_API_KEY and LIVEKIT_API_SECRET)
