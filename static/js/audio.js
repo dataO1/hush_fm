@@ -26,7 +26,7 @@ export async function createSystemAudioTrack() {
 
     // const videoTracks = stream.getVideoTracks();
     // videoTracks.forEach((track) => track.stop());
-    return stream.getAudioTracks()[0];
+    return stream.getTracks()[0];
   } catch (e) {
     log("System audio capture error:", e?.message || e);
     throw e;
