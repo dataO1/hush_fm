@@ -28,8 +28,9 @@ export async function createSystemAudioTrack() {
       },
     });
     // Stop and remove the video track since we don't need it
-    // const videoTracks = stream.getVideoTracks();
-    // videoTracks.forEach((track) => track.stop());
+
+    const videoTracks = stream.getVideoTracks();
+    videoTracks.forEach((track) => track.stop());
     return stream.getAudioTracks()[0];
   } catch (e) {
     log("System audio capture error:", e?.message || e);
