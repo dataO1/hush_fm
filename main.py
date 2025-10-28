@@ -81,8 +81,16 @@ def get_local_ip():
 def main():
     app = create_app()
     port = int(os.environ.get("PORT", 3000))
+
+    # In production (systemd), bind to 0.0.0.0
+    # In dev, you can still use local IP
+    host = os.environ.get("HOST", "0.0.0.0")
+
     local_ip = get_local_ip()
-    web.run_app(app, host=local_ip, port=port)
+    logger.info(f"🚀 Starting server on {host}:{port}")
+    logger.info(f"💡 Access at: http://{local_ip}:{port}")
+
+    web.run_app(app, host=host, port=port)
 
 if __name__ == "__main__":
     main()
