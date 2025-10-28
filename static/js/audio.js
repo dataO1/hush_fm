@@ -14,6 +14,28 @@ export async function createMicTrack() {
   });
   return stream.getAudioTracks()[0];
 }
+// Add after createFileTrack function
+export async function createSystemAudioTrack() {
+  try {
+    const stream = await navigator.mediaDevices.getDisplayMedia({
+      video: true,
+      audio: {
+        channelCount: 2,
+        sampleRate: 48000,
+        echoCancellation: false,
+        noiseSuppression: false,
+        autoGainControl: false,
+      },
+    });
+    // Stop and remove the video track since we don't need it
+    const videoTracks = stream.getVideoTracks();
+    videoTracks.forEach((track) => track.stop());
+    return stream.getAudioTracks()[0];
+  } catch (e) {
+    log("System audio capture error:", e?.message || e);
+    throw e;
+  }
+}
 
 export async function createExternalTrack(deviceId) {
   const constraints = {
@@ -29,24 +51,6 @@ export async function createExternalTrack(deviceId) {
   };
   const stream = await navigator.mediaDevices.getUserMedia(constraints);
   return stream.getAudioTracks()[0];
-}
-
-export async function createFileTrack(file) {
-  const url = URL.createObjectURL(file);
-  const audioEl = new Audio();
-  audioEl.src = url;
-  audioEl.crossOrigin = "anonymous";
-  audioEl.muted = true;
-  await audioEl.play().catch(() => {});
-  const ctx = new (window.AudioContext || window.webkitAudioContext)();
-  const src = ctx.createMediaElementSource(audioEl);
-  const dst = ctx.createMediaStreamDestination();
-  src.connect(dst);
-  const track = dst.stream.getAudioTracks()[0];
-  state.fileAudioEl = audioEl;
-  state.audioCtx = ctx;
-  state.waveSrc = src;
-  return { track, audioEl };
 }
 
 /**
@@ -93,11 +97,16 @@ export async function switchAudioSource(newTrack) {
 
     // Step 3: Publish new track immediately
     const pub = await room.localParticipant.publishTrack(newTrack, {
-      dtx: false, // No discontinuous transmission (music needs constant bitrate)
-      red: true, // Enable redundancy for packet loss protection
-      forceStereo: true, // Maintain stereo quality
+      dtx: false,
+      red: true,
+      audioPreset: {
+        maxBitrate: 128000,
+        priority: "high",
+      },
+      encodings: [{
+        stereo: true,  // Ensure stereo is enabled
+      }],
     });
-
     // Update state
     state.localTrack = newTrack;
     state.currentPub = pub;

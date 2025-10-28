@@ -4,7 +4,7 @@ import { switchAudioSource } from "./audio.js"; // Add this import
 import {
   createMicTrack,
   createExternalTrack,
-  createFileTrack,
+  createSystemAudioTrack,
   refreshDjWave,
   startWaveform,
   stopWaveform,
@@ -177,8 +177,8 @@ export async function ensurePublishedPresence() {
         if (state.source === "mic") track = await createMicTrack();
         else if (state.source === "external")
           track = await createExternalTrack(state.extDeviceId);
-        else if (state.source === "file" && state.file) {
-          ({ track } = await createFileTrack(state.file));
+        else if (state.source === "system") {
+          track = await createSystemAudioTrack();
         }
       } catch (e) {
         log("Track creation error:", e?.message || e);

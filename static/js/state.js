@@ -10,7 +10,6 @@ export const state = {
   currentPub: null,
   onAir: false,
   source: "mic",
-  file: null,
   fileAudioEl: null,
   audioCtx: null,
   waveSrc: null,

@@ -5,7 +5,7 @@ import { publish } from "./livekit.js";
 import {
   createMicTrack,
   createExternalTrack,
-  createFileTrack,
+  createSystemAudioTrack,
   ensureDeviceList,
   switchAudioSource,
 } from "./audio.js";
@@ -34,16 +34,17 @@ export function updateMuteButton() {
   }
 }
 
+// Update highlightActiveSource function
 export function highlightActiveSource() {
   document
     .getElementById("srcMic")
     .classList.toggle("active", state.source === "mic");
   document
-    .getElementById("srcTrack")
-    .classList.toggle("active", state.source === "file");
-  document
     .getElementById("srcExternal")
     .classList.toggle("active", state.source === "external");
+  document
+    .getElementById("srcSystem")
+    ?.classList.toggle("active", state.source === "system");
 }
 
 export function setDjRoomMeta() {
@@ -86,6 +87,12 @@ export async function renderRoomsList() {
   }
 }
 
+export function isDesktop() {
+  return !/Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(
+    navigator.userAgent,
+  );
+}
+
 export function initButtons(enterRoomFn, closeFloorFn) {
   // Create room
   document.getElementById("btnCreate").onclick = async () => {
@@ -112,11 +119,25 @@ export function initButtons(enterRoomFn, closeFloorFn) {
     }
   };
 
-  document.getElementById("srcTrack").onclick = () => {
-    state.source = "file";
-    document.getElementById("fileInput").click();
-    highlightActiveSource();
-  };
+  const srcSystem = document.getElementById("srcSystem");
+  if (srcSystem) {
+    if (isDesktop()) {
+      srcSystem.style.display = "block";
+      srcSystem.addEventListener("click", async () => {
+        try {
+          state.source = "system";
+          highlightActiveSource();
+          const track = await createSystemAudioTrack();
+          await switchAudioSource(track);
+          log("✅ Switched to system audio");
+        } catch (e) {
+          log("System audio switch error:", e?.message || e);
+        }
+      });
+    } else {
+      srcSystem.style.display = "none";
+    }
+  }
 
   document.getElementById("srcExternal").onclick = async (e) => {
     e.stopPropagation();
@@ -151,14 +172,6 @@ export function initButtons(enterRoomFn, closeFloorFn) {
       document.getElementById("extDropdown").classList.remove("show");
   });
 
-  document.getElementById("fileInput").onchange = async (e) => {
-    state.file = e.target.files?.[0] || null;
-    if (state.role === "dj" && state.lkRoom && state.file) {
-      const { track } = await createFileTrack(state.file);
-      await switchAudioSource(track); // ← Changed from publish()
-      highlightActiveSource();
-    }
-  };
   // Mute button
   btnMute.onclick = async () => {
     if (state.role !== "dj" || !state.lkRoom) return;
@@ -169,13 +182,8 @@ export function initButtons(enterRoomFn, closeFloorFn) {
         if (state.source === "mic") track = await createMicTrack();
         else if (state.source === "external")
           track = await createExternalTrack(state.extDeviceId);
-        else if (state.source === "file") {
-          if (!state.file) {
-            log("select a file first");
-            return;
-          }
-          ({ track } = await createFileTrack(state.file));
-        }
+        else if (state.source === "system")
+          track = await createSystemAudioTrack();
       }
       if (track) await publish(track);
     }
