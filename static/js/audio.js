@@ -102,8 +102,12 @@ export async function switchAudioSource(newTrack, source) {
     await Promise.all(unpublishPromises);
     log("All old tracks unpublished");
 
-    // Step 3: Publish new track immediately
-    const pub = await room.localParticipant.publishTrack(newTrack, {
+    // Step 3: Create LocalAudioTrack from MediaStreamTrack
+    const { LocalAudioTrack } = window.LivekitClient;
+    const localTrack = new LocalAudioTrack(newTrack, undefined, true); // track, constraints, userProvidedTrack
+
+    // Step 4: Publish new track immediately
+    const pub = await room.localParticipant.publishTrack(localTrack, {
       name: "stream",
       stream: "stream",
       dtx: false,
@@ -121,7 +125,7 @@ export async function switchAudioSource(newTrack, source) {
     state.localTrack = newTrack;
     state.currentPub = pub;
 
-    // Step 4: Restore mute state based on onAir status
+    // Step 5: Restore mute state based on onAir status
     if (state.onAir) {
       await pub.track.unmute();
       log("New track published and unmuted");
