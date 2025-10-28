@@ -184,11 +184,11 @@
               description = "Data directory for uploads and logs";
             };
 
-            openFirewall = mkOption {
-              type = types.bool;
-              default = true;
-              description = "Open firewall ports automatically";
-            };
+            # openFirewall = mkOption {
+            #   type = types.bool;
+            #   default = true;
+            #   description = "Open firewall ports automatically";
+            # };
             optimizeKernel = mkOption {
               type = types.bool;
               default = true;
@@ -309,14 +309,14 @@
             };
 
             # Firewall
-            networking.firewall = mkIf cfg.openFirewall {
-              allowedTCPPorts = [
-                cfg.port
-                cfg.livekitPort
-                (cfg.rtcPort + 1)  # TCP fallback
-              ];
-              allowedUDPPorts = [ cfg.rtcPort ];
-            };
+            # networking.firewall = mkIf cfg.openFirewall {
+            #   allowedTCPPorts = [
+            #     cfg.port
+            #     cfg.livekitPort
+            #     (cfg.rtcPort + 1)  # TCP fallback
+            #   ];
+            #   allowedUDPPorts = [ cfg.rtcPort ];
+            # };
           };
         };
     };
