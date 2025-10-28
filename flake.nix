@@ -58,16 +58,16 @@
             cp -r server $out/share/hush/ 2>/dev/null || true
             cp main.py $out/share/hush/
 
-            # Create wrapper that runs from Nix store
+            # Create wrapper
             mkdir -p $out/bin
             makeWrapper ${pythonEnv}/bin/python $out/bin/hush \
               --add-flags "$out/share/hush/main.py" \
               --prefix PYTHONPATH : "$out/share/hush" \
+              --prefix LD_LIBRARY_PATH : "${pkgs.lib.makeLibraryPath (audioVideoLibs ++ cppLibs)}" \
               --set HUSH_STATIC_DIR "$out/share/hush/static" \
               --set HUSH_SERVER_DIR "$out/share/hush/server" \
-              --run "mkdir -p \''${HUSH_DATA_DIR:-/var/lib/hush}/uploads" \
-              --chdir "\''${HUSH_DATA_DIR:-/var/lib/hush}"
-          '';
+              --run 'mkdir -p "''${HUSH_DATA_DIR:-/var/lib/hush}/uploads"'
+              '';
 
           meta = with pkgs.lib; {
             description = "Hush - Silent Disco WebRTC Audio Streaming";
