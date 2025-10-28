@@ -18,7 +18,7 @@ export async function createMicTrack() {
 export async function createSystemAudioTrack() {
   try {
     const stream = await navigator.mediaDevices.getDisplayMedia({
-      video: true,
+      video: false,
       audio: {
         channelCount: 2,
         sampleRate: 48000,
@@ -57,7 +57,7 @@ export async function createExternalTrack(deviceId) {
  * Optimized source switching: parallel unpublish + immediate republish
  * Reduces transition time from 200-500ms to 50-150ms
  */
-export async function switchAudioSource(newTrack) {
+export async function switchAudioSource(newTrack, source) {
   const startTime = performance.now();
   const room = state.lkRoom;
 
@@ -97,15 +97,18 @@ export async function switchAudioSource(newTrack) {
 
     // Step 3: Publish new track immediately
     const pub = await room.localParticipant.publishTrack(newTrack, {
+      name: "stream",
+      stream: "stream",
       dtx: false,
       red: true,
       audioPreset: {
         maxBitrate: 128000,
         priority: "high",
       },
-      encodings: [{
-        stereo: true,  // Ensure stereo is enabled
-      }],
+      forceStereo: true,
+      preConnectBuffer: true,
+      simulcast: false,
+      source: source,
     });
     // Update state
     state.localTrack = newTrack;

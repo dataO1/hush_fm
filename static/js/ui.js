@@ -114,7 +114,7 @@ export function initButtons(enterRoomFn, closeFloorFn) {
     state.source = "mic";
     if (state.role === "dj" && state.lkRoom) {
       const track = await createMicTrack();
-      await switchAudioSource(track); // ← Changed from publish()
+      await switchAudioSource(track, "microphone"); // ← Changed from publish()
       highlightActiveSource();
     }
   };
@@ -128,7 +128,7 @@ export function initButtons(enterRoomFn, closeFloorFn) {
           state.source = "system";
           highlightActiveSource();
           const track = await createSystemAudioTrack();
-          await switchAudioSource(track);
+          await switchAudioSource(track, "screen_share_audio");
           log("✅ Switched to system audio");
         } catch (e) {
           log("System audio switch error:", e?.message || e);

@@ -174,18 +174,21 @@ export async function ensurePublishedPresence() {
     let track = state.localTrack;
     if (!track) {
       try {
-        if (state.source === "mic") track = await createMicTrack();
-        else if (state.source === "external")
-          track = await createExternalTrack(state.extDeviceId);
-        else if (state.source === "system") {
+        if (state.source === "mic") {
+          track = await createMicTrack();
+          await switchAudioSource(track, "microphone");
+        } else if (state.source === "external") {
+          await switchAudioSource(track);
+          await switchAudioSource(track, "microphone");
+        } else if (state.source === "system") {
           track = await createSystemAudioTrack();
+          await switchAudioSource(track, "screen_share_audio");
         }
       } catch (e) {
         log("Track creation error:", e?.message || e);
         return;
       }
     }
-    if (track) await switchAudioSource(track); // ← Changed from publish()
   } else {
     try {
       if (state.currentPub && state.currentPub.track) {
