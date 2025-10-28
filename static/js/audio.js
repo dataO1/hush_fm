@@ -104,7 +104,20 @@ export async function switchAudioSource(newTrack, source) {
 
     // Step 3: Create LocalAudioTrack from MediaStreamTrack
     const { LocalAudioTrack } = window.LivekitClient;
-    const localTrack = new LocalAudioTrack(newTrack); // track, constraints, userProvidedTrack
+    // Get the constraints from the track
+    const constraints = {
+      channelCount: 2,
+      sampleRate: 48000,
+      echoCancellation: false,
+      noiseSuppression: false,
+      autoGainControl: false,
+    };
+
+    const localTrack = new LocalAudioTrack(
+      newTrack,
+      constraints, // Pass constraints, not undefined
+      true, // userProvidedTrack = true
+    );
 
     // Step 4: Publish new track immediately
     const pub = await room.localParticipant.publishTrack(localTrack);
