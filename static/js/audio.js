@@ -18,7 +18,7 @@ export async function createMicTrack() {
 export async function createSystemAudioTrack() {
   try {
     const stream = await navigator.mediaDevices.getDisplayMedia({
-      video: false,
+      video: true,
       audio: {
         channelCount: 2,
         sampleRate: 48000,
@@ -28,8 +28,8 @@ export async function createSystemAudioTrack() {
       },
     });
     // Stop and remove the video track since we don't need it
-    const videoTracks = stream.getVideoTracks();
-    videoTracks.forEach((track) => track.stop());
+    // const videoTracks = stream.getVideoTracks();
+    // videoTracks.forEach((track) => track.stop());
     return stream.getAudioTracks()[0];
   } catch (e) {
     log("System audio capture error:", e?.message || e);
