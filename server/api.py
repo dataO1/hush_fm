@@ -38,34 +38,15 @@ async def serve_index(request: web.Request) -> web.StreamResponse:
     })
 
 
-
 async def serve_config(request):
-    """Return client configuration with correct LiveKit URL"""
+    """Return client configuration"""
+    # Simply return the pre-configured environment variable
+    livekit_ws_url = os.environ.get('LIVEKIT_WS_URL', 'ws://localhost:7880')
 
-    # Get the host from the request to build the correct WS URL
-    host = request.headers.get('Host', '').split(':')[0]
-
-    # If host is localhost or empty, try to get server IP
-    if not host or host == 'localhost':
-        import socket
-        try:
-            s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-            s.connect(("8.8.8.8", 80))
-            host = s.getsockname()[0]
-            s.close()
-        except:
-            host = "localhost"
-
-    # Use environment variable or default
-    livekit_port = os.environ.get('LIVEKIT_PORT', '7880')
-    livekit_ws_url = f"ws://{host}:{livekit_port}"
-
-    config = {
+    return web.json_response({
         "livekit_ws_url": livekit_ws_url,
         "api_key": os.environ.get('LIVEKIT_API_KEY', 'devkey'),
-    }
-
-    return web.json_response(config)
+    })
 
 
 # ============================================================

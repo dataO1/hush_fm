@@ -84,7 +84,7 @@ def main():
 
     # In production (systemd), bind to 0.0.0.0
     # In dev, you can still use local IP
-    host = os.environ.get("HOST", "0.0.0.0")
+    host = os.environ.get("SERVER_HOST", "0.0.0.0")
 
     local_ip = get_local_ip()
     logger.info(f"🚀 Starting server on {host}:{port}")

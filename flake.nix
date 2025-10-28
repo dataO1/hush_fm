@@ -151,6 +151,12 @@
         in {
           options.services.hush = {
             enable = mkEnableOption "Hush Silent Disco server";
+            # Add this new option
+            serverHost = mkOption {
+              type = types.str;
+              default = "0.0.0.0";
+              description = "Server host IP address (use actual IP for production)";
+            };
 
             port = mkOption {
               type = types.int;
@@ -269,8 +275,9 @@
 
               environment = {
                 PORT = toString cfg.port;
-                LIVEKIT_WS_URL = "ws://localhost:${toString cfg.livekitPort}";
-                LIVEKIT_PORT = toString cfg.livekitPort;  # Add this
+                SERVER_HOST = cfg.serverHost;  # Add this
+                LIVEKIT_WS_URL = "ws://${cfg.serverHost}:${toString cfg.livekitPort}";
+                LIVEKIT_PORT = toString cfg.livekitPort;
                 LIVEKIT_API_KEY = cfg.apiKey;
                 LIVEKIT_API_SECRET = cfg.apiSecret;
                 HUSH_DATA_DIR = cfg.dataDir;
