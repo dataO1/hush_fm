@@ -11,7 +11,7 @@ from pathlib import Path
 from aiohttp import web
 
 from server.api import (
-    serve_index, serve_config, api_identify, api_rooms,
+    serve_config, api_identify, api_rooms,
     api_room_create, api_room_join, api_room_close,
     api_lk_token, api_presence
 )
