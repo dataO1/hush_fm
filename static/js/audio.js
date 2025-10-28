@@ -19,13 +19,7 @@ export async function createSystemAudioTrack() {
   try {
     const stream = await navigator.mediaDevices.getDisplayMedia({
       video: true,
-      audio: {
-        channelCount: 2,
-        sampleRate: 48000,
-        echoCancellation: false,
-        noiseSuppression: false,
-        autoGainControl: false,
-      },
+      audio: true,
     });
     // Stop and remove the video track since we don't need it
 
