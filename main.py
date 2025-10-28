@@ -23,8 +23,12 @@ logging.basicConfig(
 logger = logging.getLogger("silent_disco")
 
 THIS_DIR = Path(__file__).parent.resolve()
-STATIC_DIR = THIS_DIR / "static"
-STATIC_DIR.mkdir(exist_ok=True)
+STATIC_DIR = Path(os.getenv('HUSH_STATIC_DIR', './static'))
+SERVER_DIR = Path(os.getenv('HUSH_SERVER_DIR', './server'))
+DATA_DIR = Path(os.getenv('HUSH_DATA_DIR', './data'))
+UPLOADS_DIR = DATA_DIR / 'uploads'
+# Ensure data directory exists
+UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
 
 
 def create_app() -> web.Application:
@@ -47,8 +51,7 @@ def create_app() -> web.Application:
     app.router.add_post("/presence/beat", api_presence)
 
     # Static files
-    app.router.add_static("/static/", path=str(STATIC_DIR), name="static")
-
+    app.router.add_static('/static', STATIC_DIR)
     logger.info("🎧 Silent Disco server ready • SFU mode • deep links enabled")
     return app
 

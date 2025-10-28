@@ -53,22 +53,19 @@
           installPhase = ''
             mkdir -p $out/share/hush
 
-            # Copy all application files
-            cp -r static $out/share/hush/ || true
-            cp -r server $out/share/hush/ || true
+            # Copy application files
+            cp -r static $out/share/hush/ 2>/dev/null || true
+            cp -r server $out/share/hush/ 2>/dev/null || true
             cp main.py $out/share/hush/
 
-            # Create uploads directory
-            mkdir -p $out/share/hush/uploads
-
-            # Create wrapper script
+            # Create wrapper that runs from Nix store
             mkdir -p $out/bin
             makeWrapper ${pythonEnv}/bin/python $out/bin/hush \
               --add-flags "$out/share/hush/main.py" \
               --prefix PYTHONPATH : "$out/share/hush" \
-              --prefix LD_LIBRARY_PATH : "${pkgs.lib.makeLibraryPath (audioVideoLibs ++ cppLibs)}" \
               --set HUSH_STATIC_DIR "$out/share/hush/static" \
               --set HUSH_SERVER_DIR "$out/share/hush/server" \
+              --run "mkdir -p \''${HUSH_DATA_DIR:-/var/lib/hush}/uploads" \
               --chdir "\''${HUSH_DATA_DIR:-/var/lib/hush}"
           '';
 
@@ -95,26 +92,41 @@
             pkgs.python311Packages.virtualenv
           ];
 
+          # Environment variables
+          LIVEKIT_WS_URL = "ws://localhost:7880";
+          LIVEKIT_API_KEY = "devkey";
+          LIVEKIT_API_SECRET = "secret";
+          PORT = "3000";
+
           shellHook = ''
             echo "🎧 Hush Development Environment"
             echo "=============================="
             echo ""
-            echo "Commands:"
-            echo "  python main.py          - Start dev server"
-            echo "  livekit-server --dev    - Start LiveKit"
-            echo ""
 
+            # Set up data directory
             export HUSH_DATA_DIR="$PWD/data"
             mkdir -p "$HUSH_DATA_DIR/uploads"
+            mkdir -p "$HUSH_DATA_DIR/logs"
 
-            # LiveKit environment variables for testing
-            export LIVEKIT_WS_URL="ws://localhost:7880"
-            export LIVEKIT_API_KEY="devkey"
-            export LIVEKIT_API_SECRET="secret"
+            # Display environment
+            echo "Environment:"
+            echo "  LIVEKIT_WS_URL=$LIVEKIT_WS_URL"
+            echo "  LIVEKIT_API_KEY=$LIVEKIT_API_KEY"
+            echo "  LIVEKIT_API_SECRET=$LIVEKIT_API_SECRET"
+            echo "  PORT=$PORT"
+            echo "  HUSH_DATA_DIR=$HUSH_DATA_DIR"
+            echo ""
 
-            # Server settings
-            export PORT="3000"
+            echo ""
+            echo "📋 Commands:"
+            echo "   python main.py       - Start Hush web server"
+            echo "   livekit-server       - Start LiveKit server"
+            echo "   tail -f data/logs/livekit.log - View LiveKit logs"
+            echo ""
+            echo "Ready to develop! 🎉"
+            echo ""
           '';
+
         };
 
         # Package outputs
@@ -166,7 +178,6 @@
 
             apiSecret = mkOption {
               type = types.str;
-              default = "secret";
               description = "LiveKit API secret (use agenix for production!)";
             };
 
