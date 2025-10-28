@@ -240,7 +240,6 @@
                     --bind 0.0.0.0 \
                     --port ${toString cfg.livekitPort} \
                     --udp-port ${toString cfg.rtcPort} \
-                    --tcp-port ${toString (cfg.rtcPort + 1)} \
                     --keys "${cfg.apiKey}: ${cfg.apiSecret}" \
                     --log-level ${cfg.logLevel}
                 '';
