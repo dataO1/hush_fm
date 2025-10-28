@@ -97,7 +97,7 @@ export async function connectRoom(url, token) {
       el.play().catch(() => {});
       document.getElementById("offline").classList.add("hidden");
       startWaveform(el);
-      log("Subscribed audio from", participant.identity);
+      // log("Subscribed audio from", participant.identity);
     }
   });
 
