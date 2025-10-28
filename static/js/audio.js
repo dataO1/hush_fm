@@ -104,23 +104,24 @@ export async function switchAudioSource(newTrack, source) {
 
     // Step 3: Create LocalAudioTrack from MediaStreamTrack
     const { LocalAudioTrack } = window.LivekitClient;
-    const localTrack = new LocalAudioTrack(newTrack, undefined, true); // track, constraints, userProvidedTrack
+    const localTrack = new LocalAudioTrack(newTrack); // track, constraints, userProvidedTrack
 
     // Step 4: Publish new track immediately
-    const pub = await room.localParticipant.publishTrack(localTrack, {
-      name: "stream",
-      stream: "stream",
-      dtx: false,
-      red: true,
-      audioPreset: {
-        maxBitrate: 128000,
-        priority: "high",
-      },
-      forceStereo: true,
-      preConnectBuffer: true,
-      simulcast: false,
-      source: source,
-    });
+    const pub = await room.localParticipant.publishTrack(localTrack);
+    //   , {
+    //   name: "stream",
+    //   stream: "stream",
+    //   dtx: false,
+    //   red: true,
+    //   audioPreset: {
+    //     maxBitrate: 128000,
+    //     priority: "high",
+    //   },
+    //   forceStereo: true,
+    //   preConnectBuffer: true,
+    //   simulcast: false,
+    //   source: source,
+    // });
     // Update state
     state.localTrack = newTrack;
     state.currentPub = pub;
