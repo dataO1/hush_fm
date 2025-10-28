@@ -28,7 +28,8 @@ async def serve_config(request):
     host = request.host.split(':')[0]  # e.g., "192.168.178.105" from "192.168.178.105:3000"
 
     livekit_port = os.environ.get('LIVEKIT_PORT', '7880')
-    livekit_ws_url = f"ws://{host}:{livekit_port}"
+    livekit_protocol = "wss" if bool(os.environ.get('LIVEKIT_SECURE', False)) else "ws"
+    livekit_ws_url = f"{livekit_protocol}://{host}:{livekit_port}"
 
     return web.json_response({
         "livekit_ws_url": livekit_ws_url,
@@ -271,7 +272,8 @@ async def api_lk_token(request: web.Request) -> web.Response:
     )
     host = request.headers.get('Host', '').split(':')[0]
     livekit_port = os.environ.get('LIVEKIT_PORT', '7880')
-    livekit_ws_url = f"ws://{host}:{livekit_port}"
+    livekit_protocol = "wss" if bool(os.environ.get('LIVEKIT_SECURE', False)) else "ws"
+    livekit_ws_url = f"{livekit_protocol}://{host}:{livekit_port}"
     return web.json_response({
         "ok": True,
         "url": livekit_ws_url,

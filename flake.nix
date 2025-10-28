@@ -95,6 +95,7 @@
           # Environment variables
           LIVEKIT_API_KEY = "devkey";
           LIVEKIT_API_SECRET = "secret";
+          LIVEKIT_SECURE = false;
           PORT = "3000";
 
           shellHook = ''
@@ -141,6 +142,12 @@
         in {
           options.services.hush = {
             enable = mkEnableOption "Hush Silent Disco server";
+
+            secure = mkOption {
+              type = types.bool;
+              default = true;
+              description = "HTTP port for the web interface";
+            };
 
             port = mkOption {
               type = types.int;
@@ -275,6 +282,7 @@
                 LIVEKIT_PORT = toString cfg.livekitPort;
                 LIVEKIT_API_KEY = cfg.apiKey;
                 LIVEKIT_API_SECRET = cfg.apiSecret;
+                LIVEKIT_SECURE = cfg.secure;
                 HUSH_DATA_DIR = cfg.dataDir;
               };
 
