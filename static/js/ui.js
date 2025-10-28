@@ -126,9 +126,9 @@ export function initButtons(enterRoomFn, closeFloorFn) {
       srcSystem.addEventListener("click", async () => {
         try {
           state.source = "system";
-          highlightActiveSource();
           const track = await createSystemAudioTrack();
-          await switchAudioSource(track, "screen_share_audio");
+          await switchAudioSource(track, "screen_share");
+          highlightActiveSource();
           log("✅ Switched to system audio");
         } catch (e) {
           log("System audio switch error:", e?.message || e);
@@ -143,7 +143,7 @@ export function initButtons(enterRoomFn, closeFloorFn) {
     e.stopPropagation();
     state.source = "external";
     try {
-      await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+      await createExternalTrack();
     } catch {}
     const devices = await ensureDeviceList();
     const dropdown = document.getElementById("extDropdown");
