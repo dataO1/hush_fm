@@ -67,109 +67,110 @@ export async function switchAudioSource(newTrack, source) {
     return;
   }
 
-  try {
-    // ask for permissions
-    if (source === "screen_share_audio") {
-      const p = room.localParticipant;
-      await p.setScreenShareEnabled(true);
-    }
-
-    // Step 1: Mute existing publication immediately (prevents audio bleed)
-    if (state.currentPub?.track) {
-      try {
-        await state.currentPub.track.mute();
-        log("Muted old track");
-      } catch (e) {
-        log("Mute error (non-fatal):", e?.message || e);
-      }
-    }
-
-    // Step 2: Unpublish all existing audio and video tracks in parallel
-    const unpublishPromises = [];
-    if (room.localParticipant.trackPublications) {
-      for (const pub of [...room.localParticipant.trackPublications.values()]) {
-        if (pub.track?.kind === "audio") {
-          log("Unpublishing track:", pub.track.sid);
-          // stop: true ensures old track is fully stopped
-          unpublishPromises.push(
-            room.localParticipant.unpublishTrack(pub.track, { stop: true }),
-          );
-        }
-      }
-    }
-
-    // Wait for all unpublish operations to complete
-    await Promise.all(unpublishPromises);
-    log("All old tracks unpublished");
-
-    // Step 3: Create LocalAudioTrack from MediaStreamTrack
-    const { LocalAudioTrack } = window.LivekitClient;
-    // Get the constraints from the track
-    const constraints = {
-      channelCount: 2,
-      sampleRate: 48000,
-      echoCancellation: false,
-      noiseSuppression: false,
-      autoGainControl: false,
-    };
-
-    const localTrack = new LocalAudioTrack(
-      newTrack,
-      constraints, // Pass constraints, not undefined
-      true, // userProvidedTrack = true
-    );
-
-    // Step 4: Publish new track immediately
-    const pub = await room.localParticipant.publishTrack(localTrack);
-    //   , {
-    //   name: "stream",
-    //   stream: "stream",
-    //   dtx: false,
-    //   red: true,
-    //   audioPreset: {
-    //     maxBitrate: 128000,
-    //     priority: "high",
-    //   },
-    //   forceStereo: true,
-    //   preConnectBuffer: true,
-    //   simulcast: false,
-    //   source: source,
-    // });
-    // Update state
-    state.localTrack = newTrack;
-    state.currentPub = pub;
-
-    // Step 5: Restore mute state based on onAir status
-    if (state.onAir) {
-      await pub.track.unmute();
-      log("New track published and unmuted");
-    } else {
-      await pub.track.mute();
-      log("New track published and muted");
-    }
-
-    // Refresh DJ waveform with new track
-    refreshDjWave();
-
-    const duration = (performance.now() - startTime).toFixed(1);
-    log(`✅ Source switched in ${duration}ms`);
-  } catch (e) {
-    log("❌ Source switch error:", e?.message || e);
+  // try {
+  // ask for permissions
+  if (source === "screen_share_audio") {
     const p = room.localParticipant;
-    log("❌ Last Camera error:", p?.lastCameraError || p);
-    log("❌ Last Mic error:", p?.lastMicrophoneError || p);
-    // Try to recover by ensuring we have at least one track published
-    if (!state.currentPub && newTrack) {
-      try {
-        const pub = await room.localParticipant.publishTrack(newTrack);
-        state.currentPub = pub;
-        state.localTrack = newTrack;
-        log("Recovered: published new track after error");
-      } catch (recoveryError) {
-        log("Recovery failed:", recoveryError?.message || recoveryError);
+    await p.setScreenShareEnabled(true);
+  }
+
+  // Step 1: Mute existing publication immediately (prevents audio bleed)
+  if (state.currentPub?.track) {
+    try {
+      await state.currentPub.track.mute();
+      log("Muted old track");
+    } catch (e) {
+      log("Mute error (non-fatal):", e?.message || e);
+    }
+  }
+
+  // Step 2: Unpublish all existing audio and video tracks in parallel
+  const unpublishPromises = [];
+  if (room.localParticipant.trackPublications) {
+    for (const pub of [...room.localParticipant.trackPublications.values()]) {
+      if (pub.track?.kind === "audio") {
+        log("Unpublishing track:", pub.track.sid);
+        // stop: true ensures old track is fully stopped
+        unpublishPromises.push(
+          room.localParticipant.unpublishTrack(pub.track, { stop: true }),
+        );
       }
     }
   }
+
+  // Wait for all unpublish operations to complete
+  await Promise.all(unpublishPromises);
+  log("All old tracks unpublished");
+
+  // Step 3: Create LocalAudioTrack from MediaStreamTrack
+  const { LocalAudioTrack } = window.LivekitClient;
+  // Get the constraints from the track
+  const constraints = {
+    channelCount: 2,
+    sampleRate: 48000,
+    echoCancellation: false,
+    noiseSuppression: false,
+    autoGainControl: false,
+  };
+
+  const localTrack = new LocalAudioTrack(
+    newTrack,
+    constraints, // Pass constraints, not undefined
+    true, // userProvidedTrack = true
+  );
+
+  // Step 4: Publish new track immediately
+  const pub = await room.localParticipant.publishTrack(localTrack);
+  //   , {
+  //   name: "stream",
+  //   stream: "stream",
+  //   dtx: false,
+  //   red: true,
+  //   audioPreset: {
+  //     maxBitrate: 128000,
+  //     priority: "high",
+  //   },
+  //   forceStereo: true,
+  //   preConnectBuffer: true,
+  //   simulcast: false,
+  //   source: source,
+  // });
+  // Update state
+  state.localTrack = newTrack;
+  state.currentPub = pub;
+
+  // Step 5: Restore mute state based on onAir status
+  if (state.onAir) {
+    await pub.track.unmute();
+    log("New track published and unmuted");
+  } else {
+    await pub.track.mute();
+    log("New track published and muted");
+  }
+
+  // Refresh DJ waveform with new track
+  refreshDjWave();
+
+  const duration = (performance.now() - startTime).toFixed(1);
+  log(`✅ Source switched in ${duration}ms`);
+  // }
+  // catch (e) {
+  //   log("❌ Source switch error:", e?.message || e);
+  //   const p = room.localParticipant;
+  //   log("❌ Last Camera error:", p?.lastCameraError || p);
+  //   log("❌ Last Mic error:", p?.lastMicrophoneError || p);
+  //   // Try to recover by ensuring we have at least one track published
+  //   if (!state.currentPub && newTrack) {
+  //     try {
+  //       const pub = await room.localParticipant.publishTrack(newTrack);
+  //       state.currentPub = pub;
+  //       state.localTrack = newTrack;
+  //       log("Recovered: published new track after error");
+  //     } catch (recoveryError) {
+  //       log("Recovery failed:", recoveryError?.message || recoveryError);
+  //     }
+  //   }
+  // }
 }
 
 export function refreshDjWave() {
