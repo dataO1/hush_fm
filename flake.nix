@@ -282,7 +282,7 @@
                 WorkingDirectory = cfg.dataDir;
                 Restart = "always";
                 RestartSec = "5s";
-
+                ExecStartPre = "${pkgs.coreutils}/bin/mkdir -p ${cfg.dataDir}/uploads";
                 ExecStart = "${hushPackage}/bin/hush";
 
                 # Security hardening
