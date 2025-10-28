@@ -95,7 +95,7 @@
           # Environment variables
           LIVEKIT_API_KEY = "devkey";
           LIVEKIT_API_SECRET = "secret";
-          LIVEKIT_SECURE = false;
+          LIVEKIT_SECURE = "false";
           PORT = "3000";
 
           shellHook = ''
@@ -146,7 +146,7 @@
             secure = mkOption {
               type = types.bool;
               default = true;
-              description = "HTTP port for the web interface";
+              description = "use HTTPS and wss or not";
             };
 
             port = mkOption {
