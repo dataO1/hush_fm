@@ -341,11 +341,11 @@ async def api_lk_token(request: web.Request) -> web.Response:
         role=role,
         name=clients[client_id]["name"]
     )
-    host = request.headers.get('Host', '').split(':')[0]
-    livekit_port = os.environ.get('LIVEKIT_PORT', '7880')
+    host = request.host.split(':')[0]
+    livekit_port = ":" + str(os.environ.get('LIVEKIT_PORT', '7880'))
     livekit_secure = bool(os.environ.get('LIVEKIT_SECURE', False))
     livekit_protocol = "wss" if livekit_secure else "ws"
-    livekit_ws_url = f"{livekit_protocol}://{host}:{livekit_port}"
+    livekit_ws_url = f"{livekit_protocol}://{host}{'/livekit' if livekit_secure else livekit_port}"
 
     return web.json_response({
         "ok": True,
