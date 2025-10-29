@@ -139,8 +139,26 @@
         with lib;
         let
           cfg = config.services.hush;
-          livekitConfig = builtins.readFile ./livekit.yaml;
-          hushPackage = mkPackage pkgs pkgs.system;
+          livekitTemplate = builtins.readFile ./livekit-template.yaml;
+
+          livekitConfig = pkgs.writeText "livekit.yaml" (
+            builtins.replaceStrings
+              [
+                "@LIVEKIT_PORT@"
+                "@RTC_PORT@"
+                "@RTC_PORT_END@"
+                "@API_KEY@"
+                "@API_SECRET@"
+              ]
+              [
+                (toString cfg.livekitPort)
+                (toString cfg.rtcPort)
+                (toString (cfg.rtcPort + 100))
+                cfg.apiKey
+                cfg.apiSecret
+              ]
+              livekitTemplate
+  );          hushPackage = mkPackage pkgs pkgs.system;
         in {
           options.services.hush = {
             enable = mkEnableOption "Hush Silent Disco server";
