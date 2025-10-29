@@ -149,7 +149,7 @@
               port_range_end: ${toString (cfg.rtcPort + 100)}
               use_external_ip: false
               udp_port: ${toString cfg.rtcPort}
-              use_ice_lite: true
+              # use_ice_lite: true
               # Enable congestion control for better quality
               congestion_control:
                 enabled: true
