@@ -98,15 +98,45 @@ export async function renderRoomsList() {
     if (emptyRooms) emptyRooms.classList.add("hidden");
     roomsList.setAttribute("aria-label", `${rooms.length} available room${rooms.length !== 1 ? 's' : ''}`);
 
-    rooms.forEach((room) => {
+    // Sort rooms: own rooms first, then by listener count
+    const sortedRooms = rooms.sort((a, b) => {
+      const aIsOwn = a.dj_client_id === state.clientId;
+      const bIsOwn = b.dj_client_id === state.clientId;
+
+      if (aIsOwn && !bIsOwn) return -1;
+      if (!aIsOwn && bIsOwn) return 1;
+
+      // Sort by listener count (descending)
+      return (b.listener_count || 0) - (a.listener_count || 0);
+    });
+
+    sortedRooms.forEach((room) => {
+      const isOwnRoom = room.dj_client_id === state.clientId;
       const btn = document.createElement("button");
-      btn.className = "btn room-list-item join";
-      btn.textContent = room.name || "Unnamed Room";
+
+      btn.className = `btn room-list-item join${isOwnRoom ? ' own-room' : ''}`;
       btn.setAttribute("data-id", room.id);
-      btn.setAttribute("data-role", "listener");
-      btn.setAttribute("aria-label", `Join room: ${room.name}`);
+      btn.setAttribute("data-role", isOwnRoom ? "dj" : "listener");
       btn.tabIndex = 0;
 
+      // Create room content
+      const roomName = document.createElement("div");
+      roomName.className = "room-name";
+      roomName.textContent = room.name || "Unnamed Room";
+
+      const roomInfo = document.createElement("div");
+      roomInfo.className = "room-info";
+
+      if (isOwnRoom) {
+        roomInfo.innerHTML = `<span class="own-badge">Your Room</span> • ${room.listener_count || 0} listening`;
+        btn.setAttribute("aria-label", `Return to your DJ room: ${room.name}`);
+      } else {
+        roomInfo.textContent = `${room.dj_name || 'Unknown DJ'} • ${room.listener_count || 0} listening`;
+        btn.setAttribute("aria-label", `Join room: ${room.name} with ${room.dj_name}`);
+      }
+
+      btn.appendChild(roomName);
+      btn.appendChild(roomInfo);
       roomsList.appendChild(btn);
     });
 
@@ -193,7 +223,7 @@ export function initButtons(enterRoomFn, closeFloorFn) {
     btnClose.onclick = closeFloorFn;
   }
 
-  // Create room button
+  // Create room button - auto-join after creation
   const btnCreate = document.getElementById("btnCreate");
   const roomNameInput = document.getElementById("roomNameInput");
 
@@ -206,14 +236,25 @@ export function initButtons(enterRoomFn, closeFloorFn) {
         return;
       }
 
+      btnCreate.disabled = true;
+      btnCreate.textContent = "Creating...";
+
       try {
         const result = await createRoom(name);
         if (result?.id) {
+          log(`Room created, auto-joining as DJ: ${result.id}`);
+          // Auto-join the created room as DJ
           await enterRoomFn(result.id, "dj");
+
+          // Clear the input
+          if (roomNameInput) roomNameInput.value = "";
         }
       } catch (err) {
         log(`Create room failed: ${err.message}`);
         alert("Failed to create room");
+      } finally {
+        btnCreate.disabled = false;
+        btnCreate.textContent = "Create Room";
       }
     };
 
