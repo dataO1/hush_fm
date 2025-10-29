@@ -39,14 +39,14 @@ audio:
   smooth_intervals: 2
   # RED encoding for packet loss but adds ~20ms
   active_red_encoding: true
-Room defaults - LOW LATENCY focused
+#Room defaults - LOW LATENCY focused
 room:
   auto_create: true
   empty_timeout: 300
   departure_timeout: 20
   max_participants: 0
 
-  Only Opus (fastest audio codec)
+  #Only Opus (fastest audio codec)
   enabled_codecs:
     - mime: audio/opus
     - mime: audio/red
