@@ -169,9 +169,9 @@
                 max_flush_interval: 1ms
            # Audio - optimized for LOW LATENCY music
             audio:
-              # More sensitive detection
-              active_level: 25
-              min_percentile: 35
+              # # More sensitive detection
+              # active_level: 25
+              # min_percentile: 35
               # FAST updates for reactive feedback
               update_interval: 100
               # Less smoothing = more responsive
