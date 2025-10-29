@@ -10,6 +10,7 @@ rtc:
   port_range_start: @RTC_PORT@
   port_range_end: @RTC_PORT_END@
   use_external_ip: false
+  node_ip: 192.168.178.105
   udp_port: @RTC_PORT@
   # use_ice_lite: true
   # Enable congestion control for better quality
