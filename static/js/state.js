@@ -1,36 +1,20 @@
 // Global application state
 export const state = {
-  clientId: null,
-  name: null,
-  role: null,
-  roomId: null,
-  roomName: "",
-  lkRoom: null,
-  localTrack: null,
-  currentPub: null,
+  roomName: null,
+  isDJ: false,
   onAir: false,
-  source: "mic",
-  fileAudioEl: null,
-  audioCtx: null,
-  waveSrc: null,
-  analyser: null,
-  raf: 0,
-  djAnalyser: null,
-  djRaf: 0,
-  extDeviceId: null,
-  listenerAttached: false,
-  statsInterval: null,
+  currentTrack: null,
+  token: null,
+  lkRoom: null,
 };
 
-// Logging utility
-const t0 = performance.now();
-const ts = () => (performance.now() - t0).toFixed(1);
-const logEl = document.getElementById("log");
-
-export function log(...args) {
-  console.log(...args);
-  logEl.textContent +=
-    `[${ts()}ms] ` +
-    args.map((x) => (typeof x === "string" ? x : JSON.stringify(x))).join(" ") +
-    "\n";
+// Simple logging function
+export function log(message) {
+  const logEl = document.getElementById("log");
+  if (logEl) {
+    const timestamp = new Date().toLocaleTimeString();
+    logEl.textContent += `[${timestamp}] ${message}\n`;
+    logEl.scrollTop = logEl.scrollHeight;
+  }
+  console.log(message);
 }

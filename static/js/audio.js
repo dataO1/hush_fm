@@ -2,59 +2,70 @@
 import { state, log } from "./state.js";
 
 export async function createMicTrack() {
-  const stream = await navigator.mediaDevices.getUserMedia({
-    audio: {
-      channelCount: 2,
-      sampleRate: 48000,
-      echoCancellation: false,
-      noiseSuppression: false,
-      autoGainControl: false,
-      latency: 0,
-    },
-  });
-  return stream.getAudioTracks()[0];
+  try {
+    log("Requesting microphone access...");
+    const stream = await navigator.mediaDevices.getUserMedia({
+      audio: {
+        channelCount: 2,
+        sampleRate: 48000,
+        echoCancellation: false,
+        noiseSuppression: false,
+        autoGainControl: false,
+        latency: 0,
+      },
+    });
+    const track = stream.getAudioTracks()[0];
+    log("Microphone track created");
+    return track;
+  } catch (e) {
+    log(`Microphone error: ${e?.message || e}`);
+    throw e;
+  }
 }
-// Add after createFileTrack function
+
 export async function createSystemAudioTrack() {
   try {
+    log("Requesting system audio capture...");
     const stream = await navigator.mediaDevices.getDisplayMedia({
       video: true,
       audio: true,
       preferCurrentTab: false,
       latency: 0,
     });
-    // Stop and remove the video track since we don't need it
-
-    // const videoTracks = stream.getVideoTracks();
-    // videoTracks.forEach((track) => track.stop());
-    return stream.getTracks()[0];
+    const track = stream.getTracks()[0];
+    log("System audio track created");
+    return track;
   } catch (e) {
-    log("System audio capture error:", e?.message || e);
+    log(`System audio capture error: ${e?.message || e}`);
     throw e;
   }
 }
 
 export async function createExternalTrack(deviceId) {
-  const constraints = {
-    audio: {
-      deviceId: deviceId ? { exact: deviceId } : undefined,
-      channelCount: 2,
-      sampleRate: 48000,
-      echoCancellation: false,
-      noiseSuppression: false,
-      autoGainControl: false,
-      latency: 0,
-    },
-    video: false,
-  };
-  const stream = await navigator.mediaDevices.getUserMedia(constraints);
-  return stream.getAudioTracks()[0];
+  try {
+    log(`Creating external track${deviceId ? ' for device: ' + deviceId : ''}...`);
+    const constraints = {
+      audio: {
+        deviceId: deviceId ? { exact: deviceId } : undefined,
+        channelCount: 2,
+        sampleRate: 48000,
+        echoCancellation: false,
+        noiseSuppression: false,
+        autoGainControl: false,
+        latency: 0,
+      },
+      video: false,
+    };
+    const stream = await navigator.mediaDevices.getUserMedia(constraints);
+    const track = stream.getAudioTracks()[0];
+    log(`External track created: ${track.label}`);
+    return track;
+  } catch (e) {
+    log(`External track error: ${e?.message || e}`);
+    throw e;
+  }
 }
 
-/**
- * Optimized source switching: parallel unpublish + immediate republish
- * Reduces transition time from 200-500ms to 50-150ms
- */
 export async function switchAudioSource(newTrack, source) {
   const startTime = performance.now();
   const room = state.lkRoom;
@@ -64,30 +75,27 @@ export async function switchAudioSource(newTrack, source) {
     return;
   }
 
-  // try {
-  // ask for permissions
   if (source === "screen_share_audio") {
     const p = room.localParticipant;
     await p.setScreenShareEnabled(true);
   }
 
-  // Step 1: Mute existing publication immediately (prevents audio bleed)
+  // Step 1: Mute existing publication immediately
   if (state.currentPub?.track) {
     try {
       await state.currentPub.track.mute();
       log("Muted old track");
     } catch (e) {
-      log("Mute error (non-fatal):", e?.message || e);
+      log(`Mute error (non-fatal): ${e?.message || e}`);
     }
   }
 
-  // Step 2: Unpublish all existing audio and video tracks in parallel
+  // Step 2: Unpublish all existing audio tracks
   const unpublishPromises = [];
   if (room.localParticipant.trackPublications) {
     for (const pub of [...room.localParticipant.trackPublications.values()]) {
       if (pub.track?.kind === "audio") {
-        log("Unpublishing track:", pub.track.sid);
-        // stop: true ensures old track is fully stopped
+        log(`Unpublishing track: ${pub.track.sid}`);
         unpublishPromises.push(
           room.localParticipant.unpublishTrack(pub.track, { stop: true }),
         );
@@ -95,53 +103,15 @@ export async function switchAudioSource(newTrack, source) {
     }
   }
 
-  // Wait for all unpublish operations to complete
   await Promise.all(unpublishPromises);
   log("All old tracks unpublished");
 
-  // // Step 3: Create LocalAudioTrack from MediaStreamTrack
-  // const { LocalAudioTrack } = window.LivekitClient;
-  // // Get the constraints from the track
-  // const constraints = {
-  //   channelCount: 2,
-  //   sampleRate: 48000,
-  //   echoCancellation: false,
-  //   noiseSuppression: false,
-  //   autoGainControl: false,
-  //   latency: 0,
-  //   audioBitrate: 256000,  // Double the bitrate for consistency
-  //   dtx: false, // Disable discontinuous transmission for music
-  //   red: true, // Keep redundancy for packet loss
-  //   simulcast: false,
-  // };
-
-  // const localTrack = new LocalAudioTrack(
-  //   newTrack,
-  //   constraints, // Pass constraints, not undefined
-  //   true, // userProvidedTrack = true
-  // );
-
-  // Step 4: Publish new track immediately
+  // Step 3: Publish new track
   const pub = await room.localParticipant.publishTrack(newTrack);
-  //   , {
-  //   name: "stream",
-  //   stream: "stream",
-  //   dtx: false,
-  //   red: true,
-  //   audioPreset: {
-  //     maxBitrate: 128000,
-  //     priority: "high",
-  //   },
-  //   forceStereo: true,
-  //   preConnectBuffer: true,
-  //   simulcast: false,
-  //   source: source,
-  // });
-  // Update state
   state.localTrack = newTrack;
   state.currentPub = pub;
 
-  // Step 5: Restore mute state based on onAir status
+  // Step 4: Restore mute state
   if (state.onAir) {
     await pub.track.unmute();
     log("New track published and unmuted");
@@ -150,29 +120,10 @@ export async function switchAudioSource(newTrack, source) {
     log("New track published and muted");
   }
 
-  // Refresh DJ waveform with new track
   refreshDjWave();
 
   const duration = (performance.now() - startTime).toFixed(1);
   log(`✅ Source switched in ${duration}ms`);
-  // }
-  // catch (e) {
-  //   log("❌ Source switch error:", e?.message || e);
-  //   const p = room.localParticipant;
-  //   log("❌ Last Camera error:", p?.lastCameraError || p);
-  //   log("❌ Last Mic error:", p?.lastMicrophoneError || p);
-  //   // Try to recover by ensuring we have at least one track published
-  //   if (!state.currentPub && newTrack) {
-  //     try {
-  //       const pub = await room.localParticipant.publishTrack(newTrack);
-  //       state.currentPub = pub;
-  //       state.localTrack = newTrack;
-  //       log("Recovered: published new track after error");
-  //     } catch (recoveryError) {
-  //       log("Recovery failed:", recoveryError?.message || recoveryError);
-  //     }
-  //   }
-  // }
 }
 
 export function refreshDjWave() {
@@ -215,7 +166,7 @@ export function refreshDjWave() {
     };
     draw();
   } catch (e) {
-    log("dj waveform error", e?.message || e);
+    log(`DJ waveform error: ${e?.message || e}`);
   }
 }
 
@@ -256,7 +207,7 @@ export function startWaveform(audioEl) {
     };
     draw();
   } catch (e) {
-    log("waveform error", e?.message || e);
+    log(`Waveform error: ${e?.message || e}`);
   }
 }
 
@@ -268,12 +219,14 @@ export function stopWaveform() {
 
 export async function ensureDeviceList() {
   try {
+    log("Enumerating audio devices...");
     const devices = await navigator.mediaDevices.enumerateDevices();
     const audIns = devices.filter((d) => d.kind === "audioinput");
     if (!state.extDeviceId && audIns[0]) state.extDeviceId = audIns[0].deviceId;
+    log(`Found ${audIns.length} audio input devices`);
     return audIns;
   } catch (e) {
-    log("device list error", e?.name || e?.message || e);
+    log(`Device list error: ${e?.name || e?.message || e}`);
     return [];
   }
 }

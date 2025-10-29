@@ -1,5 +1,4 @@
 // mediaSession.js - Handle background audio playback on mobile
-
 import { state, log } from "./state.js";
 
 export function setupMediaSession(roomName) {
@@ -10,9 +9,9 @@ export function setupMediaSession(roomName) {
 
   // Set metadata for lock screen/notification
   navigator.mediaSession.metadata = new MediaMetadata({
-    title: roomName || "Hush FM",
-    artist: "Silent Disco",
-    album: "Live Stream",
+    title: roomName || "Silent Disco",
+    artist: "Live Stream",
+    album: "Silent Disco",
     artwork: [
       { src: "/static/icon-96.png", sizes: "96x96", type: "image/png" },
       { src: "/static/icon-192.png", sizes: "192x192", type: "image/png" },
@@ -26,40 +25,26 @@ export function setupMediaSession(roomName) {
   // Handle media controls (play/pause buttons on lock screen)
   navigator.mediaSession.setActionHandler("play", () => {
     log("▶️  Play from lock screen");
-    // Resume audio if paused
-    state.lkRoom?.remoteParticipants.forEach((participant) => {
-      participant.audioTrackPublications.forEach((pub) => {
-        if (pub.track) {
-          pub.track.unmute();
-        }
-      });
-    });
+    const audio = document.getElementById("listenerAudio");
+    if (audio) {
+      audio.play().catch((err) => log(`Play failed: ${err.message}`));
+    }
   });
 
   navigator.mediaSession.setActionHandler("pause", () => {
     log("⏸️  Pause from lock screen");
-    // Pause audio
-    state.lkRoom?.remoteParticipants.forEach((participant) => {
-      participant.audioTrackPublications.forEach((pub) => {
-        if (pub.track) {
-          pub.track.mute();
-        }
-      });
-    });
+    const audio = document.getElementById("listenerAudio");
+    if (audio) {
+      audio.pause();
+    }
   });
 
-  // Optional: Handle other controls
-  navigator.mediaSession.setActionHandler("seekbackward", () => {
-    log("⏪ Seek backward (not applicable for live stream)");
-  });
-
-  navigator.mediaSession.setActionHandler("seekforward", () => {
-    log("⏩ Seek forward (not applicable for live stream)");
-  });
+  // Disable seek controls (not applicable for live streams)
+  navigator.mediaSession.setActionHandler("seekbackward", null);
+  navigator.mediaSession.setActionHandler("seekforward", null);
 
   navigator.mediaSession.setActionHandler("stop", () => {
     log("⏹️  Stop from lock screen");
-    // Disconnect from room
     state.lkRoom?.disconnect();
   });
 
@@ -67,21 +52,33 @@ export function setupMediaSession(roomName) {
 }
 
 export function updateMediaSession(roomName, participantName) {
-  if ("mediaSession" in navigator) {
+  if (!("mediaSession" in navigator)) return;
+
+  try {
     navigator.mediaSession.metadata = new MediaMetadata({
-      title: `${roomName} - Now playing`,
-      artist: participantName || "DJ",
-      album: "Hush FM Live",
+      title: roomName || "Silent Disco",
+      artist: participantName || "Unknown DJ",
+      album: "Live Stream",
       artwork: [
+        { src: "/static/icon-96.png", sizes: "96x96", type: "image/png" },
         { src: "/static/icon-192.png", sizes: "192x192", type: "image/png" },
+        { src: "/static/icon-512.png", sizes: "512x512", type: "image/png" },
       ],
     });
+    log(`Media session updated: ${roomName} - ${participantName}`);
+  } catch (err) {
+    log(`Media session update error: ${err.message}`);
   }
 }
 
 export function stopMediaSession() {
-  if ("mediaSession" in navigator) {
+  if (!("mediaSession" in navigator)) return;
+
+  try {
     navigator.mediaSession.playbackState = "none";
+    navigator.mediaSession.metadata = null;
     log("🛑 Media session stopped");
+  } catch (err) {
+    log(`Media session stop error: ${err.message}`);
   }
 }
