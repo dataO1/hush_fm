@@ -151,22 +151,22 @@
               udp_port: ${toString cfg.rtcPort}
               # use_ice_lite: true
               # Enable congestion control for better quality
-              congestion_control:
-                enabled: true
+              # congestion_control:
+              #   enabled: true
                 # Don't pause tracks even under congestion (for music streaming)
                 allow_pause: false
               # SMALLER buffers = lower latency (but less tolerance for jitter)
               packet_buffer_size_audio: 200
               packet_buffer_size_video: 200
-                  # AGGRESSIVE PLI for faster recovery
-              pli_throttle:
-                low_quality: 100ms
-                mid_quality: 200ms
-                high_quality: 300ms
+              #     # AGGRESSIVE PLI for faster recovery
+              # pli_throttle:
+              #   low_quality: 100ms
+              #   mid_quality: 200ms
+              #   high_quality: 300ms
               # Enable batch I/O for efficiency without adding latency
-              batch_io:
-                batch_size: 32
-                max_flush_interval: 1ms
+              # batch_io:
+              #   batch_size: 32
+              #   max_flush_interval: 1ms
            # Audio - optimized for LOW LATENCY music
             audio:
               # More sensitive detection
@@ -176,26 +176,26 @@
               # Less smoothing = more responsive
               smooth_intervals: 2
               # RED encoding for packet loss but adds ~20ms
-              active_red_encoding: false
+              active_red_encoding: true
             # Room defaults - LOW LATENCY focused
-            room:
-              auto_create: true
-              empty_timeout: 300
-              departure_timeout: 20
-              max_participants: 0
+            # room:
+            #   auto_create: true
+            #   empty_timeout: 300
+            #   departure_timeout: 20
+            #   max_participants: 0
 
               # Only Opus (fastest audio codec)
-              enabled_codecs:
-                - mime: audio/opus
-                - mime: audio/red
+              # enabled_codecs:
+              #   - mime: audio/opus
+              #   - mime: audio/red
 
               enable_remote_unmute: false
 
               # MINIMAL playout delay for low latency
-              playout_delay:
-                enabled: true
-                min: 20
-                max: 200
+              # playout_delay:
+              #   enabled: true
+              #   min: 20
+              #   max: 200
 
               # Disable sync_streams - adds latency
               sync_streams: false
