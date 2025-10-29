@@ -1,12 +1,12 @@
-port: ${toString cfg.livekitPort}
+port: @LIVEKIT_PORT@
 bind_addresses:
   - "0.0.0.0"
 
 rtc:
-  port_range_start: ${toString cfg.rtcPort}
-  port_range_end: ${toString (cfg.rtcPort + 100)}
+  port_range_start: @RTC_PORT@
+  port_range_end: @RTC_PORT_END@
   use_external_ip: false
-  udp_port: ${toString cfg.rtcPort}
+  udp_port: @RTC_PORT@
   # use_ice_lite: true
   # Enable congestion control for better quality
   # congestion_control:
@@ -58,7 +58,6 @@ audio:
   # Disable sync_streams - adds latency
   sync_streams: false
 keys:
-  ${cfg.apiKey}: ${cfg.apiSecret}
-
+  @API_KEY@: @API_SECRET@
 logging:
   level: info
