@@ -2,12 +2,12 @@
 import { state, log } from "./state.js";
 import { listRooms, createRoom, closeRoom } from "./api.js";
 import { publish } from "./livekit.js";
-import { 
-  createMicTrack, 
-  createExternalTrack, 
-  createSystemAudioTrack, 
-  ensureDeviceList, 
-  switchAudioSource 
+import {
+  createMicTrack,
+  createExternalTrack,
+  createSystemAudioTrack,
+  ensureDeviceList,
+  switchAudioSource,
 } from "./audio.js";
 
 const landing = document.getElementById("landing");
@@ -49,7 +49,7 @@ export function updateMuteButton() {
 export function highlightActiveSource(activeId) {
   const sources = ["srcMic", "srcExternal", "srcSystem"];
 
-  sources.forEach(id => {
+  sources.forEach((id) => {
     const el = document.getElementById(id);
     if (el) {
       const isActive = id === activeId;
@@ -96,12 +96,15 @@ export async function renderRoomsList() {
     }
 
     if (emptyRooms) emptyRooms.classList.add("hidden");
-    roomsList.setAttribute("aria-label", `${rooms.length} available room${rooms.length !== 1 ? 's' : ''}`);
+    roomsList.setAttribute(
+      "aria-label",
+      `${rooms.length} available room${rooms.length !== 1 ? "s" : ""}`,
+    );
 
     // Sort rooms: own rooms first, then by listener count
     const sortedRooms = rooms.sort((a, b) => {
-      const aIsOwn = a.dj_client_id === state.clientId;
-      const bIsOwn = b.dj_client_id === state.clientId;
+      const aIsOwn = a.dj_client === state.clientId;
+      const bIsOwn = b.dj_client === state.clientId;
 
       if (aIsOwn && !bIsOwn) return -1;
       if (!aIsOwn && bIsOwn) return 1;
@@ -111,10 +114,10 @@ export async function renderRoomsList() {
     });
 
     sortedRooms.forEach((room) => {
-      const isOwnRoom = room.dj_client_id === state.clientId;
+      const isOwnRoom = room.dj_client === state.clientId;
       const btn = document.createElement("button");
 
-      btn.className = `btn room-list-item join${isOwnRoom ? ' own-room' : ''}`;
+      btn.className = `btn room-list-item join${isOwnRoom ? " own-room" : ""}`;
       btn.setAttribute("data-id", room.id);
       btn.setAttribute("data-role", isOwnRoom ? "dj" : "listener");
       btn.tabIndex = 0;
@@ -131,8 +134,11 @@ export async function renderRoomsList() {
         roomInfo.innerHTML = `<span class="own-badge">Your Room</span> • ${room.listener_count || 0} listening`;
         btn.setAttribute("aria-label", `Return to your DJ room: ${room.name}`);
       } else {
-        roomInfo.textContent = `${room.dj_name || 'Unknown DJ'} • ${room.listener_count || 0} listening`;
-        btn.setAttribute("aria-label", `Join room: ${room.name} with ${room.dj_name}`);
+        roomInfo.textContent = `${room.dj_name || "Unknown DJ"} • ${room.listener_count || 0} listening`;
+        btn.setAttribute(
+          "aria-label",
+          `Join room: ${room.name} with ${room.dj_name}`,
+        );
       }
 
       btn.appendChild(roomName);
@@ -241,31 +247,18 @@ export function initButtons(enterRoomFn, closeFloorFn) {
 
       try {
         const result = await createRoom(name);
-        if (result?.id) {
-          log(`Room created, auto-joining as DJ: ${result.id}`);
-          // Auto-join the created room as DJ
-          await enterRoomFn(result.id, "dj");
-
-          // Clear the input
+        if (result?.room_id) {
+          log(`Room created, auto-joining as DJ: ${result.room_id}`);
+          // Update URL so reload works
+          navigateToRoom(result.room_id, true);
+          await enterRoomFn(result.room_id, "dj");
           if (roomNameInput) roomNameInput.value = "";
         }
-      } catch (err) {
-        log(`Create room failed: ${err.message}`);
-        alert("Failed to create room");
       } finally {
         btnCreate.disabled = false;
         btnCreate.textContent = "Create Room";
       }
     };
-
-    // Allow Enter key to create room
-    if (roomNameInput) {
-      roomNameInput.onkeydown = (e) => {
-        if (e.key === "Enter") {
-          btnCreate.click();
-        }
-      };
-    }
   }
 
   log("UI buttons initialized");
@@ -291,7 +284,10 @@ function populateExternalDevices(devices) {
     const btn = document.createElement("button");
     btn.textContent = device.label || `Device ${index + 1}`;
     btn.setAttribute("role", "menuitem");
-    btn.setAttribute("aria-label", `Select ${device.label || 'device ' + (index + 1)}`);
+    btn.setAttribute(
+      "aria-label",
+      `Select ${device.label || "device " + (index + 1)}`,
+    );
     btn.tabIndex = -1;
 
     btn.onclick = async () => {
