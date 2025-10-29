@@ -1,4 +1,5 @@
-// Main entry point: routing, initialization
+// Main entry point - OPTIMIZED VERSION
+// WebSocket support + AbortController + exponential backoff + error recovery
 import { state, log } from "./state.js";
 import {
   loadIceConfig,
@@ -7,7 +8,6 @@ import {
   joinRoom,
   fetchLkToken,
   closeRoom,
-  startPresenceHeartbeat,
 } from "./api.js";
 import { connectRoom, ensurePublishedPresence } from "./livekit.js";
 import { ensureDeviceList } from "./audio.js";
@@ -18,6 +18,7 @@ import {
   setDjRoomMeta,
   setListenerRoomMeta,
   renderRoomsList,
+  updateRoomsList,
   initButtons,
 } from "./ui.js";
 import {
@@ -25,6 +26,19 @@ import {
   updateMediaSession,
   stopMediaSession,
 } from "./mediaSession.js";
+
+// AbortController for cancelling ongoing requests
+let enterRoomAbortController = null;
+
+// WebSocket for real-time room updates
+let roomUpdatesWs = null;
+let wsReconnectAttempts = 0;
+const MAX_WS_RECONNECT_ATTEMPTS = 5;
+
+// Fallback polling with exponential backoff
+let pollInterval = null;
+let currentPollDelay = 10000; // Start at 10 seconds
+const MAX_POLL_DELAY = 60000; // Max 1 minute
 
 function parseRoute() {
   const path = location.pathname.replace(/\/+$/, "");
@@ -49,16 +63,117 @@ async function ensureIdentityReady() {
   }
 }
 
-// Update enterRoom function
-async function enterRoom(roomId, role) {
-  // ✅ Add guard against duplicate calls
-  if (state.isConnecting) {
-    log("⚠️ Already connecting, ignoring duplicate enterRoom call");
-    return;
+// WebSocket connection for real-time room updates
+function connectRoomUpdatesWebSocket() {
+  if (roomUpdatesWs && roomUpdatesWs.readyState === WebSocket.OPEN) {
+    return; // Already connected
   }
-  state.isConnecting = true;
+
+  const protocol = location.protocol === "https:" ? "wss:" : "ws:";
+  const wsUrl = `${protocol}//${location.host}/ws/rooms`;
 
   try {
+    roomUpdatesWs = new WebSocket(wsUrl);
+
+    roomUpdatesWs.onopen = () => {
+      log("📡 WebSocket connected for room updates");
+      wsReconnectAttempts = 0;
+
+      // Stop fallback polling when WebSocket is active
+      if (pollInterval) {
+        clearInterval(pollInterval);
+        pollInterval = null;
+      }
+
+      // Send periodic ping to keep connection alive
+      const pingInterval = setInterval(() => {
+        if (roomUpdatesWs.readyState === WebSocket.OPEN) {
+          roomUpdatesWs.send("ping");
+        } else {
+          clearInterval(pingInterval);
+        }
+      }, 30000);
+    };
+
+    roomUpdatesWs.onmessage = (event) => {
+      try {
+        const data = JSON.parse(event.data);
+        if (data.type === "rooms") {
+          updateRoomsList(data.data);
+        }
+      } catch (err) {
+        log(`WebSocket message error: ${err.message}`);
+      }
+    };
+
+    roomUpdatesWs.onerror = (error) => {
+      log(`WebSocket error: ${error}`);
+    };
+
+    roomUpdatesWs.onclose = () => {
+      log("📡 WebSocket disconnected");
+      roomUpdatesWs = null;
+
+      // Reconnect with exponential backoff
+      if (wsReconnectAttempts < MAX_WS_RECONNECT_ATTEMPTS) {
+        const delay = Math.min(1000 * Math.pow(2, wsReconnectAttempts), 30000);
+        wsReconnectAttempts++;
+        log(`Reconnecting WebSocket in ${delay}ms (attempt ${wsReconnectAttempts})`);
+        setTimeout(connectRoomUpdatesWebSocket, delay);
+      } else {
+        log("Max WebSocket reconnect attempts reached, falling back to polling");
+        startFallbackPolling();
+      }
+    };
+  } catch (err) {
+    log(`WebSocket connection failed: ${err.message}`);
+    startFallbackPolling();
+  }
+}
+
+// Fallback polling with exponential backoff
+function startFallbackPolling() {
+  if (pollInterval) return; // Already polling
+
+  log(`Starting fallback polling (${currentPollDelay}ms interval)`);
+
+  pollInterval = setInterval(async () => {
+    // Only poll when on landing page
+    if (!landing.classList.contains("hidden")) {
+      try {
+        await renderRoomsList();
+        // Reset delay on successful fetch
+        currentPollDelay = 10000;
+      } catch (err) {
+        // Increase delay on error (exponential backoff)
+        currentPollDelay = Math.min(currentPollDelay * 1.5, MAX_POLL_DELAY);
+        log(`Poll failed, increasing interval to ${currentPollDelay}ms`);
+      }
+    }
+  }, currentPollDelay);
+}
+
+// Optimized enterRoom with AbortController
+async function enterRoom(roomId, role) {
+  // Cancel any ongoing room join
+  if (enterRoomAbortController) {
+    enterRoomAbortController.abort();
+    log("⚠️ Cancelled previous room join");
+  }
+
+  if (state.isConnecting) {
+    log("⚠️ Already connecting, request cancelled");
+    return;
+  }
+
+  state.isConnecting = true;
+  enterRoomAbortController = new AbortController();
+  const signal = enterRoomAbortController.signal;
+
+  try {
+    // Check if request was aborted
+    if (signal.aborted) return;
+
     if (!(await roomExists(roomId))) {
       log("Room not found, redirecting to home");
       navigateToRoot();
@@ -70,6 +185,8 @@ async function enterRoom(roomId, role) {
     state.roomId = roomId;
     state.role = role;
 
+    if (signal.aborted) return;
+
     const joinRes = await joinRoom(roomId, role);
     if (!joinRes.ok) {
       log("Join failed", joinRes.error || "");
@@ -80,11 +197,14 @@ async function enterRoom(roomId, role) {
     }
 
     state.roomName = joinRes.name || state.roomName || "";
+
+    if (signal.aborted) return;
+
     const { url, token } = await fetchLkToken(role, roomId);
 
-    // ✅ connectRoom now handles disconnecting old room
+    if (signal.aborted) return;
+
     await connectRoom(url, token);
-    // Enable background playback
     setupMediaSession(roomId);
 
     if (role === "dj") {
@@ -106,8 +226,18 @@ async function enterRoom(roomId, role) {
         document.getElementById("offline").classList.remove("hidden");
       show(document.getElementById("listenerView"));
     }
+  } catch (err) {
+    if (err.name === "AbortError") {
+      log("Room join aborted");
+    } else {
+      log(`Enter room error: ${err.message}`);
+      alert("Failed to join room. Please try again.");
+      navigateToRoot();
+      show(document.getElementById("landing"));
+    }
   } finally {
     state.isConnecting = false;
+    enterRoomAbortController = null;
   }
 }
 
@@ -155,6 +285,7 @@ window.addEventListener("popstate", async () => {
 window.addEventListener("load", async () => {
   await ensureIdentityReady();
   const route = parseRoute();
+
   if (route.roomId) {
     if (!(await roomExists(route.roomId))) {
       navigateToRoot();
@@ -167,11 +298,13 @@ window.addEventListener("load", async () => {
   } else {
     show(document.getElementById("landing"));
     await renderRoomsList();
-    setInterval(renderRoomsList, 4000);
+
+    // Connect WebSocket for real-time updates
+    connectRoomUpdatesWebSocket();
   }
+
   updateMuteButton();
   initButtons(enterRoom, closeFloor);
-  startPresenceHeartbeat();
 
   // Hook up room list join buttons
   document.getElementById("roomsList").addEventListener("click", async (e) => {
@@ -182,4 +315,11 @@ window.addEventListener("load", async () => {
     navigateToRoom(rid, role === "dj");
     await enterRoom(rid, role);
   });
+});
+
+// Cleanup on page unload
+window.addEventListener("beforeunload", () => {
+  if (roomUpdatesWs) {
+    roomUpdatesWs.close();
+  }
 });

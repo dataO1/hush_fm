@@ -1,4 +1,4 @@
-// UI updates and event handlers
+// UI updates and event handlers - OPTIMIZED
 import { state, log } from "./state.js";
 import { listRooms, createRoom, closeRoom } from "./api.js";
 import { publish } from "./livekit.js";
@@ -15,6 +15,9 @@ const djView = document.getElementById("djView");
 const listenerView = document.getElementById("listenerView");
 const statsCard = document.getElementById("statsCard");
 const btnMute = document.getElementById("btnMute");
+
+// Cache DOM elements by room ID for differential updates
+const roomElementCache = new Map();
 
 export function show(section) {
   landing.classList.add("hidden");
@@ -48,7 +51,6 @@ export function updateMuteButton() {
 
 export function highlightActiveSource(activeId) {
   const sources = ["srcMic", "srcExternal", "srcSystem"];
-
   sources.forEach((id) => {
     const el = document.getElementById(id);
     if (el) {
@@ -62,7 +64,6 @@ export function highlightActiveSource(activeId) {
 export function setDjRoomMeta() {
   const title = document.getElementById("djRoomTitle");
   const name = document.getElementById("djName");
-
   if (title) title.textContent = state.roomName || "Room";
   if (name) name.textContent = state.name || "DJ";
 }
@@ -71,7 +72,6 @@ export function setListenerRoomMeta(meta) {
   const title = document.getElementById("lsRoomTitle");
   const dj = document.getElementById("lsDj");
   const count = document.getElementById("lsCount");
-
   if (title && meta?.name) title.textContent = meta.name;
   if (dj && meta?.dj_name) dj.textContent = meta.dj_name;
   if (count && meta?.listener_count !== undefined) {
@@ -79,73 +79,101 @@ export function setListenerRoomMeta(meta) {
   }
 }
 
-export async function renderRoomsList() {
-  try {
-    const rooms = await listRooms();
-    const roomsList = document.getElementById("roomsList");
-    const emptyRooms = document.getElementById("emptyRooms");
+// OPTIMIZED: Differential room list updates
+export function updateRoomsList(rooms) {
+  const roomsList = document.getElementById("roomsList");
+  const emptyRooms = document.getElementById("emptyRooms");
 
-    if (!roomsList) return;
+  if (!roomsList) return;
 
+  if (!rooms || rooms.length === 0) {
+    if (emptyRooms) emptyRooms.classList.remove("hidden");
+    roomsList.setAttribute("aria-label", "No rooms available");
+    roomElementCache.clear();
     roomsList.innerHTML = "";
+    return;
+  }
 
-    if (!rooms || rooms.length === 0) {
-      if (emptyRooms) emptyRooms.classList.remove("hidden");
-      roomsList.setAttribute("aria-label", "No rooms available");
-      return;
+  if (emptyRooms) emptyRooms.classList.add("hidden");
+
+  // Sort rooms: own first, then by listener count
+  const sortedRooms = [...rooms].sort((a, b) => {
+    const aIsOwn = a.dj_client === state.clientId;
+    const bIsOwn = b.dj_client === state.clientId;
+    if (aIsOwn && !bIsOwn) return -1;
+    if (!aIsOwn && bIsOwn) return 1;
+    return (b.listener_count || 0) - (a.listener_count || 0);
+  });
+
+  // Build new room ID set
+  const newRoomIds = new Set(sortedRooms.map((r) => r.id));
+
+  // Remove rooms no longer in list
+  for (const [roomId, element] of roomElementCache.entries()) {
+    if (!newRoomIds.has(roomId)) {
+      element.remove();
+      roomElementCache.delete(roomId);
     }
+  }
 
-    if (emptyRooms) emptyRooms.classList.add("hidden");
-    roomsList.setAttribute(
-      "aria-label",
-      `${rooms.length} available room${rooms.length !== 1 ? "s" : ""}`,
-    );
+  // Update or create room elements
+  sortedRooms.forEach((room, index) => {
+    const isOwnRoom = room.dj_client === state.clientId;
+    let btn = roomElementCache.get(room.id);
 
-    // Sort rooms: own rooms first, then by listener count
-    const sortedRooms = rooms.sort((a, b) => {
-      const aIsOwn = a.dj_client === state.clientId;
-      const bIsOwn = b.dj_client === state.clientId;
-
-      if (aIsOwn && !bIsOwn) return -1;
-      if (!aIsOwn && bIsOwn) return 1;
-
-      // Sort by listener count (descending)
-      return (b.listener_count || 0) - (a.listener_count || 0);
-    });
-
-    sortedRooms.forEach((room) => {
-      const isOwnRoom = room.dj_client === state.clientId;
-      const btn = document.createElement("button");
-
+    if (!btn) {
+      // Create new element
+      btn = document.createElement("button");
       btn.className = `btn room-list-item join${isOwnRoom ? " own-room" : ""}`;
       btn.setAttribute("data-id", room.id);
-      btn.setAttribute("data-role", isOwnRoom ? "dj" : "listener");
       btn.tabIndex = 0;
 
-      // Create room content
       const roomName = document.createElement("div");
       roomName.className = "room-name";
-      roomName.textContent = room.name || "Unnamed Room";
-
       const roomInfo = document.createElement("div");
       roomInfo.className = "room-info";
 
-      if (isOwnRoom) {
-        roomInfo.innerHTML = `<span class="own-badge">Your Room</span> • ${room.listener_count || 0} listening`;
-        btn.setAttribute("aria-label", `Return to your DJ room: ${room.name}`);
-      } else {
-        roomInfo.textContent = `${room.dj_name || "Unknown DJ"} • ${room.listener_count || 0} listening`;
-        btn.setAttribute(
-          "aria-label",
-          `Join room: ${room.name} with ${room.dj_name}`,
-        );
-      }
-
       btn.appendChild(roomName);
       btn.appendChild(roomInfo);
-      roomsList.appendChild(btn);
-    });
+      roomElementCache.set(room.id, btn);
+    }
 
+    // Update content
+    btn.setAttribute("data-role", isOwnRoom ? "dj" : "listener");
+    btn.querySelector(".room-name").textContent = room.name || "Unnamed Room";
+
+    const roomInfo = btn.querySelector(".room-info");
+    if (isOwnRoom) {
+      roomInfo.innerHTML = `<span class="own-badge">Your Room</span> • ${room.listener_count || 0} listening`;
+      btn.setAttribute("aria-label", `Return to your DJ room: ${room.name}`);
+    } else {
+      roomInfo.textContent = `${room.dj_name || "Unknown DJ"} • ${room.listener_count || 0} listening`;
+      btn.setAttribute(
+        "aria-label",
+        `Join room: ${room.name} with ${room.dj_name}`,
+      );
+    }
+
+    // Maintain order
+    if (index < roomsList.children.length) {
+      if (roomsList.children[index] !== btn) {
+        roomsList.insertBefore(btn, roomsList.children[index]);
+      }
+    } else {
+      roomsList.appendChild(btn);
+    }
+  });
+
+  roomsList.setAttribute(
+    "aria-label",
+    `${rooms.length} available room${rooms.length !== 1 ? "s" : ""}`,
+  );
+}
+
+export async function renderRoomsList() {
+  try {
+    const rooms = await listRooms();
+    updateRoomsList(rooms);
     log(`Rendered ${rooms.length} rooms`);
   } catch (err) {
     log(`Failed to render rooms: ${err.message}`);
@@ -161,29 +189,28 @@ export function initButtons(enterRoomFn, closeFloorFn) {
   const btnMute = document.getElementById("btnMute");
   if (btnMute) {
     btnMute.onclick = async () => {
-      if (state.onAir) {
-        // Stop broadcasting
-        if (state.currentPub?.track) {
-          await state.currentPub.track.mute();
+      btnMute.disabled = true;
+      try {
+        if (state.onAir) {
+          if (state.currentPub?.track) await state.currentPub.track.mute();
+          state.onAir = false;
+        } else {
+          if (state.currentPub?.track) await state.currentPub.track.unmute();
+          else if (state.localTrack) await publish(state.localTrack);
+          state.onAir = true;
         }
-        state.onAir = false;
-      } else {
-        // Start broadcasting
-        if (state.currentPub?.track) {
-          await state.currentPub.track.unmute();
-        } else if (state.localTrack) {
-          await publish(state.localTrack);
-        }
-        state.onAir = true;
+        updateMuteButton();
+      } finally {
+        btnMute.disabled = false;
       }
-      updateMuteButton();
     };
   }
 
-  // Audio source buttons
+  // Audio source buttons with disabled state
   const srcMic = document.getElementById("srcMic");
   if (srcMic) {
     srcMic.onclick = async () => {
+      srcMic.disabled = true;
       try {
         const track = await createMicTrack();
         await switchAudioSource(track, "microphone");
@@ -192,6 +219,8 @@ export function initButtons(enterRoomFn, closeFloorFn) {
       } catch (err) {
         log(`Mic switch failed: ${err.message}`);
         alert("Failed to access microphone");
+      } finally {
+        srcMic.disabled = false;
       }
     };
   }
@@ -199,6 +228,7 @@ export function initButtons(enterRoomFn, closeFloorFn) {
   const srcSystem = document.getElementById("srcSystem");
   if (srcSystem) {
     srcSystem.onclick = async () => {
+      srcSystem.disabled = true;
       try {
         const track = await createSystemAudioTrack();
         await switchAudioSource(track, "screen_share_audio");
@@ -207,6 +237,8 @@ export function initButtons(enterRoomFn, closeFloorFn) {
       } catch (err) {
         log(`System audio switch failed: ${err.message}`);
         alert("Failed to capture system audio");
+      } finally {
+        srcSystem.disabled = false;
       }
     };
   }
@@ -223,13 +255,12 @@ export function initButtons(enterRoomFn, closeFloorFn) {
     };
   }
 
-  // Close room button
   const btnClose = document.getElementById("btnClose");
   if (btnClose && closeFloorFn) {
     btnClose.onclick = closeFloorFn;
   }
 
-  // Create room button - auto-join after creation
+  // Create room with auto-join
   const btnCreate = document.getElementById("btnCreate");
   const roomNameInput = document.getElementById("roomNameInput");
 
@@ -249,22 +280,32 @@ export function initButtons(enterRoomFn, closeFloorFn) {
         const result = await createRoom(name);
         if (result?.room_id) {
           log(`Room created, auto-joining as DJ: ${result.room_id}`);
-          // Update URL so reload works
-          navigateToRoom(result.room_id, true);
+          // Use navigateToRoom from app.js scope
+          if (window.navigateToRoom) {
+            window.navigateToRoom(result.room_id, true);
+          }
           await enterRoomFn(result.room_id, "dj");
           if (roomNameInput) roomNameInput.value = "";
         }
+      } catch (err) {
+        log(`Create room failed: ${err.message}`);
+        alert("Failed to create room");
       } finally {
         btnCreate.disabled = false;
         btnCreate.textContent = "Create Room";
       }
     };
+
+    if (roomNameInput) {
+      roomNameInput.onkeydown = (e) => {
+        if (e.key === "Enter") btnCreate.click();
+      };
+    }
   }
 
   log("UI buttons initialized");
 }
 
-// Populate external audio device dropdown
 function populateExternalDevices(devices) {
   const dropdown = document.getElementById("extDropdown");
   if (!dropdown) return;
@@ -284,10 +325,6 @@ function populateExternalDevices(devices) {
     const btn = document.createElement("button");
     btn.textContent = device.label || `Device ${index + 1}`;
     btn.setAttribute("role", "menuitem");
-    btn.setAttribute(
-      "aria-label",
-      `Select ${device.label || "device " + (index + 1)}`,
-    );
     btn.tabIndex = -1;
 
     btn.onclick = async () => {
@@ -297,9 +334,7 @@ function populateExternalDevices(devices) {
         state.source = "external";
         state.extDeviceId = device.deviceId;
         highlightActiveSource("srcExternal");
-        log(`Switched to: ${device.label}`);
       } catch (err) {
-        log(`Device switch failed: ${err.message}`);
         alert("Failed to switch audio device");
       }
     };

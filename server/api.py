@@ -1,32 +1,84 @@
 """
-HTTP API handlers for Silent Disco
+HTTP API handlers for Silent Disco - OPTIMIZED VERSION
+WebSocket support + ETag caching + better error handling
 """
 import time
 import logging
 import os
+import hashlib
+import json
 from pathlib import Path
 from aiohttp import web
 
-from .state import rooms, clients
+from .state import rooms, clients, room_update_subscribers
 from .utils import generate_client_id, generate_room_id, generate_client_name
 from .livekit_auth import mint_livekit_token, is_livekit_configured
-
 
 logger = logging.getLogger("silent_disco")
 
 THIS_DIR = Path(__file__).parent.parent.resolve()
 INDEX_FILE = THIS_DIR / "index.html"
 
+# ============================================================
+# WEBSOCKET FOR REAL-TIME UPDATES
+# ============================================================
+
+async def ws_room_updates(request):
+    """WebSocket endpoint for real-time room list updates"""
+    ws = web.WebSocketResponse()
+    await ws.prepare(request)
+
+    # Add to subscribers
+    room_update_subscribers.add(ws)
+    logger.info(f"📡 WebSocket client connected (total: {len(room_update_subscribers)})")
+
+    # Send initial room list
+    try:
+        rooms_data = await get_rooms_data()
+        await ws.send_json({"type": "rooms", "data": rooms_data})
+    except Exception as e:
+        logger.error(f"Failed to send initial rooms: {e}")
+
+    try:
+        async for msg in ws:
+            # Handle ping/pong for keepalive
+            if msg.type == web.WSMsgType.TEXT:
+                if msg.data == "ping":
+                    await ws.send_str("pong")
+    except Exception as e:
+        logger.debug(f"WebSocket error: {e}")
+    finally:
+        room_update_subscribers.discard(ws)
+        logger.info(f"📡 WebSocket client disconnected (remaining: {len(room_update_subscribers)})")
+
+    return ws
+
+async def broadcast_room_update():
+    """Broadcast room list update to all WebSocket subscribers"""
+    if not room_update_subscribers:
+        return
+
+    rooms_data = await get_rooms_data()
+    message = json.dumps({"type": "rooms", "data": rooms_data})
+
+    dead_sockets = set()
+    for ws in room_update_subscribers:
+        try:
+            await ws.send_str(message)
+        except Exception as e:
+            logger.debug(f"Failed to send to WebSocket: {e}")
+            dead_sockets.add(ws)
+
+    # Remove dead connections
+    room_update_subscribers.difference_update(dead_sockets)
 
 # ============================================================
-# HTML SERVING
+# CONFIGURATION
 # ============================================================
 
 async def serve_config(request):
     """Return client configuration with correct LiveKit URL"""
-    # Get the host from the request (what the client used to connect)
-    host = request.host.split(':')[0]  # e.g., "192.168.178.105" from "192.168.178.105:3000"
-
+    host = request.host.split(':')[0]
     livekit_port = ":" + str(os.environ.get('LIVEKIT_PORT', '7880'))
     livekit_secure = bool(os.environ.get('LIVEKIT_SECURE', False))
     livekit_protocol = "wss" if livekit_secure else "ws"
@@ -42,10 +94,7 @@ async def serve_config(request):
 # ============================================================
 
 async def api_identify(request: web.Request) -> web.Response:
-    """
-    Create or reuse a client identity
-    Supports client_id reuse via localStorage
-    """
+    """Create or reuse a client identity"""
     data = await request.json()
     reuse_id = data.get("client_id")
 
@@ -76,13 +125,12 @@ async def api_identify(request: web.Request) -> web.Response:
         "name": name
     })
 
-
 # ============================================================
 # ROOM MANAGEMENT
 # ============================================================
 
-async def api_rooms(request: web.Request) -> web.Response:
-    """List all active rooms with metadata"""
+async def get_rooms_data():
+    """Get room list data (used by both HTTP and WebSocket)"""
     now = time.time()
     items = []
 
@@ -101,14 +149,27 @@ async def api_rooms(request: web.Request) -> web.Response:
             "dj_online": dj_online
         })
 
-    return web.json_response({"ok": True, "rooms": items})
+    return items
 
+async def api_rooms(request: web.Request) -> web.Response:
+    """List all active rooms with ETag caching"""
+    items = await get_rooms_data()
+
+    # Generate ETag based on room data
+    content = json.dumps(items, sort_keys=True)
+    etag = hashlib.md5(content.encode()).hexdigest()
+
+    # Check If-None-Match header
+    if request.headers.get("If-None-Match") == etag:
+        return web.Response(status=304)
+
+    response = web.json_response({"ok": True, "rooms": items})
+    response.headers["ETag"] = etag
+    response.headers["Cache-Control"] = "max-age=5"
+    return response
 
 async def api_room_create(request: web.Request) -> web.Response:
-    """
-    Create a new room or reuse existing room for DJ
-    One DJ can only have one active room
-    """
+    """Create a new room or reuse existing room for DJ"""
     data = await request.json()
     client_id = data.get("client_id")
     room_name = data.get("name") or "My Disco"
@@ -149,12 +210,15 @@ async def api_room_create(request: web.Request) -> web.Response:
         "🎪 Room created: %s by %s (ID: %s)",
         room_name, clients[client_id]["name"], room_id
     )
+
+    # Broadcast update to WebSocket subscribers
+    await broadcast_room_update()
+
     return web.json_response({
         "ok": True,
         "room_id": room_id,
         "existing": False
     })
-
 
 async def api_room_join(request: web.Request) -> web.Response:
     """Join an existing room as DJ or listener"""
@@ -177,7 +241,7 @@ async def api_room_join(request: web.Request) -> web.Response:
 
     room = rooms[room_id]
 
-    # Handle DJ join (only one DJ per room)
+    # Handle DJ join
     if role == "dj":
         existing_dj = room.get("dj_client")
         if existing_dj not in (None, client_id):
@@ -200,11 +264,14 @@ async def api_room_join(request: web.Request) -> web.Response:
         "✅ %s (%s) joined %s [Client: %s]",
         clients[client_id]["name"], role, room["name"], client_id
     )
+
+    # Broadcast update
+    await broadcast_room_update()
+
     return web.json_response({
         "ok": True,
         "name": room.get("name")
     })
-
 
 async def api_room_close(request: web.Request) -> web.Response:
     """Close a room (DJ only)"""
@@ -233,8 +300,11 @@ async def api_room_close(request: web.Request) -> web.Response:
 
     del rooms[room_id]
     logger.info("🛑 Room closed: %s by %s", room_id, clients[client_id]["name"])
-    return web.json_response({"ok": True})
 
+    # Broadcast update
+    await broadcast_room_update()
+
+    return web.json_response({"ok": True})
 
 # ============================================================
 # LIVEKIT TOKEN GENERATION
@@ -275,23 +345,20 @@ async def api_lk_token(request: web.Request) -> web.Response:
     livekit_port = os.environ.get('LIVEKIT_PORT', '7880')
     livekit_secure = bool(os.environ.get('LIVEKIT_SECURE', False))
     livekit_protocol = "wss" if livekit_secure else "ws"
-    livekit_ws_url = f"{livekit_protocol}://{host}{'/livekit' if livekit_secure else livekit_port}"
+    livekit_ws_url = f"{livekit_protocol}://{host}:{livekit_port}"
+
     return web.json_response({
         "ok": True,
         "url": livekit_ws_url,
         "token": token
     })
 
-
 # ============================================================
-# PRESENCE TRACKING
+# PRESENCE TRACKING (DEPRECATED - use LiveKit events instead)
 # ============================================================
 
 async def api_presence(request: web.Request) -> web.Response:
-    """
-    Heartbeat endpoint to track online status
-    Clients should ping this every ~15 seconds
-    """
+    """Heartbeat endpoint - now optional with LiveKit integration"""
     data = await request.json()
     client_id = data.get("client_id")
     room_id = data.get("room_id")
@@ -299,12 +366,42 @@ async def api_presence(request: web.Request) -> web.Response:
 
     now = time.time()
 
-    # Update client last seen
     if client_id in clients:
         clients[client_id]["last_seen"] = now
 
-    # Update DJ last seen in room
     if room_id in rooms and role == "dj":
         rooms[room_id]["last_seen_dj"] = now
+
+    return web.json_response({"ok": True})
+
+
+async def api_dj_presence(request: web.Request) -> web.Response:
+    """
+    Update DJ presence based on LiveKit participant events
+    Called by frontend when DJ connects/disconnects from LiveKit
+    """
+    data = await request.json()
+    room_id = data.get("room_id")
+    dj_client_id = data.get("dj_client_id")
+    is_online = data.get("is_online", False)
+
+    if room_id not in rooms:
+        return web.json_response(
+            {"ok": False, "error": "unknown room"},
+            status=404
+        )
+
+    room = rooms[room_id]
+
+    if is_online:
+        room["last_seen_dj"] = time.time()
+    else:
+        # DJ disconnected - mark as offline
+        room["last_seen_dj"] = 0
+
+    logger.info(f"DJ presence updated: {dj_client_id} in {room_id} - online={is_online}")
+
+    # Broadcast update to WebSocket subscribers
+    await broadcast_room_update()
 
     return web.json_response({"ok": True})

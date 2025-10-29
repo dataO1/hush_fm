@@ -1,5 +1,22 @@
-// Audio track creation and waveform rendering
+// Audio track creation and waveform rendering - OPTIMIZED
 import { state, log } from "./state.js";
+
+// Throttle waveform to 30fps instead of 60fps
+const WAVEFORM_FPS = 30;
+const WAVEFORM_FRAME_TIME = 1000 / WAVEFORM_FPS;
+let lastDjWaveTime = 0;
+let lastListenerWaveTime = 0;
+let isTabVisible = true;
+
+// Page visibility API to pause waveforms when tab inactive
+document.addEventListener("visibilitychange", () => {
+  isTabVisible = !document.hidden;
+  if (!isTabVisible) {
+    log("Tab hidden, pausing waveforms");
+  } else {
+    log("Tab visible, resuming waveforms");
+  }
+});
 
 export async function createMicTrack() {
   try {
@@ -43,7 +60,6 @@ export async function createSystemAudioTrack() {
 
 export async function createExternalTrack(deviceId) {
   try {
-    log(`Creating external track${deviceId ? ' for device: ' + deviceId : ''}...`);
     const constraints = {
       audio: {
         deviceId: deviceId ? { exact: deviceId } : undefined,
@@ -76,26 +92,19 @@ export async function switchAudioSource(newTrack, source) {
   }
 
   if (source === "screen_share_audio") {
-    const p = room.localParticipant;
-    await p.setScreenShareEnabled(true);
+    await room.localParticipant.setScreenShareEnabled(true);
   }
 
-  // Step 1: Mute existing publication immediately
   if (state.currentPub?.track) {
     try {
       await state.currentPub.track.mute();
-      log("Muted old track");
-    } catch (e) {
-      log(`Mute error (non-fatal): ${e?.message || e}`);
-    }
+    } catch (e) {}
   }
 
-  // Step 2: Unpublish all existing audio tracks
   const unpublishPromises = [];
   if (room.localParticipant.trackPublications) {
     for (const pub of [...room.localParticipant.trackPublications.values()]) {
       if (pub.track?.kind === "audio") {
-        log(`Unpublishing track: ${pub.track.sid}`);
         unpublishPromises.push(
           room.localParticipant.unpublishTrack(pub.track, { stop: true }),
         );
@@ -104,24 +113,18 @@ export async function switchAudioSource(newTrack, source) {
   }
 
   await Promise.all(unpublishPromises);
-  log("All old tracks unpublished");
 
-  // Step 3: Publish new track
   const pub = await room.localParticipant.publishTrack(newTrack);
   state.localTrack = newTrack;
   state.currentPub = pub;
 
-  // Step 4: Restore mute state
   if (state.onAir) {
     await pub.track.unmute();
-    log("New track published and unmuted");
   } else {
     await pub.track.mute();
-    log("New track published and muted");
   }
 
   refreshDjWave();
-
   const duration = (performance.now() - startTime).toFixed(1);
   log(`✅ Source switched in ${duration}ms`);
 }
@@ -129,6 +132,7 @@ export async function switchAudioSource(newTrack, source) {
 export function refreshDjWave() {
   stopDjWave();
   if (!state.localTrack) return;
+
   try {
     const ctx = new (window.AudioContext || window.webkitAudioContext)();
     const src = ctx.createMediaStreamSource(
@@ -138,11 +142,23 @@ export function refreshDjWave() {
     analyser.fftSize = 1024;
     src.connect(analyser);
     state.djAnalyser = analyser;
+
     const cvs = document.getElementById("djWave");
+    if (!cvs) return;
+
     const g = cvs.getContext("2d");
     const data = new Uint8Array(analyser.frequencyBinCount);
-    const draw = () => {
+
+    const draw = (timestamp) => {
+      // Throttle to 30fps and pause when tab hidden
+      if (!isTabVisible || timestamp - lastDjWaveTime < WAVEFORM_FRAME_TIME) {
+        state.djRaf = requestAnimationFrame(draw);
+        return;
+      }
+
+      lastDjWaveTime = timestamp;
       state.djRaf = requestAnimationFrame(draw);
+
       analyser.getByteTimeDomainData(data);
       g.clearRect(0, 0, cvs.width, cvs.height);
       g.strokeStyle = state.onAir
@@ -164,7 +180,7 @@ export function refreshDjWave() {
       }
       g.stroke();
     };
-    draw();
+    draw(performance.now());
   } catch (e) {
     log(`DJ waveform error: ${e?.message || e}`);
   }
@@ -185,11 +201,26 @@ export function startWaveform(audioEl) {
     analyser.fftSize = 2048;
     src.connect(analyser);
     state.analyser = analyser;
+
     const cvs = document.getElementById("wave");
+    if (!cvs) return;
+
     const g = cvs.getContext("2d");
     const data = new Uint8Array(analyser.frequencyBinCount);
-    const draw = () => {
+
+    const draw = (timestamp) => {
+      // Throttle and pause when hidden
+      if (
+        !isTabVisible ||
+        timestamp - lastListenerWaveTime < WAVEFORM_FRAME_TIME
+      ) {
+        state.raf = requestAnimationFrame(draw);
+        return;
+      }
+
+      lastListenerWaveTime = timestamp;
       state.raf = requestAnimationFrame(draw);
+
       analyser.getByteTimeDomainData(data);
       g.clearRect(0, 0, cvs.width, cvs.height);
       g.strokeStyle = "#7c5cff";
@@ -205,7 +236,7 @@ export function startWaveform(audioEl) {
       }
       g.stroke();
     };
-    draw();
+    draw(performance.now());
   } catch (e) {
     log(`Waveform error: ${e?.message || e}`);
   }
@@ -219,11 +250,9 @@ export function stopWaveform() {
 
 export async function ensureDeviceList() {
   try {
-    log("Enumerating audio devices...");
     const devices = await navigator.mediaDevices.enumerateDevices();
     const audIns = devices.filter((d) => d.kind === "audioinput");
     if (!state.extDeviceId && audIns[0]) state.extDeviceId = audIns[0].deviceId;
-    log(`Found ${audIns.length} audio input devices`);
     return audIns;
   } catch (e) {
     log(`Device list error: ${e?.name || e?.message || e}`);

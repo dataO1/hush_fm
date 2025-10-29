@@ -85,6 +85,59 @@ export async function connectRoom(url, token) {
       window.updateListenerCount(room.participants.size);
     }
   });
+  // Track DJ online/offline status via LiveKit events
+  room.on(RoomEvent.ParticipantConnected, async (participant) => {
+    log(`Participant connected: ${participant.identity}`);
+
+    // Check if this participant is a DJ (has audio publications)
+    const isDJ = Array.from(participant.trackPublications.values()).some(
+      (pub) => pub.kind === "audio" && pub.source === "microphone",
+    );
+
+    if (isDJ) {
+      log(`DJ came online: ${participant.identity}`);
+      // Update backend about DJ presence
+      await updateDJPresence(state.roomId, participant.identity, true);
+
+      // Broadcast room update to all WebSocket clients
+      // (backend will handle this if you have WebSocket implemented)
+    }
+  });
+
+  room.on(RoomEvent.ParticipantDisconnected, async (participant) => {
+    log(`Participant disconnected: ${participant.identity}`);
+
+    // Check if this was the DJ
+    if (state.role === "listener" && participant.trackPublications.size > 0) {
+      log(`DJ went offline: ${participant.identity}`);
+      await updateDJPresence(state.roomId, participant.identity, false);
+
+      // Show offline status in UI
+      document.getElementById("offline")?.classList.remove("hidden");
+      document.getElementById("connected")?.classList.add("hidden");
+    }
+  });
+
+  // Track when DJ starts/stops publishing
+  room.on(RoomEvent.TrackPublished, (publication, participant) => {
+    if (
+      publication.kind === "audio" &&
+      participant.identity !== state.clientId
+    ) {
+      log(`DJ started publishing: ${participant.identity}`);
+      document.getElementById("offline")?.classList.add("hidden");
+      document.getElementById("connected")?.classList.remove("hidden");
+    }
+  });
+
+  room.on(RoomEvent.TrackUnpublished, (publication, participant) => {
+    if (
+      publication.kind === "audio" &&
+      participant.identity !== state.clientId
+    ) {
+      log(`DJ stopped publishing: ${participant.identity}`);
+    }
+  });
 
   // Disconnected event
   room.on(RoomEvent.Disconnected, (reason) => {
@@ -188,6 +241,23 @@ export async function connectRoom(url, token) {
   startStatsMonitor();
 
   return room;
+}
+
+// Helper function to update backend about DJ presence
+async function updateDJPresence(roomId, djClientId, isOnline) {
+  try {
+    await fetch("/presence/dj-status", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        room_id: roomId,
+        dj_client_id: djClientId,
+        is_online: isOnline,
+      }),
+    });
+  } catch (err) {
+    log(`Failed to update DJ presence: ${err.message}`);
+  }
 }
 
 function isAudioPublished() {
@@ -296,7 +366,7 @@ function startStatsMonitor() {
         latency: 0,
         loss: 0,
         bitrate: "—",
-        codec: "—"
+        codec: "—",
       };
 
       document.getElementById("statState").textContent = stats.state;
@@ -315,12 +385,16 @@ function startStatsMonitor() {
                 if (report.codecId) {
                   const codec = rtcStats.get(report.codecId);
                   if (codec && codec.mimeType) {
-                    stats.codec = codec.mimeType.split("/")[1] || codec.mimeType;
+                    stats.codec =
+                      codec.mimeType.split("/")[1] || codec.mimeType;
                   }
                 }
                 stats.loss = report.packetsLost || 0;
               }
-              if (report.type === "remote-inbound-rtp" && report.kind === "audio") {
+              if (
+                report.type === "remote-inbound-rtp" &&
+                report.kind === "audio"
+              ) {
                 if (report.roundTripTime !== undefined) {
                   stats.latency = Math.round(report.roundTripTime * 1000);
                 }
@@ -350,7 +424,8 @@ function startStatsMonitor() {
                   if (report.codecId) {
                     const codec = rtcStats.get(report.codecId);
                     if (codec && codec.mimeType) {
-                      stats.codec = codec.mimeType.split("/")[1] || codec.mimeType;
+                      stats.codec =
+                        codec.mimeType.split("/")[1] || codec.mimeType;
                     }
                   }
                   stats.loss = report.packetsLost || 0;
@@ -373,7 +448,7 @@ function startStatsMonitor() {
     } catch (e) {
       log(`Stats error: ${e?.message || e}`);
     }
-  }, 2000);
+  }, 5000);
 }
 
 function stopStatsMonitor() {

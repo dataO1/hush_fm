@@ -134,10 +134,10 @@ export async function fetchLkToken(role, roomId) {
     const res = await fetch("/lk/token", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ 
-        client_id: state.clientId, 
-        role, 
-        room_id: roomId 
+      body: JSON.stringify({
+        client_id: state.clientId,
+        role,
+        room_id: roomId,
       }),
     });
 
@@ -155,22 +155,7 @@ export async function fetchLkToken(role, roomId) {
 }
 
 export function startPresenceHeartbeat() {
-  setInterval(() => {
-    if (!state.clientId || !state.roomId) return;
-
-    fetch("/presence/beat", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        client_id: state.clientId,
-        room_id: state.roomId,
-        role: state.role,
-      }),
-    }).catch(err => {
-      // Silently fail heartbeat errors
-      console.debug("Heartbeat failed:", err.message);
-    });
-  }, 15000);
-
-  log("Presence heartbeat started");
+  // DEPRECATED: Now using LiveKit participant events instead
+  // This function is kept for backwards compatibility but does nothing
+  log("Presence tracking via LiveKit participant events");
 }
