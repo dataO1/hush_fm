@@ -83,37 +83,6 @@
         pkgs = nixpkgs.legacyPackages.${system};
         hushPackage = mkPackage pkgs system;
         # LiveKit configuration file with low-latency optimizations
-        livekitConfig = pkgs.writeText "livekit.yaml" ''
-          port: ${toString cfg.livekitPort}
-          bind_addresses:
-            - "0.0.0.0"
-
-          rtc:
-            port_range_start: ${toString cfg.rtcPort}
-            port_range_end: ${toString (cfg.rtcPort + 100)}
-            use_external_ip: false
-            udp_port: ${toString cfg.rtcPort}
-            congestion_control:
-              enabled: true
-
-          audio:
-            opus:
-              max_bitrate: 256000
-              min_bitrate: 96000
-              ptime: 20ms
-              fec: true
-              dtx: false
-
-          room:
-            auto_create: true
-            empty_timeout: 300
-
-          keys:
-            ${cfg.apiKey}: ${cfg.apiSecret}
-
-          logging:
-            level: info
-        '';
       in
       {
         # Development shell
@@ -170,6 +139,37 @@
         with lib;
         let
           cfg = config.services.hush;
+          livekitConfig = pkgs.writeText "livekit.yaml" ''
+            port: ${toString cfg.livekitPort}
+            bind_addresses:
+              - "0.0.0.0"
+
+            rtc:
+              port_range_start: ${toString cfg.rtcPort}
+              port_range_end: ${toString (cfg.rtcPort + 100)}
+              use_external_ip: false
+              udp_port: ${toString cfg.rtcPort}
+              congestion_control:
+                enabled: true
+
+            audio:
+              opus:
+                max_bitrate: 256000
+                min_bitrate: 96000
+                ptime: 20ms
+                fec: true
+                dtx: false
+
+            room:
+              auto_create: true
+              empty_timeout: 300
+
+            keys:
+              ${cfg.apiKey}: ${cfg.apiSecret}
+
+            logging:
+              level: info
+          '';
           hushPackage = mkPackage pkgs pkgs.system;
         in {
           options.services.hush = {
