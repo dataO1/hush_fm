@@ -12,7 +12,7 @@ rtc:
   # congestion_control:
   #   enabled: true
     # Don't pause tracks even under congestion (for music streaming)
-  allow_pause: false
+  # allow_pause: false
   # SMALLER buffers = lower latency (but less tolerance for jitter)
   packet_buffer_size_audio: 200
   packet_buffer_size_video: 200
@@ -47,7 +47,7 @@ audio:
   #   - mime: audio/opus
   #   - mime: audio/red
 
-  enable_remote_unmute: false
+  # enable_remote_unmute: false
 
   # MINIMAL playout delay for low latency
   # playout_delay:
@@ -56,7 +56,7 @@ audio:
   #   max: 200
 
   # Disable sync_streams - adds latency
-  sync_streams: false
+  # sync_streams: false
 keys:
   @API_KEY@: @API_SECRET@
 logging:
