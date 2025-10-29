@@ -1,13 +1,9 @@
+
 // UI updates and event handlers
 import { state, log } from "./state.js";
 import { listRooms, createRoom, closeRoom } from "./api.js";
 import { publish } from "./livekit.js";
-import {
-  createMicTrack,
-  createExternalTrack,
-  createSystemAudioTrack,
-  ensureDeviceList,
-  switchAudioSource,
+import { createMicTrack, createExternalTrack, createSystemAudioTrack, ensureDeviceList, switchAudioSource,
 } from "./audio.js";
 
 const landing = document.getElementById("landing");
@@ -15,186 +11,108 @@ const djView = document.getElementById("djView");
 const listenerView = document.getElementById("listenerView");
 const statsCard = document.getElementById("statsCard");
 const btnMute = document.getElementById("btnMute");
+const emptyRooms = document.getElementById("emptyRooms");
+const roomsList = document.getElementById("roomsList");
 
 export function show(section) {
   landing.classList.add("hidden");
   djView.classList.add("hidden");
   listenerView.classList.add("hidden");
   section.classList.remove("hidden");
-  if (section === djView || section === listenerView)
-    statsCard.classList.remove("hidden");
+  if (section === djView || section === listenerView) statsCard.classList.remove("hidden");
   else statsCard.classList.add("hidden");
+}
+
+export function updateRoomsList(rooms) {
+  roomsList.innerHTML = "";
+  if (!rooms || rooms.length === 0) {
+    emptyRooms.classList.remove("hidden");
+    return;
+  }
+  emptyRooms.classList.add("hidden");
+  rooms.forEach(room => {
+    const btn = document.createElement("button");
+    btn.className = "btn room-list-item";
+    btn.textContent = room.name || "Unnamed Room";
+    btn.setAttribute("aria-label", `Join room ${room.name}`);
+    btn.onclick = () => joinRoom(room.name);
+    btn.onkeydown = e => { if (e.key === "Enter") btn.click(); };
+    roomsList.appendChild(btn);
+  });
+}
+
+// Create DJ room - details element reveals the field/button
+const btnCreate = document.getElementById("btnCreate");
+if(btnCreate){
+  btnCreate.onclick = async () => {
+    const name = document.getElementById("roomNameInput").value.trim();
+    if (!name) return alert("Please provide a room name.");
+    await createRoom(name);
+  };
+}
+
+// Connection state indicator
+export function showConnectionStatus(connected) {
+  document.getElementById("offline").classList.toggle("hidden", connected);
+  document.getElementById("connected").classList.toggle("hidden", !connected);
 }
 
 export function updateMuteButton() {
   if (state.onAir) {
     btnMute.className = "btn rec";
+    btnMute.setAttribute("aria-label", "Broadcasting");
+    btnMute.setAttribute("aria-pressed", "true");
+    btnMute.innerHTML = '<span class="broadcast-status" aria-hidden="true">● Recording</span>';
   } else {
     btnMute.className = "btn stopped";
+    btnMute.setAttribute("aria-label", "Paused broadcast");
+    btnMute.setAttribute("aria-pressed", "false");
+    btnMute.innerHTML = '<span class="broadcast-status" aria-hidden="true">■ Stopped</span>';
   }
 }
 
-// Update highlightActiveSource function
-export function highlightActiveSource() {
-  document
-    .getElementById("srcMic")
-    .classList.toggle("active", state.source === "mic");
-  document
-    .getElementById("srcExternal")
-    .classList.toggle("active", state.source === "external");
-  document
-    .getElementById("srcSystem")
-    ?.classList.toggle("active", state.source === "system");
-}
-
-export function setDjRoomMeta() {
-  document.getElementById("djRoomTitle").textContent = state.roomName || "Room";
-  document.getElementById("djRoomId").textContent = state.roomId || "";
-  document.getElementById("djName").textContent = state.name || "";
-}
-
-export function setListenerRoomMeta(extra) {
-  document.getElementById("lsRoomTitle").textContent =
-    extra?.name || state.roomName || "Room";
-  document.getElementById("lsRoomId").textContent = state.roomId || "";
-  document.getElementById("lsDj").textContent = extra?.dj_name || "—";
-  document.getElementById("lsCount").textContent = extra?.listener_count ?? "—";
-}
-
-export async function renderRoomsList() {
-  const rooms = await listRooms();
-  const roomsList = document.getElementById("roomsList");
-  roomsList.innerHTML = "";
-  for (const r of rooms) {
-    const div = document.createElement("div");
-    div.className = "room-item";
-    const status = r.dj_online ? "online" : "offline";
-    div.innerHTML = `
-      <div class="room-meta">
-        <span class="badge">#${r.id}</span>
-        <div><div><strong>${r.name || "Room"}</strong></div>
-        <div class="section-title">DJ ${r.dj_name || "—"} • ${r.listener_count} listening • ${status}</div></div>
-      </div>
-      <div class="row">
-        ${
-          r.dj_client === state.clientId
-            ? `<button class="btn secondary join" data-id="${r.id}" data-role="dj" title="Enter as DJ">Enter (DJ)</button>`
-            : `<button class="btn primary join" data-id="${r.id}" data-role="listener" title="Join room">Join</button>`
-        }
-      </div>
-    `;
-    roomsList.appendChild(div);
-  }
-}
-
-export function isDesktop() {
-  return !/Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(
-    navigator.userAgent,
-  );
-}
-
-export function initButtons(enterRoomFn, closeFloorFn) {
-  // Create room
-  document.getElementById("btnCreate").onclick = async () => {
-    const name =
-      (document.getElementById("roomNameInput").value || "").trim() ||
-      `Room ${state.name}`;
-    const data = await createRoom(name);
-    if (!data.ok) {
-      log("create failed", data.error || "");
-      return;
+export function highlightActiveSource(activeId) {
+  ["srcMic", "srcExternal", "srcSystem"].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) {
+      el.setAttribute("aria-checked", id === activeId ? "true" : "false");
+      el.classList.toggle("active", id === activeId);
+      el.blur(); // Remove focus ring from programmatic selection
     }
-    state.roomName = name;
-    await enterRoomFn(data.room_id, "dj");
-  };
-
-  // Source buttons
-  // Source buttons - NOW USE switchAudioSource
-  document.getElementById("srcMic").onclick = async () => {
-    state.source = "mic";
-    if (state.role === "dj" && state.lkRoom) {
-      const track = await createMicTrack();
-      await switchAudioSource(track, "microphone"); // ← Changed from publish()
-      highlightActiveSource();
-    }
-  };
-
-  const srcSystem = document.getElementById("srcSystem");
-  if (srcSystem) {
-    if (isDesktop()) {
-      srcSystem.style.display = "block";
-      srcSystem.addEventListener("click", async () => {
-        state.source = "system";
-        const track = await createSystemAudioTrack();
-        await switchAudioSource(track, "screen_share");
-        highlightActiveSource();
-        log("✅ Switched to system audio");
-      });
-    } else {
-      srcSystem.style.display = "none";
-    }
-  }
-
-  document.getElementById("srcExternal").onclick = async (e) => {
-    e.stopPropagation();
-    state.source = "external";
-    try {
-      await createExternalTrack();
-    } catch {}
-    const devices = await ensureDeviceList();
-    const dropdown = document.getElementById("extDropdown");
-    dropdown.innerHTML = "";
-    devices.forEach((d) => {
-      const item = document.createElement("div");
-      item.className = "dropdown-item";
-      item.textContent = d.label || `audio ${d.deviceId.slice(0, 6)}…`;
-      item.onclick = async () => {
-        state.extDeviceId = d.deviceId;
-        dropdown.classList.remove("show");
-        if (state.role === "dj" && state.lkRoom) {
-          const track = await createExternalTrack(state.extDeviceId);
-          await switchAudioSource(track); // ← Changed from publish()
-          highlightActiveSource();
-        }
-      };
-      dropdown.appendChild(item);
-    });
-    dropdown.classList.toggle("show");
-    highlightActiveSource();
-  };
-
-  document.addEventListener("click", (e) => {
-    if (!e.target.closest(".dropdown"))
-      document.getElementById("extDropdown").classList.remove("show");
   });
-
-  // Mute button
-  btnMute.onclick = async () => {
-    if (state.role !== "dj" || !state.lkRoom) return;
-    const targetOnAir = !state.onAir;
-    if (!state.currentPub) {
-      let track = state.localTrack;
-      if (!track) {
-        if (state.source === "mic") track = await createMicTrack();
-        else if (state.source === "external")
-          track = await createExternalTrack(state.extDeviceId);
-        else if (state.source === "system")
-          track = await createSystemAudioTrack();
-      }
-      if (track) await publish(track);
-    }
-    if (state.currentPub && state.currentPub.track) {
-      try {
-        if (targetOnAir) await state.currentPub.track.unmute();
-        else await state.currentPub.track.mute();
-      } catch (e) {
-        log("mute toggle error", e?.message || e);
-      }
-    }
-    state.onAir = targetOnAir;
-    updateMuteButton();
-  };
-
-  // Close floor
-  document.getElementById("btnClose").onclick = closeFloorFn;
 }
+
+// Stats feedback coloring
+export function updateStats(stats) {
+  // stats = { state, latency, loss, bitrate, codec }
+  document.getElementById("statState").textContent = stats.state || "—";
+  const latencyTd = document.getElementById("statLatency");
+  latencyTd.textContent = stats.latency || "—";
+  latencyTd.setAttribute("data-quality",
+    (stats.latency < 150) ? "ok" : (stats.latency < 350) ? "warn" : "bad");
+  const lossTd = document.getElementById("statLoss");
+  lossTd.textContent = stats.loss || "—";
+  lossTd.setAttribute("data-quality",
+    (stats.loss < 2) ? "ok" : (stats.loss < 10) ? "warn" : "bad");
+  document.getElementById("statBitrate").textContent = stats.bitrate || "—";
+  document.getElementById("statCodec").textContent = stats.codec || "—";
+}
+
+// Eager load pages and fill info async
+export function eagerViewLoading(view) {
+  // Just show the view before data comes in, fill in later
+  show(view);
+  // Later fill in info - called by successful connection
+}
+
+// Keyboard accessibility for dropdowns (example)
+const extDropdown = document.getElementById("extDropdown");
+extDropdown && extDropdown.addEventListener("keydown", e => {
+  if (["ArrowDown", "ArrowUp"].includes(e.key)) {
+    const items = Array.from(extDropdown.querySelectorAll("[role='menuitem']"));
+    const idx = items.findIndex(i => i === document.activeElement);
+    const nextIdx = e.key === "ArrowDown" ? idx + 1 : idx - 1;
+    if (items[nextIdx]) items[nextIdx].focus();
+    e.preventDefault();
+  }
+});
