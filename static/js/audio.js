@@ -9,7 +9,7 @@ export async function createMicTrack() {
       echoCancellation: false,
       noiseSuppression: false,
       autoGainControl: false,
-      // latency: 0.01, // Request 10ms latency
+      latency: 0,
     },
   });
   return stream.getAudioTracks()[0];
@@ -21,6 +21,7 @@ export async function createSystemAudioTrack() {
       video: true,
       audio: true,
       preferCurrentTab: false,
+      latency: 0,
     });
     // Stop and remove the video track since we don't need it
 
@@ -42,6 +43,7 @@ export async function createExternalTrack(deviceId) {
       echoCancellation: false,
       noiseSuppression: false,
       autoGainControl: false,
+      latency: 0,
     },
     video: false,
   };
@@ -97,25 +99,30 @@ export async function switchAudioSource(newTrack, source) {
   await Promise.all(unpublishPromises);
   log("All old tracks unpublished");
 
-  // Step 3: Create LocalAudioTrack from MediaStreamTrack
-  const { LocalAudioTrack } = window.LivekitClient;
-  // Get the constraints from the track
-  const constraints = {
-    channelCount: 2,
-    sampleRate: 48000,
-    echoCancellation: false,
-    noiseSuppression: false,
-    autoGainControl: false,
-  };
+  // // Step 3: Create LocalAudioTrack from MediaStreamTrack
+  // const { LocalAudioTrack } = window.LivekitClient;
+  // // Get the constraints from the track
+  // const constraints = {
+  //   channelCount: 2,
+  //   sampleRate: 48000,
+  //   echoCancellation: false,
+  //   noiseSuppression: false,
+  //   autoGainControl: false,
+  //   latency: 0,
+  //   audioBitrate: 256000,  // Double the bitrate for consistency
+  //   dtx: false, // Disable discontinuous transmission for music
+  //   red: true, // Keep redundancy for packet loss
+  //   simulcast: false,
+  // };
 
-  const localTrack = new LocalAudioTrack(
-    newTrack,
-    constraints, // Pass constraints, not undefined
-    true, // userProvidedTrack = true
-  );
+  // const localTrack = new LocalAudioTrack(
+  //   newTrack,
+  //   constraints, // Pass constraints, not undefined
+  //   true, // userProvidedTrack = true
+  // );
 
   // Step 4: Publish new track immediately
-  const pub = await room.localParticipant.publishTrack(localTrack);
+  const pub = await room.localParticipant.publishTrack(newTrack);
   //   , {
   //   name: "stream",
   //   stream: "stream",

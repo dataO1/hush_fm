@@ -28,14 +28,14 @@ export async function connectRoom(url, token) {
   const room = new Room({
     adaptiveStream: false,
     dynacast: false,
-    // ADD THESE:
+    webAudioMix: false, // Disable if you're not mixing multiple tracks   // ADD THESE:
     audioCaptureDefaults: {
       autoGainControl: false,
       echoCancellation: false,
       noiseSuppression: false,
     },
     publishDefaults: {
-      audioBitrate: 128000, // Opus stereo at 128kbps
+      audioBitrate: 256000,  // Double the bitrate for consistency
       dtx: false, // Disable discontinuous transmission for music
       red: true, // Keep redundancy for packet loss
       simulcast: false,
@@ -94,6 +94,7 @@ export async function connectRoom(url, token) {
         el.srcObject = null;
       } catch {}
       track.attach(el);
+      el.mozAudioChannelType = "content";
       el.play().catch(() => {});
       document.getElementById("offline").classList.add("hidden");
       startWaveform(el);
