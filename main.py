@@ -64,35 +64,35 @@ async def rate_limit_middleware(request, handler):
     rate_limit_store[ip].append(now)
     return await handler(request)
 
-async def cleanup_stale_data(app):
-    """Background task to cleanup stale clients and rooms"""
-    while True:
-        try:
-            await asyncio.sleep(60)  # Run every minute
-            now = time.time()
-
-            # Remove stale clients (inactive > 2 minutes)
-            stale_clients = [
-                cid for cid, client in clients.items()
-                if now - client.get("last_seen", 0) > 120
-            ]
-            for cid in stale_clients:
-                logger.info(f"🧹 Removing stale client: {cid}")
-                del clients[cid]
-
-            # Remove rooms with no DJ for > 5 minutes
-            stale_rooms = []
-            for rid, room in rooms.items():
-                last_seen_dj = room.get("last_seen_dj", 0)
-                if now - last_seen_dj > 300:
-                    stale_rooms.append(rid)
-
-            for rid in stale_rooms:
-                logger.info(f"🧹 Removing stale room: {rid}")
-                del rooms[rid]
-
-        except Exception as e:
-            logger.error(f"Cleanup task error: {e}")
+# async def cleanup_stale_data(app):
+#     """Background task to cleanup stale clients and rooms"""
+#     while True:
+#         try:
+#             await asyncio.sleep(60)  # Run every minute
+#             now = time.time()
+#
+#             # Remove stale clients (inactive > 2 minutes)
+#             stale_clients = [
+#                 cid for cid, client in clients.items()
+#                 if now - client.get("last_seen", 0) > 120
+#             ]
+#             for cid in stale_clients:
+#                 logger.info(f"🧹 Removing stale client: {cid}")
+#                 del clients[cid]
+#
+#             # Remove rooms with no DJ for > 5 minutes
+#             stale_rooms = []
+#             for rid, room in rooms.items():
+#                 last_seen_dj = room.get("last_seen_dj", 0)
+#                 if now - last_seen_dj > 300:
+#                     stale_rooms.append(rid)
+#
+#             for rid in stale_rooms:
+#                 logger.info(f"🧹 Removing stale room: {rid}")
+#                 del rooms[rid]
+#
+#         except Exception as e:
+#             logger.error(f"Cleanup task error: {e}")
 
 def create_app() -> web.Application:
     """Create and configure the aiohttp application"""
@@ -121,10 +121,13 @@ def create_app() -> web.Application:
     app.router.add_static('/static', STATIC_DIR, name='static')
 
     # Start cleanup task
-    app.on_startup.append(lambda app: asyncio.create_task(cleanup_stale_data(app)))
 
+    # app.on_startup.append(start_background_tasks)
     logger.info("🎧 Silent Disco server ready • Optimized • WebSocket enabled")
     return app
+
+# async def start_background_tasks(app):
+#     app['cleanup_task'] = asyncio.create_task(cleanup_stale_data(app))
 
 def get_local_ip():
     """Get local WiFi IP address"""
