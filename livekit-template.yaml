@@ -48,11 +48,11 @@ rtc:
 
   # enable_remote_unmute: false
 
-  # MINIMAL playout delay for low latency
-  playout_delay:
-    enabled: true
-    min: 20
-    max: 100
+  # # MINIMAL playout delay for low latency
+  # playout_delay:
+  #   enabled: true
+  #   min: 20
+  #   max: 100
 
 keys:
   @API_KEY@: @API_SECRET@
