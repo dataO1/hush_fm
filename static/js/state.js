@@ -13,7 +13,6 @@ const DEBUG_MODE = localStorage.getItem("debug") === "false";
 
 export async function loadConfig() {
   const res = await fetch("/config");
-  g;
   const config = await res.json();
   DEBUG_MODE = config.debug;
   const element = document.getElementById("logCard");
