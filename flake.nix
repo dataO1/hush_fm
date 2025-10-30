@@ -97,6 +97,7 @@
           LIVEKIT_API_KEY = "devkey";
           LIVEKIT_API_SECRET = "secret";
           LIVEKIT_SECURE = "false";
+          DEBUG = "true";
           PORT = "3000";
 
           shellHook = ''
@@ -298,6 +299,7 @@
                 LIVEKIT_API_KEY = cfg.apiKey;
                 LIVEKIT_API_SECRET = cfg.apiSecret;
                 LIVEKIT_SECURE = lib.boolToString cfg.secure;  # becomes "true" or "false"
+                DEBUG = "false";
                 HUSH_DATA_DIR = cfg.dataDir;
               };
 

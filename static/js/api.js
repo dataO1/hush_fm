@@ -1,20 +1,6 @@
 // Backend API calls
 import { state, log } from "./state.js";
 
-export async function loadIceConfig() {
-  try {
-    const res = await fetch("/config");
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-
-    const data = await res.json();
-    log(`Loaded ICE servers: ${data.iceServers?.length || 0}`);
-    return { iceServers: data.iceServers || [] };
-  } catch (err) {
-    log(`Failed to load ICE config: ${err.message}`);
-    return { iceServers: [] };
-  }
-}
-
 export async function identify() {
   try {
     const reuse = localStorage.getItem("sd_client_id");

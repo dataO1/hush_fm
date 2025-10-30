@@ -87,6 +87,7 @@ async def serve_config(request):
     return web.json_response({
         "livekit_ws_url": livekit_ws_url,
         "api_key": os.environ.get('LIVEKIT_API_KEY', 'devkey'),
+        "debug": bool(os.environ.get('DEBUG', 'false')),  # ADD THIS
     })
 
 # ============================================================

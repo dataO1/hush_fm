@@ -1,8 +1,7 @@
 // Main entry point - OPTIMIZED VERSION
 // WebSocket support + AbortController + exponential backoff + error recovery
-import { state, log } from "./state.js";
+import { state, log, loadConfig } from "./state.js";
 import {
-  loadIceConfig,
   identify,
   roomExists,
   joinRoom,
@@ -64,7 +63,7 @@ function navigateToRoot() {
 async function ensureIdentityReady() {
   if (!state.clientId) {
     await identify();
-    await loadIceConfig();
+    await loadConfig();
   }
 }
 
