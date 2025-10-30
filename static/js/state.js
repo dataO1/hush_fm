@@ -8,13 +8,19 @@ export const state = {
   lkRoom: null,
 };
 
-// Simple logging function
-export function log(message) {
-  const logEl = document.getElementById("log");
-  if (logEl) {
-    const timestamp = new Date().toLocaleTimeString();
-    logEl.textContent += `[${timestamp}] ${message}\n`;
-    logEl.scrollTop = logEl.scrollHeight;
+// In state.js
+const DEBUG_MODE = localStorage.getItem("debug") === "false";
+
+export function log(...args) {
+  console.log(...args);
+  if (DEBUG_MODE) {
+    const now = new Date();
+    const time = now.toLocaleTimeString("en-US", { hour12: false });
+    logEl.textContent +=
+      `[${time}] ` +
+      args
+        .map((x) => (typeof x === "string" ? x : JSON.stringify(x)))
+        .join(" ") +
+      "\n";
   }
-  console.log(message);
 }
