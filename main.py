@@ -16,7 +16,7 @@ from collections import defaultdict
 from server.api import (
     serve_config, api_identify, api_rooms,
     api_room_create, api_room_join, api_room_close,
-    api_lk_token, api_presence, ws_room_updates, api_dj_presence
+    api_lk_token, api_presence, ws_room_updates, api_dj_presence, broadcast_room_update
 )
 from server.state import rooms, clients
 
@@ -64,35 +64,51 @@ async def rate_limit_middleware(request, handler):
     rate_limit_store[ip].append(now)
     return await handler(request)
 
-# async def cleanup_stale_data(app):
-#     """Background task to cleanup stale clients and rooms"""
-#     while True:
-#         try:
-#             await asyncio.sleep(60)  # Run every minute
-#             now = time.time()
-#
-#             # Remove stale clients (inactive > 2 minutes)
-#             stale_clients = [
-#                 cid for cid, client in clients.items()
-#                 if now - client.get("last_seen", 0) > 120
-#             ]
-#             for cid in stale_clients:
-#                 logger.info(f"🧹 Removing stale client: {cid}")
-#                 del clients[cid]
-#
-#             # Remove rooms with no DJ for > 5 minutes
-#             stale_rooms = []
-#             for rid, room in rooms.items():
-#                 last_seen_dj = room.get("last_seen_dj", 0)
-#                 if now - last_seen_dj > 300:
-#                     stale_rooms.append(rid)
-#
-#             for rid in stale_rooms:
-#                 logger.info(f"🧹 Removing stale room: {rid}")
-#                 del rooms[rid]
-#
-#         except Exception as e:
-#             logger.error(f"Cleanup task error: {e}")
+async def cleanup_stale_data(app):
+    """Background task to cleanup stale clients and rooms"""
+    while True:
+        try:
+            await asyncio.sleep(60)  # Run every minute
+            now = time.time()
+
+            # Remove stale clients (inactive > 2 minutes)
+            stale_clients = [
+                cid for cid, client in clients.items()
+                if now - client.get("last_seen", 0) > 120
+            ]
+            for cid in stale_clients:
+                logger.info(f"🧹 Removing stale client: {cid}")
+                del clients[cid]
+
+            # Remove rooms with no DJ for > 5 minutes
+            stale_rooms = []
+            for rid, room in rooms.items():
+                last_seen_dj = room.get("last_seen_dj", 0)
+                if now - last_seen_dj > 300:
+                    stale_rooms.append(rid)
+
+            for rid in stale_rooms:
+                logger.info(f"🧹 Removing stale room: {rid}")
+                del rooms[rid]
+        # Also remove disconnected listeners from rooms
+            for room_id, room in list(rooms.items()):
+                stale_listeners = []
+                for listener_id in room.get("listeners", set()):
+                    if listener_id in clients:
+                        if now - clients[listener_id].get("last_seen", 0) > 120:
+                            stale_listeners.append(listener_id)
+                    else:
+                        stale_listeners.append(listener_id)
+
+                for lid in stale_listeners:
+                    room["listeners"].discard(lid)
+                    logger.info(f"🧹 Removed stale listener {lid} from room {room_id}")
+
+                if stale_listeners:
+                    await broadcast_room_update()
+
+        except Exception as e:
+            logger.error(f"Cleanup task error: {e}")
 
 def create_app() -> web.Application:
     """Create and configure the aiohttp application"""
@@ -122,12 +138,12 @@ def create_app() -> web.Application:
 
     # Start cleanup task
 
-    # app.on_startup.append(start_background_tasks)
+    app.on_startup.append(start_background_tasks)
     logger.info("🎧 Silent Disco server ready • Optimized • WebSocket enabled")
     return app
 
-# async def start_background_tasks(app):
-#     app['cleanup_task'] = asyncio.create_task(cleanup_stale_data(app))
+async def start_background_tasks(app):
+    app['cleanup_task'] = asyncio.create_task(cleanup_stale_data(app))
 
 def get_local_ip():
     """Get local WiFi IP address"""

@@ -39,10 +39,14 @@ export async function connectRoom(url, token) {
       noiseSuppression: false,
     },
     publishDefaults: {
-      audioBitrate: 256000,
+      audioBitrate: 128000, // Start lower
       dtx: false,
       red: true,
       simulcast: false,
+      audioPreset: {
+        maxBitrate: 256000, // Can go up to 256k if network allows
+        priority: "high",
+      },
     },
   });
 
@@ -65,16 +69,16 @@ export async function connectRoom(url, token) {
     await ensurePublishedPresence();
   });
 
-  // Participant connected
-  room.on(RoomEvent.ParticipantConnected, async (participant) => {
-    log(`Participant connected: ${participant.identity}`);
-    await ensurePublishedPresence();
-
-    // Update listener count
-    if (window.updateListenerCount) {
-      window.updateListenerCount(room.participants.size);
-    }
-  });
+  // // Participant connected
+  // room.on(RoomEvent.ParticipantConnected, async (participant) => {
+  //   log(`Participant connected: ${participant.identity}`);
+  //   await ensurePublishedPresence();
+  //
+  //   // Update listener count
+  //   if (window.updateListenerCount) {
+  //     window.updateListenerCount(room.participants.size);
+  //   }
+  // });
 
   // Participant disconnected
   room.on(RoomEvent.ParticipantDisconnected, (participant) => {
@@ -390,6 +394,7 @@ function startStatsMonitor() {
                   }
                 }
                 stats.loss = report.packetsLost || 0;
+                stats.found = true;
               }
               if (
                 report.type === "remote-inbound-rtp" &&
@@ -400,6 +405,7 @@ function startStatsMonitor() {
                 }
               }
             });
+            if (!stats.found) return; // Skip unnecessary processing
           }
         } catch (e) {
           log(`DJ stats error: ${e?.message || e}`);

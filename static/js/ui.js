@@ -9,6 +9,7 @@ import {
   ensureDeviceList,
   switchAudioSource,
 } from "./audio.js";
+import { navigateToRoom } from "./app.js";
 
 const landing = document.getElementById("landing");
 const djView = document.getElementById("djView");
@@ -18,6 +19,7 @@ const btnMute = document.getElementById("btnMute");
 
 // Cache DOM elements by room ID for differential updates
 const roomElementCache = new Map();
+let lastRoomHash = null;
 
 export function show(section) {
   landing.classList.add("hidden");
@@ -96,15 +98,24 @@ export function updateRoomsList(rooms) {
 
   if (emptyRooms) emptyRooms.classList.add("hidden");
 
-  // Sort rooms: own first, then by listener count
-  const sortedRooms = [...rooms].sort((a, b) => {
-    const aIsOwn = a.dj_client === state.clientId;
-    const bIsOwn = b.dj_client === state.clientId;
-    if (aIsOwn && !bIsOwn) return -1;
-    if (!aIsOwn && bIsOwn) return 1;
-    return (b.listener_count || 0) - (a.listener_count || 0);
-  });
+  const roomHash = JSON.stringify(
+    rooms.map((r) => [r.id, r.dj_client, r.listener_count]),
+  );
 
+  let sortedRooms;
+  if (roomHash === lastRoomHash && sortedRooms) {
+    // Use cached sort
+  } else {
+    // Re-sort
+    sortedRooms = [...rooms].sort((a, b) => {
+      const aIsOwn = a.dj_client === state.clientId;
+      const bIsOwn = b.dj_client === state.clientId;
+      if (aIsOwn && !bIsOwn) return -1;
+      if (!aIsOwn && bIsOwn) return 1;
+      return (b.listener_count || 0) - (a.listener_count || 0);
+    });
+    lastRoomHash = roomHash;
+  }
   // Build new room ID set
   const newRoomIds = new Set(sortedRooms.map((r) => r.id));
 
@@ -280,10 +291,7 @@ export function initButtons(enterRoomFn, closeFloorFn) {
         const result = await createRoom(name);
         if (result?.room_id) {
           log(`Room created, auto-joining as DJ: ${result.room_id}`);
-          // Use navigateToRoom from app.js scope
-          if (window.navigateToRoom) {
-            window.navigateToRoom(result.room_id, true);
-          }
+          navigateToRoom(result.room_id, true);
           await enterRoomFn(result.room_id, "dj");
           if (roomNameInput) roomNameInput.value = "";
         }

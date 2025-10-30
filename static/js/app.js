@@ -29,6 +29,7 @@ import {
 
 // AbortController for cancelling ongoing requests
 let enterRoomAbortController = null;
+let roomUpdatesPingInterval = null;
 
 // WebSocket for real-time room updates
 let roomUpdatesWs = null;
@@ -40,6 +41,10 @@ let pollInterval = null;
 let currentPollDelay = 10000; // Start at 10 seconds
 const MAX_POLL_DELAY = 60000; // Max 1 minute
 
+if ("serviceWorker" in navigator) {
+  navigator.serviceWorker.register("/static/sw.js");
+}
+
 function parseRoute() {
   const path = location.pathname.replace(/\/+$/, "");
   const m = path.match(/^\/r\/([a-f0-9]{8})$/i);
@@ -47,7 +52,7 @@ function parseRoute() {
   return { roomId: m ? m[1] : null, asDj: params.get("dj") === "1" };
 }
 
-function navigateToRoom(roomId, asDj = false) {
+export function navigateToRoom(roomId, asDj = false) {
   const url = `/r/${roomId}${asDj ? "?dj=1" : ""}`;
   history.pushState({}, "", url);
 }
@@ -71,7 +76,13 @@ function connectRoomUpdatesWebSocket() {
 
   const protocol = location.protocol === "https:" ? "wss:" : "ws:";
   const wsUrl = `${protocol}//${location.host}/ws/rooms`;
-
+  // Add connection timeout
+  let connectTimeout = setTimeout(() => {
+    if (roomUpdatesWs && roomUpdatesWs.readyState === WebSocket.CONNECTING) {
+      log("WebSocket connection timeout, retrying...");
+      roomUpdatesWs.close();
+    }
+  }, 10000); // 10 second timeout
   try {
     roomUpdatesWs = new WebSocket(wsUrl);
 
@@ -79,18 +90,20 @@ function connectRoomUpdatesWebSocket() {
       log("📡 WebSocket connected for room updates");
       wsReconnectAttempts = 0;
 
-      // Stop fallback polling when WebSocket is active
       if (pollInterval) {
         clearInterval(pollInterval);
         pollInterval = null;
       }
 
-      // Send periodic ping to keep connection alive
-      const pingInterval = setInterval(() => {
-        if (roomUpdatesWs.readyState === WebSocket.OPEN) {
+      // Clear old ping interval if exists
+      if (roomUpdatesPingInterval) {
+        clearInterval(roomUpdatesPingInterval);
+      }
+
+      // Send periodic ping
+      roomUpdatesPingInterval = setInterval(() => {
+        if (roomUpdatesWs && roomUpdatesWs.readyState === WebSocket.OPEN) {
           roomUpdatesWs.send("ping");
-        } else {
-          clearInterval(pingInterval);
         }
       }, 30000);
     };
@@ -113,19 +126,29 @@ function connectRoomUpdatesWebSocket() {
     roomUpdatesWs.onclose = () => {
       log("📡 WebSocket disconnected");
       roomUpdatesWs = null;
+      // Clear ping interval
+      if (roomUpdatesPingInterval) {
+        clearInterval(roomUpdatesPingInterval);
+        roomUpdatesPingInterval = null;
+      }
 
       // Reconnect with exponential backoff
       if (wsReconnectAttempts < MAX_WS_RECONNECT_ATTEMPTS) {
         const delay = Math.min(1000 * Math.pow(2, wsReconnectAttempts), 30000);
         wsReconnectAttempts++;
-        log(`Reconnecting WebSocket in ${delay}ms (attempt ${wsReconnectAttempts})`);
+        log(
+          `Reconnecting WebSocket in ${delay}ms (attempt ${wsReconnectAttempts})`,
+        );
         setTimeout(connectRoomUpdatesWebSocket, delay);
       } else {
-        log("Max WebSocket reconnect attempts reached, falling back to polling");
+        log(
+          "Max WebSocket reconnect attempts reached, falling back to polling",
+        );
         startFallbackPolling();
       }
     };
   } catch (err) {
+    clearTimeout(connectTimeout);
     log(`WebSocket connection failed: ${err.message}`);
     startFallbackPolling();
   }

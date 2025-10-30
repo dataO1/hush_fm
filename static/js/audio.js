@@ -7,6 +7,7 @@ const WAVEFORM_FRAME_TIME = 1000 / WAVEFORM_FPS;
 let lastDjWaveTime = 0;
 let lastListenerWaveTime = 0;
 let isTabVisible = true;
+let globalAudioContext = null;
 
 // Page visibility API to pause waveforms when tab inactive
 document.addEventListener("visibilitychange", () => {
@@ -17,6 +18,14 @@ document.addEventListener("visibilitychange", () => {
     log("Tab visible, resuming waveforms");
   }
 });
+
+function getAudioContext() {
+  if (!globalAudioContext || globalAudioContext.state === "closed") {
+    globalAudioContext = new (window.AudioContext ||
+      window.webkitAudioContext)();
+  }
+  return globalAudioContext;
+}
 
 export async function createMicTrack() {
   try {
@@ -134,7 +143,7 @@ export function refreshDjWave() {
   if (!state.localTrack) return;
 
   try {
-    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    const ctx = getAudioContext();
     const src = ctx.createMediaStreamSource(
       new MediaStream([state.localTrack]),
     );
@@ -195,7 +204,7 @@ export function stopDjWave() {
 export function startWaveform(audioEl) {
   try {
     stopWaveform();
-    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    const ctx = getAudioContext();
     const src = ctx.createMediaStreamSource(audioEl.srcObject);
     const analyser = ctx.createAnalyser();
     analyser.fftSize = 2048;
