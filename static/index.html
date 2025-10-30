@@ -69,17 +69,17 @@
             <div class="create-room-content">
               <label for="roomNameInput" class="field-label">Room name</label>
               <div class="field">
-                <input 
-                  id="roomNameInput" 
-                  class="input" 
-                  placeholder="e.g., Neon Groove, Chill Vibes" 
+                <input
+                  id="roomNameInput"
+                  class="input"
+                  placeholder="e.g., Neon Groove, Chill Vibes"
                   aria-label="Enter room name"
                   aria-describedby="roomNameHelp"
                 />
                 <span id="roomNameHelp" class="help-text">Choose a catchy name for your DJ session</span>
-                <button 
-                  id="btnCreate" 
-                  class="btn primary" 
+                <button
+                  id="btnCreate"
+                  class="btn primary"
                   aria-label="Create room and start DJ session"
                 >
                   Create Room
@@ -98,9 +98,9 @@
               <h2 class="room-title" id="djRoomTitle">Room</h2>
               <p class="section-title">You: <span id="djName"></span></p>
             </div>
-            <button 
-              id="btnClose" 
-              class="btn danger" 
+            <button
+              id="btnClose"
+              class="btn danger"
               aria-label="Close this DJ room"
             >
               Close Room
@@ -113,10 +113,10 @@
           <div class="row" style="gap:16px; align-items:flex-start;">
             <div class="source-controls" style="flex: 1 1 320px;">
               <div class="src-tabs" role="radiogroup" aria-label="Select audio source">
-                <button 
-                  id="srcMic" 
-                  class="btn secondary" 
-                  role="radio" 
+                <button
+                  id="srcMic"
+                  class="btn secondary"
+                  role="radio"
                   aria-checked="false"
                   aria-label="Use microphone as audio source"
                 >
@@ -124,10 +124,10 @@
                   Microphone
                 </button>
                 <div class="dropdown">
-                  <button 
-                    id="srcExternal" 
-                    class="btn secondary" 
-                    role="radio" 
+                  <button
+                    id="srcExternal"
+                    class="btn secondary"
+                    role="radio"
                     aria-checked="false"
                     aria-haspopup="true"
                     aria-expanded="false"
@@ -139,19 +139,19 @@
                   </button>
                   <div id="extDropdown" class="dropdown-content" role="menu"></div>
                 </div>
-                <button 
-                  id="srcSystem" 
-                  class="btn secondary" 
-                  role="radio" 
+                <button
+                  id="srcSystem"
+                  class="btn secondary"
+                  role="radio"
                   aria-checked="false"
                   aria-label="Share system audio"
                 >
                   <span class="btn-icon" aria-hidden="true">💻</span>
                   System Audio
                 </button>
-                <button 
-                  id="btnMute" 
-                  class="btn stopped" 
+                <button
+                  id="btnMute"
+                  class="btn stopped"
                   aria-label="Start broadcasting"
                   aria-pressed="false"
                 >
@@ -161,9 +161,9 @@
             </div>
 
             <div style="flex: 1 1 280px;">
-              <canvas 
-                id="djWave" 
-                height="60" 
+              <canvas
+                id="djWave"
+                height="60"
                 aria-label="Audio waveform visualization"
                 role="img"
               ></canvas>
@@ -177,7 +177,7 @@
         <div class="card" style="grid-column: 1 / -1;">
           <h2 class="room-title" id="lsRoomTitle">Room</h2>
           <div class="section-title">
-            DJ: <span id="lsDj"></span> • 
+            DJ: <span id="lsDj"></span> •
             Listeners: <span id="lsCount" aria-live="polite">0</span>
           </div>
           <div id="offline" class="connection-status offline hidden" role="status" aria-live="polite">
@@ -190,54 +190,18 @@
           </div>
         </div>
         <div class="card" style="grid-column: 1 / -1;">
-          <canvas 
-            id="wave" 
-            height="80" 
+          <canvas
+            id="wave"
+            height="80"
             aria-label="Audio waveform visualization"
             role="img"
           ></canvas>
-          <audio 
-            id="listenerAudio" 
-            autoplay 
+          <audio
+            id="listenerAudio"
+            autoplay
             playsinline
             aria-label="Audio stream player"
           ></audio>
-        </div>
-      </section>
-
-      <!-- Connection Stats -->
-      <section id="statsCard" class="grid hidden" aria-label="Connection statistics">
-        <div class="card" style="grid-column: 1 / -1;">
-          <details class="stats-details">
-            <summary class="stats-toggle" aria-label="Toggle connection health details">
-              <span class="network-indicator" aria-hidden="true">📶</span>
-              <span>Connection Health</span>
-            </summary>
-            <table class="stats-table" role="table">
-              <tbody>
-                <tr>
-                  <th scope="row">State</th>
-                  <td id="statState" aria-live="polite">—</td>
-                </tr>
-                <tr>
-                  <th scope="row">Latency (RTT)</th>
-                  <td id="statLatency" aria-live="polite">—</td>
-                </tr>
-                <tr>
-                  <th scope="row">Bitrate</th>
-                  <td id="statBitrate" aria-live="polite">—</td>
-                </tr>
-                <tr>
-                  <th scope="row">Packet Loss</th>
-                  <td id="statLoss" aria-live="polite">—</td>
-                </tr>
-                <tr>
-                  <th scope="row">Codec</th>
-                  <td id="statCodec" aria-live="polite">—</td>
-                </tr>
-              </tbody>
-            </table>
-          </details>
         </div>
       </section>
 
@@ -245,10 +209,10 @@
       <section id="logCard" class="grid" aria-label="Debug log">
         <div class="card log" style="grid-column: 1 / -1;">
           <h3 class="title">Log</h3>
-          <pre 
-            id="log" 
-            role="log" 
-            aria-live="polite" 
+          <pre
+            id="log"
+            role="log"
+            aria-live="polite"
             aria-atomic="false"
             style="white-space:pre-wrap; font-size:12px; color:#b9b9c9; margin:0;"
           ></pre>

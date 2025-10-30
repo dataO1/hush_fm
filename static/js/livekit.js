@@ -146,7 +146,6 @@ export async function connectRoom(url, token) {
   // Disconnected event
   room.on(RoomEvent.Disconnected, (reason) => {
     log(`LiveKit disconnected: ${reason}`);
-    stopStatsMonitor();
 
     // Handle token expiration
     if (reason === "TOKEN_EXPIRED") {
@@ -242,7 +241,6 @@ export async function connectRoom(url, token) {
 
   await room.connect(url, token);
   state.lkRoom = room;
-  startStatsMonitor();
 
   return room;
 }
@@ -356,108 +354,4 @@ export async function ensurePublishedPresence() {
       log(`Mute/unmute error: ${e?.message || e}`);
     }
   }
-}
-
-function startStatsMonitor() {
-  if (state.statsInterval) clearInterval(state.statsInterval);
-
-  state.statsInterval = setInterval(async () => {
-    if (!state.lkRoom) return;
-
-    try {
-      const stats = {
-        state: state.lkRoom.state || "—",
-        latency: 0,
-        loss: 0,
-        bitrate: "—",
-        codec: "—",
-      };
-
-      document.getElementById("statState").textContent = stats.state;
-
-      if (state.role === "dj" && state.currentPub && state.currentPub.track) {
-        try {
-          const sender = state.currentPub.track.sender;
-          if (sender && typeof sender.getStats === "function") {
-            const rtcStats = await sender.getStats();
-            rtcStats.forEach((report) => {
-              if (report.type === "outbound-rtp" && report.kind === "audio") {
-                if (report.bytesSent && report.timestamp) {
-                  const kbps = Math.round((report.bytesSent * 8) / 1000);
-                  stats.bitrate = `${kbps} kbps`;
-                }
-                if (report.codecId) {
-                  const codec = rtcStats.get(report.codecId);
-                  if (codec && codec.mimeType) {
-                    stats.codec =
-                      codec.mimeType.split("/")[1] || codec.mimeType;
-                  }
-                }
-                stats.loss = report.packetsLost || 0;
-                stats.found = true;
-              }
-              if (
-                report.type === "remote-inbound-rtp" &&
-                report.kind === "audio"
-              ) {
-                if (report.roundTripTime !== undefined) {
-                  stats.latency = Math.round(report.roundTripTime * 1000);
-                }
-              }
-            });
-            if (!stats.found) return; // Skip unnecessary processing
-          }
-        } catch (e) {
-          log(`DJ stats error: ${e?.message || e}`);
-        }
-      } else if (state.role === "listener") {
-        const audioTracks = Array.from(state.lkRoom.remoteParticipants.values())
-          .flatMap((p) => Array.from(p.trackPublications.values()))
-          .filter((pub) => pub.kind === "audio" && pub.track);
-
-        if (audioTracks.length > 0) {
-          const audioTrack = audioTracks[0].track;
-          try {
-            const receiver = audioTrack.receiver;
-            if (receiver && typeof receiver.getStats === "function") {
-              const rtcStats = await receiver.getStats();
-              rtcStats.forEach((report) => {
-                if (report.type === "inbound-rtp" && report.kind === "audio") {
-                  if (report.bytesReceived && report.timestamp) {
-                    const kbps = Math.round((report.bytesReceived * 8) / 1000);
-                    stats.bitrate = `${kbps} kbps`;
-                  }
-                  if (report.codecId) {
-                    const codec = rtcStats.get(report.codecId);
-                    if (codec && codec.mimeType) {
-                      stats.codec =
-                        codec.mimeType.split("/")[1] || codec.mimeType;
-                    }
-                  }
-                  stats.loss = report.packetsLost || 0;
-                  if (report.jitter !== undefined) {
-                    stats.latency = Math.round(report.jitter * 1000);
-                  }
-                }
-              });
-            }
-          } catch (e) {
-            log(`Listener stats error: ${e?.message || e}`);
-          }
-        }
-      }
-
-      // Update UI with color-coded stats
-      if (window.updateConnectionStats) {
-        window.updateConnectionStats(stats);
-      }
-    } catch (e) {
-      log(`Stats error: ${e?.message || e}`);
-    }
-  }, 5000);
-}
-
-function stopStatsMonitor() {
-  if (state.statsInterval) clearInterval(state.statsInterval);
-  state.statsInterval = null;
 }

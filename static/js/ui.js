@@ -14,7 +14,6 @@ import { navigateToRoom } from "./app.js";
 const landing = document.getElementById("landing");
 const djView = document.getElementById("djView");
 const listenerView = document.getElementById("listenerView");
-const statsCard = document.getElementById("statsCard");
 const btnMute = document.getElementById("btnMute");
 
 // Cache DOM elements by room ID for differential updates
@@ -27,12 +26,6 @@ export function show(section) {
   listenerView.classList.add("hidden");
 
   section.classList.remove("hidden");
-
-  if (section === djView || section === listenerView) {
-    statsCard.classList.remove("hidden");
-  } else {
-    statsCard.classList.add("hidden");
-  }
 }
 
 export function updateMuteButton() {
@@ -290,10 +283,17 @@ export function initButtons(enterRoomFn, closeFloorFn) {
       try {
         const result = await createRoom(name);
         if (result?.room_id) {
-          log(`Room created, auto-joining as DJ: ${result.room_id}`);
-          navigateToRoom(result.room_id, true);
-          await enterRoomFn(result.room_id, "dj");
+          log(`Room created: ${result.room_id}, auto-joining as DJ`);
+
+          // Update URL BEFORE entering room
+          const url = `/r/${result.room_id}?dj=1`;
+          history.pushState({}, "", url);
+
+          // Clear input
           if (roomNameInput) roomNameInput.value = "";
+
+          // Now enter the room
+          await enterRoomFn(result.room_id, "dj");
         }
       } catch (err) {
         log(`Create room failed: ${err.message}`);
