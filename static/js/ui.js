@@ -282,33 +282,31 @@ export function initButtons(enterRoomFn, closeFloorFn) {
 
       try {
         const result = await createRoom(name);
-        if (result?.room_id) {
-          log(`Room created: ${result.room_id}, auto-joining as DJ`);
 
-          // Update URL BEFORE entering room
+        if (result?.room_id) {
+          log(`✅ Room created: ${result.room_id}`);
+
+          // Update URL
           const url = `/r/${result.room_id}?dj=1`;
           history.pushState({}, "", url);
 
           // Clear input
           if (roomNameInput) roomNameInput.value = "";
 
-          // Now enter the room
+          // IMPORTANT: Give backend time to sync
+          await new Promise(resolve => setTimeout(resolve, 100));
+
+          // Now join
           await enterRoomFn(result.room_id, "dj");
         }
       } catch (err) {
-        log(`Create room failed: ${err.message}`);
-        alert("Failed to create room");
+        log(`❌ Create room failed: ${err.message}`);
+        alert(`Failed to create room: ${err.message}`);
       } finally {
         btnCreate.disabled = false;
         btnCreate.textContent = "Create Room";
       }
     };
-
-    if (roomNameInput) {
-      roomNameInput.onkeydown = (e) => {
-        if (e.key === "Enter") btnCreate.click();
-      };
-    }
   }
 
   log("UI buttons initialized");
