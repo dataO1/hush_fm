@@ -1,6 +1,6 @@
 port: @LIVEKIT_PORT@
 bind_addresses:
-  - "0.0.0.0"
+  - "192.168.178.105"
 
 rtc:
   # Force IPv4 only
