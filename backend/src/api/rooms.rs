@@ -11,6 +11,7 @@ use uuid::Uuid;
 use crate::{
     models::{CreateRoomRequest, CreateRoomResponse, JoinRoomResponse, Room},
     state::AppState,
+    webrtc::ConsumerManager,
 };
 
 pub fn rooms_router() -> Router<AppState> {
@@ -42,13 +43,12 @@ pub async fn create_room(
     let router = state.mediasoup.create_router().await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
-    // TODO: Create WebRTC transport for DJ
-    let transport_options = json!({
-        "id": "transport_id",
-        "iceParameters": {},
-        "iceCandidates": [],
-        "dtlsParameters": {}
-    });
+    // Create WebRTC transport for DJ
+    let transport_manager = state.mediasoup.get_transport_manager();
+    let (dj_transport, transport_options) = transport_manager
+        .create_dj_transport(&router, room_id)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
     // Create room entry
     let room = Room {
@@ -59,8 +59,15 @@ pub async fn create_room(
         listener_count: 0,
     };
 
-    // Add to state
-    state.add_room(room);
+    // Add to state using enhanced method and store WebRTC resources
+    let room_state = state.create_room_enhanced(room).await;
+    
+    // Store router and transport in room state
+    {
+        let mut room_state_guard = room_state.write().await;
+        room_state_guard.set_router(std::sync::Arc::new(router));
+        room_state_guard.set_dj_transport(dj_transport);
+    }
 
     let response = CreateRoomResponse {
         room_id,
@@ -82,7 +89,7 @@ pub async fn create_room(
     tag = "rooms"
 )]
 pub async fn list_rooms(State(state): State<AppState>) -> Json<Vec<Room>> {
-    Json(state.get_rooms())
+    Json(state.get_rooms().await)
 }
 
 /// Join a room as listener
@@ -102,26 +109,44 @@ pub async fn join_room(
     Path(room_id): Path<Uuid>,
     State(state): State<AppState>,
 ) -> Result<Json<JoinRoomResponse>, StatusCode> {
-    let room = state.rooms.get(&room_id)
+    let room_state = state.get_room_state(&room_id)
         .ok_or(StatusCode::NOT_FOUND)?;
-
-    // TODO: Create consumer transport and consumer
-    let transport_options = json!({
-        "id": "consumer_transport_id",
-        "iceParameters": {},
-        "iceCandidates": [],
-        "dtlsParameters": {}
-    });
-
-    let producer_id = if room.dj_streaming {
-        Some("producer_id".to_string())
-    } else {
-        None
+    
+    let listener_id = format!("listener_{}", Uuid::new_v4());
+    
+    // Create consumer transport for this listener
+    let (transport_options, producer_id) = {
+        let room_state_guard = room_state.read().await;
+        let room = room_state_guard.room.clone();
+        
+        if let Some(router) = &room_state_guard.router {
+            let transport_manager = state.mediasoup.get_transport_manager();
+            let (_, transport_options) = transport_manager
+                .create_listener_transport(router, room_id, &listener_id)
+                .await
+                .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+                
+            let producer_id = if room.dj_streaming {
+                room_state_guard.audio_producer
+                    .as_ref()
+                    .map(|p| p.id().to_string())
+            } else {
+                None
+            };
+            
+            (transport_options, producer_id)
+        } else {
+            return Err(StatusCode::INTERNAL_SERVER_ERROR);
+        }
     };
+    
+    // Get RTP capabilities for client
+    let rtp_capabilities = json!(ConsumerManager::get_consumer_audio_capabilities());
 
     let response = JoinRoomResponse {
         transport_options,
         producer_id,
+        rtp_capabilities,
     };
 
     Ok(Json(response))

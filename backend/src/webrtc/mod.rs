@@ -4,19 +4,41 @@ use mediasoup::{
     router::{Router, RouterOptions},
     prelude::*,
 };
-use std::{sync::Arc, num::NonZero};
+use std::sync::Arc;
+
+pub mod transport;
+pub mod producer;
+pub mod consumer;
+
+pub use transport::{TransportManager, LocalTransportConfig};
+pub use producer::{ProducerManager, ProducerState};
+pub use consumer::{ConsumerManager, ConsumerState, RoomConsumerManager};
 
 #[derive(Clone)]
 pub struct MediasoupState {
     worker_manager: Arc<WorkerManager>,
+    transport_manager: TransportManager,
 }
 
 impl MediasoupState {
     pub async fn new() -> anyhow::Result<Self> {
         let worker_manager = WorkerManager::new();
+        
+        // Try to get local network IP, fallback to localhost
+        let transport_config = match LocalTransportConfig::wifi_network() {
+            Ok(config) => {
+                tracing::info!("Using WiFi network configuration: {}", config.local_ip);
+                config
+            }
+            Err(_) => {
+                tracing::warn!("Failed to detect local IP, using localhost");
+                LocalTransportConfig::localhost()
+            }
+        };
 
         Ok(Self {
             worker_manager: Arc::new(worker_manager),
+            transport_manager: TransportManager::new(transport_config),
         })
     }
 
@@ -33,17 +55,13 @@ impl MediasoupState {
 
         Ok(router)
     }
+
+    pub fn get_transport_manager(&self) -> &TransportManager {
+        &self.transport_manager
+    }
 }
 
 fn get_media_codecs() -> Vec<RtpCodecCapability> {
-    vec![
-        RtpCodecCapability::Audio {
-            mime_type: MimeTypeAudio::Opus,
-            preferred_payload_type: Some(111),
-            clock_rate: NonZero::new(48000).unwrap(),
-            channels: NonZero::new(2).unwrap(),
-            parameters: RtpCodecParametersParameters::default(),
-            rtcp_feedback: vec![],
-        },
-    ]
+    // Use the preferred audio capabilities from ProducerManager
+    producer::ProducerManager::get_preferred_audio_capabilities()
 }
