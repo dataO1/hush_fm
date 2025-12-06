@@ -1,4 +1,0 @@
-aiohttp==3.13.1
-aiohttp-cors==0.8.1
-aiofiles==25.1.0
-pyjwt

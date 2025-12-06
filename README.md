@@ -1,100 +1,177 @@
-# Silent Disco P2P - Complete Architecture
+Document 1: Backend Technical Specification
 
-## What Changed
+Target Audience: Rust Backend Engineer
+Stack: Rust, Axum, Mediasoup, OpenAPI
+1. System Overview
 
-### Server (`main-p2p.py`)
-- **REMOVED**: All audio processing (`PausableAudioTrack`, `av` library, aiortc)
-- **REMOVED**: File upload/storage endpoints
-- **REMOVED**: `/offer` and `/ice-candidate` REST endpoints
-- **ADDED**: WebSocket server for real-time signaling
-- **KEPT**: Room management, user identification
+The backend treats Room creation as a multi-step setup that results in an atomic "Publish" event. A room does not appear in the public listing until the DJ has successfully established their WebRTC Transport and created a Mediasoup Producer.
 
-### Client (`index-p2p.html`)
-**DJ Side:**
-1. User selects local MP3 file
-2. Create `<audio>` element and Web Audio API context
-3. Capture audio stream with `createMediaStreamDestination()`
-4. Create peer connections to each listener
-5. Send SDP offers via WebSocket
-6. Stream audio directly to listeners
+Invariant: If a Room ID is in the public list, that Room has a valid router and a valid audio_producer.
+2. State & Models
+2.1 Room State
 
-**Listener Side:**
-1. Connect to WebSocket signaling server
-2. Receive SDP offer from DJ
-3. Create peer connection
-4. Send SDP answer back to DJ
-5. Receive audio stream directly from DJ's browser
+rust
+enum RoomStatus {
+    Setup,   // Router created, waiting for DJ to Produce
+    Public,  // Producer active, visible to listeners
+}
 
-## Architecture Flow
+struct Room {
+    id: Uuid,
+    name: String,
+    dj_id: String,
+    router: Router,
+    // Producer is now mandatory for a Public room
+    producer_id: Option<String>,
+    status: RoomStatus,
+    listeners: DashMap<String, ListenerState>,
+}
 
-```
-DJ Browser:
-  [Local MP3 File]
-        ↓
-  [Web Audio API - Decode]
-        ↓
-  [MediaStreamDestination - Capture Stream]
-        ↓
-  [RTCPeerConnection × N listeners]
-        ↓
-  [WebRTC Direct Audio → Listener 1, 2, 3...]
+3. Logic Flows
+3.1 Atomic Room Publication (DJ Flow)
 
-Server:
-  [WebSocket Hub]
-        ↓
-  [Relay SDP Offers/Answers]
-        ↓
-  [Relay ICE Candidates]
-  (NO AUDIO PROCESSING)
+    Step 1: Init: DJ sends InitRoom(name).
 
-Listener Browser:
-  [RTCPeerConnection from DJ]
-        ↓
-  [Receive Audio Stream]
-        ↓
-  [<audio> Element Playback]
-```
+        Backend creates Router.
 
-## Key Benefits
+        Backend creates WebRtcTransport for DJ.
 
-✅ **True P2P**: Audio never touches server  
-✅ **Scalable**: Server only handles signaling (minimal load)  
-✅ **Low Latency**: Direct browser-to-browser connection  
-✅ **DJ Control**: DJ's device controls playback  
-✅ **No File Upload**: DJ uses local files
+        Backend stores Room in Setup state (Hidden from list).
 
-## Dependencies Changed
+        Returns: roomId, transportOptions.
 
-**Server - BEFORE:**
-```
-aiohttp, aiohttp-cors, aiofiles, aiortc, av, mutagen
-```
+    Step 2: Connect: DJ Frontend connects Transport (DTLS).
 
-**Server - AFTER:**
-```
-aiohttp, aiohttp-cors, aiofiles  # Just web server!
-```
+    Step 3: Produce: DJ Frontend sends Produce(rtpParameters).
 
-**Client:**
-- Same browser APIs (Web Audio, WebRTC)
-- Added: File input for local MP3 selection
+        Backend creates Producer on the Router.
 
-## Installation
+        Backend updates Room state: producer_id = id, status = Public.
 
-```bash
-# Server dependencies (much simpler!)
-pip install aiohttp aiohttp-cors aiofiles
+        Broadcast: Backend sends RoomListUpdate (New Room) to all clients.
 
-# No audio processing libraries needed!
-```
+        Returns: producerId.
 
-## Usage
+3.2 Listener Join (Simplified)
 
-1. Start server: `python main-p2p.py`
-2. DJ: Open browser, create room, select local MP3, play
-3. Listeners: Join room, receive audio directly from DJ
-4. Server only relays WebSocket messages
+    CMD: Listener sends JoinRoom(roomId).
 
-## Complete Files
+    Validation: Check if Room is Public. (It must be).
 
-I've created `main-p2p.py` (server). Now creating `index-p2p.html` (client) in next response.
+    Action:
+
+        Create WebRtcTransport for listener.
+
+        Create Consumer immediately (since producer_id is guaranteed).
+
+    Response: Return transportOptions AND consumerOptions.
+
+    Result: Audio path is established in one round-trip.
+
+3.3 Pause/Resume (Stream Control)
+
+    Logic: The DJ does not close the Producer.
+
+    Action: DJ sends PauseStream / ResumeStream.
+
+    Backend: Calls producer.pause() / producer.resume().
+
+    Mediasoup: Automatically handles silence on the wire.
+
+    Notification: Backend sends StreamState { active: bool } to listeners for UI updates (e.g., dimming the visualizer), but no WebRTC changes occur.
+
+3.4 DJ Leave / Disconnect
+
+    Event: DJ WebSocket closes or sends CloseRoom.
+
+    Action:
+
+        Mark Room as Closed.
+
+        Broadcast RoomListUpdate (Remove Room).
+
+        Broadcast RoomClosed to current listeners (Kick to lobby).
+
+        Close Router (cleans up all Transports/Producers/Consumers).
+
+Document 2: Frontend Technical Specification
+
+Target Audience: Frontend Developer
+Stack: SolidJS, Effect-TS, Mediasoup Client
+1. DJ Workflow (The "Publish" Wizard)
+
+Program: PublishRoomFlow
+This is a linear Effect sequence that must complete successfully to go live.
+
+typescript
+const publishRoom = (name: string, deviceId: string) => Effect.gen(function*(_) {
+  // 1. Initialize Room (Server allocates Router)
+  const initRes = yield* _(Api.initRoom({ name }));
+
+  // 2. Prepare Transport (Local)
+  const transport = yield* _(Media.createSendTransport(initRes.transportOptions));
+
+  // 3. Get User Media (Mic)
+  const track = yield* _(Media.getUserMedia(deviceId));
+
+  // 4. Produce (Actual Stream Start)
+  // This sends the 'Produce' command to backend.
+  // Backend only marks room 'Public' after this succeeds.
+  const producerId = yield* _(Media.produce({ transport, track }));
+
+  return { roomId: initRes.id, producerId };
+});
+
+    UI State: Show "Preparing Room..." spinner during steps 1-4. Only navigate to "DJ Room View" on success.
+
+2. Listener Workflow (Instant Play)
+
+Program: JoinRoomFlow
+Since the room is guaranteed to have a stream, we just connect and play.
+
+typescript
+const joinRoom = (roomId: string) => Effect.gen(function*(_) {
+  // 1. Join & Consume in one go
+  // Backend prepares everything since Producer exists
+  const res = yield* _(Api.joinRoom(roomId));
+
+  // 2. Connect Transport
+  const transport = yield* _(Media.createRecvTransport(res.transportOptions));
+
+  // 3. Consume (Zero wait time)
+  const track = yield* _(Media.consume({
+    transport,
+    consumerOptions: res.consumerOptions
+  }));
+
+  // 4. Play
+  yield* _(Audio.play(track));
+});
+
+3. Stream Control (DJ UI)
+
+    Button: Toggle "Mute Mic" (Pause) / "Unmute" (Resume).
+
+    Implementation:
+
+        Local: producer.pause() (Stops sending bits).
+
+        Server: Send PauseStream command (Notifies listeners).
+
+        Note: Do not close the producer/transport until the room is destroyed.
+
+4. Visualizer & Status
+
+    Listener UI:
+
+        StreamState.active: Green "Live" badge. Visualizer active.
+
+        StreamState.paused: Orange "DJ Muted" badge. Visualizer flat.
+
+        No "Waiting for Stream" state exists anymore.
+
+5. Error Handling (Effect)
+
+    Publish Fail: If Media.produce fails (e.g., DTLS error), the frontend must send AbortRoom to backend to clean up the Setup state room.
+
+    Mic Fail: If getUserMedia fails, do not start the sequence. Show error on "Create Room" modal.

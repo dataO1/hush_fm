@@ -1,0 +1,23 @@
+{
+  "name": "hushfm-frontend",
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "type-check": "tsc --noEmit"
+  },
+  "dependencies": {
+    "solid-js": "^1.8.22",
+    "@solidjs/router": "^0.14.7",
+    "effect": "^3.10.3",
+    "mediasoup-client": "^3.7.16"
+  },
+  "devDependencies": {
+    "typescript": "^5.6.3",
+    "vite": "^5.4.10",
+    "vite-plugin-solid": "^2.10.2",
+    "@types/node": "^22.10.1"
+  }
+}

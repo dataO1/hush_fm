@@ -6,3 +6,4 @@ out.txt
 server/__pycache__
 result
 data/logs
+backend/target
