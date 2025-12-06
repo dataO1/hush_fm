@@ -22,13 +22,21 @@
             })
             cargo-watch
             
-            # Node.js environment
+            # Node.js environment (required for mediasoup build)
             nodejs_20
             pnpm
             
-            # System dependencies for mediasoup
+            # System dependencies for mediasoup C++ build
             pkg-config
             openssl
+            # Use Python 3.11 to avoid SafeConfigParser removal in 3.12+
+            python311
+            python311Packages.pip
+            python311Packages.setuptools
+            python311Packages.invoke
+            cmake
+            gnumake
+            gcc
             
             # Additional tools
             git
@@ -36,6 +44,9 @@
           
           # Environment variables
           RUST_SRC_PATH = "${pkgs.rust-bin.stable.latest.rust-src}/lib/rustlib/src/rust/library";
+          PYTHON = "${pkgs.python311}/bin/python3";
+          # Let mediasoup-sys build its own meson/ninja with Python 3.11 (compatible)
+          MEDIASOUP_SKIP_WORKER_PREBUILT_DOWNLOAD = "false";
           
           shellHook = ''
             echo "🎵 HushFM Development Environment"

@@ -1,11 +1,10 @@
 use mediasoup::{
-    worker::{Worker, WorkerSettings},
+    worker::WorkerSettings,
     worker_manager::WorkerManager,
     router::{Router, RouterOptions},
-    rtp_capabilities::RtpCodecCapability,
-    data_structures::{DtlsParameters, RtpParameters},
+    prelude::*,
 };
-use std::sync::Arc;
+use std::{sync::Arc, num::NonZero};
 
 #[derive(Clone)]
 pub struct MediasoupState {
@@ -39,14 +38,11 @@ impl MediasoupState {
 fn get_media_codecs() -> Vec<RtpCodecCapability> {
     vec![
         RtpCodecCapability::Audio {
-            mime_type: "audio/opus".to_string(),
+            mime_type: MimeTypeAudio::Opus,
             preferred_payload_type: Some(111),
-            clock_rate: 48000,
-            channels: Some(2),
-            parameters: [("useinbandfec".to_string(), "1".to_string())]
-                .iter()
-                .cloned()
-                .collect(),
+            clock_rate: NonZero::new(48000).unwrap(),
+            channels: NonZero::new(2).unwrap(),
+            parameters: RtpCodecParametersParameters::default(),
             rtcp_feedback: vec![],
         },
     ]
