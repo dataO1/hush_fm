@@ -1,8 +1,5 @@
 use mediasoup::{
-    worker::WorkerSettings,
-    worker_manager::WorkerManager,
-    router::{Router, RouterOptions},
-    prelude::*,
+    prelude::*, router::{Router, RouterOptions}, worker::{WorkerLogLevel, WorkerSettings}, worker_manager::WorkerManager
 };
 use std::sync::Arc;
 
@@ -23,7 +20,7 @@ pub struct MediasoupState {
 impl MediasoupState {
     pub async fn new() -> anyhow::Result<Self> {
         let worker_manager = WorkerManager::new();
-        
+
         // Try to get local network IP, fallback to localhost
         let transport_config = match LocalTransportConfig::wifi_network() {
             Ok(config) => {
@@ -43,9 +40,13 @@ impl MediasoupState {
     }
 
     pub async fn create_router(&self) -> anyhow::Result<Router> {
+        // disable liburing, since it fails
+        let mut worker_settings = WorkerSettings::default();
+        worker_settings.enable_liburing = false;
+        worker_settings.log_level = WorkerLogLevel::Warn;
         // Create worker
         let worker = self.worker_manager
-            .create_worker(WorkerSettings::default())
+            .create_worker(worker_settings)
             .await?;
 
         // Create router with media codecs

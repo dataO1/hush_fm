@@ -40,103 +40,94 @@ impl TransportManager {
 
     /// Create a WebRTC transport for DJ (sending audio)
     pub async fn create_dj_transport(
-        &self,
-        router: &Router,
-        room_id: Uuid,
+      &self,
+      router: &Router,
+      room_id: Uuid,
     ) -> anyhow::Result<(Arc<WebRtcTransport>, Value)> {
-        let transport_id = format!("dj_transport_{}", room_id);
-        
-        let mut transport_options = WebRtcTransportOptions::new(
-            WebRtcTransportListenInfos::new(ListenInfo {
-                protocol: Protocol::Udp,
-                ip: self.config.local_ip,
-                announced_address: None, // Use actual IP for local network
-                expose_internal_ip: false,
-                port: None, // Let mediasoup choose
-                port_range: None, // Use default port range for local network
-                flags: None,
-                send_buffer_size: None,
-                recv_buffer_size: None,
-            })
-        );
-        
-        // Set additional options via struct fields
-        transport_options.enable_udp = self.config.enable_udp;
-        transport_options.enable_tcp = self.config.enable_tcp;
-        transport_options.initial_available_outgoing_bitrate = 600000; // 600kbps for audio
+      let transport_id = format!("dj_transport_{}", room_id);
 
-        let transport = router.create_webrtc_transport(transport_options).await?;
-        
-        // Generate transport options for client
-        let transport_options = self.generate_transport_options(&transport, &transport_id).await?;
-        
-        Ok((Arc::new(transport), transport_options))
+      // ✅ Get actual LAN IP for announcement
+      let announced_ip = get_local_ip()?;
+
+      let mut transport_options = WebRtcTransportOptions::new(
+        WebRtcTransportListenInfos::new(ListenInfo {
+          protocol: Protocol::Udp,
+          ip: "0.0.0.0".parse().unwrap(),  // Bind all interfaces
+          announced_address: Some(announced_ip.to_string()), // ✅ Announce 192.168.178.114!
+          expose_internal_ip: false,
+          port: None,
+          port_range: None,
+          flags: None,
+          send_buffer_size: None,
+          recv_buffer_size: None,
+        })
+      );
+
+      transport_options.enable_udp = self.config.enable_udp;
+      transport_options.enable_tcp = self.config.enable_tcp;
+      transport_options.initial_available_outgoing_bitrate = 600000;
+
+      let transport = router.create_webrtc_transport(transport_options).await?;
+
+      // ✅ Now ice_candidates will have 192.168.178.114:4000x
+      let transport_options = self.generate_transport_options(&transport, &transport_id).await?;
+
+      Ok((Arc::new(transport), transport_options))
     }
 
     /// Create a WebRTC transport for listener (receiving audio)
     pub async fn create_listener_transport(
-        &self,
-        router: &Router,
-        room_id: Uuid,
-        listener_id: &str,
+      &self,
+      router: &Router,
+      room_id: Uuid,
+      listener_id: &str,
     ) -> anyhow::Result<(Arc<WebRtcTransport>, Value)> {
-        let transport_id = format!("listener_transport_{}_{}", room_id, listener_id);
-        
-        let mut transport_options = WebRtcTransportOptions::new(
-            WebRtcTransportListenInfos::new(ListenInfo {
-                protocol: Protocol::Udp,
-                ip: self.config.local_ip,
-                announced_address: None,
-                expose_internal_ip: false,
-                port: None,
-                port_range: None, // Use default port range for local network
-                flags: None,
-                send_buffer_size: None,
-                recv_buffer_size: None,
-            })
-        );
-        
-        // Set additional options via struct fields
-        transport_options.enable_udp = self.config.enable_udp;
-        transport_options.enable_tcp = self.config.enable_tcp;
-        transport_options.initial_available_outgoing_bitrate = 0; // Receiving only
+      let transport_id = format!("listener_transport_{}_{}", room_id, listener_id);
 
-        let transport = router.create_webrtc_transport(transport_options).await?;
-        
-        // Generate transport options for client
-        let transport_options = self.generate_transport_options(&transport, &transport_id).await?;
-        
-        Ok((Arc::new(transport), transport_options))
+      // ✅ Get actual LAN IP
+      let announced_ip = get_local_ip()?;
+
+      let mut transport_options = WebRtcTransportOptions::new(
+        WebRtcTransportListenInfos::new(ListenInfo {
+          protocol: Protocol::Udp,
+          ip: "0.0.0.0".parse().unwrap(),
+          announced_address: Some(announced_ip.to_string()), // ✅ Critical!
+          expose_internal_ip: false,
+          port: None,
+          port_range: None,
+          flags: None,
+          send_buffer_size: None,
+          recv_buffer_size: None,
+        })
+      );
+
+      transport_options.enable_udp = self.config.enable_udp;
+      transport_options.enable_tcp = self.config.enable_tcp;
+      transport_options.initial_available_outgoing_bitrate = 0;
+
+      let transport = router.create_webrtc_transport(transport_options).await?;
+      let transport_options = self.generate_transport_options(&transport, &transport_id).await?;
+
+      Ok((Arc::new(transport), transport_options))
     }
 
     /// Generate transport options for client connection (optimized for local network)
     async fn generate_transport_options(
-        &self,
-        transport: &WebRtcTransport,
-        transport_id: &str,
+      &self,
+      transport: &WebRtcTransport,
+      transport_id: &str,
     ) -> anyhow::Result<Value> {
-        // For local network optimization:
-        // - Empty ICE candidates forces local-only discovery
-        // - Real ICE parameters still provided for WebRTC compliance
-        // - DTLS parameters for security
-        
-        let ice_params = transport.ice_parameters();
-        let dtls_params = transport.dtls_parameters();
-        
-        Ok(json!({
-            "id": transport_id,
-            "dtlsParameters": {
-                "role": "server", // mediasoup is always server
-                "fingerprints": dtls_params.fingerprints
-            },
-            "iceCandidates": [], // Empty for local network optimization
-            "iceParameters": {
-                "usernameFragment": ice_params.username_fragment,
-                "password": ice_params.password
-            },
-            "sctpParameters": null, // Not needed for audio streaming
-            "_localNetworkOptimized": true // Custom flag for frontend
-        }))
+      let ice_params = transport.ice_parameters();
+      let dtls_params = transport.dtls_parameters();
+      let ice_candidates = transport.ice_candidates(); // ✅ Include these!
+
+      Ok(json!({
+        "id": transport_id,
+        "dtlsParameters": dtls_params,
+        "iceCandidates": ice_candidates,
+        "iceParameters": ice_params,
+        "sctpParameters": null,
+      }))
     }
 
     /// Connect transport with client's DTLS parameters
@@ -147,12 +138,12 @@ impl TransportManager {
     ) -> anyhow::Result<()> {
         // Parse DTLS parameters from client
         let dtls_params = serde_json::from_value(dtls_parameters)?;
-        
+
         // Connect the transport
         transport.connect(WebRtcTransportRemoteParameters {
             dtls_parameters: dtls_params,
         }).await?;
-        
+
         tracing::info!("WebRTC transport connected successfully");
         Ok(())
     }
@@ -167,12 +158,12 @@ impl Default for TransportManager {
 /// Helper to get local network IP address
 pub fn get_local_ip() -> anyhow::Result<IpAddr> {
     use std::net::UdpSocket;
-    
+
     // Connect to a dummy address to determine local IP
     let socket = UdpSocket::bind("0.0.0.0:0")?;
     socket.connect("8.8.8.8:80")?;
     let local_addr = socket.local_addr()?;
-    
+
     Ok(local_addr.ip())
 }
 
