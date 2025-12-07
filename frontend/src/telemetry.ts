@@ -1,6 +1,9 @@
 import { Context, Effect, Layer, pipe } from 'effect'
 import { WebSdk } from '@effect/opentelemetry'
 import { trace, propagation, context as otelContext } from '@opentelemetry/api'
+import { getWebAutoInstrumentations } from '@opentelemetry/auto-instrumentations-web'
+import { BatchSpanProcessor } from '@opentelemetry/sdk-trace-base'
+import { OTLPTraceExporter } from '@opentelemetry/exporter-trace-otlp-http'
 import * as Option from 'effect/Option'
 import type { TraceContext } from './models/websocket'
 
@@ -15,19 +18,55 @@ import type { TraceContext } from './models/websocket'
 
 /**
  * OpenTelemetry layer configuration for Effect
- * Exports traces to Jaeger via OTLP endpoint
+ * Exports traces to Jaeger via OTLP endpoint with explicit span processor for proper service identification
  */
 export const OtelLayer = Layer.unwrapEffect(
   Effect.sync(() => 
     WebSdk.layer(() => ({
+      // Resource configuration with service identification
       resource: {
         serviceName: 'hushfm-frontend',
         serviceVersion: '0.1.0',
+        attributes: {
+          'deployment.environment': 'development',
+        },
       },
-      traceExporter: {
-        url: 'http://localhost:4318/v1/traces',
-      },
-      instrumentations: [], // Effect handles this automatically
+      // Explicit span processor configuration for OTLP export
+      spanProcessor: new BatchSpanProcessor(
+        new OTLPTraceExporter({
+          url: 'http://localhost:4318/v1/traces',
+          headers: {},
+        })
+      ),
+      // Web instrumentations for automatic tracing
+      instrumentations: [
+        // Automatic web instrumentations for fetch, XHR, user interactions, etc.
+        getWebAutoInstrumentations({
+          '@opentelemetry/instrumentation-fetch': {
+            // Instrument fetch requests to backend
+            enabled: true,
+            propagateTraceHeaderCorsUrls: [
+              /^http:\/\/localhost:3001.*$/,  // Backend URL
+              /^http:\/\/localhost:8080.*$/,  // Alternative backend URL
+            ],
+          },
+          '@opentelemetry/instrumentation-xml-http-request': {
+            enabled: true,
+            propagateTraceHeaderCorsUrls: [
+              /^http:\/\/localhost:3001.*$/,
+              /^http:\/\/localhost:8080.*$/,
+            ],
+          },
+          '@opentelemetry/instrumentation-user-interaction': {
+            // Track user clicks and interactions
+            enabled: true,
+          },
+          '@opentelemetry/instrumentation-document-load': {
+            // Track page load performance
+            enabled: true,
+          },
+        }),
+      ],
     }))
   )
 )
@@ -268,9 +307,15 @@ export const useTraceService = Context.get(TraceServiceTag)
 /**
  * Legacy compatibility exports for existing code
  */
-
 export const initTelemetry = (serviceName: string, endpoint?: string): void => {
-  console.info(`Effect-TS telemetry configured for ${serviceName} -> ${endpoint || 'http://localhost:4318/v1/traces'}`)
+  console.info(`Effect-TS OpenTelemetry configured for ${serviceName} -> ${endpoint || 'http://localhost:4318/v1/traces'}`)
+}
+
+/**
+ * Cleanup OpenTelemetry resources (handled by Effect runtime)
+ */
+export const shutdownTelemetry = async (): Promise<void> => {
+  console.info('OpenTelemetry cleanup handled by Effect runtime')
 }
 
 export const createRootSpan = (_operationName: string, _attributes?: Record<string, any>) => ({

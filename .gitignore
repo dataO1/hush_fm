@@ -41,3 +41,4 @@ yarn-error.log*
 .env.production.local
 frontend/node_modules
 node_modules
+core
