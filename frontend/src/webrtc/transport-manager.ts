@@ -20,14 +20,22 @@ export class TransportConnectionError extends TransportError {
 }
 
 /**
- * Transport options from backend
+ * Transport options from backend (optimized for local network)
  */
 export type TransportOptions = {
   id: string
   dtlsParameters: any
-  localAddress?: string
-  localPort?: number
+  iceParameters: any
+  iceCandidates: any[]
+  sctpParameters?: any
+  _localNetworkOptimized?: boolean
 }
+
+/**
+ * Check if transport is optimized for local network
+ */
+export const isLocalNetworkOptimized = (options: TransportOptions): boolean => 
+  options._localNetworkOptimized === true || options.iceCandidates.length === 0
 
 /**
  * Transport manager for WebRTC connections
@@ -43,14 +51,14 @@ export class TransportManager {
     pipe(
       Effect.tryPromise({
         try: async () => {
+          // Create transport with local network optimization
+          // Empty iceCandidates forces local-only peer discovery
           const transport = device.createSendTransport({
             id: transportOptions.id,
-            iceParameters: { 
-              usernameFragment: 'local', 
-              password: 'localpass' 
-            }, // Minimal ICE for local network
-            iceCandidates: [], // Empty for local network
+            iceParameters: transportOptions.iceParameters,
+            iceCandidates: transportOptions.iceCandidates, // Empty for local network optimization
             dtlsParameters: transportOptions.dtlsParameters,
+            sctpParameters: transportOptions.sctpParameters,
           })
 
           // Set up event handlers
@@ -88,14 +96,14 @@ export class TransportManager {
     pipe(
       Effect.tryPromise({
         try: async () => {
+          // Create transport with local network optimization
+          // Empty iceCandidates forces local-only peer discovery
           const transport = device.createRecvTransport({
             id: transportOptions.id,
-            iceParameters: { 
-              usernameFragment: 'local', 
-              password: 'localpass' 
-            }, // Minimal ICE for local network
-            iceCandidates: [], // Empty for local network
+            iceParameters: transportOptions.iceParameters,
+            iceCandidates: transportOptions.iceCandidates, // Empty for local network optimization
             dtlsParameters: transportOptions.dtlsParameters,
+            sctpParameters: transportOptions.sctpParameters,
           })
 
           // Set up event handlers

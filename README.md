@@ -122,7 +122,7 @@ Stack: SolidJS, Effect-TS, Mediasoup Client, Orval (OpenAPI)
 - **Reactive Wrapper**: mediasoup-client wrapped with SolidJS signals
 - **Event-driven Updates**: Connection state, stats, and lifecycle events as signals
 - **Resource Lifecycle**: Proper cleanup and reconnection handling
-- **Local Network Transport**: PlainTransport for LAN deployment without ICE
+- **Local Network Transport**: WebRTC optimized for LAN deployment without STUN/TURN
 
 ## Implementation Layers
 
@@ -214,38 +214,49 @@ const joinRoom = (roomId: string) => Effect.gen(function*(_) {
 
 ## Transport Architecture
 
-### PlainTransport for Local Networks
+### WebRTC Optimized for Local Networks
 
-HushFM is designed for controlled local network environments (WiFi/LAN), eliminating the need for complex ICE negotiation:
+HushFM is designed for controlled local network environments (WiFi/LAN), optimizing WebRTC connections for local peers:
 
-- **PlainTransport**: mediasoup transport optimized for local networks
-- **No ICE Required**: Direct connection without STUN/TURN servers
-- **SRTP Encryption**: Maintains security without ICE complexity
-- **Immediate Connection**: Transport becomes "connected" immediately after connect() call
+- **WebRtcTransport**: Standard WebRTC transport optimized for local networks
+- **No STUN/TURN Servers**: Empty ICE servers configuration for local-only connections
+- **Host Candidates Only**: ICE gathers only local network addresses
+- **DTLS Security**: Maintains WebRTC security without external servers
 - **Simplified Deployment**: No external infrastructure dependencies
 
-### Transport Selection Logic
+### Transport Configuration Logic
 
 ```rust
-// Backend: Use PlainTransport for local network deployment
-router.create_plain_transport(PlainTransportOptions {
-    listen_ip: "0.0.0.0".parse().unwrap(),
-    port: None, // Auto-assign
-    srtp_crypto_suite: Some(SrtpCryptoSuite::AesCm128HmacSha180),
-    enable_srtp: true,
-    enable_rtcp: true,
-})
+// Backend: Use WebRtcTransport optimized for local network
+let transport_options = WebRtcTransportOptions::new(
+    WebRtcTransportListenInfos::new(ListenInfo {
+        protocol: Protocol::Udp,
+        ip: local_ip,
+        announced_address: None, // Use actual local IP
+        port: None,
+        ..Default::default()
+    })
+);
+
+let transport = router.create_webrtc_transport(transport_options).await?;
 ```
 
 ```typescript
-// Frontend: Connect to PlainTransport without ICE
+// Frontend: Configure WebRTC for local network (no ICE servers)
 const transport = device.createSendTransport({
     id: transportOptions.id,
-    iceParameters: undefined, // No ICE for PlainTransport
-    iceCandidates: [],
+    iceParameters: transportOptions.iceParameters,
+    iceCandidates: [], // Empty for local network optimization
     dtlsParameters: transportOptions.dtlsParameters,
-})
+});
+
+// RTCPeerConnection with no ICE servers for local optimization
+const pc = new RTCPeerConnection({ iceServers: [] });
 ```
+
+### Why Not PlainTransport?
+
+PlainTransport is for server-to-server communication and cannot be used with browsers. WebRTC with optimized local network configuration provides the best performance for WiFi environments.
 
 4. Visualizer & Status
 

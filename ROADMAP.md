@@ -29,7 +29,7 @@ Build a robust, scalable live audio streaming platform using Rust and WebRTC wit
 - [x] Simplified connection flow without ICE for local WiFi
 - [x] Connection quality monitoring foundation
 - [x] Media pipeline optimization
-- [x] Transport architecture research (PlainTransport vs WebRtcTransport)
+- [x] Transport architecture research (WebRTC local network optimization)
 
 ### Phase 4: Frontend Integration 🏗️ (Current - Week 1)
 - [x] OpenAPI client generation with Orval
@@ -41,7 +41,7 @@ Build a robust, scalable live audio streaming platform using Rust and WebRTC wit
 - [x] Producer/Consumer connection flows using Effect programs
 - [x] Real-time status updates via WebSocket with event-driven architecture
 - [x] Error recovery and reconnection logic with Effect error handling
-- [ ] Migration to PlainTransport for local network optimization
+- [ ] Optimize WebRTC configuration for local network deployment
 - [ ] TypeScript compilation fixes and library compatibility
 
 ### Phase 5: User Experience Features (Week 2)
@@ -135,20 +135,20 @@ Build a robust, scalable live audio streaming platform using Rust and WebRTC wit
 - **State**: DashMap + tokio::sync + Arc/RwLock
 - **Build**: Nix flakes + direnv for reproducibility
 - **WebRTC**: Mediasoup with atomic room publication
-- **Transport**: PlainTransport for local network deployment (no ICE/STUN required)
+- **Transport**: WebRTC optimized for local network deployment (no STUN/TURN required)
 
 ### Transport Architecture Decision
 
-**PlainTransport vs WebRtcTransport**:
-- **PlainTransport**: Ideal for local WiFi/LAN environments (HushFM's target)
-  - No ICE negotiation required
-  - Immediate connection after connect() call
-  - SRTP encryption for security
-  - Simplified deployment without external infrastructure
-- **WebRtcTransport**: Required for internet deployment
-  - Full ICE/STUN/TURN support for NAT traversal
-  - Complex configuration and infrastructure requirements
-  - Higher latency due to negotiation overhead
+**WebRTC Local Network Optimization**:
+- **Empty ICE Servers**: Configure RTCPeerConnection with `{ iceServers: [] }`
+  - Restricts connections to local network peers only
+  - ICE still gathers host candidates for local discovery
+  - Eliminates unnecessary STUN/TURN server queries
+  - Maintains WebRTC security with DTLS encryption
+- **Browser Compatibility**: WebRTC is the only transport browsers support
+  - PlainTransport is for server-to-server communication only
+  - Local optimization provides best performance for WiFi environments
+  - Simplified deployment without external infrastructure dependencies
 
 ### Scaling Strategy
 1. **Vertical**: Multiple workers per host

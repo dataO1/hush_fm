@@ -12,7 +12,7 @@ HushFM is a live audio streaming platform being rewritten from Python to Rust. T
 - **Stack**: Rust, Axum web framework, Mediasoup for WebRTC
 - **Core Pattern**: Atomic Room Publication - rooms only appear publicly after DJ successfully establishes WebRTC transport and creates a Producer
 - **State Management**: Enhanced with Arc<RwLock<RoomState>>, DashMap, and multi-channel broadcasting
-- **Network**: Local WiFi optimization (no ICE/STUN/TURN), DTLS-only security
+- **Network**: Local WiFi optimization (empty ICE servers), WebRTC with DTLS security
 
 ### Frontend (SolidJS + Effect-TS)
 - **Stack**: SolidJS, Effect-TS 3.0, Mediasoup Client, Orval (OpenAPI generation)
@@ -82,7 +82,7 @@ This is currently a blank slate for the rust-rewrite branch. The technical speci
 - Use Arc<RwLock<RoomState>> for thread-safe state management
 - Implement proper cleanup on publish failures (AbortRoom command)
 - Maintain the invariant that public rooms always have active audio producers
-- Local network optimization (no ICE negotiation required)
+- Local network optimization (empty ICE servers configuration for WebRTC)
 
 ### Frontend
 - **CRITICAL**: Never destructure store properties before use (breaks reactivity)

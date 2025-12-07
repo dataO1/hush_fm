@@ -109,28 +109,33 @@ impl TransportManager {
         Ok((Arc::new(transport), transport_options))
     }
 
-    /// Generate transport options for client connection (simplified for local network)
+    /// Generate transport options for client connection (optimized for local network)
     async fn generate_transport_options(
         &self,
         transport: &WebRtcTransport,
         transport_id: &str,
     ) -> anyhow::Result<Value> {
-        // For local network, we don't need ICE candidates
-        // Client will connect directly to the transport's listening address
+        // For local network optimization:
+        // - Empty ICE candidates forces local-only discovery
+        // - Real ICE parameters still provided for WebRTC compliance
+        // - DTLS parameters for security
+        
+        let ice_params = transport.ice_parameters();
+        let dtls_params = transport.dtls_parameters();
         
         Ok(json!({
             "id": transport_id,
             "dtlsParameters": {
                 "role": "server", // mediasoup is always server
-                "fingerprints": transport.dtls_parameters().fingerprints
+                "fingerprints": dtls_params.fingerprints
             },
-            "iceCandidates": [], // Empty for local network
+            "iceCandidates": [], // Empty for local network optimization
             "iceParameters": {
-                "usernameFragment": "",
-                "password": ""
+                "usernameFragment": ice_params.username_fragment,
+                "password": ice_params.password
             },
-            "localAddress": self.config.local_ip.to_string(),
-            "localPort": null // Will be determined by mediasoup
+            "sctpParameters": null, // Not needed for audio streaming
+            "_localNetworkOptimized": true // Custom flag for frontend
         }))
     }
 

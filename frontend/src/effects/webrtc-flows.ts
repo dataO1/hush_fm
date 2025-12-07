@@ -216,6 +216,9 @@ export const publishRoomFlow = (
         transportManager.createSendTransport(device, {
           id: roomResponse.room_id + '_send',
           dtlsParameters: roomResponse.transport_options.dtlsParameters,
+          iceParameters: roomResponse.transport_options.iceParameters,
+          iceCandidates: roomResponse.transport_options.iceCandidates || [],
+          sctpParameters: roomResponse.transport_options.sctpParameters,
         }),
         Effect.map((transport) => ({ device, roomResponse, transport })),
         Effect.mapError((error) => new PublishFlowError(
@@ -349,6 +352,9 @@ export const joinRoomFlow = (
         transportManager.createReceiveTransport(device, {
           id: roomId + '_receive',
           dtlsParameters: joinResponse.transport_options.dtlsParameters,
+          iceParameters: joinResponse.transport_options.iceParameters,
+          iceCandidates: joinResponse.transport_options.iceCandidates || [],
+          sctpParameters: joinResponse.transport_options.sctpParameters,
         }),
         Effect.map((transport) => ({ device, joinResponse, transport })),
         Effect.mapError((error) => new JoinFlowError(
