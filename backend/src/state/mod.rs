@@ -2,7 +2,7 @@ use crate::webrtc::MediasoupState;
 use std::sync::Arc;
 use uuid::Uuid;
 
-use crate::models::{BroadcastMessage, Room};
+use crate::models::{LobbyEvent, Room};
 
 pub mod room;
 pub mod broadcast;
@@ -16,8 +16,8 @@ pub struct AppState {
     pub mediasoup: MediasoupState,
     pub broadcast_manager: BroadcastManager,
     
-    // Legacy broadcast for compatibility
-    pub broadcast_tx: tokio::sync::broadcast::Sender<BroadcastMessage>,
+    // Lobby events broadcast (room updates)
+    pub broadcast_tx: tokio::sync::broadcast::Sender<LobbyEvent>,
 }
 
 impl AppState {
@@ -36,7 +36,10 @@ impl AppState {
     pub async fn add_room(&self, room: Room) {
         let room_state = self.room_manager.create_room(room.clone()).await;
         self.broadcast_manager.broadcast_room_created(room.clone());
-        let _ = self.broadcast_tx.send(BroadcastMessage::RoomAdded { room });
+        let _ = self.broadcast_tx.send(LobbyEvent::RoomAdded { 
+            room: room.clone(),
+            trace_context: None,
+        });
     }
 
     pub async fn update_room(&self, room: Room) {
@@ -47,13 +50,19 @@ impl AppState {
         }
         
         self.broadcast_manager.broadcast_room_updated(room.clone());
-        let _ = self.broadcast_tx.send(BroadcastMessage::RoomUpdated { room });
+        let _ = self.broadcast_tx.send(LobbyEvent::RoomUpdated { 
+            room: room.clone(),
+            trace_context: None,
+        });
     }
 
     pub fn remove_room(&self, room_id: Uuid) {
         if self.room_manager.remove_room(&room_id).is_some() {
             self.broadcast_manager.broadcast_room_removed(room_id);
-            let _ = self.broadcast_tx.send(BroadcastMessage::RoomRemoved { room_id });
+            let _ = self.broadcast_tx.send(LobbyEvent::RoomRemoved { 
+                room_id: room_id.to_string(),
+                trace_context: None,
+            });
         }
     }
 
@@ -65,7 +74,10 @@ impl AppState {
     pub async fn create_room_enhanced(&self, room: Room) -> Arc<tokio::sync::RwLock<RoomState>> {
         let room_state = self.room_manager.create_room(room.clone()).await;
         self.broadcast_manager.broadcast_room_created(room.clone());
-        let _ = self.broadcast_tx.send(BroadcastMessage::RoomAdded { room });
+        let _ = self.broadcast_tx.send(LobbyEvent::RoomAdded { 
+            room: room.clone(),
+            trace_context: None,
+        });
         room_state
     }
 
@@ -87,7 +99,10 @@ impl AppState {
 
             self.broadcast_manager.broadcast_stream_started(room_id, producer_id);
             self.broadcast_manager.broadcast_room_updated(room.clone());
-            let _ = self.broadcast_tx.send(BroadcastMessage::RoomUpdated { room });
+            let _ = self.broadcast_tx.send(LobbyEvent::RoomUpdated { 
+            room: room.clone(),
+            trace_context: None,
+        });
         }
     }
 
@@ -100,7 +115,10 @@ impl AppState {
 
             self.broadcast_manager.broadcast_stream_stopped(room_id);
             self.broadcast_manager.broadcast_room_updated(room.clone());
-            let _ = self.broadcast_tx.send(BroadcastMessage::RoomUpdated { room });
+            let _ = self.broadcast_tx.send(LobbyEvent::RoomUpdated { 
+            room: room.clone(),
+            trace_context: None,
+        });
         }
     }
 
@@ -119,7 +137,10 @@ impl AppState {
             }
             
             self.broadcast_manager.broadcast_room_updated(room.clone());
-            let _ = self.broadcast_tx.send(BroadcastMessage::RoomUpdated { room });
+            let _ = self.broadcast_tx.send(LobbyEvent::RoomUpdated { 
+            room: room.clone(),
+            trace_context: None,
+        });
         }
     }
 
@@ -128,7 +149,10 @@ impl AppState {
         
         for room_id in &removed_rooms {
             self.broadcast_manager.broadcast_room_removed(*room_id);
-            let _ = self.broadcast_tx.send(BroadcastMessage::RoomRemoved { room_id: *room_id });
+            let _ = self.broadcast_tx.send(LobbyEvent::RoomRemoved { 
+            room_id: room_id.to_string(),
+            trace_context: None,
+        });
         }
         
         removed_rooms

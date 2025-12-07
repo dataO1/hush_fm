@@ -9,7 +9,7 @@ use serde_json::json;
 use uuid::Uuid;
 
 use crate::{
-    models::{CreateRoomRequest, CreateRoomResponse, JoinRoomResponse, Room},
+    models::{CreateRoomRequest, CreateRoomResponse, JoinRoomResponse, Room, TransportOptions, RtpCapabilities},
     state::AppState,
     webrtc::ConsumerManager,
 };
@@ -51,15 +51,12 @@ pub async fn create_room(
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
     // Create room entry
-    let room = Room {
-        id: room_id,
-        name: request.name,
-        dj_id: dj_id.clone(),
-        dj_streaming: false,
-        listener_count: 0,
-    };
+    let mut room = Room::new(room_id, request.name.clone(), dj_id.clone());
+    room.description = request.description.clone();
+    room.tags = request.tags.clone().unwrap_or_default();
 
     // Add to state using enhanced method and store WebRTC resources
+    let room_clone = room.clone();
     let room_state = state.create_room_enhanced(room).await;
     
     // Store router and transport in room state
@@ -70,9 +67,9 @@ pub async fn create_room(
     }
 
     let response = CreateRoomResponse {
-        room_id,
+        room: room_clone,
         dj_token: dj_id, // Simplified token for now
-        transport_options,
+        transport_options: convert_transport_options(transport_options),
         ws_url: format!("ws://localhost:3000/ws/room/{}", room_id),
     };
 
@@ -115,7 +112,7 @@ pub async fn join_room(
     let listener_id = format!("listener_{}", Uuid::new_v4());
     
     // Create consumer transport for this listener
-    let (transport_options, producer_id) = {
+    let (transport_options, producer_id, room) = {
         let room_state_guard = room_state.read().await;
         let room = room_state_guard.room.clone();
         
@@ -134,7 +131,7 @@ pub async fn join_room(
                 None
             };
             
-            (transport_options, producer_id)
+            (transport_options, producer_id, room)
         } else {
             return Err(StatusCode::INTERNAL_SERVER_ERROR);
         }
@@ -144,10 +141,32 @@ pub async fn join_room(
     let rtp_capabilities = json!(ConsumerManager::get_consumer_audio_capabilities());
 
     let response = JoinRoomResponse {
-        transport_options,
+        room,
+        transport_options: convert_transport_options(transport_options),
         producer_id,
-        rtp_capabilities,
+        rtp_capabilities: convert_rtp_capabilities(rtp_capabilities),
     };
 
     Ok(Json(response))
+}
+
+/// Convert WebRTC transport options to our unified type
+fn convert_transport_options(options: serde_json::Value) -> TransportOptions {
+    // For now, we'll extract the basic fields and use the raw value for complex ones
+    TransportOptions {
+        id: options.get("id").and_then(|v| v.as_str()).unwrap_or("unknown").to_string(),
+        ice_parameters: options.get("iceParameters").cloned().unwrap_or_default(),
+        ice_candidates: vec![], // Empty for local network optimization
+        dtls_parameters: options.get("dtlsParameters").cloned().unwrap_or_default(),
+        sctp_parameters: options.get("sctpParameters").cloned(),
+    }
+}
+
+/// Convert RTP capabilities to our unified type
+fn convert_rtp_capabilities(capabilities: serde_json::Value) -> RtpCapabilities {
+    RtpCapabilities {
+        codecs: capabilities.get("codecs").and_then(|v| v.as_array()).cloned().unwrap_or_default(),
+        header_extensions: capabilities.get("headerExtensions").and_then(|v| v.as_array()).cloned().unwrap_or_default(),
+        fec_mechanisms: capabilities.get("fecMechanisms").and_then(|v| v.as_array()).cloned().unwrap_or_default(),
+    }
 }

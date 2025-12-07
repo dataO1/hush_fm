@@ -10,7 +10,7 @@ use serde_json;
 use uuid::Uuid;
 
 use crate::{
-    models::{BroadcastMessage, DJMessage, ServerMessage},
+    models::{ClientCommand, ServerEvent, LobbyEvent},
     state::{AppState, RoomStatus},
     webrtc::{ProducerManager, ConsumerManager},
 };
@@ -41,8 +41,8 @@ async fn handle_room_socket(socket: WebSocket, room_id: Uuid, state: AppState) {
         while let Some(msg) = receiver.next().await {
             if let Ok(msg) = msg {
                 if let Message::Text(text) = msg {
-                    if let Ok(dj_msg) = serde_json::from_str::<DJMessage>(&text) {
-                        handle_dj_message(dj_msg, room_id, &state_clone, &mut sender).await;
+                    if let Ok(client_cmd) = serde_json::from_str::<ClientCommand>(&text) {
+                        handle_client_command(client_cmd, room_id, &state_clone, &mut sender).await;
                     }
                 }
             } else {
@@ -61,14 +61,9 @@ async fn handle_lobby_socket(socket: WebSocket, state: AppState) {
 
     // Send initial room list
     let rooms = state.get_rooms().await;
-    if let Ok(msg) = serde_json::to_string(&BroadcastMessage::RoomAdded { 
-        room: rooms.first().cloned().unwrap_or(crate::models::Room {
-            id: Uuid::new_v4(),
-            name: "Example".to_string(),
-            dj_id: "example".to_string(),
-            dj_streaming: false,
-            listener_count: 0,
-        })
+    if let Ok(msg) = serde_json::to_string(&LobbyEvent::RoomAdded { 
+        room: rooms.first().cloned().unwrap_or_else(|| crate::models::Room::example()),
+        trace_context: None,
     }) {
         sender.send(Message::Text(msg)).await.ok();
     }
@@ -83,26 +78,31 @@ async fn handle_lobby_socket(socket: WebSocket, state: AppState) {
     }
 }
 
-async fn handle_dj_message(
-    msg: DJMessage,
+async fn handle_client_command(
+    cmd: ClientCommand,
     room_id: Uuid,
     state: &AppState,
     sender: &mut futures_util::stream::SplitSink<WebSocket, Message>,
 ) {
-    match msg {
-        DJMessage::ConnectTransport { dtls_parameters } => {
+    match cmd {
+        ClientCommand::ConnectTransport { dtls_parameters, .. } => {
             // Connect DJ's WebRTC transport
             match handle_connect_transport(room_id, dtls_parameters, state).await {
                 Ok(_) => {
-                    let response = ServerMessage::TransportConnected;
+                    let response = ServerEvent::TransportConnected {
+                        transport_id: room_id.to_string(), // Use room_id as transport identifier
+                        trace_context: None,
+                    };
                     if let Ok(msg) = serde_json::to_string(&response) {
                         sender.send(Message::Text(msg)).await.ok();
                     }
                 }
                 Err(e) => {
                     tracing::error!("Failed to connect transport for room {}: {}", room_id, e);
-                    let response = ServerMessage::Error { 
-                        message: format!("Transport connection failed: {}", e) 
+                    let response = ServerEvent::CommandFailed {
+                        command: "connectTransport".to_string(),
+                        error: format!("Transport connection failed: {}", e),
+                        trace_context: None,
                     };
                     if let Ok(msg) = serde_json::to_string(&response) {
                         sender.send(Message::Text(msg)).await.ok();
@@ -110,22 +110,28 @@ async fn handle_dj_message(
                 }
             }
         }
-        DJMessage::Produce { rtp_parameters } => {
+        ClientCommand::Produce { rtp_parameters, .. } => {
             // Create audio producer
             match handle_produce(room_id, rtp_parameters, state).await {
                 Ok(producer_id) => {
                     // Update room to streaming using enhanced method
                     state.start_stream(room_id, producer_id.clone()).await;
 
-                    let response = ServerMessage::ProducerCreated { producer_id };
+                    let response = ServerEvent::ProducerCreated { 
+                        producer_id,
+                        room_id: room_id.to_string(),
+                        trace_context: None,
+                    };
                     if let Ok(msg) = serde_json::to_string(&response) {
                         sender.send(Message::Text(msg)).await.ok();
                     }
                 }
                 Err(e) => {
                     tracing::error!("Failed to create producer for room {}: {}", room_id, e);
-                    let response = ServerMessage::Error { 
-                        message: format!("Producer creation failed: {}", e) 
+                    let response = ServerEvent::CommandFailed {
+                        command: "produce".to_string(),
+                        error: format!("Producer creation failed: {}", e),
+                        trace_context: None,
                     };
                     if let Ok(msg) = serde_json::to_string(&response) {
                         sender.send(Message::Text(msg)).await.ok();
@@ -133,36 +139,97 @@ async fn handle_dj_message(
                 }
             }
         }
-        DJMessage::StopProducing => {
+        ClientCommand::PauseStream { .. } => {
             // Stop producing and pause room
             match handle_stop_producing(room_id, state).await {
                 Ok(_) => {
                     state.stop_stream(room_id).await;
+                    let response = ServerEvent::StreamPaused {
+                        room_id: room_id.to_string(),
+                        trace_context: None,
+                    };
+                    if let Ok(msg) = serde_json::to_string(&response) {
+                        sender.send(Message::Text(msg)).await.ok();
+                    }
                 }
                 Err(e) => {
-                    tracing::error!("Failed to stop producing for room {}: {}", room_id, e);
+                    tracing::error!("Failed to pause stream for room {}: {}", room_id, e);
+                    let response = ServerEvent::CommandFailed {
+                        command: "pauseStream".to_string(),
+                        error: format!("Stream pause failed: {}", e),
+                        trace_context: None,
+                    };
+                    if let Ok(msg) = serde_json::to_string(&response) {
+                        sender.send(Message::Text(msg)).await.ok();
+                    }
                 }
             }
         }
-        DJMessage::DeleteRoom => {
+        ClientCommand::ResumeStream { .. } => {
+            // Resume producing
+            match handle_resume_producing(room_id, state).await {
+                Ok(_) => {
+                    let response = ServerEvent::StreamResumed {
+                        room_id: room_id.to_string(),
+                        trace_context: None,
+                    };
+                    if let Ok(msg) = serde_json::to_string(&response) {
+                        sender.send(Message::Text(msg)).await.ok();
+                    }
+                }
+                Err(e) => {
+                    tracing::error!("Failed to resume stream for room {}: {}", room_id, e);
+                    let response = ServerEvent::CommandFailed {
+                        command: "resumeStream".to_string(),
+                        error: format!("Stream resume failed: {}", e),
+                        trace_context: None,
+                    };
+                    if let Ok(msg) = serde_json::to_string(&response) {
+                        sender.send(Message::Text(msg)).await.ok();
+                    }
+                }
+            }
+        }
+        ClientCommand::CloseRoom { .. } => {
             // Clean up room and all resources
             match handle_delete_room(room_id, state).await {
                 Ok(_) => {
                     state.remove_room(room_id);
-                    let response = ServerMessage::RoomDeleted;
+                    let response = ServerEvent::RoomClosed {
+                        room_id: room_id.to_string(),
+                        reason: "Closed by DJ".to_string(),
+                        trace_context: None,
+                    };
                     if let Ok(msg) = serde_json::to_string(&response) {
                         sender.send(Message::Text(msg)).await.ok();
                     }
                 }
                 Err(e) => {
                     tracing::error!("Failed to delete room {}: {}", room_id, e);
-                    let response = ServerMessage::Error { 
-                        message: format!("Room deletion failed: {}", e) 
+                    let response = ServerEvent::CommandFailed {
+                        command: "closeRoom".to_string(),
+                        error: format!("Room deletion failed: {}", e),
+                        trace_context: None,
                     };
                     if let Ok(msg) = serde_json::to_string(&response) {
                         sender.send(Message::Text(msg)).await.ok();
                     }
                 }
+            }
+        }
+        // Handle listener commands (these should probably be on a different handler)
+        ClientCommand::JoinRoom { .. } |
+        ClientCommand::ConnectListenerTransport { .. } |
+        ClientCommand::ConsumeAudio { .. } |
+        ClientCommand::LeaveRoom { .. } => {
+            tracing::warn!("Received listener command on DJ handler: {:?}", cmd.command_type());
+            let response = ServerEvent::CommandFailed {
+                command: cmd.command_type().to_string(),
+                error: "Listener commands not supported on DJ endpoint".to_string(),
+                trace_context: None,
+            };
+            if let Ok(msg) = serde_json::to_string(&response) {
+                sender.send(Message::Text(msg)).await.ok();
             }
         }
     }
@@ -260,5 +327,24 @@ async fn handle_delete_room(
     room_state_guard.start_closing();
     
     tracing::info!("Room {} marked for deletion", room_id);
+    Ok(())
+}
+
+/// Handle resume producing
+async fn handle_resume_producing(
+    room_id: Uuid,
+    state: &AppState,
+) -> anyhow::Result<()> {
+    let room_state = state.get_room_state(&room_id)
+        .ok_or_else(|| anyhow::anyhow!("Room not found"))?;
+    
+    let mut room_state_guard = room_state.write().await;
+    
+    if let Some(producer) = &room_state_guard.audio_producer {
+        ProducerManager::resume_producer(producer).await?;
+        room_state_guard.resume();
+        tracing::info!("Producer resumed for room {}", room_id);
+    }
+
     Ok(())
 }

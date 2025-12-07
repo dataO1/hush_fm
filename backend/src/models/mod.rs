@@ -1,76 +1,62 @@
-use serde::{Deserialize, Serialize};
-use utoipa::ToSchema;
-use uuid::Uuid;
+pub mod commands;
+pub mod events;
+pub mod schemas;
 
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
-pub struct Room {
-    pub id: Uuid,
-    pub name: String,
-    pub dj_id: String,
-    pub dj_streaming: bool,
-    pub listener_count: u32,
+// Re-export main types
+pub use commands::ClientCommand;
+pub use events::{ServerEvent, LobbyEvent};
+pub use schemas::{
+    Room, TraceContext,
+    CreateRoomRequest, CreateRoomResponse, JoinRoomResponse,
+    TransportOptions, RtpCapabilities, ConsumerParameters,
+    ConnectionState, ErrorResponse
+};
+
+// Utility for stable UUID serialization
+pub mod uuid_string {
+    use serde::{Deserialize, Deserializer, Serialize, Serializer};
+    use uuid::Uuid;
+
+    pub fn serialize<S>(uuid: &Uuid, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        uuid.to_string().serialize(serializer)
+    }
+
+    pub fn deserialize<'de, D>(deserializer: D) -> Result<Uuid, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let s = String::deserialize(deserializer)?;
+        s.parse().map_err(serde::de::Error::custom)
+    }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
-pub struct CreateRoomRequest {
-    pub name: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
-pub struct CreateRoomResponse {
-    pub room_id: Uuid,
-    pub dj_token: String,
-    pub transport_options: serde_json::Value,
-    pub ws_url: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
-pub struct JoinRoomResponse {
-    pub transport_options: serde_json::Value,
-    pub producer_id: Option<String>,
-    pub rtp_capabilities: serde_json::Value,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(tag = "type")]
-pub enum DJMessage {
-    ConnectTransport { dtls_parameters: serde_json::Value },
-    Produce { rtp_parameters: serde_json::Value },
-    StopProducing,
-    DeleteRoom,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(tag = "type")]
-pub enum ListenerMessage {
-    JoinRoom { room_id: String },
-    ConnectTransport { dtls_parameters: serde_json::Value },
-    GetConsumer { producer_id: String },
-    LeaveRoom,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(tag = "type")]
-pub enum ServerMessage {
-    TransportConnected,
-    ProducerCreated { producer_id: String },
-    ConsumerCreated { 
-        consumer_id: String, 
-        producer_id: String,
-        consumer_parameters: serde_json::Value 
-    },
-    RoomDeleted,
-    ListenerJoined { count: u32 },
-    ListenerLeft { count: u32 },
-    StreamStarted { producer_id: String },
-    StreamStopped,
-    Error { message: String },
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(tag = "type")]
-pub enum BroadcastMessage {
-    RoomAdded { room: Room },
-    RoomUpdated { room: Room },
-    RoomRemoved { room_id: Uuid },
+// Room utility methods
+impl Room {
+    /// Create a new Room with default values
+    pub fn new(id: uuid::Uuid, name: String, dj_id: String) -> Self {
+        let now = chrono::Utc::now();
+        Self {
+            id,
+            name,
+            dj_id,
+            listener_count: 0,
+            dj_streaming: false,
+            created_at: now,
+            description: None,
+            tags: vec![],
+            last_activity: now,
+        }
+    }
+    
+    /// Create an example room for testing purposes
+    pub fn example() -> Self {
+        Self::new(
+            uuid::Uuid::new_v4(),
+            "Example Room".to_string(),
+            "DJ Example".to_string(),
+        )
+    }
 }

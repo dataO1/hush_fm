@@ -32,6 +32,10 @@ utoipa = { version = "5", features = ["axum_extras", "uuid"] }
 utoipa-axum = "0.1"
 utoipa-swagger-ui = { version = "8", features = ["axum"] }
 
+# AsyncAPI
+schemars = { version = "0.8", features = ["uuid1"] }
+serde_yaml = "0.9"
+
 # Utilities
 uuid = { version = "1", features = ["v4", "serde"] }
 dashmap = "6"

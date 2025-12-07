@@ -18,6 +18,7 @@ use utoipa::OpenApi;
 use utoipa_swagger_ui::SwaggerUi;
 
 mod api;
+mod asyncapi;
 mod models;
 mod state;
 mod webrtc;
@@ -25,6 +26,7 @@ mod ws;
 mod openapi;
 
 use api::rooms::rooms_router;
+use api::asyncapi::asyncapi_router;
 use openapi::ApiDoc;
 use state::AppState;
 use ws::ws_handler;
@@ -50,13 +52,18 @@ async fn main() -> anyhow::Result<()> {
         .allow_credentials(true)
         .allow_headers([AUTHORIZATION, ACCEPT, CONTENT_TYPE]);
 
-    // Build application router
-    let app = Router::new()
+    // Build application router  
+    let stateless_routes = Router::new()
         .merge(SwaggerUi::new("/swagger-ui").url("/api-docs/openapi.json", ApiDoc::openapi()))
-        .nest("/api", rooms_router())
+        .merge(asyncapi_router());
+        
+    let stateful_routes = Router::new()
         .route("/ws/room/:room_id", get(ws_handler))
         .route("/ws/lobby", get(ws::lobby_handler))
-        .with_state(app_state)
+        .nest("/api", rooms_router())
+        .with_state(app_state);
+        
+    let app = stateless_routes.merge(stateful_routes)
         .layer(
             ServiceBuilder::new()
                 .layer(TraceLayer::new_for_http())

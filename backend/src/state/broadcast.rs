@@ -5,7 +5,7 @@ use tokio_stream::wrappers::BroadcastStream;
 use tokio_stream::StreamExt;
 use uuid::Uuid;
 
-use crate::models::{Room, BroadcastMessage};
+use crate::models::Room;
 
 /// Enhanced broadcast event types for real-time updates
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -286,24 +286,6 @@ pub struct BroadcastStats {
 }
 
 /// Utility to convert BroadcastEvent to legacy BroadcastMessage for compatibility
-impl From<BroadcastEvent> for BroadcastMessage {
-    fn from(event: BroadcastEvent) -> Self {
-        match event {
-            BroadcastEvent::RoomCreated { room } => BroadcastMessage::RoomAdded { room },
-            BroadcastEvent::RoomUpdated { room } => BroadcastMessage::RoomUpdated { room },
-            BroadcastEvent::RoomRemoved { room_id } => BroadcastMessage::RoomRemoved { room_id },
-            _ => BroadcastMessage::RoomAdded { 
-                room: Room {
-                    id: Uuid::new_v4(),
-                    name: "Unknown".to_string(),
-                    dj_id: "unknown".to_string(),
-                    dj_streaming: false,
-                    listener_count: 0,
-                }
-            },
-        }
-    }
-}
 
 /// Stream wrapper for easier integration with async code
 pub struct BroadcastEventStream {
