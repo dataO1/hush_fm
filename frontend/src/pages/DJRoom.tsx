@@ -1,32 +1,63 @@
-import { createSignal, onMount, onCleanup, Show } from 'solid-js'
+import { createSignal, onMount, onCleanup, Show, createEffect } from 'solid-js'
 import { useParams, useNavigate } from '@solidjs/router'
 import { Effect } from 'effect'
 import { publishRoomFlow } from '../effects/webrtc-flows'
-import { WaveformVisualizer } from '../components/shared/WaveformVisualizer'
+// import { WaveformVisualizer } from '../components/shared/WaveformVisualizer'
 import { DeviceSelector } from '../components/controls/DeviceSelector'
+import { useWebRTC } from '../providers/WebRTCProvider'
+import { useSignaling } from '../providers/SignalingProvider'
 
 type StreamStatus = 'connecting' | 'live' | 'muted' | 'error'
 
 export default function DJRoom() {
   const params = useParams()
   const navigate = useNavigate()
-  
+
+  // Use new providers instead of local state
+  const { state: webrtcState, connectionState, isStreaming } = useWebRTC()
+  const { connectToRoom, sendDJMessage } = useSignaling()
+
   const [roomId] = createSignal(params.roomId)
   const [status, setStatus] = createSignal<StreamStatus>('connecting')
-  const [isMuted, setIsMuted] = createSignal(false)
-  const [stream, setStream] = createSignal<MediaStream>()
   const [error, setError] = createSignal<string | null>(null)
   const [isInitializing, setIsInitializing] = createSignal(true)
 
-  let producer: any = null
-  let transport: any = null
+  // Derive state from providers
+  const activeProducer = () => Array.from(webrtcState.producers.values()).find(p => p.producer && !p.paused)
+  const currentStream = () => webrtcState.localStream
+  const isMuted = () => activeProducer()?.paused || false
 
-  onMount(() => {
-    startStreaming()
+  // Connect to room WebSocket on mount
+  onMount(async () => {
+    try {
+      await connectToRoom(roomId())
+      startStreaming()
+    } catch (err: any) {
+      console.error('Failed to connect to room:', err)
+      setError(err.message)
+      setStatus('error')
+    }
   })
 
   onCleanup(() => {
-    cleanup()
+    // Cleanup handled by providers
+  })
+
+  // Effect to sync status with provider state
+  createEffect(() => {
+    const connState = connectionState()
+    const streaming = isStreaming()
+    const producer = activeProducer()
+
+    if (connState === 'connected' && streaming && producer) {
+      setStatus(producer.paused ? 'muted' : 'live')
+      setIsInitializing(false)
+    } else if (connState === 'connecting') {
+      setStatus('connecting')
+    } else if (connState === 'failed') {
+      setStatus('error')
+      setIsInitializing(false)
+    }
   })
 
   const startStreaming = async () => {
@@ -40,19 +71,9 @@ export default function DJRoom() {
     })
 
     try {
-      const result = await Effect.runPromise(program)
-      
-      producer = result.producer
-      transport = result.transport
-      
-      if (result.producer && result.producer.track) {
-        const stream = new MediaStream([result.producer.track])
-        setStream(stream)
-      }
-      
-      setStatus('live')
-      setIsInitializing(false)
-      
+      await Effect.runPromise(program)
+      // State updates handled by providers through effects
+
     } catch (err: any) {
       console.error('Failed to start streaming:', err)
       setError(err.message)
@@ -62,17 +83,23 @@ export default function DJRoom() {
   }
 
   const toggleMute = async () => {
-    if (!producer) return
+    const producer = activeProducer()
+    if (!producer?.producer) return
 
     try {
-      if (isMuted()) {
-        await producer.resume()
-        setIsMuted(false)
-        setStatus('live')
+      if (producer.paused) {
+        await producer.producer.resume()
+        // Send WebSocket message to backend
+        await sendDJMessage(roomId(), {
+          type: 'Produce',
+          rtp_parameters: producer.producer.rtpParameters
+        })
       } else {
-        await producer.pause()
-        setIsMuted(true)
-        setStatus('muted')
+        await producer.producer.pause()
+        // Send pause message to backend
+        await sendDJMessage(roomId(), {
+          type: 'StopProducing'
+        })
       }
     } catch (err: any) {
       console.error('Failed to toggle mute:', err)
@@ -80,27 +107,17 @@ export default function DJRoom() {
     }
   }
 
-  const endStream = () => {
-    cleanup()
+  const endStream = async () => {
+    try {
+      // Send delete room message to backend
+      await sendDJMessage(roomId(), {
+        type: 'DeleteRoom'
+      })
+    } catch (error) {
+      console.error('Failed to notify backend of room deletion:', error)
+    }
+
     navigate('/')
-  }
-
-  const cleanup = () => {
-    if (producer) {
-      producer.close()
-      producer = null
-    }
-    
-    if (transport) {
-      transport.close()
-      transport = null
-    }
-
-    const currentStream = stream()
-    if (currentStream) {
-      currentStream.getTracks().forEach(track => track.stop())
-      setStream(undefined)
-    }
   }
 
   const goBack = () => {
@@ -142,9 +159,9 @@ export default function DJRoom() {
               </div>
 
               <DeviceSelector />
-
-              <WaveformVisualizer stream={stream()} />
-
+              {/*
+              <WaveformVisualizer stream={currentStream() || undefined} />
+                */}
               <div class="flex gap-2 justify-center mt-4">
                 <button
                   class={`btn btn-circle btn-lg ${
@@ -164,7 +181,7 @@ export default function DJRoom() {
                     </svg>
                   )}
                 </button>
-                
+
                 <button class="btn btn-error btn-sm" onClick={endStream}>
                   End
                 </button>

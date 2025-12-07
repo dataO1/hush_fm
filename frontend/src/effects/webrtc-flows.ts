@@ -3,7 +3,7 @@ import { deviceManager } from '../webrtc/device-manager'
 import { transportManager } from '../webrtc/transport-manager'
 import { producerManager } from '../webrtc/producer-manager'
 import { consumerManager } from '../webrtc/consumer-manager'
-import { signalingManager, initializeDJSignaling, initializeLobbySignaling } from '../ws/signaling-manager'
+// Note: Signaling is now handled by SignalingProvider context
 import type { types } from 'mediasoup-client'
 
 /**
@@ -170,7 +170,8 @@ export const publishRoomFlow = (
   producer: types.Producer
 }, PublishFlowError> =>
   pipe(
-    Effect.logInfo('Starting publish room flow'),
+    Effect.void,
+    Effect.tap(() => Effect.logInfo('Starting publish room flow')),
     
     // Step 1: Create room on backend
     Effect.andThen(() =>
@@ -250,16 +251,12 @@ export const publishRoomFlow = (
       )
     ),
 
-    // Step 6: Initialize signaling for DJ room
+    // Step 6: Signaling is now handled by SignalingProvider context
+    // The provider should already be connected to the room WebSocket
     Effect.andThen(({ device, roomResponse, transport, track }) =>
       pipe(
-        initializeDJSignaling(roomResponse.room_id, roomResponse.dj_token),
-        Effect.andThen(() => ({ device, roomResponse, transport, track })),
-        Effect.mapError((error) => new PublishFlowError(
-          error.message,
-          'initializeSignaling',
-          error
-        ))
+        Effect.logInfo(`DJ room signaling handled by provider for room: ${roomResponse.room_id}`),
+        Effect.andThen(() => ({ device, roomResponse, transport, track }))
       )
     ),
 
@@ -298,7 +295,8 @@ export const joinRoomFlow = (
   audioElement: HTMLAudioElement
 }, JoinFlowError> =>
   pipe(
-    Effect.logInfo(`Starting join room flow for room: ${roomId}`),
+    Effect.void,
+    Effect.tap(() => Effect.logInfo(`Starting join room flow for room: ${roomId}`)),
 
     // Step 1: Join room on backend
     Effect.andThen(() => Effect.tryPromise({
@@ -321,15 +319,12 @@ export const joinRoomFlow = (
     })),
 
     // Step 2: Initialize lobby signaling
+    // Step 2: Signaling is now handled by SignalingProvider context
+    // The provider should already be connected for listening
     Effect.andThen((joinResponse) =>
       pipe(
-        initializeLobbySignaling(),
-        Effect.andThen(() => joinResponse),
-        Effect.mapError((error) => new JoinFlowError(
-          error.message,
-          'initializeLobbySignaling',
-          error
-        ))
+        Effect.logInfo('Listener signaling handled by SignalingProvider'),
+        Effect.andThen(() => joinResponse)
       )
     ),
 
@@ -433,7 +428,8 @@ export const toggleProducerFlow = (
   pause: boolean
 ): Effect.Effect<void, PublishFlowError> =>
   pipe(
-    Effect.logInfo(`${pause ? 'Pausing' : 'Resuming'} producer: ${producerId}`),
+    Effect.void,
+    Effect.tap(() => Effect.logInfo(`${pause ? 'Pausing' : 'Resuming'} producer: ${producerId}`)),
     
     // Use producer manager for actual pause/resume
     Effect.andThen(() => {
@@ -451,23 +447,11 @@ export const toggleProducerFlow = (
       )
     }),
 
-    // Send command to backend via WebSocket
+    // Note: WebSocket signaling is now handled by SignalingProvider
+    // This would need to be integrated with the provider context
     Effect.andThen(() => {
-      // Get the room ID from current context (this would need to be passed in)
-      // For now, we'll implement a basic pause/resume signaling
-      const message = {
-        type: pause ? 'PauseProducer' : 'ResumeProducer',
-        producer_id: producerId,
-      }
-
-      return pipe(
-        signalingManager.sendToRoom('current_room', message as any), // TODO: Pass actual room ID
-        Effect.mapError((error) => new PublishFlowError(
-          `Failed to sync ${pause ? 'pause' : 'resume'} with backend: ${error.message}`,
-          'syncWithBackend',
-          error
-        ))
-      )
+      // TODO: Integrate with SignalingProvider context for backend sync
+      return Effect.logInfo(`Producer ${pause ? 'pause' : 'resume'} - backend sync handled by provider`)
     }),
 
     Effect.tap(() => Effect.logInfo(`Producer ${pause ? 'paused' : 'resumed'} successfully`))

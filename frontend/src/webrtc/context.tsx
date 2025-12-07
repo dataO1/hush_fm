@@ -1,32 +1,36 @@
-import { ParentComponent, useContext } from 'solid-js'
-import { WebRTCContext, webrtcStore, setWebrtcStore, connectionState, isStreaming, audioLevel } from './store'
+/**
+ * @deprecated This file previously contained a legacy WebRTCProvider.
+ * 
+ * WebRTC context has been migrated to a new provider-based architecture.
+ * Use the new WebRTCProvider instead.
+ * 
+ * Use:
+ * import { useWebRTC, WebRTCProvider } from '../providers/WebRTCProvider'
+ * 
+ * Types and hooks are re-exported for compatibility.
+ */
 
 /**
- * Provider component for WebRTC context
+ * Re-export the new provider and hooks
  */
-export const WebRTCProvider: ParentComponent = (props) => {
-  const value = {
-    store: webrtcStore,
-    setStore: setWebrtcStore,
-    connectionState,
-    isStreaming,
-    audioLevel,
-  }
-
-  return (
-    <WebRTCContext.Provider value={value}>
-      {props.children}
-    </WebRTCContext.Provider>
-  )
-}
+export { 
+  WebRTCProvider,
+  useWebRTC,
+  useWebRTCDevice,
+  useWebRTCConnection,
+  useStreamingState,
+  useAudioLevel
+} from '../providers/WebRTCProvider'
 
 /**
- * Hook to access WebRTC context
+ * Re-export types from new provider
  */
-export const useWebRTC = () => {
-  const context = useContext(WebRTCContext)
-  if (!context) {
-    throw new Error('useWebRTC must be used within WebRTCProvider')
-  }
-  return context
-}
+export type {
+  WebRTCContextType,
+  WebRTCStore,
+  ConnectionState,
+  DeviceState,
+  TransportState,
+  ProducerState,
+  ConsumerState
+} from '../providers/WebRTCProvider'

@@ -1,6 +1,5 @@
 import { Effect, pipe } from 'effect'
 import type { Device, types } from 'mediasoup-client'
-import { transportActions, TransportState, ConnectionState } from './store'
 
 /**
  * Transport-specific errors
@@ -64,18 +63,7 @@ export class TransportManager {
           // Set up event handlers
           this.setupTransportEvents(transport, 'send')
           
-          // Add to store
-          const transportState: TransportState = {
-            id: transport.id,
-            direction: 'send',
-            connectionState: 'disconnected',
-            iceState: null,
-            dtlsState: null,
-            transport,
-          }
-          
-          transportActions.addTransport(transportState)
-
+          // Transport state is now managed by WebRTCProvider
           return transport
         },
         catch: (error) => new TransportError(
@@ -109,18 +97,7 @@ export class TransportManager {
           // Set up event handlers
           this.setupTransportEvents(transport, 'receive')
           
-          // Add to store
-          const transportState: TransportState = {
-            id: transport.id,
-            direction: 'receive',
-            connectionState: 'disconnected',
-            iceState: null,
-            dtlsState: null,
-            transport,
-          }
-          
-          transportActions.addTransport(transportState)
-
+          // Transport state is now managed by WebRTCProvider
           return transport
         },
         catch: (error) => new TransportError(
@@ -141,8 +118,7 @@ export class TransportManager {
     pipe(
       Effect.tryPromise({
         try: async () => {
-          // Update connection state
-          transportActions.updateTransportState(transport.id, 'connecting')
+          // Connection state is now managed by WebRTCProvider
           
           // For local network, we only need to handle DTLS
           if (transport.connectionState !== 'connected') {
@@ -165,18 +141,12 @@ export class TransportManager {
             })
           }
         },
-        catch: (error) => {
-          transportActions.updateTransportState(transport.id, 'failed')
-          return new TransportConnectionError(
-            `Failed to connect transport: ${error instanceof Error ? error.message : String(error)}`,
-            error
-          )
-        }
+        catch: (error) => new TransportConnectionError(
+          `Failed to connect transport: ${error instanceof Error ? error.message : String(error)}`,
+          error
+        )
       }),
-      Effect.tap(() => {
-        transportActions.updateTransportState(transport.id, 'connected')
-        return Effect.logInfo(`Transport connected: ${transport.id}`)
-      })
+      Effect.tap(() => Effect.logInfo(`Transport connected: ${transport.id}`))
     )
 
   /**
@@ -187,28 +157,9 @@ export class TransportManager {
     transport.on('connectionstatechange', (state: string) => {
       Effect.runSync(
         Effect.sync(() => {
-          let connectionState: ConnectionState
-
-          switch (state) {
-            case 'new':
-            case 'connecting':
-              connectionState = 'connecting'
-              break
-            case 'connected':
-              connectionState = 'connected'
-              break
-            case 'disconnected':
-              connectionState = 'disconnected'
-              break
-            case 'failed':
-            case 'closed':
-              connectionState = 'failed'
-              break
-            default:
-              connectionState = 'disconnected'
-          }
-
-          transportActions.updateTransportState(transport.id, connectionState)
+          // Connection state is now managed by WebRTCProvider
+          // Log for debugging purposes
+          console.debug('Transport connection state changed:', state)
         })
       )
     })
@@ -247,7 +198,7 @@ export class TransportManager {
   closeTransport = (transportId: string): Effect.Effect<void, TransportError> =>
     pipe(
       Effect.sync(() => {
-        transportActions.removeTransport(transportId)
+        // Transport removal is now managed by WebRTCProvider
       }),
       Effect.tap(() => Effect.logInfo(`Closed transport: ${transportId}`))
     )

@@ -1,6 +1,6 @@
 import { Effect, pipe } from 'effect'
 import type { types } from 'mediasoup-client'
-import { consumerActions, ConsumerState } from './store'
+import type { ConsumerState } from '../providers/WebRTCProvider'
 
 /**
  * Consumer-specific errors
@@ -47,7 +47,7 @@ export class ConsumerManager {
         }
 
         // Add to reactive store
-        consumerActions.addConsumer(consumerState)
+        // Consumer state is now managed by WebRTCProvider
 
         // Set up event handlers
         this.setupConsumerEvents(consumer)
@@ -113,7 +113,7 @@ export class ConsumerManager {
         Effect.tryPromise({
           try: async () => {
             await consumer.pause()
-            consumerActions.updateConsumerPaused(consumerId, true)
+            // Paused state is now managed by WebRTCProvider
 
             // Also pause audio element if exists
             const audioElement = this.audioElements.get(consumerId)
@@ -140,7 +140,7 @@ export class ConsumerManager {
         Effect.tryPromise({
           try: async () => {
             await consumer.resume()
-            consumerActions.updateConsumerPaused(consumerId, false)
+            // Paused state is now managed by WebRTCProvider
 
             // Also resume audio element if exists
             const audioElement = this.audioElements.get(consumerId)
@@ -180,7 +180,7 @@ export class ConsumerManager {
         }
 
         // Update store
-        consumerActions.removeConsumer(consumerId)
+        // Consumer removal is now managed by WebRTCProvider
       }),
       Effect.tap(() => Effect.logInfo(`Closed consumer: ${consumerId}`))
     )
@@ -280,7 +280,7 @@ export class ConsumerManager {
       Effect.runSync(
         Effect.all([
           Effect.logInfo(`Consumer paused: ${consumer.id}`),
-          Effect.sync(() => consumerActions.updateConsumerPaused(consumer.id, true))
+          Effect.sync(() => {/* Paused state is now managed by WebRTCProvider */})
         ])
       )
     })
@@ -289,7 +289,7 @@ export class ConsumerManager {
       Effect.runSync(
         Effect.all([
           Effect.logInfo(`Consumer resumed: ${consumer.id}`),
-          Effect.sync(() => consumerActions.updateConsumerPaused(consumer.id, false))
+          Effect.sync(() => {/* Paused state is now managed by WebRTCProvider */})
         ])
       )
     })

@@ -1,5 +1,5 @@
 import { createSignal, For, Show, onMount } from 'solid-js'
-import { selectedDeviceId, setSelectedDeviceId } from '../../webrtc/store'
+import { useWebRTC } from '../../providers/WebRTCProvider'
 
 type AudioDevice = {
   deviceId: string
@@ -8,6 +8,7 @@ type AudioDevice = {
 }
 
 export function DeviceSelector() {
+  const { selectedDeviceId, setSelectedDeviceId } = useWebRTC()
   const [devices, setDevices] = createSignal<AudioDevice[]>([])
   const [isLoading, setIsLoading] = createSignal(false)
   const [error, setError] = createSignal<string | null>(null)

@@ -1,6 +1,5 @@
 import { Effect, pipe } from 'effect'
 import { Device } from 'mediasoup-client'
-import { deviceActions } from './store'
 
 /**
  * Error types for device management
@@ -47,13 +46,6 @@ export class DeviceManager {
           await device.load({ routerRtpCapabilities })
           
           this.device = device
-          
-          // Update reactive store
-          deviceActions.setDevice(device)
-          deviceActions.setLoaded(true)
-          deviceActions.setCapabilities(device.rtpCapabilities)
-          deviceActions.setError(null)
-
           return device
         },
         catch: (error) => {
@@ -64,9 +56,6 @@ export class DeviceManager {
                 error
               )
 
-          // Update store with error
-          deviceActions.setError(deviceError.message)
-          
           return deviceError
         }
       }),
@@ -144,10 +133,6 @@ export class DeviceManager {
   resetDevice = (): Effect.Effect<void, never> =>
     Effect.sync(() => {
       this.device = null
-      deviceActions.setDevice(null)
-      deviceActions.setLoaded(false)
-      deviceActions.setCapabilities(null)
-      deviceActions.setError(null)
     })
 
   /**
@@ -174,11 +159,9 @@ export const checkBrowserSupport = (): Effect.Effect<boolean, DeviceError> =>
       return true
     } catch (error) {
       if ((error as Error).name === 'UnsupportedError') {
-        deviceActions.setError('Browser does not support WebRTC')
         return false
       }
       // Other errors also indicate lack of support
-      deviceActions.setError('Browser does not support WebRTC')
       return false
     }
   })

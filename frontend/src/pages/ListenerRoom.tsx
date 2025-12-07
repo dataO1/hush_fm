@@ -1,31 +1,79 @@
-import { createSignal, onMount, onCleanup, Show } from 'solid-js'
+import { createSignal, onMount, onCleanup, Show, createEffect } from 'solid-js'
 import { useParams, useNavigate } from '@solidjs/router'
 import { Effect } from 'effect'
 import { joinRoomFlow } from '../effects/webrtc-flows'
-import { WaveformVisualizer } from '../components/shared/WaveformVisualizer'
+// import { WaveformVisualizer } from '../components/shared/WaveformVisualizer'
+import { useWebRTC } from '../providers/WebRTCProvider'
+import { useSignaling } from '../providers/SignalingProvider'
 
 export default function ListenerRoom() {
   const params = useParams()
   const navigate = useNavigate()
-  
+
+  // Use new providers instead of local state
+  const { state: webrtcState, connectionState } = useWebRTC()
+  const { connectToRoom } = useSignaling()
+
   const [roomId] = createSignal(params.roomId)
   const [volume, setVolume] = createSignal(0.8)
   const [isMuted, setIsMuted] = createSignal(false)
-  const [audioStream, setAudioStream] = createSignal<MediaStream>()
   const [error, setError] = createSignal<string | null>(null)
   const [isInitializing, setIsInitializing] = createSignal(true)
-  const [isConnected, setIsConnected] = createSignal(false)
 
-  let consumer: any = null
-  let transport: any = null
+  // Derive state from providers
+  const activeConsumer = () => Array.from(webrtcState.consumers.values()).find(c => c.consumer && !c.paused)
+  const currentStream = () => {
+    const consumer = activeConsumer()
+    return consumer?.track ? new MediaStream([consumer.track]) : null
+  }
+  const isConnected = () => connectionState() === 'connected' && activeConsumer() != null
+
   let audioElement: HTMLAudioElement | undefined
 
-  onMount(() => {
-    joinRoom()
+  // Connect to room WebSocket on mount
+  onMount(async () => {
+    try {
+      await connectToRoom(roomId())
+      joinRoom()
+    } catch (err: any) {
+      console.error('Failed to connect to room:', err)
+      setError(err.message)
+      setIsInitializing(false)
+    }
   })
 
   onCleanup(() => {
-    cleanup()
+    // Cleanup handled by providers and audio element cleanup
+    if (audioElement) {
+      audioElement.pause()
+      audioElement.srcObject = null
+      audioElement = undefined
+    }
+  })
+
+  // Effect to set up audio playback when stream changes
+  createEffect(() => {
+    const stream = currentStream()
+    if (stream) {
+      setupAudioPlayback(stream)
+    }
+  })
+
+  // Effect to sync initialization state with provider state
+  createEffect(() => {
+    const connState = connectionState()
+    const consumer = activeConsumer()
+
+    if (connState === 'connected' && consumer) {
+      setIsInitializing(false)
+    } else if (connState === 'connecting') {
+      // Keep initializing state
+    } else if (connState === 'failed') {
+      setIsInitializing(false)
+      if (!error()) {
+        setError('Connection failed')
+      }
+    }
   })
 
   const joinRoom = async () => {
@@ -38,20 +86,9 @@ export default function ListenerRoom() {
     })
 
     try {
-      const result = await Effect.runPromise(program)
-      
-      consumer = result.consumer
-      transport = result.transport
-      
-      if (result.consumer && result.consumer.track) {
-        const stream = new MediaStream([result.consumer.track])
-        setAudioStream(stream)
-        setupAudioPlayback(stream)
-      }
-      
-      setIsConnected(true)
-      setIsInitializing(false)
-      
+      await Effect.runPromise(program)
+      // State updates handled by providers through effects
+
     } catch (err: any) {
       console.error('Failed to join room:', err)
       setError(err.message)
@@ -65,7 +102,7 @@ export default function ListenerRoom() {
       audioElement.srcObject = stream
       audioElement.autoplay = true
       audioElement.volume = isMuted() ? 0 : volume()
-      
+
     } catch (err) {
       console.error('Failed to set up audio playback:', err)
     }
@@ -75,7 +112,7 @@ export default function ListenerRoom() {
     const target = event.target as HTMLInputElement
     const newVolume = parseFloat(target.value)
     setVolume(newVolume)
-    
+
     if (audioElement && !isMuted()) {
       audioElement.volume = newVolume
     }
@@ -84,39 +121,20 @@ export default function ListenerRoom() {
   const toggleMute = () => {
     const newMuted = !isMuted()
     setIsMuted(newMuted)
-    
+
     if (audioElement) {
       audioElement.volume = newMuted ? 0 : volume()
     }
   }
 
   const leaveRoom = () => {
-    cleanup()
-    navigate('/')
-  }
-
-  const cleanup = () => {
-    if (consumer) {
-      consumer.close()
-      consumer = null
-    }
-    
-    if (transport) {
-      transport.close()
-      transport = null
-    }
-
+    // Cleanup audio element
     if (audioElement) {
       audioElement.pause()
       audioElement.srcObject = null
       audioElement = undefined
     }
-
-    const stream = audioStream()
-    if (stream) {
-      stream.getTracks().forEach(track => track.stop())
-      setAudioStream(undefined)
-    }
+    navigate('/')
   }
 
   const goBack = () => {
@@ -152,7 +170,9 @@ export default function ListenerRoom() {
                 </div>
               </div>
 
-              <WaveformVisualizer stream={audioStream()} />
+              {/*
+              <WaveformVisualizer stream={currentStream() || undefined} />
+                */}
 
               <div class="space-y-4 mt-4">
                 {/* Volume Control */}

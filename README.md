@@ -297,3 +297,27 @@ PlainTransport is for server-to-server communication and cannot be used with bro
     Publish Fail: If Media.produce fails (e.g., DTLS error), the frontend must send AbortRoom to backend to clean up the Setup state room.
 
     Mic Fail: If getUserMedia fails, do not start the sequence. Show error on "Create Room" modal.
+
+## Frontend Architecture
+
+### Provider-Based State Management
+The frontend uses a provider-based architecture with SolidJS Context API for:
+- **WebRTCProvider**: Manages all WebRTC state (device, transports, producers, consumers)
+- **SignalingProvider**: Handles WebSocket connections and real-time events
+- **Proper reactive context**: All reactive primitives created within providers to avoid memory leaks
+
+### Data Fetching Pattern
+- **createResource**: For all async data fetching with built-in Suspense support
+- **Effect-TS**: Business logic and complex async flows
+- **Generated API Client**: All API calls use Orval-generated client with proper types
+
+### Error Handling
+- **ErrorBoundary**: Global error boundary at app root
+- **Suspense**: Loading states for async operations
+- **Granular boundaries**: Component-level Suspense for targeted loading states
+
+### Key Principles
+1. All state lives in providers, never at module level
+2. Use generated API client exclusively (no manual API types)
+3. Effect.runPromise at UI boundaries with createResource
+4. Proper Suspense/ErrorBoundary hierarchy

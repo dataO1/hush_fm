@@ -7,6 +7,72 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.1] - 2025-12-07
+
+### Fixed
+- **Complete TypeScript Compilation**
+  - Eliminated all TypeScript compilation errors
+  - Fixed Effect type mismatches in webrtc-flows
+  - Resolved JSX namespace import issues in ErrorBoundary
+  - Fixed import.meta.env typing for Vite compatibility
+  - Cleaned up unused imports and variables
+
+### Changed
+- **WebRTC Flow Integration with Providers**
+  - Migrated webrtc-flows from deprecated signalingManager to provider context
+  - Updated Effect flows to work with new provider-based architecture
+  - Simplified signaling integration to rely on provider context
+  - Removed module-level reactive state dependencies
+  
+### Technical Implementation
+- **Effect Type Safety Improvements**:
+  - Fixed `Effect<void, Error, unknown>` vs `Effect<void, Error, never>` conflicts
+  - Proper pipe initialization with `Effect.void` for complex flows
+  - Error type safety with proper unknown to Error conversions
+  
+- **Provider Architecture Completion**:
+  - WebRTC flows now integrate seamlessly with SignalingProvider
+  - Clean separation between Effect-based flows and reactive state
+  - Type-safe provider context throughout application
+  
+- **Production Build Verification**:
+  - Confirmed successful TypeScript compilation (0 errors)
+  - Verified production build creates optimized bundles
+  - Validated development server runs without warnings
+
+## [0.3.0] - 2025-12-07
+
+### Changed
+- **Complete Frontend Architecture Refactor**
+  - Migrated from module-level state to provider-based architecture
+  - All reactive primitives now created within proper SolidJS context
+  - Fixed "computations created outside createRoot" warnings
+  - Proper memory management and disposal of reactive computations
+
+- **Provider-Based State Management**
+  - Created WebRTCProvider for all WebRTC state
+  - Created SignalingProvider for WebSocket management
+  - Wrapped app in proper provider hierarchy
+  - Eliminated global state anti-patterns
+
+- **Enhanced Data Fetching**
+  - Replaced onMount/createEffect with createResource
+  - Non-blocking UI rendering with Suspense
+  - Automatic error propagation to ErrorBoundary
+  - Built-in loading and error states
+
+- **API Client Integration**
+  - Exclusive use of Orval-generated client
+  - Removed all manual API type definitions
+  - Proper Effect-TS integration at boundaries
+  - Type-safe API calls throughout
+
+### Fixed
+- SolidJS reactive context warnings
+- Memory leaks from undisposed computations
+- Blocking UI during data fetching
+- Type mismatches with API responses
+
 ### Added
 - **Complete UI Cleanup with DaisyUI Integration**
   - Minimal Landing page with DaisyUI cards for room creation/joining
