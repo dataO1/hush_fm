@@ -1,8 +1,8 @@
 import { createSignal, createEffect, Show, For } from 'solid-js'
 import { Effect } from 'effect'
-import { toggleProducerFlow } from '../effects/webrtc-flows'
-import { useWebRTC, webrtcStore } from '../webrtc/store'
-import { consumerManager } from '../webrtc/consumer-manager'
+import { toggleProducerFlow } from '../../effects/webrtc-flows'
+import { useWebRTC, webrtcStore } from '../../webrtc/store'
+import { consumerManager } from '../../webrtc/consumer-manager'
 
 /**
  * Audio Controls Component

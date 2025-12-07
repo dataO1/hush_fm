@@ -1,340 +1,295 @@
-import { createSignal, createEffect, onCleanup } from 'solid-js'
+import { createSignal, onMount, onCleanup, Show } from 'solid-js'
 import { useParams, useNavigate } from '@solidjs/router'
 import { Effect } from 'effect'
-import { connectWebSocket, sendMessage, subscribeToMessages, DJMessage, ServerMessage } from '../ws/client'
+import { publishRoomFlow } from '../effects/webrtc-flows'
+import { StreamStatusBadge, type StreamStatus } from '../components/shared/StreamStatusBadge'
+import { AudioLevelMeter } from '../components/shared/AudioLevelMeter'
+import { MicControls } from '../components/controls/MicControls'
 
 export default function DJRoom() {
   const params = useParams()
   const navigate = useNavigate()
   
   const [roomId] = createSignal(params.roomId)
-  const [connected, setConnected] = createSignal(false)
-  const [streaming, setStreaming] = createSignal(false)
-  const [listenerCount, setListenerCount] = createSignal(0)
-  const [audioDevices, setAudioDevices] = createSignal<MediaDeviceInfo[]>([])
-  const [selectedDevice, setSelectedDevice] = createSignal('')
+  const [roomName, setRoomName] = createSignal('')
+  const [status, setStatus] = createSignal<StreamStatus>('connecting')
+  const [isMuted, setIsMuted] = createSignal(false)
+  const [listenerCount] = createSignal(0)
+  const [stream, setStream] = createSignal<MediaStream>()
   const [error, setError] = createSignal<string | null>(null)
-  const [ws, setWs] = createSignal<WebSocket | null>(null)
+  const [isInitializing, setIsInitializing] = createSignal(true)
 
-  // Initialize WebSocket connection
-  createEffect(async () => {
-    const wsUrl = `ws://localhost:3000/ws/room/${roomId()}`
-    
-    const program = Effect.gen(function* (_) {
-      const socket = yield* _(connectWebSocket(wsUrl))
-      setWs(socket)
-      setConnected(true)
-      
-      // Subscribe to server messages
-      yield* _(subscribeToMessages<ServerMessage>(socket, (message) => {
-        switch (message.type) {
-          case 'ProducerCreated':
-            setStreaming(true)
-            setError(null)
-            break
-          case 'ListenerJoined':
-            if (message.count !== undefined) {
-              setListenerCount(message.count)
-            }
-            break
-          case 'ListenerLeft':
-            if (message.count !== undefined) {
-              setListenerCount(message.count)
-            }
-            break
-          case 'Error':
-            setError(message.message || 'Unknown error')
-            break
-          case 'RoomDeleted':
-            navigate('/')
-            break
-        }
-      }, (err) => {
-        setError(`WebSocket error: ${err.message}`)
-        setConnected(false)
-      }))
-    })
+  let producer: any = null
+  let transport: any = null
 
-    try {
-      await Effect.runPromise(program)
-    } catch (err: any) {
-      setError(`Failed to connect: ${err.message}`)
-    }
+  onMount(() => {
+    startStreaming()
   })
-
-  // Get available audio devices
-  createEffect(async () => {
-    try {
-      await navigator.mediaDevices.getUserMedia({ audio: true })
-      const devices = await navigator.mediaDevices.enumerateDevices()
-      const audioInputs = devices.filter(device => device.kind === 'audioinput')
-      setAudioDevices(audioInputs)
-      
-      if (audioInputs.length > 0 && !selectedDevice()) {
-        setSelectedDevice(audioInputs[0].deviceId)
-      }
-    } catch (err) {
-      setError('Failed to access audio devices. Please grant microphone permission.')
-    }
-  })
-
-  const sendWSMessage = (message: DJMessage) => {
-    const socket = ws()
-    if (!socket) {
-      setError('Not connected to server')
-      return
-    }
-
-    const program = sendMessage(socket, message)
-    Effect.runPromise(program).catch((err) => {
-      setError(`Failed to send message: ${err.message}`)
-    })
-  }
-
-  const startStreaming = async () => {
-    if (!selectedDevice()) {
-      setError('Please select an audio input device')
-      return
-    }
-
-    try {
-      setError(null)
-      
-      // For now, simulate the streaming process
-      // TODO: Integrate actual MediaSoup client
-      sendWSMessage({
-        type: 'ConnectTransport',
-        dtls_parameters: { /* TODO: Real DTLS parameters */ }
-      })
-
-      // Simulate producer creation
-      setTimeout(() => {
-        sendWSMessage({
-          type: 'Produce',
-          rtp_parameters: { /* TODO: Real RTP parameters */ }
-        })
-      }, 1000)
-
-    } catch (err: any) {
-      setError(`Failed to start streaming: ${err.message}`)
-    }
-  }
-
-  const stopStreaming = () => {
-    sendWSMessage({ type: 'StopProducing' })
-    setStreaming(false)
-  }
-
-  const deleteRoom = () => {
-    if (confirm('Are you sure you want to delete this room? This will kick all listeners.')) {
-      sendWSMessage({ type: 'DeleteRoom' })
-    }
-  }
 
   onCleanup(() => {
-    const socket = ws()
-    if (socket) {
-      socket.close()
-    }
+    cleanup()
   })
 
+  const startStreaming = async () => {
+    setIsInitializing(true)
+    setStatus('connecting')
+    setError(null)
+
+    const program = Effect.gen(function* (_) {
+      // The publishRoomFlow handles the entire DJ workflow
+      const result = yield* _(publishRoomFlow(roomName() || `Room ${roomId()}`))
+      
+      return result
+    })
+
+    try {
+      const result = await Effect.runPromise(program)
+      
+      // Store references for controls
+      producer = result.producer
+      transport = result.transport
+      
+      // Get the audio track from the producer
+      if (result.producer && result.producer.track) {
+        const stream = new MediaStream([result.producer.track])
+        setStream(stream)
+      }
+      
+      setStatus('live')
+      setIsInitializing(false)
+      setRoomName(`Room ${roomId()}`)
+      
+      // Set up WebSocket for listener count updates
+      setupRealtimeUpdates()
+      
+    } catch (err: any) {
+      console.error('Failed to start streaming:', err)
+      setError(`Failed to start streaming: ${err.message}`)
+      setStatus('error')
+      setIsInitializing(false)
+    }
+  }
+
+  const setupRealtimeUpdates = () => {
+    // TODO: Connect to WebSocket for real-time listener count updates
+    // This would typically connect to the room's WebSocket endpoint
+    // and listen for listener join/leave events
+  }
+
+  const toggleMute = async () => {
+    if (!producer) return
+
+    try {
+      if (isMuted()) {
+        await producer.resume()
+        setIsMuted(false)
+        setStatus('live')
+      } else {
+        await producer.pause()
+        setIsMuted(true)
+        setStatus('muted')
+      }
+    } catch (err: any) {
+      console.error('Failed to toggle mute:', err)
+      setError(`Failed to ${isMuted() ? 'unmute' : 'mute'}: ${err.message}`)
+    }
+  }
+
+  const endStream = () => {
+    cleanup()
+    navigate('/')
+  }
+
+  const cleanup = () => {
+    if (producer) {
+      producer.close()
+      producer = null
+    }
+    
+    if (transport) {
+      transport.close()
+      transport = null
+    }
+
+    const currentStream = stream()
+    if (currentStream) {
+      currentStream.getTracks().forEach(track => track.stop())
+      setStream(undefined)
+    }
+  }
+
+  const goBack = () => {
+    navigate('/')
+  }
+
   return (
-    <div style={{
-      'min-height': '100vh',
-      'padding': '2rem',
-      'background': 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)'
-    }}>
-      <div style={{
-        'max-width': '600px',
-        'margin': '0 auto',
-        'background': 'rgba(255, 255, 255, 0.95)',
-        'border-radius': '12px',
-        'padding': '2rem',
-        'box-shadow': '0 20px 40px rgba(0, 0, 0, 0.1)'
-      }}>
-        <header style={{ 'text-align': 'center', 'margin-bottom': '2rem' }}>
-          <h1 style={{
-            'font-size': '2rem',
-            'font-weight': 'bold',
-            'color': '#333',
-            'margin-bottom': '0.5rem'
-          }}>
-            🎛️ DJ Control Panel
-          </h1>
-          <p style={{ 'color': '#666' }}>Room ID: {roomId()}</p>
-          <div style={{
-            'display': 'flex',
-            'justify-content': 'center',
-            'align-items': 'center',
-            'gap': '1rem',
-            'margin-top': '1rem'
-          }}>
-            <span style={{
-              'padding': '0.25rem 0.75rem',
-              'border-radius': '20px',
-              'font-size': '0.875rem',
-              'font-weight': 'bold',
-              'background': connected() ? '#d4edda' : '#f8d7da',
-              'color': connected() ? '#155724' : '#721c24'
-            }}>
-              {connected() ? '🟢 Connected' : '🔴 Disconnected'}
-            </span>
-            <span style={{ 'color': '#666' }}>
-              👥 {listenerCount()} listeners
-            </span>
-          </div>
-        </header>
-
-        {error() && (
-          <div style={{
-            'background': '#fee',
-            'color': '#c33',
-            'padding': '1rem',
-            'border-radius': '8px',
-            'margin-bottom': '2rem'
-          }}>
-            {error()}
-          </div>
-        )}
-
-        {/* Audio Input Selection */}
-        <section style={{ 'margin-bottom': '2rem' }}>
-          <h3 style={{ 'margin-bottom': '1rem', 'color': '#333' }}>
-            Audio Input
-          </h3>
-          <select
-            value={selectedDevice()}
-            onChange={(e) => setSelectedDevice(e.target.value)}
-            disabled={streaming()}
-            style={{
-              'width': '100%',
-              'padding': '0.75rem',
-              'border': '2px solid #e0e0e0',
-              'border-radius': '8px',
-              'font-size': '1rem',
-              'background': 'white',
-              'cursor': streaming() ? 'not-allowed' : 'pointer',
-              'opacity': streaming() ? '0.7' : '1'
-            }}
-          >
-            <option value="">Select Audio Input</option>
-            {audioDevices().map(device => (
-              <option value={device.deviceId}>
-                {device.label || `Audio Input ${device.deviceId.slice(0, 8)}...`}
-              </option>
-            ))}
-          </select>
-          {streaming() && (
-            <p style={{
-              'color': '#666',
-              'font-size': '0.875rem',
-              'margin-top': '0.5rem'
-            }}>
-              Stop streaming to change audio input
-            </p>
-          )}
-        </section>
-
-        {/* Stream Controls */}
-        <section style={{ 'margin-bottom': '2rem' }}>
-          <h3 style={{ 'margin-bottom': '1rem', 'color': '#333' }}>
-            Stream Control
-          </h3>
-          <div style={{ 'display': 'flex', 'gap': '1rem' }}>
-            {!streaming() ? (
+    <div class="min-h-screen bg-gradient-to-br from-purple-50 via-blue-50 to-indigo-100">
+      {/* Header */}
+      <header class="bg-white/80 backdrop-blur-lg border-b border-white/20">
+        <div class="max-w-4xl mx-auto px-6 py-4">
+          <div class="flex items-center justify-between">
+            <div class="flex items-center gap-4">
               <button
-                onClick={startStreaming}
-                disabled={!connected() || !selectedDevice()}
-                style={{
-                  'flex': '1',
-                  'padding': '1rem',
-                  'background': 'linear-gradient(135deg, #28a745, #20c997)',
-                  'color': 'white',
-                  'border': 'none',
-                  'border-radius': '8px',
-                  'font-size': '1.125rem',
-                  'font-weight': 'bold',
-                  'cursor': (!connected() || !selectedDevice()) ? 'not-allowed' : 'pointer',
-                  'opacity': (!connected() || !selectedDevice()) ? '0.5' : '1',
-                  'transition': 'opacity 0.2s'
-                }}
+                onClick={goBack}
+                class="p-2 hover:bg-gray-100 rounded-lg transition-colors"
+                title="Back to Lobby"
               >
-                🔴 Go Live
+                <span class="text-xl">←</span>
               </button>
-            ) : (
-              <button
-                onClick={stopStreaming}
-                style={{
-                  'flex': '1',
-                  'padding': '1rem',
-                  'background': 'linear-gradient(135deg, #dc3545, #c82333)',
-                  'color': 'white',
-                  'border': 'none',
-                  'border-radius': '8px',
-                  'font-size': '1.125rem',
-                  'font-weight': 'bold',
-                  'cursor': 'pointer'
-                }}
-              >
-                ⏹️ Stop Streaming
-              </button>
-            )}
-          </div>
-          
-          {streaming() && (
-            <div style={{
-              'text-align': 'center',
-              'margin-top': '1rem',
-              'padding': '1rem',
-              'background': '#d4edda',
-              'color': '#155724',
-              'border-radius': '8px',
-              'font-weight': 'bold'
-            }}>
-              🎵 You are now LIVE!
+              <div>
+                <h1 class="text-xl font-bold text-gray-800">
+                  🎤 DJ Mode
+                </h1>
+                <p class="text-sm text-gray-600">{roomName()}</p>
+              </div>
             </div>
-          )}
-        </section>
-
-        {/* Room Management */}
-        <section>
-          <h3 style={{ 'margin-bottom': '1rem', 'color': '#333' }}>
-            Room Management
-          </h3>
-          <div style={{ 'display': 'flex', 'gap': '1rem' }}>
-            <button
-              onClick={() => navigate('/')}
-              style={{
-                'flex': '1',
-                'padding': '0.75rem',
-                'background': '#6c757d',
-                'color': 'white',
-                'border': 'none',
-                'border-radius': '8px',
-                'font-weight': 'bold',
-                'cursor': 'pointer'
-              }}
-            >
-              ← Back to Lobby
-            </button>
-            <button
-              onClick={deleteRoom}
-              style={{
-                'flex': '1',
-                'padding': '0.75rem',
-                'background': '#dc3545',
-                'color': 'white',
-                'border': 'none',
-                'border-radius': '8px',
-                'font-weight': 'bold',
-                'cursor': 'pointer'
-              }}
-            >
-              🗑️ Delete Room
-            </button>
+            
+            <StreamStatusBadge status={status()} listenerCount={listenerCount()} />
           </div>
-        </section>
-      </div>
+        </div>
+      </header>
+
+      {/* Main Content */}
+      <main class="max-w-4xl mx-auto px-6 py-8">
+        <Show when={error()}>
+          <div class="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg mb-6">
+            <div class="flex items-center justify-between">
+              <span>{error()}</span>
+              <button 
+                onClick={() => setError(null)}
+                class="text-red-500 hover:text-red-700"
+              >
+                ✕
+              </button>
+            </div>
+          </div>
+        </Show>
+
+        <Show when={isInitializing()}>
+          <div class="text-center py-12">
+            <div class="bg-white/70 backdrop-blur-sm rounded-2xl p-8 border border-white/30 shadow-lg max-w-md mx-auto">
+              <div class="w-16 h-16 border-4 border-purple-500 border-t-transparent rounded-full animate-spin mx-auto mb-6"></div>
+              <h2 class="text-xl font-semibold text-gray-800 mb-2">
+                Preparing Your Stream
+              </h2>
+              <p class="text-gray-600 mb-4">
+                Setting up audio devices and connecting to the network...
+              </p>
+              <div class="text-sm text-gray-500">
+                <div class="flex items-center justify-center gap-2">
+                  <div class="w-2 h-2 bg-purple-500 rounded-full animate-pulse"></div>
+                  <span>This may take a few moments</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </Show>
+
+        <Show when={!isInitializing()}>
+          <div class="grid lg:grid-cols-2 gap-8">
+            {/* Left Column - Controls */}
+            <div class="space-y-6">
+              {/* Stream Controls */}
+              <div class="bg-white/70 backdrop-blur-sm rounded-2xl p-6 border border-white/30 shadow-lg">
+                <h3 class="text-lg font-semibold text-gray-800 mb-4">Stream Controls</h3>
+                
+                <div class="space-y-6">
+                  <MicControls
+                    isMuted={isMuted()}
+                    isStreaming={status() === 'live' || status() === 'muted'}
+                    onToggleMute={toggleMute}
+                    onEndStream={endStream}
+                    disabled={status() === 'error' || status() === 'connecting'}
+                  />
+
+                  <Show when={stream()}>
+                    <AudioLevelMeter stream={stream()} class="mt-4" />
+                  </Show>
+                </div>
+              </div>
+
+              {/* Room Information */}
+              <div class="bg-white/70 backdrop-blur-sm rounded-2xl p-6 border border-white/30 shadow-lg">
+                <h3 class="text-lg font-semibold text-gray-800 mb-4">Room Information</h3>
+                
+                <div class="space-y-3">
+                  <div class="flex justify-between">
+                    <span class="text-gray-600">Room ID:</span>
+                    <span class="font-mono text-sm">{roomId()}</span>
+                  </div>
+                  <div class="flex justify-between">
+                    <span class="text-gray-600">Stream Status:</span>
+                    <span class={`font-medium ${
+                      status() === 'live' ? 'text-green-600' :
+                      status() === 'muted' ? 'text-orange-600' :
+                      status() === 'connecting' ? 'text-blue-600' :
+                      'text-red-600'
+                    }`}>
+                      {status() === 'live' ? 'Live' :
+                       status() === 'muted' ? 'Muted' :
+                       status() === 'connecting' ? 'Connecting' :
+                       'Error'}
+                    </span>
+                  </div>
+                  <div class="flex justify-between">
+                    <span class="text-gray-600">Listeners:</span>
+                    <span class="font-medium">{listenerCount()}</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Right Column - Visual Feedback */}
+            <div class="space-y-6">
+              {/* Audio Visualization */}
+              <div class="bg-white/70 backdrop-blur-sm rounded-2xl p-6 border border-white/30 shadow-lg">
+                <h3 class="text-lg font-semibold text-gray-800 mb-4">Audio Visualization</h3>
+                
+                <div class="bg-gradient-to-r from-purple-100 to-blue-100 rounded-xl p-6">
+                  <div class="text-center">
+                    <div class="text-6xl mb-4">
+                      {status() === 'live' ? '🎵' : 
+                       status() === 'muted' ? '🔇' :
+                       status() === 'connecting' ? '⏳' :
+                       '❌'}
+                    </div>
+                    <p class="text-gray-600">
+                      {status() === 'live' ? 'Your audio is streaming live!' :
+                       status() === 'muted' ? 'Microphone is muted' :
+                       status() === 'connecting' ? 'Connecting to stream...' :
+                       'Stream encountered an error'}
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Tips */}
+              <div class="bg-white/70 backdrop-blur-sm rounded-2xl p-6 border border-white/30 shadow-lg">
+                <h3 class="text-lg font-semibold text-gray-800 mb-4">DJ Tips</h3>
+                
+                <div class="space-y-3 text-sm text-gray-600">
+                  <div class="flex items-start gap-2">
+                    <span>🎤</span>
+                    <span>Use the mute button to pause your stream without disconnecting listeners</span>
+                  </div>
+                  <div class="flex items-start gap-2">
+                    <span>📊</span>
+                    <span>Watch the input level meter to ensure optimal audio quality</span>
+                  </div>
+                  <div class="flex items-start gap-2">
+                    <span>👥</span>
+                    <span>Keep an eye on your listener count to gauge your audience</span>
+                  </div>
+                  <div class="flex items-start gap-2">
+                    <span>🔊</span>
+                    <span>Test your audio levels before starting to broadcast</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </Show>
+      </main>
     </div>
   )
 }

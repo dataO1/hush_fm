@@ -1,7 +1,7 @@
 import { createSignal, createResource, For, Show, onMount, createEffect } from 'solid-js'
 import { Effect } from 'effect'
-import { getBrowserInfo } from '../webrtc/device-manager'
-import { selectedDeviceId, setSelectedDeviceId } from '../webrtc/store'
+import { getBrowserInfo } from '../../webrtc/device-manager'
+import { selectedDeviceId, setSelectedDeviceId } from '../../webrtc/store'
 
 /**
  * Audio device information
@@ -256,15 +256,15 @@ export function DeviceSelector() {
       </Show>
 
       {/* WebRTC Capabilities Debug Info (development) */}
-      <Show when={browserInfo()?.webrtcSupport}>
+      <Show when={browserInfo() && browserInfo()?.webrtcSupport}>
         <details class="mt-4">
           <summary class="text-xs text-gray-500 cursor-pointer">
             Technical Details
           </summary>
           <div class="mt-2 text-xs text-gray-600 space-y-1">
-            <div>getUserMedia: {browserInfo()?.webrtcSupport.getUserMedia ? '✓' : '✗'}</div>
-            <div>RTCPeerConnection: {browserInfo()?.webrtcSupport.rtcPeerConnection ? '✓' : '✗'}</div>
-            <div>Web Audio API: {browserInfo()?.webrtcSupport.webAudio ? '✓' : '✗'}</div>
+            <div>getUserMedia: {browserInfo()?.webrtcSupport?.getUserMedia ? '✓' : '✗'}</div>
+            <div>RTCPeerConnection: {browserInfo()?.webrtcSupport?.rtcPeerConnection ? '✓' : '✗'}</div>
+            <div>Web Audio API: {browserInfo()?.webrtcSupport?.webAudio ? '✓' : '✗'}</div>
             <div>Selected Device: {selectedDeviceId()?.slice(0, 10) || 'None'}</div>
           </div>
         </details>

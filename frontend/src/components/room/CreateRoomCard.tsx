@@ -1,7 +1,7 @@
 import { createSignal, Show, createEffect } from 'solid-js'
 import { Effect } from 'effect'
-import { publishRoomFlow } from '../effects/webrtc-flows'
-import { useWebRTC } from '../webrtc/store'
+import { publishRoomFlow } from '../../effects/webrtc-flows'
+import { useWebRTC } from '../../webrtc/store'
 
 /**
  * Create Room Card Component

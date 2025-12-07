@@ -1,8 +1,8 @@
 import { createSignal, For, Show, createEffect, createMemo } from 'solid-js'
 import { Effect } from 'effect'
-import { joinRoomFlow } from '../effects/webrtc-flows'
-import { useWebRTC } from '../webrtc/store'
-import { getLiveRooms, subscribeToRoom, unsubscribeFromRoom, initializeLobbySignaling } from '../ws/event-handlers'
+import { joinRoomFlow } from '../../effects/webrtc-flows'
+import { useWebRTC } from '../../webrtc/store'
+import { getLiveRooms, subscribeToRoom, unsubscribeFromRoom, initializeLobbySignaling } from '../../ws/event-handlers'
 
 /**
  * Room data is now handled by WebSocket event system
@@ -166,7 +166,7 @@ export function RoomList() {
               🎵 Now Listening
             </div>
             <div class="text-lg font-semibold mb-2">
-              {rooms()?.find(r => r.id === selectedRoom())?.name || 'Unknown Room'}
+              {rooms()?.find((r: any) => r.id === selectedRoom())?.name || 'Unknown Room'}
             </div>
             <div class="text-sm text-gray-600 mb-4">
               Connection: {connectionState()}

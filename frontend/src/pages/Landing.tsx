@@ -1,4 +1,4 @@
-import { createSignal, createEffect, For } from 'solid-js'
+import { createSignal, createEffect, For, Show } from 'solid-js'
 import { useNavigate } from '@solidjs/router'
 import { Effect } from 'effect'
 import * as Api from '../api/client'
@@ -16,7 +16,8 @@ export default function Landing() {
   const navigate = useNavigate()
   const [rooms, setRooms] = createSignal<Room[]>([])
   const [roomName, setRoomName] = createSignal('')
-  const [loading, setLoading] = createSignal(false)
+  const [creating, setCreating] = createSignal(false)
+  const [loading, setLoading] = createSignal(true)
   const [error, setError] = createSignal<string | null>(null)
 
   // Load initial rooms
@@ -24,10 +25,12 @@ export default function Landing() {
     const program = Effect.gen(function* (_) {
       const roomList = yield* _(Api.listRooms())
       setRooms(roomList)
+      setLoading(false)
     })
 
     Effect.runPromise(program).catch((err) => {
       setError(`Failed to load rooms: ${err.message}`)
+      setLoading(false)
     })
   })
 
@@ -72,7 +75,7 @@ export default function Landing() {
       return
     }
 
-    setLoading(true)
+    setCreating(true)
     setError(null)
 
     const program = Effect.gen(function* (_) {
@@ -85,7 +88,7 @@ export default function Landing() {
     } catch (err: any) {
       setError(`Failed to create room: ${err.message}`)
     } finally {
-      setLoading(false)
+      setCreating(false)
     }
   }
 
@@ -94,194 +97,182 @@ export default function Landing() {
   }
 
   return (
-    <div style={{
-      'min-height': '100vh',
-      'padding': '2rem',
-      'background': 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)'
-    }}>
-      <div style={{
-        'max-width': '800px',
-        'margin': '0 auto',
-        'background': 'rgba(255, 255, 255, 0.95)',
-        'border-radius': '12px',
-        'padding': '2rem',
-        'box-shadow': '0 20px 40px rgba(0, 0, 0, 0.1)'
-      }}>
-        <header style={{ 'text-align': 'center', 'margin-bottom': '3rem' }}>
-          <h1 style={{
-            'font-size': '3rem',
-            'font-weight': 'bold',
-            'background': 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
-            '-webkit-background-clip': 'text',
-            '-webkit-text-fill-color': 'transparent',
-            'margin-bottom': '0.5rem'
-          }}>
-            🎵 HushFM
-          </h1>
-          <p style={{ 'color': '#666', 'font-size': '1.2rem' }}>
-            Live Audio Streaming Platform
-          </p>
-        </header>
+    <div class="min-h-screen bg-gradient-to-br from-purple-50 via-blue-50 to-indigo-100">
+      {/* Header */}
+      <header class="bg-white/80 backdrop-blur-lg border-b border-white/20">
+        <div class="max-w-6xl mx-auto px-6 py-6">
+          <div class="text-center">
+            <h1 class="text-4xl font-bold bg-gradient-to-r from-purple-600 to-blue-600 bg-clip-text text-transparent mb-2">
+              🎵 HushFM
+            </h1>
+            <p class="text-gray-600 text-lg">
+              Local Network Audio Streaming
+            </p>
+          </div>
+        </div>
+      </header>
 
-        {error() && (
-          <div style={{
-            'background': '#fee',
-            'color': '#c33',
-            'padding': '1rem',
-            'border-radius': '8px',
-            'margin-bottom': '2rem'
-          }}>
+      {/* Main Content */}
+      <main class="max-w-6xl mx-auto px-6 py-12">
+        {/* Welcome Section */}
+        <div class="text-center mb-16">
+          <h2 class="text-3xl font-bold text-gray-800 mb-4">
+            Welcome to Your Personal Radio Station
+          </h2>
+          <p class="text-xl text-gray-600 max-w-2xl mx-auto">
+            Stream and listen to live audio on your local network. 
+            Create a room to start broadcasting, or join an existing room to listen.
+          </p>
+        </div>
+
+        <Show when={error()}>
+          <div class="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg mb-8 max-w-2xl mx-auto">
             {error()}
           </div>
-        )}
+        </Show>
 
-        {/* Create Room Section */}
-        <section style={{ 'margin-bottom': '3rem' }}>
-          <h2 style={{ 'margin-bottom': '1rem', 'color': '#333' }}>
-            Start Broadcasting
-          </h2>
-          <div style={{
-            'display': 'flex',
-            'gap': '1rem',
-            'align-items': 'center',
-            'flex-wrap': 'wrap'
-          }}>
-            <input
-              type="text"
-              placeholder="Enter room name..."
-              value={roomName()}
-              onInput={(e) => setRoomName(e.target.value)}
-              onKeyPress={(e) => e.key === 'Enter' && createRoom()}
-              style={{
-                'flex': '1',
-                'min-width': '250px',
-                'padding': '0.75rem 1rem',
-                'border': '2px solid #e0e0e0',
-                'border-radius': '8px',
-                'font-size': '1rem',
-                'outline': 'none',
-                'transition': 'border-color 0.2s'
-              }}
-              disabled={loading()}
-            />
-            <button
-              onClick={createRoom}
-              disabled={loading() || !roomName().trim()}
-              style={{
-                'padding': '0.75rem 2rem',
-                'background': 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
-                'color': 'white',
-                'border': 'none',
-                'border-radius': '8px',
-                'font-size': '1rem',
-                'font-weight': 'bold',
-                'cursor': loading() ? 'not-allowed' : 'pointer',
-                'opacity': loading() ? '0.7' : '1',
-                'transition': 'opacity 0.2s'
-              }}
-            >
-              {loading() ? 'Creating...' : 'Create & Start DJing'}
-            </button>
-          </div>
-        </section>
-
-        {/* Room List Section */}
-        <section>
-          <h2 style={{ 'margin-bottom': '1rem', 'color': '#333' }}>
-            Active Rooms ({rooms().length})
-          </h2>
-          
-          {rooms().length === 0 ? (
-            <div style={{
-              'text-align': 'center',
-              'padding': '3rem',
-              'color': '#666',
-              'border': '2px dashed #ddd',
-              'border-radius': '8px'
-            }}>
-              <p>No rooms available. Be the first to create one!</p>
+        {/* Main Interface Grid */}
+        <div class="grid lg:grid-cols-2 gap-12 items-start">
+          {/* Left Column - Create Room */}
+          <div class="bg-white/70 backdrop-blur-sm rounded-2xl p-8 border border-white/30 shadow-lg">
+            <div class="text-center mb-6">
+              <div class="w-16 h-16 bg-gradient-to-r from-purple-500 to-pink-500 rounded-full flex items-center justify-center mx-auto mb-4">
+                <span class="text-2xl">🎤</span>
+              </div>
+              <h3 class="text-2xl font-semibold text-gray-800 mb-2">
+                Start Broadcasting
+              </h3>
+              <p class="text-gray-600">
+                Create a new room and start streaming audio to listeners on your network
+              </p>
             </div>
-          ) : (
-            <div style={{
-              'display': 'grid',
-              'grid-template-columns': 'repeat(auto-fill, minmax(300px, 1fr))',
-              'gap': '1rem'
-            }}>
-              <For each={rooms()}>
-                {(room) => (
-                  <div style={{
-                    'background': '#f8f9fa',
-                    'padding': '1.5rem',
-                    'border-radius': '8px',
-                    'border': '1px solid #e0e0e0',
-                    'transition': 'transform 0.2s, box-shadow 0.2s',
-                    'cursor': 'pointer'
-                  }}
-                  onMouseEnter={(e) => {
-                    e.currentTarget.style.transform = 'translateY(-2px)'
-                    e.currentTarget.style.boxShadow = '0 8px 16px rgba(0,0,0,0.1)'
-                  }}
-                  onMouseLeave={(e) => {
-                    e.currentTarget.style.transform = 'translateY(0)'
-                    e.currentTarget.style.boxShadow = 'none'
-                  }}>
-                    <h3 style={{
-                      'margin-bottom': '0.5rem',
-                      'color': '#333',
-                      'font-size': '1.25rem'
-                    }}>
-                      {room.name}
-                    </h3>
-                    <div style={{
-                      'display': 'flex',
-                      'align-items': 'center',
-                      'gap': '0.5rem',
-                      'margin-bottom': '1rem',
-                      'color': '#666'
-                    }}>
-                      <span style={{
-                        'padding': '0.25rem 0.5rem',
-                        'border-radius': '4px',
-                        'font-size': '0.875rem',
-                        'font-weight': 'bold',
-                        'background': room.dj_streaming ? '#d4edda' : '#f8d7da',
-                        'color': room.dj_streaming ? '#155724' : '#721c24'
-                      }}>
-                        {room.dj_streaming ? '🔴 LIVE' : '⏸️ Not streaming'}
-                      </span>
-                      <span style={{ 'font-size': '0.875rem' }}>
-                        {room.listener_count} listeners
-                      </span>
-                    </div>
-                    <button
-                      onClick={() => joinRoom(room.id)}
-                      style={{
-                        'width': '100%',
-                        'padding': '0.75rem',
-                        'background': room.dj_streaming ? '#28a745' : '#6c757d',
-                        'color': 'white',
-                        'border': 'none',
-                        'border-radius': '6px',
-                        'font-weight': 'bold',
-                        'cursor': 'pointer',
-                        'transition': 'background 0.2s'
-                      }}
-                      onMouseEnter={(e) => {
-                        e.currentTarget.style.background = room.dj_streaming ? '#218838' : '#5a6268'
-                      }}
-                      onMouseLeave={(e) => {
-                        e.currentTarget.style.background = room.dj_streaming ? '#28a745' : '#6c757d'
-                      }}
-                    >
-                      Join as Listener
-                    </button>
+
+            <div class="space-y-4">
+              <div>
+                <label for="roomName" class="block text-sm font-medium text-gray-700 mb-2">
+                  Room Name
+                </label>
+                <input
+                  id="roomName"
+                  type="text"
+                  placeholder="Enter room name..."
+                  value={roomName()}
+                  onInput={(e) => setRoomName(e.target.value)}
+                  onKeyPress={(e) => e.key === 'Enter' && createRoom()}
+                  disabled={creating()}
+                  class="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-purple-500 focus:border-purple-500 disabled:opacity-50 disabled:cursor-not-allowed"
+                />
+              </div>
+              
+              <button
+                onClick={createRoom}
+                disabled={creating() || !roomName().trim()}
+                class="w-full py-3 px-6 bg-gradient-to-r from-purple-500 to-pink-500 text-white font-semibold rounded-xl hover:from-purple-600 hover:to-pink-600 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200 transform hover:scale-105"
+              >
+                <Show when={creating()} fallback="Create Room & Start Streaming">
+                  <div class="flex items-center justify-center">
+                    <div class="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin mr-2"></div>
+                    Creating Room...
                   </div>
-                )}
-              </For>
+                </Show>
+              </button>
             </div>
-          )}
-        </section>
-      </div>
+          </div>
+
+          {/* Right Column - Join Rooms */}
+          <div class="bg-white/70 backdrop-blur-sm rounded-2xl p-8 border border-white/30 shadow-lg">
+            <div class="text-center mb-6">
+              <div class="w-16 h-16 bg-gradient-to-r from-blue-500 to-green-500 rounded-full flex items-center justify-center mx-auto mb-4">
+                <span class="text-2xl">🎧</span>
+              </div>
+              <h3 class="text-2xl font-semibold text-gray-800 mb-2">
+                Join a Room
+              </h3>
+              <p class="text-gray-600">
+                Listen to live audio streams from DJs on your network
+              </p>
+            </div>
+
+            <Show when={loading()}>
+              <div class="text-center py-8">
+                <div class="w-8 h-8 border-2 border-blue-500 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
+                <p class="text-gray-500">Loading rooms...</p>
+              </div>
+            </Show>
+
+            <Show when={!loading()}>
+              <div class="space-y-3">
+                <div class="flex items-center justify-between mb-4">
+                  <span class="text-sm font-medium text-gray-700">
+                    Active Rooms ({rooms().length})
+                  </span>
+                </div>
+
+                <Show when={rooms().length === 0}>
+                  <div class="text-center py-12">
+                    <div class="text-gray-400 text-4xl mb-4">🏠</div>
+                    <p class="text-gray-500 mb-2">No active rooms</p>
+                    <p class="text-sm text-gray-400">Create the first room to get started</p>
+                  </div>
+                </Show>
+
+                <Show when={rooms().length > 0}>
+                  <div class="space-y-3 max-h-96 overflow-y-auto">
+                    <For each={rooms()}>
+                      {(room) => (
+                        <div class="border border-gray-200 rounded-xl p-4 hover:shadow-md transition-all duration-200 cursor-pointer hover:border-blue-300"
+                             onClick={() => joinRoom(room.id)}>
+                          <div class="flex items-center justify-between">
+                            <div>
+                              <h4 class="font-semibold text-gray-800 mb-1">{room.name}</h4>
+                              <div class="flex items-center gap-2">
+                                <span class={`px-2 py-1 rounded-full text-xs font-medium ${
+                                  room.dj_streaming 
+                                    ? 'bg-red-100 text-red-700' 
+                                    : 'bg-gray-100 text-gray-600'
+                                }`}>
+                                  {room.dj_streaming ? '🔴 LIVE' : '⏸️ Offline'}
+                                </span>
+                                <span class="text-sm text-gray-500">
+                                  {room.listener_count} listeners
+                                </span>
+                              </div>
+                            </div>
+                            <button class="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors">
+                              Join
+                            </button>
+                          </div>
+                        </div>
+                      )}
+                    </For>
+                  </div>
+                </Show>
+              </div>
+            </Show>
+          </div>
+        </div>
+
+        {/* Footer Info */}
+        <div class="text-center mt-16 py-8 border-t border-white/30">
+          <p class="text-gray-500 mb-4">
+            HushFM operates on your local WiFi network only. No internet connection required.
+          </p>
+          <div class="flex justify-center items-center gap-8 text-sm text-gray-500">
+            <div class="flex items-center gap-2">
+              <span>🔒</span>
+              <span>Private Network</span>
+            </div>
+            <div class="flex items-center gap-2">
+              <span>⚡</span>
+              <span>Low Latency</span>
+            </div>
+            <div class="flex items-center gap-2">
+              <span>🎵</span>
+              <span>High Quality Audio</span>
+            </div>
+          </div>
+        </div>
+      </main>
     </div>
   )
 }
