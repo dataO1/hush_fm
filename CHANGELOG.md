@@ -8,74 +8,74 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
-- **Complete Frontend UI Implementation**
-  - Modern Landing page with clean two-column layout for room creation/joining
-  - DJ Room interface with streaming controls and real-time audio monitoring
-  - Listener Room interface with audio playback and volume controls
-  - Shared component library with consistent design system
+- **Complete UI Cleanup with DaisyUI Integration**
+  - Minimal Landing page with DaisyUI cards for room creation/joining
+  - Streamlined DJ Room with device selection and essential controls
+  - Clean Listener Room with volume control and live visualization
+  - Professional monochrome theme using DaisyUI "business" theme
 
-- **Advanced Audio Features**
-  - Real-time audio visualizer using Web Audio API with frequency analysis
-  - Audio level meter for DJ input monitoring
-  - Volume controls for listeners with mute/unmute functionality
-  - Stream status indicators with live/muted/connecting states
+- **Modern Audio Visualization**
+  - Real-time waveform display using webaudio-oscilloscope package
+  - Clean oscilloscope-style visualization replacing frequency bars
+  - TypeScript-compatible audio visualization with proper build support
+  - Canvas-based rendering with DaisyUI color theming
 
-- **Modern UI Design System**
-  - Glass-morphism effects with backdrop blur and gradients
-  - Responsive design with proper spacing and typography
-  - Loading states and error handling with user-friendly messages
-  - Accessibility-ready components with semantic HTML
+- **Production-Ready Build System**
+  - Zero TypeScript compilation errors with proper type handling
+  - Optimized production build (403KB → 100KB gzipped)
+  - Compatible module imports for modern build tools
+  - Removed 300+ lines of custom CSS in favor of DaisyUI
 
-- **Enhanced TypeScript Integration**
-  - Comprehensive type safety with zero compilation errors
-  - Effect-TS integration throughout component architecture
-  - Proper import path resolution for shared components
-  - Full mediasoup-client v3 compatibility
+- **Essential Feature Preservation**
+  - Device selection for DJ microphone input using DaisyUI select
+  - Volume controls with DaisyUI range sliders
+  - Mute/unmute functionality with SVG icons
+  - Status indicators using DaisyUI badges
 
 ### Fixed
-- **TypeScript Compilation** (60+ errors → 0)
-  - Fixed import paths for nested component structure
-  - Corrected Effect-TS flow return type handling
-  - Resolved mediasoup-client import compatibility issues
-  - Eliminated unused variables and imports
+- **Audio Visualization Package Issues**
+  - Replaced problematic oscilloscope package with webaudio-oscilloscope
+  - Resolved CommonJS/ESM module compatibility issues
+  - Fixed production build failures with proper package integration
+  - Eliminated TypeScript declaration file errors
 
-- **Component Architecture**
-  - Proper state management with SolidJS signals
-  - Resource cleanup on component unmount
-  - Audio context handling for visualizations
-  - WebRTC transport lifecycle management
+- **Component Architecture Cleanup**
+  - Removed redundant components (AudioLevelMeter, MicControls, VolumeControls)
+  - Integrated essential functionality directly into page components
+  - Proper state management with SolidJS reactive patterns
+  - WebRTC lifecycle management with Effect-TS
 
 ### Changed
-- **Frontend Structure Reorganization**
-  - Created shared components directory for reusability
-  - Separated controls and layout components
-  - Implemented consistent styling across all pages
-  - Added proper error boundaries and loading states
+- **Complete UI Framework Migration**
+  - Replaced custom CSS with DaisyUI component library
+  - Migrated from glass-morphism to clean monochrome design
+  - Removed all emojis and non-essential text for professional appearance
+  - Simplified component hierarchy and removed unused abstractions
 
-- **UI/UX Improvements** 
-  - Replaced inline styles with Tailwind classes
-  - Added smooth animations and transitions
-  - Implemented responsive layout grid systems
-  - Enhanced user feedback for all interactions
+- **Build System Optimization**
+  - Updated Vite configuration for DaisyUI and Tailwind integration
+  - Removed CommonJS-specific build configurations
+  - Optimized bundle size with tree shaking and modern modules
+  - Improved TypeScript compilation performance
+
+### Removed
+- **Legacy Components and Styling**
+  - Deleted 300+ lines of custom CSS animations and effects
+  - Removed bar-based AudioVisualizer in favor of waveform display
+  - Eliminated redundant shared components and abstractions
+  - Cleaned up unused dependencies and dead code
 
 ### Technical Implementation
-- **Shared Components Created**:
-  - `StreamStatusBadge`: Live status indicators with animations
-  - `AudioVisualizer`: Real-time frequency visualization
-  - `AudioLevelMeter`: Input level monitoring for DJs
-  - `MicControls`: Mute/unmute functionality
-  - `VolumeControls`: Listener audio management
+- **DaisyUI Component Migration**:
+  - `Landing.tsx`: DaisyUI cards, inputs, and buttons
+  - `DJRoom.tsx`: Streamlined with essential controls only
+  - `ListenerRoom.tsx`: Clean volume control with range slider
+  - `DeviceSelector.tsx`: DaisyUI select dropdown for microphone choice
 
-- **Page Components Redesigned**:
-  - `Landing.tsx`: Clean layout with room creation/joining cards
-  - `DJRoom.tsx`: Professional streaming interface
-  - `ListenerRoom.tsx`: Audio playback with visualization
-
-- **Type Safety Improvements**:
-  - Proper Effect-TS return type handling
-  - Mediasoup types imported correctly
-  - Component prop interfaces defined
-  - Signal type annotations throughout
+- **Audio Visualization Upgrade**:
+  - `WaveformVisualizer.tsx`: Real-time oscilloscope using webaudio-oscilloscope
+  - Canvas-based rendering with proper cleanup
+  - TypeScript compatibility with CommonJS import handling
 
 ## [0.2.0] - 2025-12-06
 
