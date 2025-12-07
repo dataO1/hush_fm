@@ -2,19 +2,18 @@ import { createSignal, onMount, onCleanup, Show } from 'solid-js'
 import { useParams, useNavigate } from '@solidjs/router'
 import { Effect } from 'effect'
 import { publishRoomFlow } from '../effects/webrtc-flows'
-import { StreamStatusBadge, type StreamStatus } from '../components/shared/StreamStatusBadge'
-import { AudioLevelMeter } from '../components/shared/AudioLevelMeter'
-import { MicControls } from '../components/controls/MicControls'
+import { WaveformVisualizer } from '../components/shared/WaveformVisualizer'
+import { DeviceSelector } from '../components/controls/DeviceSelector'
+
+type StreamStatus = 'connecting' | 'live' | 'muted' | 'error'
 
 export default function DJRoom() {
   const params = useParams()
   const navigate = useNavigate()
   
   const [roomId] = createSignal(params.roomId)
-  const [roomName, setRoomName] = createSignal('')
   const [status, setStatus] = createSignal<StreamStatus>('connecting')
   const [isMuted, setIsMuted] = createSignal(false)
-  const [listenerCount] = createSignal(0)
   const [stream, setStream] = createSignal<MediaStream>()
   const [error, setError] = createSignal<string | null>(null)
   const [isInitializing, setIsInitializing] = createSignal(true)
@@ -36,20 +35,16 @@ export default function DJRoom() {
     setError(null)
 
     const program = Effect.gen(function* (_) {
-      // The publishRoomFlow handles the entire DJ workflow
-      const result = yield* _(publishRoomFlow(roomName() || `Room ${roomId()}`))
-      
+      const result = yield* _(publishRoomFlow(`Room ${roomId()}`))
       return result
     })
 
     try {
       const result = await Effect.runPromise(program)
       
-      // Store references for controls
       producer = result.producer
       transport = result.transport
       
-      // Get the audio track from the producer
       if (result.producer && result.producer.track) {
         const stream = new MediaStream([result.producer.track])
         setStream(stream)
@@ -57,23 +52,13 @@ export default function DJRoom() {
       
       setStatus('live')
       setIsInitializing(false)
-      setRoomName(`Room ${roomId()}`)
-      
-      // Set up WebSocket for listener count updates
-      setupRealtimeUpdates()
       
     } catch (err: any) {
       console.error('Failed to start streaming:', err)
-      setError(`Failed to start streaming: ${err.message}`)
+      setError(err.message)
       setStatus('error')
       setIsInitializing(false)
     }
-  }
-
-  const setupRealtimeUpdates = () => {
-    // TODO: Connect to WebSocket for real-time listener count updates
-    // This would typically connect to the room's WebSocket endpoint
-    // and listen for listener join/leave events
   }
 
   const toggleMute = async () => {
@@ -91,7 +76,7 @@ export default function DJRoom() {
       }
     } catch (err: any) {
       console.error('Failed to toggle mute:', err)
-      setError(`Failed to ${isMuted() ? 'unmute' : 'mute'}: ${err.message}`)
+      setError(err.message)
     }
   }
 
@@ -123,173 +108,71 @@ export default function DJRoom() {
   }
 
   return (
-    <div class="min-h-screen bg-gradient-to-br from-purple-50 via-blue-50 to-indigo-100">
-      {/* Header */}
-      <header class="bg-white/80 backdrop-blur-lg border-b border-white/20">
-        <div class="max-w-4xl mx-auto px-6 py-4">
-          <div class="flex items-center justify-between">
-            <div class="flex items-center gap-4">
-              <button
-                onClick={goBack}
-                class="p-2 hover:bg-gray-100 rounded-lg transition-colors"
-                title="Back to Lobby"
-              >
-                <span class="text-xl">←</span>
-              </button>
-              <div>
-                <h1 class="text-xl font-bold text-gray-800">
-                  🎤 DJ Mode
-                </h1>
-                <p class="text-sm text-gray-600">{roomName()}</p>
-              </div>
-            </div>
-            
-            <StreamStatusBadge status={status()} listenerCount={listenerCount()} />
-          </div>
-        </div>
-      </header>
-
-      {/* Main Content */}
-      <main class="max-w-4xl mx-auto px-6 py-8">
-        <Show when={error()}>
-          <div class="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg mb-6">
-            <div class="flex items-center justify-between">
-              <span>{error()}</span>
-              <button 
-                onClick={() => setError(null)}
-                class="text-red-500 hover:text-red-700"
-              >
-                ✕
-              </button>
+    <div class="min-h-screen bg-base-100 p-4">
+      <div class="max-w-md mx-auto">
+        <Show when={isInitializing()}>
+          <div class="card bg-base-200">
+            <div class="card-body text-center">
+              <div class="loading loading-spinner loading-lg mx-auto"></div>
+              <h2>Connecting...</h2>
             </div>
           </div>
         </Show>
 
-        <Show when={isInitializing()}>
-          <div class="text-center py-12">
-            <div class="bg-white/70 backdrop-blur-sm rounded-2xl p-8 border border-white/30 shadow-lg max-w-md mx-auto">
-              <div class="w-16 h-16 border-4 border-purple-500 border-t-transparent rounded-full animate-spin mx-auto mb-6"></div>
-              <h2 class="text-xl font-semibold text-gray-800 mb-2">
-                Preparing Your Stream
-              </h2>
-              <p class="text-gray-600 mb-4">
-                Setting up audio devices and connecting to the network...
-              </p>
-              <div class="text-sm text-gray-500">
-                <div class="flex items-center justify-center gap-2">
-                  <div class="w-2 h-2 bg-purple-500 rounded-full animate-pulse"></div>
-                  <span>This may take a few moments</span>
-                </div>
-              </div>
-            </div>
+        <Show when={error()}>
+          <div class="alert alert-error mb-4">
+            <span>{error()}</span>
+            <button class="btn btn-sm btn-circle" onClick={() => setError(null)}>✕</button>
           </div>
         </Show>
 
         <Show when={!isInitializing()}>
-          <div class="grid lg:grid-cols-2 gap-8">
-            {/* Left Column - Controls */}
-            <div class="space-y-6">
-              {/* Stream Controls */}
-              <div class="bg-white/70 backdrop-blur-sm rounded-2xl p-6 border border-white/30 shadow-lg">
-                <h3 class="text-lg font-semibold text-gray-800 mb-4">Stream Controls</h3>
-                
-                <div class="space-y-6">
-                  <MicControls
-                    isMuted={isMuted()}
-                    isStreaming={status() === 'live' || status() === 'muted'}
-                    onToggleMute={toggleMute}
-                    onEndStream={endStream}
-                    disabled={status() === 'error' || status() === 'connecting'}
-                  />
-
-                  <Show when={stream()}>
-                    <AudioLevelMeter stream={stream()} class="mt-4" />
-                  </Show>
+          <div class="card bg-base-200">
+            <div class="card-body">
+              <div class="flex justify-between items-center mb-4">
+                <button class="btn btn-sm btn-ghost" onClick={goBack}>←</button>
+                <div class={`badge ${
+                  status() === 'live' ? 'badge-success' :
+                  status() === 'muted' ? 'badge-warning' :
+                  status() === 'error' ? 'badge-error' :
+                  'badge-info'
+                }`}>
+                  {status().toUpperCase()}
                 </div>
               </div>
 
-              {/* Room Information */}
-              <div class="bg-white/70 backdrop-blur-sm rounded-2xl p-6 border border-white/30 shadow-lg">
-                <h3 class="text-lg font-semibold text-gray-800 mb-4">Room Information</h3>
-                
-                <div class="space-y-3">
-                  <div class="flex justify-between">
-                    <span class="text-gray-600">Room ID:</span>
-                    <span class="font-mono text-sm">{roomId()}</span>
-                  </div>
-                  <div class="flex justify-between">
-                    <span class="text-gray-600">Stream Status:</span>
-                    <span class={`font-medium ${
-                      status() === 'live' ? 'text-green-600' :
-                      status() === 'muted' ? 'text-orange-600' :
-                      status() === 'connecting' ? 'text-blue-600' :
-                      'text-red-600'
-                    }`}>
-                      {status() === 'live' ? 'Live' :
-                       status() === 'muted' ? 'Muted' :
-                       status() === 'connecting' ? 'Connecting' :
-                       'Error'}
-                    </span>
-                  </div>
-                  <div class="flex justify-between">
-                    <span class="text-gray-600">Listeners:</span>
-                    <span class="font-medium">{listenerCount()}</span>
-                  </div>
-                </div>
-              </div>
-            </div>
+              <DeviceSelector />
 
-            {/* Right Column - Visual Feedback */}
-            <div class="space-y-6">
-              {/* Audio Visualization */}
-              <div class="bg-white/70 backdrop-blur-sm rounded-2xl p-6 border border-white/30 shadow-lg">
-                <h3 class="text-lg font-semibold text-gray-800 mb-4">Audio Visualization</h3>
-                
-                <div class="bg-gradient-to-r from-purple-100 to-blue-100 rounded-xl p-6">
-                  <div class="text-center">
-                    <div class="text-6xl mb-4">
-                      {status() === 'live' ? '🎵' : 
-                       status() === 'muted' ? '🔇' :
-                       status() === 'connecting' ? '⏳' :
-                       '❌'}
-                    </div>
-                    <p class="text-gray-600">
-                      {status() === 'live' ? 'Your audio is streaming live!' :
-                       status() === 'muted' ? 'Microphone is muted' :
-                       status() === 'connecting' ? 'Connecting to stream...' :
-                       'Stream encountered an error'}
-                    </p>
-                  </div>
-                </div>
-              </div>
+              <WaveformVisualizer stream={stream()} />
 
-              {/* Tips */}
-              <div class="bg-white/70 backdrop-blur-sm rounded-2xl p-6 border border-white/30 shadow-lg">
-                <h3 class="text-lg font-semibold text-gray-800 mb-4">DJ Tips</h3>
+              <div class="flex gap-2 justify-center mt-4">
+                <button
+                  class={`btn btn-circle btn-lg ${
+                    isMuted() ? 'btn-error' : 'btn-success'
+                  }`}
+                  onClick={toggleMute}
+                  disabled={status() === 'error' || status() === 'connecting'}
+                >
+                  {isMuted() ? (
+                    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width={2} d="M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z" clip-rule="evenodd" />
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width={2} d="M17 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2" />
+                    </svg>
+                  ) : (
+                    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width={2} d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z" />
+                    </svg>
+                  )}
+                </button>
                 
-                <div class="space-y-3 text-sm text-gray-600">
-                  <div class="flex items-start gap-2">
-                    <span>🎤</span>
-                    <span>Use the mute button to pause your stream without disconnecting listeners</span>
-                  </div>
-                  <div class="flex items-start gap-2">
-                    <span>📊</span>
-                    <span>Watch the input level meter to ensure optimal audio quality</span>
-                  </div>
-                  <div class="flex items-start gap-2">
-                    <span>👥</span>
-                    <span>Keep an eye on your listener count to gauge your audience</span>
-                  </div>
-                  <div class="flex items-start gap-2">
-                    <span>🔊</span>
-                    <span>Test your audio levels before starting to broadcast</span>
-                  </div>
-                </div>
+                <button class="btn btn-error btn-sm" onClick={endStream}>
+                  End
+                </button>
               </div>
             </div>
           </div>
         </Show>
-      </main>
+      </div>
     </div>
   )
 }
