@@ -97,7 +97,59 @@ struct Room {
 Document 2: Frontend Technical Specification
 
 Target Audience: Frontend Developer
-Stack: SolidJS, Effect-TS, Mediasoup Client
+Stack: SolidJS, Effect-TS, Mediasoup Client, Orval (OpenAPI)
+
+## Frontend Architecture Overview
+
+### Reactive State Management (SolidJS)
+- **Fine-grained Reactivity**: Use SolidJS signals for primitive values, stores for complex objects
+- **No Destructuring**: Maintain reactivity by accessing store properties directly
+- **Lazy Creation**: Signals created on-demand for optimal performance
+- **Context API**: Global state sharing without props drilling
+
+### Effect-TS 3.0 Patterns
+- **Pipe-based Composition**: Linear flow programs with `pipe(Effect.succeed(), Effect.andThen())`
+- **Error Channel Operations**: Centralized error handling with recovery strategies
+- **Resource Management**: Automatic cleanup with finalizers and interruption handling
+- **Type Safety**: End-to-end type safety from backend to frontend
+
+### OpenAPI Integration
+- **Orval Client Generation**: Auto-generated TypeScript clients from backend OpenAPI spec
+- **Effect-TS Mutator**: Custom fetch wrapper for seamless Effect integration
+- **Type Validation**: Runtime validation with compile-time guarantees
+
+### WebRTC Abstraction
+- **Reactive Wrapper**: mediasoup-client wrapped with SolidJS signals
+- **Event-driven Updates**: Connection state, stats, and lifecycle events as signals
+- **Resource Lifecycle**: Proper cleanup and reconnection handling
+- **Local Network Transport**: PlainTransport for LAN deployment without ICE
+
+## Implementation Layers
+
+### 1. Generated API Layer (`src/generated/`)
+- Auto-generated from backend OpenAPI specification
+- Type-safe request/response interfaces
+- Effect-TS integration for error handling
+
+### 2. WebRTC State Layer (`src/webrtc/`)
+- Reactive mediasoup device management
+- Transport lifecycle with signal updates
+- Producer/consumer state tracking
+
+### 3. Effect Programs Layer (`src/effects/`)
+- Composable business logic flows
+- Error recovery strategies
+- Resource management
+
+### 4. Component Layer (`src/components/`)
+- Pure presentation components
+- Fine-grained reactive updates
+- Event emission to upper layers
+
+### 5. Store Layer (`src/stores/`)
+- Application state management
+- Derived signals for computed state
+- Cross-component communication
 1. DJ Workflow (The "Publish" Wizard)
 
 Program: PublishRoomFlow
@@ -159,6 +211,41 @@ const joinRoom = (roomId: string) => Effect.gen(function*(_) {
         Server: Send PauseStream command (Notifies listeners).
 
         Note: Do not close the producer/transport until the room is destroyed.
+
+## Transport Architecture
+
+### PlainTransport for Local Networks
+
+HushFM is designed for controlled local network environments (WiFi/LAN), eliminating the need for complex ICE negotiation:
+
+- **PlainTransport**: mediasoup transport optimized for local networks
+- **No ICE Required**: Direct connection without STUN/TURN servers
+- **SRTP Encryption**: Maintains security without ICE complexity
+- **Immediate Connection**: Transport becomes "connected" immediately after connect() call
+- **Simplified Deployment**: No external infrastructure dependencies
+
+### Transport Selection Logic
+
+```rust
+// Backend: Use PlainTransport for local network deployment
+router.create_plain_transport(PlainTransportOptions {
+    listen_ip: "0.0.0.0".parse().unwrap(),
+    port: None, // Auto-assign
+    srtp_crypto_suite: Some(SrtpCryptoSuite::AesCm128HmacSha180),
+    enable_srtp: true,
+    enable_rtcp: true,
+})
+```
+
+```typescript
+// Frontend: Connect to PlainTransport without ICE
+const transport = device.createSendTransport({
+    id: transportOptions.id,
+    iceParameters: undefined, // No ICE for PlainTransport
+    iceCandidates: [],
+    dtlsParameters: transportOptions.dtlsParameters,
+})
+```
 
 4. Visualizer & Status
 

@@ -67,7 +67,7 @@ export const subscribeToMessages = <T>(
       }
     }
     
-    ws.onerror = (event) => {
+    ws.onerror = (_) => {
       onError?.(new Error('WebSocket error'))
     }
   })

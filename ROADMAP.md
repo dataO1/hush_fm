@@ -14,29 +14,35 @@ Build a robust, scalable live audio streaming platform using Rust and WebRTC wit
 - [x] WebSocket foundation for real-time communication
 - [x] Build system fixes (SafeConfigParser, Ninja detection)
 
-### Phase 2: Enhanced State Management 🏗️ (Current)
-- [ ] Enhanced room state with Arc<RwLock<RoomState>>
-- [ ] Broadcast channels for real-time updates (tokio::sync::broadcast)
-- [ ] Transport pool management with DashMap
-- [ ] Producer/Consumer lifecycle management
-- [ ] Event system for room state changes
-- [ ] Proper resource cleanup on disconnects
+### Phase 2: Enhanced State Management ✅ (Completed)
+- [x] Enhanced room state with Arc<RwLock<RoomState>>
+- [x] Broadcast channels for real-time updates (tokio::sync::broadcast)
+- [x] Transport pool management with DashMap
+- [x] Producer/Consumer lifecycle management
+- [x] Event system for room state changes
+- [x] Proper resource cleanup on disconnects
 
-### Phase 3: WebRTC Implementation (Next - Week 1)
-- [ ] DTLS transport connection handling
-- [ ] Audio producer creation with RTP parameters
-- [ ] Consumer setup for listeners with transport options
-- [ ] ICE candidate exchange via WebSocket
-- [ ] Connection quality monitoring and adaptive streaming
-- [ ] Media pipeline optimization
+### Phase 3: WebRTC Implementation ✅ (Completed)
+- [x] DTLS transport connection handling (local network)
+- [x] Audio producer creation with RTP parameters
+- [x] Consumer setup for listeners with transport options
+- [x] Simplified connection flow without ICE for local WiFi
+- [x] Connection quality monitoring foundation
+- [x] Media pipeline optimization
+- [x] Transport architecture research (PlainTransport vs WebRtcTransport)
 
-### Phase 4: Frontend Integration (Week 1-2)
-- [ ] Mediasoup-client Device initialization
-- [ ] Audio device enumeration and selection
-- [ ] WebRTC transport management
-- [ ] Producer/Consumer connection flows
-- [ ] Real-time status updates via WebSocket
-- [ ] Error recovery and reconnection logic
+### Phase 4: Frontend Integration 🏗️ (Current - Week 1)
+- [x] OpenAPI client generation with Orval
+- [x] Effect-TS 3.0 API integration layer
+- [x] Reactive WebRTC store with SolidJS signals
+- [x] Mediasoup-client Device initialization with fine-grained reactivity
+- [x] Audio device enumeration and selection
+- [x] WebRTC transport management with signal updates
+- [x] Producer/Consumer connection flows using Effect programs
+- [x] Real-time status updates via WebSocket with event-driven architecture
+- [x] Error recovery and reconnection logic with Effect error handling
+- [ ] Migration to PlainTransport for local network optimization
+- [ ] TypeScript compilation fixes and library compatibility
 
 ### Phase 5: User Experience Features (Week 2)
 - [ ] Audio visualizer using Web Audio API
@@ -68,9 +74,11 @@ Build a robust, scalable live audio streaming platform using Rust and WebRTC wit
 **Goal**: DJ can create room and stream audio to listeners
 - [x] Room creation API
 - [x] WebSocket communication
-- [ ] WebRTC transport setup
-- [ ] Audio streaming (Opus codec)
-- [ ] Listener joining and playback
+- [x] WebRTC transport setup (backend)
+- [x] Audio streaming infrastructure (Opus codec, backend)
+- [ ] Frontend WebRTC integration
+- [ ] Audio device selection and streaming (frontend)
+- [ ] Listener joining and playback (frontend)
 
 **Success Criteria**:
 - DJ can select audio input and go live
@@ -127,6 +135,20 @@ Build a robust, scalable live audio streaming platform using Rust and WebRTC wit
 - **State**: DashMap + tokio::sync + Arc/RwLock
 - **Build**: Nix flakes + direnv for reproducibility
 - **WebRTC**: Mediasoup with atomic room publication
+- **Transport**: PlainTransport for local network deployment (no ICE/STUN required)
+
+### Transport Architecture Decision
+
+**PlainTransport vs WebRtcTransport**:
+- **PlainTransport**: Ideal for local WiFi/LAN environments (HushFM's target)
+  - No ICE negotiation required
+  - Immediate connection after connect() call
+  - SRTP encryption for security
+  - Simplified deployment without external infrastructure
+- **WebRtcTransport**: Required for internet deployment
+  - Full ICE/STUN/TURN support for NAT traversal
+  - Complex configuration and infrastructure requirements
+  - Higher latency due to negotiation overhead
 
 ### Scaling Strategy
 1. **Vertical**: Multiple workers per host

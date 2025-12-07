@@ -1,4 +1,4 @@
-import { createSignal, createEffect, onCleanup } from 'solid-js'
+import { createSignal, createEffect } from 'solid-js'
 import { useParams, useNavigate } from '@solidjs/router'
 import { Effect } from 'effect'
 import * as Api from '../api/client'
@@ -12,7 +12,7 @@ export default function ListenerRoom() {
   const [playing, setPlaying] = createSignal(false)
   const [waiting, setWaiting] = createSignal(true)
   const [error, setError] = createSignal<string | null>(null)
-  const [roomName, setRoomName] = createSignal('')
+  // const [roomName] = createSignal('') // Unused for now
 
   // Join room effect
   createEffect(async () => {

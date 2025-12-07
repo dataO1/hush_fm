@@ -8,6 +8,40 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- PlainTransport architecture research and documentation
+- Transport selection strategy for local vs internet deployment
+- Comprehensive TypeScript compilation fixes
+- Effect-TS 3.11 API compatibility improvements
+- Mediasoup-client v3 import path corrections
+
+### Fixed
+- All TypeScript compilation errors resolved (60+ → 0)
+- Mediasoup-client import paths (removed `/lib/types`)
+- Effect-TS API usage patterns for v3.11 compatibility
+- SolidJS reactivity patterns and signal management
+- WebSocket signaling manager type safety
+- Queue and Ref initialization with proper Effect wrappers
+- Consumer/Producer event handler signatures
+- Transport manager ICE parameter requirements
+- Unused import and variable cleanup
+
+### Changed
+- Documented PlainTransport decision for local network deployment
+- Updated README.md with transport architecture section
+- Enhanced ROADMAP.md with PlainTransport migration plan
+- Improved error handling patterns across WebRTC managers
+
+### Technical Details
+- **PlainTransport Discovery**: No ICE negotiation required for local WiFi
+- **SRTP Security**: Maintains encryption without ICE complexity  
+- **Immediate Connection**: Transport becomes "connected" after connect() call
+- **Simplified Infrastructure**: No STUN/TURN servers needed
+- **Effect-TS Fixes**: Proper pipe/andThen usage, Queue.unbounded wrapping
+- **Type Safety**: All TypeScript strict mode compliance achieved
+
+## [0.2.0] - 2025-12-06
+
+### Added
 - Initial project structure with Rust backend and SolidJS frontend
 - Nix flake for reproducible development environment with Python 3.11
 - Axum web framework with WebSocket support for real-time communication
