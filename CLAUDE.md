@@ -92,3 +92,81 @@ This is currently a blank slate for the rust-rewrite branch. The technical speci
 - Implement proper error boundaries with Effect error handling
 - Use Context API for global state sharing
 - Keep UI components pure (presentation only)
+- use internal events and endpoints for the asyncapi specification but make sure to follow the following guidelines: Rule 1: Use Stable Serialization
+
+Bad (leaks Rust internals):
+
+rust
+pub struct Room {
+    pub id: Uuid, // Serializes to complex object in some formats
+    pub created_at: DateTime<Utc>, // RFC3339 string
+}
+
+Good (stable JSON representation):
+
+rust
+#[derive(Serialize, Deserialize, JsonSchema)]
+pub struct Room {
+    #[serde(serialize_with = "serialize_uuid_as_string")]
+    #[schemars(with = "String")] // AsyncAPI sees "string", not object
+    pub id: Uuid,
+    
+    #[serde(rename = "createdAt")] // camelCase for frontend
+    pub created_at: String, // Pre-format as ISO8601
+}
+
+Rule 2: Mark Internal Fields
+
+Use #[serde(skip)] for things clients shouldn't see:
+
+rust
+pub struct Room {
+    pub id: Uuid,
+    pub name: String,
+    pub listener_count: usize,
+    
+    // Hidden from AsyncAPI
+    #[serde(skip)]
+    #[schemars(skip)]
+    pub(crate) router: Router, // Mediasoup router (internal)
+    
+    #[serde(skip)]
+    pub(crate) listeners: DashMap<String, Listener>, // Full state
+}
+
+Rule 3: Separate Read/Write Models (CQRS-lite)
+
+For complex entities, use different types for commands vs. events:
+
+rust
+// Command (client → server)
+#[derive(Deserialize, JsonSchema)]
+pub struct CreateRoomCommand {
+    pub name: String,
+    // Only fields client can set
+}
+
+// Event (server → client)
+#[derive(Serialize, JsonSchema)]
+pub struct RoomCreatedEvent {
+    pub room_id: String,
+    pub name: String,
+    pub dj_name: String,
+    pub created_at: String,
+    // Full read model
+}
+
+// Internal domain
+struct Room {
+    // Can have 50 fields, clients don't see them
+}
+
+Rule 4: Version at the Message Level
+
+Instead of API v1/v2, version messages:
+
+rust
+#[derive(Serialize, Deserialize, JsonSchema)]
+#[serde(tag = "type")]
+pub enum ClientMessage {
+    JoinRoom { room_id: String },

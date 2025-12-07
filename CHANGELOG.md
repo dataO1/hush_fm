@@ -7,6 +7,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **AsyncAPI 3.0 WebSocket Specification**
+  - Manual AsyncAPI spec generation using schemars for type safety
+  - Clean API models layer separate from internal business models
+  - JSON schema generation from Rust types for frontend compatibility
+  - State machine documentation with interactive Mermaid diagrams
+  - Comprehensive WebSocket event documentation with examples
+
+### Architecture Decisions
+- **AsyncAPI Implementation Strategy (December 2025)**
+  - Rejected asyncapi Rust crate due to API limitations and missing types
+  - Manual spec generation provides better control and frontend compatibility
+  - Use of schemars ensures type consistency between backend schemas and Rust types
+  - AsyncAPI 3.0 for compatibility with latest frontend generation tools (@asyncapi/modelina)
+
+### Technical Implementation
+- **Unified Models Architecture** (`src/models/`):
+  - Single source of truth for all data models across REST API, WebSocket, and internal logic
+  - Eliminated duplicate `Room` vs `RoomInfo` models for simplified maintenance
+  - Clean serialization with `#[serde(skip)]` for internal-only fields
+  - ISO8601 datetime handling with custom serde module
+  - Full compatibility with both AsyncAPI (schemars) and OpenAPI (utoipa) generation
+
+- **AsyncAPI Endpoints**:
+  - `/asyncapi.json` - Machine-readable spec for client generation
+  - `/asyncapi.yaml` - Human-readable spec for documentation
+  - Visual state machine documentation with Mermaid diagrams
+
+- **Event Broadcasting**:
+  - Unified `LobbyEvent` enum for all room state changes (Added, Updated, Removed)
+  - Consistent event structure across WebSocket and broadcast systems
+  - Proper trace context support for distributed tracing
+
 ## [0.3.1] - 2025-12-07
 
 ### Fixed

@@ -59,6 +59,11 @@ Build a robust, scalable live audio streaming platform using Rust and WebRTC wit
 - [ ] Hot-swappable audio input devices
 
 ### Phase 6: Backend Integration 🏗️ (Current - Week 3)
+- [x] AsyncAPI 3.0 WebSocket specification with auto-generation
+- [x] Clean API models layer with CQRS-lite pattern
+- [x] JSON schema generation from Rust types using schemars
+- [x] State machine documentation with visualization
+- [x] Unified models architecture - single source of truth
 - [ ] WebSocket real-time communication implementation
 - [ ] Complete WebRTC flow integration (publish/join)
 - [ ] Room state synchronization between frontend and backend
@@ -157,12 +162,13 @@ Build a robust, scalable live audio streaming platform using Rust and WebRTC wit
 ## 🔧 Technical Architecture
 
 ### Current Stack
-- **Backend**: Rust + Axum + Mediasoup + OpenAPI
-- **Frontend**: SolidJS + Effect-TS + Mediasoup Client
+- **Backend**: Rust + Axum + Mediasoup + OpenAPI + AsyncAPI 3.0
+- **Frontend**: SolidJS + Effect-TS + Mediasoup Client + Auto-generated clients
 - **State**: DashMap + tokio::sync + Arc/RwLock
 - **Build**: Nix flakes + direnv for reproducibility
 - **WebRTC**: Mediasoup with atomic room publication
 - **Transport**: WebRTC optimized for local network deployment (no STUN/TURN required)
+- **API Generation**: schemars for JSON schemas, Orval for REST, Modelina for WebSocket
 
 ### Transport Architecture Decision
 
@@ -176,6 +182,22 @@ Build a robust, scalable live audio streaming platform using Rust and WebRTC wit
   - PlainTransport is for server-to-server communication only
   - Local optimization provides best performance for WiFi environments
   - Simplified deployment without external infrastructure dependencies
+
+### API Architecture Strategy
+
+**AsyncAPI 3.0 WebSocket Specification**:
+- **Schema Generation**: Use schemars to generate JSON schemas from Rust types
+  - Ensures type safety and consistency between backend and frontend
+  - Automatic API documentation and validation
+  - Schema evolution tracking with version control
+- **Client Generation**: Auto-generate TypeScript clients using @asyncapi/modelina
+  - Effect-TS patterns for composable WebSocket interactions
+  - Type-safe event handling with compile-time guarantees
+  - Centralized error recovery and reconnection logic
+- **Clean API Layer**: Separate internal models from external API contracts
+  - CQRS-lite pattern with read/write model separation
+  - Stable serialization with camelCase and string UUIDs
+  - Trace context support for distributed tracing
 
 ### Scaling Strategy
 1. **Vertical**: Multiple workers per host
@@ -202,6 +224,53 @@ Build a robust, scalable live audio streaming platform using Rust and WebRTC wit
 - **Join Latency**: <5 seconds from click to audio
 - **Connection Stability**: <1% dropped connections
 - **Cross-Platform**: Support all modern browsers
+
+## 🔧 API Architecture Decisions
+
+### AsyncAPI Implementation (December 2025)
+
+**Decision**: Manual AsyncAPI 3.0 spec generation instead of asyncapi Rust crate
+
+**Rationale**:
+- The asyncapi Rust crate had significant limitations and API inconsistencies
+- Missing types (Payload, OperationType) and mismatched field signatures
+- Manual generation provides full control over spec structure and compatibility
+- Better alignment with frontend auto-generation tools (@asyncapi/modelina)
+
+**Implementation**:
+- Use schemars to generate JSON schemas from Rust API models
+- Build AsyncAPI spec using serde_json::json! macro for full control
+- Clean API models layer separate from internal business models
+- Stable serialization patterns (camelCase, string UUIDs, ISO dates)
+- Comprehensive state machine documentation with Mermaid diagrams
+
+**Benefits**:
+- Type safety through schema generation from actual Rust types
+- Frontend compatibility with latest AsyncAPI tooling (2025)
+- Clean separation between API contracts and internal models
+- Future-proof schema evolution and versioning
+- Full traceability from backend types to frontend generated code
+
+### Unified Models Architecture (December 2025)
+
+**Decision**: Eliminate duplicate models and use single source of truth
+
+**Problem**: 
+- Duplicate `Room` vs `RoomInfo` models causing maintenance overhead
+- Inconsistent API contracts between REST and WebSocket endpoints
+- Type mismatches between internal logic and external API
+
+**Solution**:
+- Single `Room` model in `models/schemas.rs` serves all purposes
+- Clean serialization with `#[serde(skip)]` for internal fields
+- Proper camelCase transformation for frontend compatibility
+- ISO8601 datetime serialization with custom serde module
+
+**Result**:
+- Single source of truth across REST API, WebSocket events, and internal logic
+- Consistent type contracts between all API endpoints
+- Simplified maintenance with no duplicate model definitions
+- Full compatibility with both AsyncAPI and OpenAPI generation
 
 ## 🎯 Future Enhancements
 

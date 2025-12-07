@@ -173,6 +173,8 @@ Stack: SolidJS, Effect-TS, Mediasoup Client, Orval (OpenAPI)
 ### 🚧 Backend Integration
 - WebRTC flows defined and implemented
 - API client integration ready
+- AsyncAPI 3.0 WebSocket specification complete with auto-generation
+- Unified models architecture with single source of truth
 - Real-time WebSocket communication pending
 1. DJ Workflow (The "Publish" Wizard)
 
