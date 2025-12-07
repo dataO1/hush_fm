@@ -3,6 +3,7 @@ import { useNavigate } from '@solidjs/router'
 import { Effect } from 'effect'
 import { listRooms, createRoom } from '../effects/api'
 import { useSignaling, useRooms } from '../providers/AppProviders'
+import { convertApiRoomsEffect } from '../models/websocket'
 
 export default function Landing() {
   const navigate = useNavigate()
@@ -13,15 +14,12 @@ export default function Landing() {
 
   // Use createResource for async room loading
   const [rooms] = createResource(async () => {
-    const program = Effect.gen(function* (_) {
-      const roomList = yield* _(listRooms())
-      return roomList
-    })
+    const program = convertApiRoomsEffect(listRooms())
 
     try {
       const result = await Effect.runPromise(program)
 
-      // Update signaling store with initial rooms
+      // Update signaling store with converted WebSocket rooms
       signaling.setState({ rooms: result })
 
       return result
@@ -53,13 +51,16 @@ export default function Landing() {
     setError(null)
 
     const program = Effect.gen(function* (_) {
-      const result = yield* _(createRoom({ name: roomName().trim() }))
+      const result = yield* _(createRoom({ 
+        name: roomName().trim(),
+        djName: `DJ ${Date.now()}`  // Generate a simple DJ name
+      }))
       return result
     })
 
     try {
       const result = await Effect.runPromise(program)
-      navigate(`/dj/${result.room_id}`)
+      navigate(`/dj/${result.room.id}`)
     } catch (err: any) {
       setError(err.message)
     } finally {
@@ -123,11 +124,11 @@ export default function Landing() {
                             <div>
                               <div class="font-medium">{room.name}</div>
                               <div class="text-sm text-base-content/60">
-                                {room.listener_count} listeners
+                                {room.listenerCount} listeners
                               </div>
                             </div>
                             <div class="flex items-center gap-2">
-                              {room.dj_streaming && (
+                              {room.isStreaming && (
                                 <div class="badge badge-success">LIVE</div>
                               )}
                               <button

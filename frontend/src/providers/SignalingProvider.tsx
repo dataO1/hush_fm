@@ -2,11 +2,11 @@ import { createContext, useContext, ParentComponent, createSignal, createEffect,
 import { createStore } from 'solid-js/store'
 import { Effect, pipe, Ref, Queue } from 'effect'
 import { connectWebSocket, subscribeToMessages } from '../ws/client'
-import type { DJMessage, ServerMessage, BroadcastMessage } from '../ws/client'
-import type { Room } from '../generated/api.schemas'
+import type { ClientCommand, ServerEvent, LobbyEvent } from '../models/websocket'
+import type { Room } from '../models/websocket'
 
 // Re-export message types for external use
-export type { DJMessage, ServerMessage, BroadcastMessage }
+export type { ClientCommand, ServerEvent, LobbyEvent }
 
 /**
  * WebSocket connection state
@@ -14,12 +14,12 @@ export type { DJMessage, ServerMessage, BroadcastMessage }
 export type WSConnectionState = 'disconnected' | 'connecting' | 'connected' | 'error' | 'reconnecting'
 
 /**
- * Signaling message types for different event channels (from signaling-manager.ts)
+ * Signaling message types for different event channels
  */
 export type SignalingMessage =
-  | { channel: 'room'; roomId: string; data: DJMessage }
-  | { channel: 'lobby'; data: BroadcastMessage }
-  | { channel: 'system'; data: ServerMessage }
+  | { channel: 'room'; roomId: string; data: ClientCommand }
+  | { channel: 'lobby'; data: LobbyEvent }
+  | { channel: 'system'; data: ServerEvent }
 
 /**
  * Signaling store state
@@ -38,8 +38,8 @@ export type SignalingStore = {
   currentRoomId: string | null
 
   // Message history
-  serverMessages: ServerMessage[]
-  broadcastMessages: BroadcastMessage[]
+  serverMessages: ServerEvent[]
+  lobbyMessages: LobbyEvent[]
 
   // Error tracking
   connectionErrors: string[]
@@ -50,9 +50,9 @@ export type SignalingStore = {
  * Signaling event handlers
  */
 export type SignalingEventHandlers = {
-  onRoomUpdate?: (roomId: string, message: ServerMessage) => void
-  onLobbyUpdate?: (message: BroadcastMessage) => void
-  onSystemMessage?: (message: ServerMessage) => void
+  onRoomUpdate?: (roomId: string, message: ServerEvent) => void
+  onLobbyUpdate?: (message: LobbyEvent) => void
+  onSystemMessage?: (message: ServerEvent) => void
   onConnectionChange?: (state: WSConnectionState) => void
   onError?: (error: Error) => void
 }
@@ -74,8 +74,8 @@ export type SignalingContextType = {
   unsubscribeFromRoom: (roomId: string) => void
 
   // Message sending with queueing
-  sendDJMessage: (roomId: string, message: DJMessage) => Promise<void>
-  sendLobbyMessage: (message: BroadcastMessage) => Promise<void>
+  sendCommand: (roomId: string, message: ClientCommand) => Promise<void>
+  sendLobbyMessage: (message: LobbyEvent) => Promise<void>
 
   // Event handlers
   setEventHandlers: (handlers: SignalingEventHandlers) => void
@@ -86,7 +86,7 @@ export type SignalingContextType = {
 
   // Real-time subscriptions
   subscribeToRoomUpdates: (callback: (room: Room) => void) => () => void
-  subscribeToServerMessages: (callback: (message: ServerMessage) => void) => () => void
+  subscribeToServerMessages: (callback: (message: ServerEvent) => void) => () => void
 }
 
 const SignalingContext = createContext<SignalingContextType>()
@@ -105,15 +105,19 @@ export const SignalingProvider: ParentComponent = (props) => {
     rooms: [],
     currentRoomId: null,
     serverMessages: [],
-    broadcastMessages: [],
+    lobbyMessages: [],
     connectionErrors: [],
     lastReconnectAttempt: null
   })
 
   // Effect-based WebSocket references (migrated from SignalingManager)
-  const [lobbyWSRef, setLobbyWSRef] = createSignal<WebSocket | null>(null)
-  const [roomWSRef, setRoomWSRef] = createSignal<WebSocket | null>(null)
-  const [messageQueue, setMessageQueue] = Queue.unbounded<SignalingMessage>()
+  const [lobbyWSRef] = createSignal<WebSocket | null>(null)
+  const [roomWSRef] = createSignal<WebSocket | null>(null)
+  
+  // Effect Refs for WebSocket connections
+  const [lobbyWSEffectRef, setLobbyWSEffectRef] = createSignal<Ref.Ref<WebSocket | null> | null>(null)
+  const [roomWSEffectRef, setRoomWSEffectRef] = createSignal<Ref.Ref<WebSocket | null> | null>(null)
+  const [messageQueue, setMessageQueue] = createSignal<Queue.Queue<SignalingMessage> | null>(null)
 
   // Advanced state for reconnection and queueing
   const [connectedRooms, setConnectedRooms] = createSignal<Set<string>>(new Set())
@@ -124,7 +128,26 @@ export const SignalingProvider: ParentComponent = (props) => {
 
   // Message subscribers
   const [roomUpdateSubscribers, setRoomUpdateSubscribers] = createSignal<((room: Room) => void)[]>([])
-  const [serverMessageSubscribers, setServerMessageSubscribers] = createSignal<((message: ServerMessage) => void)[]>([])
+  const [serverMessageSubscribers, setServerMessageSubscribers] = createSignal<((message: ServerEvent) => void)[]>([])
+
+  // Initialize Effect Refs and message queue asynchronously
+  createEffect(() => {
+    if (!lobbyWSEffectRef()) {
+      Effect.runPromise(Ref.make<WebSocket | null>(null))
+        .then(ref => setLobbyWSEffectRef(ref))
+        .catch(err => console.error('Failed to create lobby WebSocket ref:', err))
+    }
+    if (!roomWSEffectRef()) {
+      Effect.runPromise(Ref.make<WebSocket | null>(null))
+        .then(ref => setRoomWSEffectRef(ref))
+        .catch(err => console.error('Failed to create room WebSocket ref:', err))
+    }
+    if (!messageQueue()) {
+      Effect.runPromise(Queue.unbounded<SignalingMessage>())
+        .then(queue => setMessageQueue(queue))
+        .catch(err => console.error('Failed to create message queue:', err))
+    }
+  })
 
   // Connection state change effect
   createEffect(() => {
@@ -142,9 +165,12 @@ export const SignalingProvider: ParentComponent = (props) => {
         setState(isLobby ? 'lobbyConnectionState' : 'roomConnectionState', 'connecting')
         return connectWebSocket(url)
       }),
-      Effect.andThen((ws) =>
-        pipe(
-          Ref.set(isLobby ? lobbyWSRef : roomWSRef, ws),
+      Effect.andThen((ws) => {
+        const wsRef = isLobby ? lobbyWSEffectRef() : roomWSEffectRef()
+        if (!wsRef) return Effect.fail(new Error('WebSocket ref not initialized'))
+        
+        return pipe(
+          Ref.set(wsRef, ws),
           Effect.andThen(() => setupWebSocketHandlers(ws, isLobby)),
           Effect.andThen(() => {
             setState(isLobby ? 'lobbyConnectionState' : 'roomConnectionState', 'connected')
@@ -153,7 +179,7 @@ export const SignalingProvider: ParentComponent = (props) => {
             return processQueuedMessages()
           })
         )
-      ),
+      }),
       Effect.catchAll((error) =>
         pipe(
           Effect.logError(`WebSocket connection failed: ${error.message}`),
@@ -216,7 +242,12 @@ export const SignalingProvider: ParentComponent = (props) => {
             setState(isLobby ? 'lobbyConnectionState' : 'roomConnectionState', 'disconnected')
             setState(isLobby ? 'lobbyWS' : 'roomWS', null)
             if (!isLobby) setState('currentRoomId', null)
-            Effect.runSync(Ref.set(isLobby ? lobbyWSRef : roomWSRef, null))
+            
+            // Clear the Effect ref asynchronously
+            const wsRef = isLobby ? lobbyWSEffectRef() : roomWSEffectRef()
+            if (wsRef) {
+              Effect.runPromise(Ref.set(wsRef, null)).catch(console.error)
+            }
           }
         })
       )
@@ -229,34 +260,34 @@ export const SignalingProvider: ParentComponent = (props) => {
     try {
       if (isLobby) {
         // Handle lobby broadcast messages
-        const broadcastMessage = message as BroadcastMessage
-        setState('broadcastMessages', prev => [...prev, broadcastMessage])
+        const lobbyMessage = message as LobbyEvent
+        setState('lobbyMessages', prev => [...prev, lobbyMessage])
 
-        switch (broadcastMessage.type) {
-          case 'RoomAdded':
-            if (broadcastMessage.room) {
-              setState('rooms', prev => [...prev, broadcastMessage.room!])
-              roomUpdateSubscribers().forEach(callback => callback(broadcastMessage.room!))
+        switch (lobbyMessage.type) {
+          case 'roomAdded':
+            if (lobbyMessage.room) {
+              setState('rooms', prev => [...prev, lobbyMessage.room!])
+              roomUpdateSubscribers().forEach(callback => callback(lobbyMessage.room!))
             }
             break
-          case 'RoomUpdated':
-            if (broadcastMessage.room) {
+          case 'roomUpdated':
+            if (lobbyMessage.room) {
               setState('rooms', prev => prev.map(r =>
-                r.id === broadcastMessage.room!.id ? broadcastMessage.room! : r
+                r.id === lobbyMessage.room!.id ? lobbyMessage.room! : r
               ))
-              roomUpdateSubscribers().forEach(callback => callback(broadcastMessage.room!))
+              roomUpdateSubscribers().forEach(callback => callback(lobbyMessage.room!))
             }
             break
-          case 'RoomRemoved':
-            if (broadcastMessage.room_id) {
-              setState('rooms', prev => prev.filter(r => r.id !== broadcastMessage.room_id))
+          case 'roomRemoved':
+            if (lobbyMessage.roomId) {
+              setState('rooms', prev => prev.filter(r => r.id !== lobbyMessage.roomId))
             }
             break
         }
-        eventHandlers().onLobbyUpdate?.(broadcastMessage)
+        eventHandlers().onLobbyUpdate?.(lobbyMessage)
       } else {
         // Handle room-specific messages
-        const serverMessage = message as ServerMessage
+        const serverMessage = message as ServerEvent
         setState('serverMessages', prev => [...prev, serverMessage])
         serverMessageSubscribers().forEach(callback => callback(serverMessage))
 
@@ -327,18 +358,23 @@ export const SignalingProvider: ParentComponent = (props) => {
   /**
    * Effect-based message sending (migrated from SignalingManager)
    */
-  const sendMessage = (message: SignalingMessage): Effect.Effect<void, Error> =>
-    pipe(
-      Ref.get(message.channel === 'lobby' ? lobbyWSRef : roomWSRef),
+  const sendMessage = (message: SignalingMessage): Effect.Effect<void, Error> => {
+    const wsRef = message.channel === 'lobby' ? lobbyWSEffectRef() : roomWSEffectRef()
+    if (!wsRef) return Effect.fail(new Error('WebSocket ref not initialized'))
+    
+    return pipe(
+      Ref.get(wsRef),
       Effect.andThen((ws) => {
         if (ws && ws.readyState === WebSocket.OPEN) {
           return sendMessageDirect(ws, message)
         } else {
           // Queue message for later delivery
-          return Queue.offer(messageQueue, message)
+          const queue = messageQueue()
+          return queue ? Queue.offer(queue, message) : Effect.void
         }
       })
     )
+  }
 
   /**
    * Send message directly to WebSocket (migrated from SignalingManager)
@@ -360,16 +396,16 @@ export const SignalingProvider: ParentComponent = (props) => {
     )
 
   /**
-   * Send DJ message to room WebSocket with queueing
+   * Send client command to room WebSocket with queueing
    */
-  const sendDJMessage = async (roomId: string, message: DJMessage): Promise<void> => {
+  const sendCommand = async (roomId: string, message: ClientCommand): Promise<void> => {
     const signalingMessage: SignalingMessage = { channel: 'room', roomId, data: message }
     const program = sendMessage(signalingMessage)
 
     try {
       await Effect.runPromise(program)
     } catch (error) {
-      console.error('Failed to send DJ message:', error)
+      console.error('Failed to send client command:', error)
       throw error
     }
   }
@@ -377,7 +413,7 @@ export const SignalingProvider: ParentComponent = (props) => {
   /**
    * Send lobby broadcast message
    */
-  const sendLobbyMessage = async (message: BroadcastMessage): Promise<void> => {
+  const sendLobbyMessage = async (message: LobbyEvent): Promise<void> => {
     const signalingMessage: SignalingMessage = { channel: 'lobby', data: message }
     const program = sendMessage(signalingMessage)
 
@@ -412,13 +448,18 @@ export const SignalingProvider: ParentComponent = (props) => {
   const processQueuedMessages = (): Effect.Effect<void, never> =>
     pipe(
       Effect.logInfo('Processing queued messages'),
-      Effect.andThen(() =>
-        Effect.async<void, never>((resume) => {
+      Effect.andThen(() => {
+        const queue = messageQueue()
+        if (!queue) return Effect.void
+        
+        return Effect.async<void, never>((resume) => {
           const processNext = () => {
-            Queue.take(messageQueue).pipe(
+            Queue.take(queue).pipe(
               Effect.andThen((message) => {
-                const wsRef = message.channel === 'lobby' ? lobbyWSRef : roomWSRef
-                return Ref.get(wsRef).pipe(
+                const effectRef = message.channel === 'lobby' ? lobbyWSEffectRef() : roomWSEffectRef()
+                if (!effectRef) return Effect.void
+                
+                return Ref.get(effectRef).pipe(
                   Effect.andThen((ws) => {
                     if (ws) {
                       return sendMessageDirect(ws, message)
@@ -429,27 +470,39 @@ export const SignalingProvider: ParentComponent = (props) => {
               }),
               Effect.catchAll(() => Effect.void),
               Effect.andThen(() => {
-                const queueSizeEffect = Queue.size(messageQueue)
-                const queueSize = Effect.runSync(queueSizeEffect)
-                if (queueSize > 0) {
-                  processNext()
-                } else {
-                  resume(Effect.void)
-                }
+                Queue.size(queue).pipe(
+                  Effect.andThen((queueSize) => {
+                    if (queueSize > 0) {
+                      processNext()
+                    } else {
+                      resume(Effect.void)
+                    }
+                    return Effect.void
+                  }),
+                  Effect.runPromise
+                )
               }),
-              Effect.runSync
-            )
+              Effect.runPromise
+            ).catch(() => {
+              resume(Effect.void)
+            })
           }
 
-          const queueSizeEffect = Queue.size(messageQueue)
-          const queueSize = Effect.runSync(queueSizeEffect)
-          if (queueSize > 0) {
-            processNext()
-          } else {
+          Queue.size(queue).pipe(
+            Effect.andThen((queueSize) => {
+              if (queueSize > 0) {
+                processNext()
+              } else {
+                resume(Effect.void)
+              }
+              return Effect.void
+            }),
+            Effect.runPromise
+          ).catch(() => {
             resume(Effect.void)
-          }
+          })
         })
-      )
+      })
     )
 
   /**
@@ -501,7 +554,7 @@ export const SignalingProvider: ParentComponent = (props) => {
   /**
    * Subscribe to server messages
    */
-  const subscribeToServerMessages = (callback: (message: ServerMessage) => void): (() => void) => {
+  const subscribeToServerMessages = (callback: (message: ServerEvent) => void): (() => void) => {
     setServerMessageSubscribers(prev => [...prev, callback])
 
     // Return unsubscribe function
@@ -523,7 +576,7 @@ export const SignalingProvider: ParentComponent = (props) => {
     disconnect,
     subscribeToRoom,
     unsubscribeFromRoom,
-    sendDJMessage,
+    sendCommand,
     sendLobbyMessage,
     setEventHandlers,
     getConnectionState,

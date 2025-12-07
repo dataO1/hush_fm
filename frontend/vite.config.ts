@@ -12,6 +12,13 @@ export default defineConfig({
   server: {
     port: 5173,
     host: true,
+    proxy: {
+      '/api': {
+        target: 'http://localhost:3000',  // ✅ Backend API
+        changeOrigin: true,
+        secure: false
+      }
+    }
   },
   build: {
     target: 'esnext',

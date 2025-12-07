@@ -1,23 +1,8 @@
 import { Effect } from 'effect'
+import type { ClientCommand, ServerEvent, LobbyEvent, WebSocketMessage } from '../models/websocket'
 
-export interface DJMessage {
-  type: 'ConnectTransport' | 'Produce' | 'StopProducing' | 'DeleteRoom'
-  dtls_parameters?: any
-  rtp_parameters?: any
-}
-
-export interface ServerMessage {
-  type: 'ProducerCreated' | 'RoomDeleted' | 'ListenerJoined' | 'ListenerLeft' | 'Error'
-  producer_id?: string
-  count?: number
-  message?: string
-}
-
-export interface BroadcastMessage {
-  type: 'RoomAdded' | 'RoomUpdated' | 'RoomRemoved'
-  room?: any
-  room_id?: string
-}
+// Re-export types
+export type { ClientCommand, ServerEvent, LobbyEvent, WebSocketMessage }
 
 class WebSocketError extends Error {
   constructor(message: string) {
@@ -43,7 +28,7 @@ export const connectWebSocket = (url: string): Effect.Effect<WebSocket, WebSocke
     })
   })
 
-export const sendMessage = (ws: WebSocket, message: DJMessage): Effect.Effect<void, WebSocketError> =>
+export const sendMessage = (ws: WebSocket, message: ClientCommand): Effect.Effect<void, WebSocketError> =>
   Effect.sync(() => {
     if (ws.readyState === WebSocket.OPEN) {
       ws.send(JSON.stringify(message))

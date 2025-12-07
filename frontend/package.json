@@ -11,6 +11,8 @@
     "dev:api": "orval --watch"
   },
   "dependencies": {
+    "@effect/experimental": "^0.57.11",
+    "@effect/platform-browser": "^0.73.0",
     "@solidjs/router": "^0.14.7",
     "@tailwindcss/vite": "^4.1.17",
     "daisyui": "^5.5.8",
@@ -23,6 +25,7 @@
   "devDependencies": {
     "@types/node": "^22.10.1",
     "orval": "^7.2.0",
+    "tsx": "^4.21.0",
     "typescript": "^5.6.3",
     "vite": "^5.4.10",
     "vite-plugin-solid": "^2.10.2"

@@ -1,6 +1,6 @@
 import { createSignal, onMount, onCleanup, Show, createEffect } from 'solid-js'
 import { useParams, useNavigate } from '@solidjs/router'
-import { Effect } from 'effect'
+import { Effect, Option } from 'effect'
 import { publishRoomFlow } from '../effects/webrtc-flows'
 // import { WaveformVisualizer } from '../components/shared/WaveformVisualizer'
 import { DeviceSelector } from '../components/controls/DeviceSelector'
@@ -15,7 +15,7 @@ export default function DJRoom() {
 
   // Use new providers instead of local state
   const { state: webrtcState, connectionState, isStreaming } = useWebRTC()
-  const { connectToRoom, sendDJMessage } = useSignaling()
+  const { connectToRoom, sendCommand } = useSignaling()
 
   const [roomId] = createSignal(params.roomId)
   const [status, setStatus] = createSignal<StreamStatus>('connecting')
@@ -24,7 +24,6 @@ export default function DJRoom() {
 
   // Derive state from providers
   const activeProducer = () => Array.from(webrtcState.producers.values()).find(p => p.producer && !p.paused)
-  const currentStream = () => webrtcState.localStream
   const isMuted = () => activeProducer()?.paused || false
 
   // Connect to room WebSocket on mount
@@ -90,15 +89,17 @@ export default function DJRoom() {
       if (producer.paused) {
         await producer.producer.resume()
         // Send WebSocket message to backend
-        await sendDJMessage(roomId(), {
-          type: 'Produce',
-          rtp_parameters: producer.producer.rtpParameters
+        await sendCommand(roomId(), {
+          type: 'produce',
+          rtpParameters: producer.producer.rtpParameters,
+          _traceContext: Option.none()
         })
       } else {
         await producer.producer.pause()
         // Send pause message to backend
-        await sendDJMessage(roomId(), {
-          type: 'StopProducing'
+        await sendCommand(roomId(), {
+          type: 'pauseStream',
+          _traceContext: Option.none()
         })
       }
     } catch (err: any) {
@@ -110,8 +111,9 @@ export default function DJRoom() {
   const endStream = async () => {
     try {
       // Send delete room message to backend
-      await sendDJMessage(roomId(), {
-        type: 'DeleteRoom'
+      await sendCommand(roomId(), {
+        type: 'closeRoom',
+        _traceContext: Option.none()
       })
     } catch (error) {
       console.error('Failed to notify backend of room deletion:', error)

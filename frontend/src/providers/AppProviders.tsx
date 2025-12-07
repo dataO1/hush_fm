@@ -57,7 +57,7 @@ export type {
   SignalingContextType,
   WSConnectionState,
   SignalingStore,
-  ServerMessage,
-  BroadcastMessage,
-  DJMessage
+  ServerEvent,
+  LobbyEvent,
+  ClientCommand
 } from './SignalingProvider'

@@ -40,3 +40,4 @@ yarn-error.log*
 .env.test.local
 .env.production.local
 frontend/node_modules
+node_modules
