@@ -4,6 +4,7 @@ import { Effect, pipe, Ref, Queue } from 'effect'
 import { connectWebSocket, subscribeToMessages } from '../ws/client'
 import type { ClientCommand, ServerEvent, LobbyEvent } from '../models/websocket'
 import type { Room } from '../models/websocket'
+import { injectTraceContext, createWebSocketSpan } from '../telemetry'
 
 // Re-export message types for external use
 export type { ClientCommand, ServerEvent, LobbyEvent }
@@ -111,8 +112,8 @@ export const SignalingProvider: ParentComponent = (props) => {
   })
 
   // Effect-based WebSocket references (migrated from SignalingManager)
-  const [lobbyWSRef] = createSignal<WebSocket | null>(null)
-  const [roomWSRef] = createSignal<WebSocket | null>(null)
+  const [_lobbyWSRef] = createSignal<WebSocket | null>(null)
+  const [_roomWSRef] = createSignal<WebSocket | null>(null)
   
   // Effect Refs for WebSocket connections
   const [lobbyWSEffectRef, setLobbyWSEffectRef] = createSignal<Ref.Ref<WebSocket | null> | null>(null)
@@ -399,14 +400,27 @@ export const SignalingProvider: ParentComponent = (props) => {
    * Send client command to room WebSocket with queueing
    */
   const sendCommand = async (roomId: string, message: ClientCommand): Promise<void> => {
-    const signalingMessage: SignalingMessage = { channel: 'room', roomId, data: message }
-    const program = sendMessage(signalingMessage)
-
+    const span = createWebSocketSpan('send_command', { 
+      messageType: message.type, 
+      roomId, 
+      operation: 'send' 
+    })
+    
     try {
+      // Inject trace context into the message
+      const enrichedMessage = await Effect.runPromise(injectTraceContext(message))
+      const signalingMessage: SignalingMessage = { channel: 'room', roomId, data: enrichedMessage }
+      const program = sendMessage(signalingMessage)
+
       await Effect.runPromise(program)
+      span.setStatus()
     } catch (error) {
       console.error('Failed to send client command:', error)
+      span.recordException()
+      span.setStatus()
       throw error
+    } finally {
+      span.end()
     }
   }
 

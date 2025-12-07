@@ -1,4 +1,4 @@
-import { Effect, Layer, Runtime } from 'effect'
+import { Effect, Layer } from 'effect'
 import { DevTools } from '@effect/experimental'
 import { BrowserSocket } from '@effect/platform-browser'
 
@@ -14,6 +14,7 @@ export const AppRuntime = Layer.toRuntime(DevToolsLive)
 export const runWithDevTools = <A, E>(
   effect: Effect.Effect<A, E>
 ): Promise<A> => {
-  const runtime = Effect.runSync(AppRuntime)
-  return Runtime.runPromise(runtime)(effect)
+  return Effect.runPromise(
+    Effect.provide(effect, DevToolsLive)
+  )
 }

@@ -205,6 +205,24 @@ impl ServerEvent {
         }
     }
     
+    /// Set trace context on any event (mutably)
+    pub fn set_trace_context(&mut self, trace_context: Option<TraceContext>) {
+        match self {
+            Self::TransportReady { trace_context: ref mut tc, .. } => *tc = trace_context,
+            Self::TransportConnected { trace_context: ref mut tc, .. } => *tc = trace_context,
+            Self::ProducerCreated { trace_context: ref mut tc, .. } => *tc = trace_context,
+            Self::ConsumerCreated { trace_context: ref mut tc, .. } => *tc = trace_context,
+            Self::StreamPaused { trace_context: ref mut tc, .. } => *tc = trace_context,
+            Self::StreamResumed { trace_context: ref mut tc, .. } => *tc = trace_context,
+            Self::RoomJoined { trace_context: ref mut tc, .. } => *tc = trace_context,
+            Self::RoomClosed { trace_context: ref mut tc, .. } => *tc = trace_context,
+            Self::ListenerCountUpdated { trace_context: ref mut tc, .. } => *tc = trace_context,
+            Self::CommandFailed { trace_context: ref mut tc, .. } => *tc = trace_context,
+            Self::AuthenticationError { trace_context: ref mut tc, .. } => *tc = trace_context,
+            Self::RoomNotFound { trace_context: ref mut tc, .. } => *tc = trace_context,
+        }
+    }
+    
     /// Get the event type as a string for logging
     pub fn event_type(&self) -> &'static str {
         match self {

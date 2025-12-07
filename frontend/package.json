@@ -12,7 +12,9 @@
   },
   "dependencies": {
     "@effect/experimental": "^0.57.11",
+    "@effect/opentelemetry": "^0.59.1",
     "@effect/platform-browser": "^0.73.0",
+    "@opentelemetry/api": "^1.9.0",
     "@solidjs/router": "^0.14.7",
     "@tailwindcss/vite": "^4.1.17",
     "daisyui": "^5.5.8",

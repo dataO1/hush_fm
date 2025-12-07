@@ -7,11 +7,13 @@ use axum::{
 };
 use futures_util::{SinkExt, StreamExt};
 use serde_json;
+use tracing::Instrument;
 use uuid::Uuid;
 
 use crate::{
     models::{ClientCommand, ServerEvent, LobbyEvent},
     state::{AppState, RoomStatus},
+    telemetry::{extract_trace_context_from_command, inject_trace_context_into_event, create_ws_message_span},
     webrtc::{ProducerManager, ConsumerManager},
 };
 
@@ -78,32 +80,40 @@ async fn handle_lobby_socket(socket: WebSocket, state: AppState) {
     }
 }
 
+#[tracing::instrument(skip(cmd, state, sender), fields(room_id = %room_id, command_type = cmd.command_type()))]
 async fn handle_client_command(
     cmd: ClientCommand,
     room_id: Uuid,
     state: &AppState,
     sender: &mut futures_util::stream::SplitSink<WebSocket, Message>,
 ) {
+    // Extract trace context from the message and set up parent span
+    let _parent_context = extract_trace_context_from_command(&cmd);
+    
     match cmd {
         ClientCommand::ConnectTransport { dtls_parameters, .. } => {
             // Connect DJ's WebRTC transport
             match handle_connect_transport(room_id, dtls_parameters, state).await {
                 Ok(_) => {
-                    let response = ServerEvent::TransportConnected {
+                    let mut response = ServerEvent::TransportConnected {
                         transport_id: room_id.to_string(), // Use room_id as transport identifier
                         trace_context: None,
                     };
+                    inject_trace_context_into_event(&mut response, &tracing::Span::current());
+                    
                     if let Ok(msg) = serde_json::to_string(&response) {
                         sender.send(Message::Text(msg)).await.ok();
                     }
                 }
                 Err(e) => {
                     tracing::error!("Failed to connect transport for room {}: {}", room_id, e);
-                    let response = ServerEvent::CommandFailed {
+                    let mut response = ServerEvent::CommandFailed {
                         command: "connectTransport".to_string(),
                         error: format!("Transport connection failed: {}", e),
                         trace_context: None,
                     };
+                    inject_trace_context_into_event(&mut response, &tracing::Span::current());
+                    
                     if let Ok(msg) = serde_json::to_string(&response) {
                         sender.send(Message::Text(msg)).await.ok();
                     }
@@ -236,6 +246,7 @@ async fn handle_client_command(
 }
 
 /// Handle transport connection with DTLS parameters
+#[tracing::instrument(skip(state, dtls_parameters), fields(room_id = %room_id))]
 async fn handle_connect_transport(
     room_id: Uuid,
     dtls_parameters: serde_json::Value,
@@ -257,6 +268,7 @@ async fn handle_connect_transport(
 }
 
 /// Handle producer creation
+#[tracing::instrument(skip(state, rtp_parameters), fields(room_id = %room_id))]
 async fn handle_produce(
     room_id: Uuid,
     rtp_parameters: serde_json::Value,

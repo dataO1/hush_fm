@@ -39,6 +39,7 @@ impl TransportManager {
     }
 
     /// Create a WebRTC transport for DJ (sending audio)
+    #[tracing::instrument(skip(self, router), fields(room_id = %room_id, transport_type = "dj"))]
     pub async fn create_dj_transport(
       &self,
       router: &Router,
@@ -76,6 +77,7 @@ impl TransportManager {
     }
 
     /// Create a WebRTC transport for listener (receiving audio)
+    #[tracing::instrument(skip(self, router), fields(room_id = %room_id, listener_id = %listener_id, transport_type = "listener"))]
     pub async fn create_listener_transport(
       &self,
       router: &Router,
@@ -131,6 +133,7 @@ impl TransportManager {
     }
 
     /// Connect transport with client's DTLS parameters
+    #[tracing::instrument(skip(self, transport, dtls_parameters), fields(transport_id = %transport.id()))]
     pub async fn connect_transport(
         &self,
         transport: &WebRtcTransport,

@@ -13,13 +13,14 @@ use tower_http::{
     cors::CorsLayer,
     trace::TraceLayer,
 };
-use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
+use tokio::signal;
 use utoipa::OpenApi;
 use utoipa_swagger_ui::SwaggerUi;
 
 mod api;
 mod models;
 mod state;
+mod telemetry;
 mod webrtc;
 mod ws;
 mod openapi;
@@ -31,14 +32,11 @@ use ws::ws_handler;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    // Initialize tracing
-    tracing_subscriber::registry()
-        .with(
-            tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| "hushfm_backend=debug,tower_http=debug".into()),
-        )
-        .with(tracing_subscriber::fmt::layer())
-        .init();
+    // Initialize tracing with OpenTelemetry
+    let log_level = std::env::var("RUST_LOG")
+        .unwrap_or_else(|_| "info".to_string());
+    
+    telemetry::init_tracing_with_level(&log_level)?;
 
     // Initialize application state
     let app_state = AppState::new().await?;
@@ -73,7 +71,41 @@ async fn main() -> anyhow::Result<()> {
     tracing::info!("🎵 HushFM Backend starting on http://{}", addr);
 
     let listener = tokio::net::TcpListener::bind(addr).await?;
-    axum::serve(listener, app).await?;
+    
+    // Setup graceful shutdown
+    axum::serve(listener, app)
+        .with_graceful_shutdown(shutdown_signal())
+        .await?;
+
+    // Shutdown telemetry
+    telemetry::shutdown_tracer();
+    tracing::info!("🎵 HushFM Backend shutdown complete");
 
     Ok(())
+}
+
+async fn shutdown_signal() {
+    let ctrl_c = async {
+        signal::ctrl_c()
+            .await
+            .expect("failed to install Ctrl+C handler");
+    };
+
+    #[cfg(unix)]
+    let terminate = async {
+        signal::unix::signal(signal::unix::SignalKind::terminate())
+            .expect("failed to install signal handler")
+            .recv()
+            .await;
+    };
+
+    #[cfg(not(unix))]
+    let terminate = std::future::pending::<()>();
+
+    tokio::select! {
+        _ = ctrl_c => {},
+        _ = terminate => {},
+    }
+
+    tracing::info!("Shutdown signal received, starting graceful shutdown");
 }

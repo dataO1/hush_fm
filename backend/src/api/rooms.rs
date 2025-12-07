@@ -32,6 +32,7 @@ pub fn rooms_router() -> Router<AppState> {
     ),
     tag = "rooms"
 )]
+#[tracing::instrument(skip(state, request), fields(room_name = %request.name, dj_name = %request.dj_name))]
 pub async fn create_room(
     State(state): State<AppState>,
     Json(request): Json<CreateRoomRequest>,
@@ -102,6 +103,7 @@ pub async fn list_rooms(State(state): State<AppState>) -> Json<Vec<Room>> {
     ),
     tag = "rooms"
 )]
+#[tracing::instrument(skip(state), fields(room_id = %room_id))]
 pub async fn join_room(
     Path(room_id): Path<Uuid>,
     State(state): State<AppState>,

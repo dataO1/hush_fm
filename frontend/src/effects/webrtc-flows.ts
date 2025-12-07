@@ -6,7 +6,7 @@ import { consumerManager } from '../webrtc/consumer-manager'
 // Note: Signaling is now handled by SignalingProvider context
 import type { types } from 'mediasoup-client'
 import { createRoom, joinRoom } from '../effects/api'
-import type { CreateRoomResponse, JoinRoomResponse } from '../generated/api.schemas'
+import { createRootSpan } from '../telemetry'
 
 /**
  * Flow-specific error types
@@ -32,21 +32,8 @@ export type CreateRoomRequest = {
   name: string
 }
 
-export type CreateRoomResponse = {
-  room_id: string
-  dj_token: string
-  transport_options: any
-  ws_url: string
-}
-
 export type JoinRoomRequest = {
   roomId: string
-}
-
-export type JoinRoomResponse = {
-  transport_options: any
-  producer_id: string | null
-  rtp_capabilities: any
 }
 
 /**
@@ -169,42 +156,64 @@ export const publishRoomFlow = (
 ): Effect.Effect<
   { roomId: string, producerId: string, transport: types.Transport, producer: types.Producer },
   PublishFlowError
-> =>
-  pipe(
+> => {
+  // Create root span for the entire publish flow
+  const rootSpan = createRootSpan('publish_room_flow', {
+    'room.name': roomName,
+    'user.role': 'dj',
+    ...(deviceId && { 'audio.device_id': deviceId })
+  })
+
+  return pipe(
     Effect.gen(function* (_) {
       // ✅ Step 1: Create room using Effect API
       const roomResponse = yield* _(
-        createRoom({
-          name: roomName,
-          djName: `DJ ${Date.now()}`
-        })
+        pipe(
+          createRoom({
+            name: roomName,
+            djName: `DJ ${Date.now()}`
+          }),
+          Effect.mapError(error => new PublishFlowError(
+            error.message || 'Failed to create room',
+            'createRoom',
+            error
+          ))
+        )
       )
 
       // ✅ Step 2: Initialize device
       const device = yield* _(
-        deviceManager.initializeDevice(roomResponse.transportOptions)
+        pipe(
+          deviceManager.initializeDevice(roomResponse.transportOptions),
+          Effect.mapError(error => new PublishFlowError(error.message, 'initializeDevice', error))
+        )
       )
 
       // ✅ Step 3: Create send transport
       const transport = yield* _(
-        transportManager.createSendTransport(
-          device,
-          {
-            id: roomResponse.room.id,
-            direction: 'send',
-            dtlsParameters: roomResponse.transportOptions.dtlsParameters,
-            iceParameters: roomResponse.transportOptions.iceParameters,
-            iceCandidates: roomResponse.transportOptions.iceCandidates,
-            sctpParameters: roomResponse.transportOptions.sctpParameters
-          }
+        pipe(
+          transportManager.createSendTransport(
+            device,
+            {
+              id: roomResponse.room.id,
+              dtlsParameters: roomResponse.transportOptions.dtlsParameters,
+              iceParameters: roomResponse.transportOptions.iceParameters,
+              iceCandidates: roomResponse.transportOptions.iceCandidates,
+              sctpParameters: roomResponse.transportOptions.sctpParameters
+            }
+          ),
+          Effect.mapError(error => new PublishFlowError(error.message, 'createSendTransport', error))
         )
       )
 
       // ✅ Step 4: Connect transport
       yield* _(
-        transportManager.connectTransport(
-          transport,
-          roomResponse.transportOptions.dtlsParameters
+        pipe(
+          transportManager.connectTransport(
+            transport,
+            roomResponse.transportOptions.dtlsParameters
+          ),
+          Effect.mapError(error => new PublishFlowError(error.message, 'connectTransport', error))
         )
       )
 
@@ -225,11 +234,19 @@ export const publishRoomFlow = (
         producer
       }
     }),
-    Effect.tap(() => Effect.logInfo('Publish room flow completed successfully')),
-    Effect.tapError(error =>
-      Effect.logError(`Publish flow failed at step ${error.step}: ${error.message}`)
-    )
+    Effect.tap(() => {
+      rootSpan.setStatus()
+      rootSpan.end()
+      return Effect.logInfo('Publish room flow completed successfully')
+    }),
+    Effect.tapError(error => {
+      rootSpan.recordException()
+      rootSpan.setStatus()
+      rootSpan.end()
+      return Effect.logError(`Publish flow failed at step ${error.step}: ${error.message}`)
+    })
   )
+}
 
 /**
  * Listener Join Room Flow - Connect to existing stream
@@ -245,40 +262,55 @@ export const joinRoomFlow = (
     Effect.gen(function* (_) {
       // ✅ Step 1: Join room using Effect API
       const joinResponse = yield* _(
-        joinRoom(roomId)
+        pipe(
+          joinRoom(roomId),
+          Effect.mapError(error => new JoinFlowError(
+            error.message || 'Failed to join room',
+            'joinRoom',
+            error
+          ))
+        )
       )
 
       // ✅ Step 3: Initialize device
       const device = yield* _(
-        deviceManager.initializeDevice(joinResponse.rtpCapabilities)
+        pipe(
+          deviceManager.initializeDevice(joinResponse.rtpCapabilities),
+          Effect.mapError(error => new JoinFlowError(error.message, 'initializeDevice', error))
+        )
       )
 
       // ✅ Step 4: Create receive transport
       const transport = yield* _(
-        transportManager.createReceiveTransport(
-          device,
-          {
-            id: roomId,
-            direction: 'receive',
-            dtlsParameters: joinResponse.transportOptions.dtlsParameters,
-            iceParameters: joinResponse.transportOptions.iceParameters,
-            iceCandidates: joinResponse.transportOptions.iceCandidates,
-            sctpParameters: joinResponse.transportOptions.sctpParameters
-          }
+        pipe(
+          transportManager.createReceiveTransport(
+            device,
+            {
+              id: roomId,
+              dtlsParameters: joinResponse.transportOptions.dtlsParameters,
+              iceParameters: joinResponse.transportOptions.iceParameters,
+              iceCandidates: joinResponse.transportOptions.iceCandidates,
+              sctpParameters: joinResponse.transportOptions.sctpParameters
+            }
+          ),
+          Effect.mapError(error => new JoinFlowError(error.message, 'createReceiveTransport', error))
         )
       )
 
       // ✅ Step 5: Connect transport
       yield* _(
-        transportManager.connectTransport(
-          transport,
-          joinResponse.transportOptions.dtlsParameters
+        pipe(
+          transportManager.connectTransport(
+            transport,
+            joinResponse.transportOptions.dtlsParameters
+          ),
+          Effect.mapError(error => new JoinFlowError(error.message, 'connectTransport', error))
         )
       )
 
       // ✅ Step 6: Create consumer if producer exists
       if (!joinResponse.producerId) {
-        return Effect.fail(new JoinFlowError('No producer available in room'))
+        yield* _(Effect.fail(new JoinFlowError('No producer available in room', 'checkProducer')))
       }
 
       const consumer = yield* _(
@@ -292,7 +324,10 @@ export const joinRoomFlow = (
 
       // ✅ Step 7: Create audio element
       const audioElement = yield* _(
-        consumerManager.createAudioElement(consumer.id, true)
+        pipe(
+          consumerManager.createAudioElement(consumer.id, true),
+          Effect.mapError(error => new JoinFlowError(error.message, 'createAudioElement', error))
+        )
       )
 
       return { consumer, transport, audioElement }

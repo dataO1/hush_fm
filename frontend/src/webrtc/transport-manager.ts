@@ -1,5 +1,6 @@
 import { Effect, pipe } from 'effect'
 import type { Device, types } from 'mediasoup-client'
+import { withWebRTCSpan, withTransportTimeoutTracking } from '../telemetry'
 
 /**
  * Transport-specific errors
@@ -71,6 +72,7 @@ export class TransportManager {
           error
         )
       }),
+      withWebRTCSpan('create-send-transport', transportOptions.id),
       Effect.tap(() => Effect.logInfo(`Created send transport: ${transportOptions.id}`))
     )
 
@@ -105,6 +107,7 @@ export class TransportManager {
           error
         )
       }),
+      withWebRTCSpan('create-recv-transport', transportOptions.id),
       Effect.tap(() => Effect.logInfo(`Created receive transport: ${transportOptions.id}`))
     )
 
@@ -121,24 +124,38 @@ export class TransportManager {
           // Connection state is now managed by WebRTCProvider
           
           // For local network, we only need to handle DTLS
+          console.debug(`Transport initial state: ${transport.connectionState}`)
+          
           if (transport.connectionState !== 'connected') {
             // Transport will automatically connect for local network
             // Just wait for the connection state to change
             await new Promise<void>((resolve, reject) => {
+              const startTime = Date.now()
               const timeout = setTimeout(() => {
-                reject(new Error('Transport connection timeout'))
+                const elapsed = Date.now() - startTime
+                console.error(`Transport connection timeout after ${elapsed}ms, final state: ${transport.connectionState}`)
+                reject(new Error(`Transport connection timeout after ${elapsed}ms`))
               }, 10000) // 10 second timeout
 
               transport.on('connectionstatechange', (state) => {
+                const elapsed = Date.now() - startTime
+                console.debug(`Transport state changed to '${state}' after ${elapsed}ms`)
+                
                 if (state === 'connected') {
+                  console.info(`Transport connected successfully after ${elapsed}ms`)
                   clearTimeout(timeout)
                   resolve()
                 } else if (state === 'failed' || state === 'closed') {
+                  console.error(`Transport connection failed with state '${state}' after ${elapsed}ms`)
                   clearTimeout(timeout)
-                  reject(new Error(`Transport connection failed: ${state}`))
+                  reject(new Error(`Transport connection failed: ${state} after ${elapsed}ms`))
                 }
               })
+              
+              console.debug(`Waiting for transport connection, starting state: ${transport.connectionState}`)
             })
+          } else {
+            console.info(`Transport already connected: ${transport.connectionState}`)
           }
         },
         catch: (error) => new TransportConnectionError(
@@ -146,6 +163,7 @@ export class TransportManager {
           error
         )
       }),
+      withTransportTimeoutTracking(10000, transport.id),
       Effect.tap(() => Effect.logInfo(`Transport connected: ${transport.id}`))
     )
 

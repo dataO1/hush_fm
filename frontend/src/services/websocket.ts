@@ -8,12 +8,11 @@
  * - Message queueing for offline states
  */
 
-import { Effect, pipe, Queue, Schedule, Ref, Option } from 'effect'
+import { Effect, pipe, Queue, Ref, Option } from 'effect'
 import type { 
   ClientCommand, 
   ServerEvent, 
-  LobbyEvent, 
-  WebSocketMessage,
+  LobbyEvent,
   TraceContext 
 } from '../models/websocket'
 

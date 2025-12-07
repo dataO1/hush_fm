@@ -13,6 +13,7 @@ pub struct ProducerManager;
 
 impl ProducerManager {
     /// Create audio producer for DJ streaming
+    #[tracing::instrument(skip(transport, rtp_parameters), fields(room_id = %room_id, transport_id = %transport.id()))]
     pub async fn create_audio_producer(
         transport: &WebRtcTransport,
         room_id: Uuid,
@@ -58,6 +59,7 @@ impl ProducerManager {
     }
 
     /// Pause audio producer (but keep connection)
+    #[tracing::instrument(skip(producer), fields(producer_id = %producer.id()))]
     pub async fn pause_producer(producer: &Producer) -> anyhow::Result<()> {
         producer.pause().await?;
         tracing::info!("Audio producer paused");
@@ -65,6 +67,7 @@ impl ProducerManager {
     }
 
     /// Resume audio producer
+    #[tracing::instrument(skip(producer), fields(producer_id = %producer.id()))]
     pub async fn resume_producer(producer: &Producer) -> anyhow::Result<()> {
         producer.resume().await?;
         tracing::info!("Audio producer resumed");
