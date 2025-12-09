@@ -1,12 +1,13 @@
 import { Effect, pipe } from 'effect'
 import { deviceManager } from '../webrtc/device-manager'
 import { transportManager } from '../webrtc/transport-manager'
+import type { SignalingCallback } from '../webrtc/transport-manager'
 import { producerManager } from '../webrtc/producer-manager'
 import { consumerManager } from '../webrtc/consumer-manager'
-// Note: Signaling is now handled by SignalingProvider context
 import type { types } from 'mediasoup-client'
 import { createRoom, joinRoom } from '../effects/api'
 import { createRootSpan } from '../telemetry'
+import { WebRTCStateServiceLive } from '../services/webrtc-state'
 
 /**
  * Flow-specific error types
@@ -152,6 +153,7 @@ export const createConsumer = (
 // webrtc-flows.ts - PUBLISH ROOM FLOW (DJ)
 export const publishRoomFlow = (
   roomName: string,
+  signalingCallback: SignalingCallback,
   deviceId?: string
 ): Effect.Effect<
   { roomId: string, producerId: string, transport: types.Transport, producer: types.Producer },
@@ -181,15 +183,18 @@ export const publishRoomFlow = (
         )
       )
 
-      // ✅ Step 2: Initialize device
+      // ✅ Step 2: Initialize device with router RTP capabilities
       const device = yield* _(
         pipe(
-          deviceManager.initializeDevice(roomResponse.transportOptions),
+          deviceManager.initializeDevice(roomResponse.rtpCapabilities),
           Effect.mapError(error => new PublishFlowError(error.message, 'initializeDevice', error))
         )
       )
 
-      // ✅ Step 3: Create send transport
+      // ✅ Step 3: Set signaling for transport manager
+      transportManager.setSignaling(roomResponse.room.id, signalingCallback)
+
+      // ✅ Step 4: Create send transport
       const transport = yield* _(
         pipe(
           transportManager.createSendTransport(
@@ -206,23 +211,12 @@ export const publishRoomFlow = (
         )
       )
 
-      // ✅ Step 4: Connect transport
-      yield* _(
-        pipe(
-          transportManager.connectTransport(
-            transport,
-            roomResponse.transportOptions.dtlsParameters
-          ),
-          Effect.mapError(error => new PublishFlowError(error.message, 'connectTransport', error))
-        )
-      )
-
       // ✅ Step 5: Get user media
       const track = yield* _(
         getUserMedia(deviceId)
       )
 
-      // ✅ Step 6: Create producer
+      // ✅ Step 6: Create producer (this will trigger transport connect event)
       const producer = yield* _(
         createProducer(transport, track)
       )
@@ -240,11 +234,14 @@ export const publishRoomFlow = (
       return Effect.logInfo('Publish room flow completed successfully')
     }),
     Effect.tapError(error => {
+      // Clear signaling on error
+      transportManager.clearSignaling()
       rootSpan.recordException()
       rootSpan.setStatus()
       rootSpan.end()
       return Effect.logError(`Publish flow failed at step ${error.step}: ${error.message}`)
-    })
+    }),
+    Effect.provide(WebRTCStateServiceLive)
   )
 }
 
@@ -253,7 +250,8 @@ export const publishRoomFlow = (
  */
 // webrtc-flows.ts - JOIN ROOM FLOW (Listener)
 export const joinRoomFlow = (
-  roomId: string
+  roomId: string,
+  signalingCallback: SignalingCallback
 ): Effect.Effect<
   { consumer: types.Consumer, transport: types.Transport, audioElement: HTMLAudioElement },
   JoinFlowError
@@ -280,6 +278,9 @@ export const joinRoomFlow = (
         )
       )
 
+      // ✅ Step 3: Set signaling for transport manager
+      transportManager.setSignaling(roomId, signalingCallback)
+
       // ✅ Step 4: Create receive transport
       const transport = yield* _(
         pipe(
@@ -297,18 +298,7 @@ export const joinRoomFlow = (
         )
       )
 
-      // ✅ Step 5: Connect transport
-      yield* _(
-        pipe(
-          transportManager.connectTransport(
-            transport,
-            joinResponse.transportOptions.dtlsParameters
-          ),
-          Effect.mapError(error => new JoinFlowError(error.message, 'connectTransport', error))
-        )
-      )
-
-      // ✅ Step 6: Create consumer if producer exists
+      // ✅ Step 5: Create consumer if producer exists (transport will connect automatically)
       if (!joinResponse.producerId) {
         yield* _(Effect.fail(new JoinFlowError('No producer available in room', 'checkProducer')))
       }
@@ -333,9 +323,12 @@ export const joinRoomFlow = (
       return { consumer, transport, audioElement }
     }),
     Effect.tap(() => Effect.logInfo('Join room flow completed successfully')),
-    Effect.tapError(error =>
-      Effect.logError(`Join flow failed at step ${error.step}: ${error.message}`)
-    )
+    Effect.tapError(error => {
+      // Clear signaling on error
+      transportManager.clearSignaling()
+      return Effect.logError(`Join flow failed at step ${error.step}: ${error.message}`)
+    }),
+    Effect.provide(WebRTCStateServiceLive)
   )
 
 /**

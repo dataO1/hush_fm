@@ -3,7 +3,7 @@ import { useNavigate } from '@solidjs/router'
 import { Effect } from 'effect'
 import { listRooms, createRoom } from '../effects/api'
 import { useSignaling, useRooms } from '../providers/AppProviders'
-import { convertApiRoomsEffect } from '../models/websocket'
+import type { RoomInfo } from '../generated/api.schemas'
 
 export default function Landing() {
   const navigate = useNavigate()
@@ -12,21 +12,24 @@ export default function Landing() {
   const [creating, setCreating] = createSignal(false)
   const [error, setError] = createSignal<string | null>(null)
 
-  // Use createResource for async room loading
+  // Use createResource for async room loading with Effect
   const [rooms] = createResource(async () => {
-    const program = convertApiRoomsEffect(listRooms())
-
-    try {
-      const result = await Effect.runPromise(program)
-
-      // Update signaling store with converted WebSocket rooms
-      signaling.setState({ rooms: result })
-
-      return result
-    } catch (err: any) {
-      setError(`Failed to load rooms: ${err.message}`)
-      throw err
-    }
+    return await Effect.runPromise(
+      listRooms().pipe(
+        Effect.tap((result: RoomInfo[]) => 
+          Effect.sync(() => {
+            // Update signaling store with rooms (now using clean RoomInfo models)
+            signaling.setState({ rooms: result })
+          })
+        ),
+        Effect.catchAll((error) => 
+          Effect.sync(() => {
+            setError(`Failed to load rooms: ${error}`)
+            throw error
+          })
+        )
+      )
+    )
   }
   )
 

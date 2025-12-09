@@ -1,6 +1,7 @@
 use serde::{Deserialize, Serialize};
 use schemars::JsonSchema;
 use utoipa::ToSchema;
+use super::events::RoomInfo;
 use uuid::Uuid;
 use std::collections::HashMap;
 
@@ -120,14 +121,17 @@ pub struct CreateRoomRequest {
 #[derive(Debug, Clone, Serialize, JsonSchema, ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct CreateRoomResponse {
-    /// Created room information
-    pub room: Room,
+    /// Created room information (clean client model)
+    pub room: RoomInfo,
     
     /// DJ authentication token
     pub dj_token: String,
     
     /// WebRTC transport options for DJ
     pub transport_options: TransportOptions,
+    
+    /// Router RTP capabilities for device initialization
+    pub rtp_capabilities: RtpCapabilities,
     
     /// WebSocket URL for room communication
     pub ws_url: String,
@@ -137,8 +141,8 @@ pub struct CreateRoomResponse {
 #[derive(Debug, Clone, Serialize, JsonSchema, ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct JoinRoomResponse {
-    /// Room information
-    pub room: Room,
+    /// Room information (clean client model)
+    pub room: RoomInfo,
     
     /// WebRTC transport options for listener
     pub transport_options: TransportOptions,

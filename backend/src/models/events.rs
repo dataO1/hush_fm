@@ -1,6 +1,47 @@
 use serde::{Deserialize, Serialize};
 use schemars::JsonSchema;
-use super::{Room, TraceContext};
+use utoipa::ToSchema;
+use super::TraceContext;
+use uuid::Uuid;
+
+/// Room information for client events (clean model without internal state)
+#[derive(Debug, Clone, Serialize, JsonSchema, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct RoomInfo {
+    /// Unique room identifier
+    #[serde(with = "super::uuid_string")]
+    #[schemars(with = "String")]
+    pub id: Uuid,
+    /// Human-readable room name
+    pub name: String,
+    /// DJ's display name
+    pub dj_name: String,
+    /// Current number of listeners
+    pub listener_count: u32,
+    /// Whether DJ is currently streaming
+    pub is_streaming: bool,
+    /// Room creation timestamp (ISO8601)
+    pub created_at: String,
+    /// Optional room description
+    pub description: Option<String>,
+    /// Room tags for categorization
+    pub tags: Vec<String>,
+}
+
+impl From<super::Room> for RoomInfo {
+    fn from(room: super::Room) -> Self {
+        Self {
+            id: room.id,
+            name: room.name,
+            dj_name: room.dj_id, // Map dj_id to dj_name for client
+            listener_count: room.listener_count,
+            is_streaming: room.dj_streaming,
+            created_at: room.created_at.to_rfc3339(),
+            description: room.description,
+            tags: room.tags,
+        }
+    }
+}
 
 /// Events sent from server to client
 #[derive(Debug, Clone, Serialize, JsonSchema)]
@@ -80,8 +121,8 @@ pub enum ServerEvent {
     /// Successfully joined a room as a listener
     #[serde(rename_all = "camelCase")]
     RoomJoined {
-        /// Room information
-        room: Room,
+        /// Room information (clean model for clients)
+        room: RoomInfo,
         /// Transport options for WebRTC connection
         transport_options: serde_json::Value,
         /// Producer ID to consume from (if available)
@@ -158,8 +199,8 @@ pub enum LobbyEvent {
     /// New room has been added to the lobby
     #[serde(rename_all = "camelCase")]
     RoomAdded { 
-        /// Information about the new room
-        room: Room,
+        /// Information about the new room (clean model for clients)
+        room: RoomInfo,
         /// Optional trace context for request tracing
         #[serde(rename = "_traceContext")]
         trace_context: Option<TraceContext>,
@@ -168,8 +209,8 @@ pub enum LobbyEvent {
     /// Existing room information has been updated
     #[serde(rename_all = "camelCase")]
     RoomUpdated { 
-        /// Updated room information
-        room: Room,
+        /// Updated room information (clean model for clients)
+        room: RoomInfo,
         /// Optional trace context for request tracing
         #[serde(rename = "_traceContext")]
         trace_context: Option<TraceContext>,

@@ -8,8 +8,8 @@
  * @see /home/data01/Projects/hushfm/backend/src/models/
  */
 
-import { Effect, Option } from 'effect'
-import type { Room as ApiRoom } from '../generated/api.schemas'
+import { Option } from 'effect'
+import type { RoomInfo } from '../generated/api.schemas'
 
 /**
  * Trace context for distributed tracing (W3C Trace Context)
@@ -24,27 +24,9 @@ export interface TraceContext {
 }
 
 /**
- * Unified Room type - single source of truth
- * Matches backend Room model with camelCase serialization
+ * Room type - re-export clean client model from generated API
  */
-export interface Room {
-  /** Unique room identifier (UUID) */
-  id: string
-  /** Room display name */
-  name: string
-  /** DJ identifier (camelCase from backend dj_id) */
-  djName: string
-  /** Current listener count */
-  listenerCount: number
-  /** Whether DJ is currently streaming (camelCase from backend dj_streaming) */
-  isStreaming: boolean
-  /** Room creation timestamp (ISO8601) */
-  createdAt: string
-  /** Optional room description */
-  description: Option.Option<string>
-  /** Room tags for categorization */
-  tags: string[]
-}
+export type Room = RoomInfo
 
 /**
  * Client-to-Server Commands
@@ -306,31 +288,6 @@ export const LEGACY_MESSAGE_MAPPING = {
  */
 
 /**
- * Convert a single API Room to WebSocket Room with Option types
+ * Note: Room type now directly uses the clean RoomInfo model from the API.
+ * No conversion functions are needed since the backend now sends clean client models.
  */
-export const convertApiRoomToWS = (apiRoom: ApiRoom): Room => ({
-  id: apiRoom.id,
-  name: apiRoom.name,
-  djName: apiRoom.djName,
-  listenerCount: apiRoom.listenerCount,
-  isStreaming: apiRoom.isStreaming,
-  createdAt: apiRoom.createdAt,
-  description: apiRoom.description ? Option.some(apiRoom.description) : Option.none(),
-  tags: apiRoom.tags
-})
-
-/**
- * Convert an Effect containing API Rooms array to Effect containing WebSocket Rooms
- */
-export const convertApiRoomsEffect = <E, R>(
-  apiRoomsEffect: Effect.Effect<ApiRoom[], E, R>
-): Effect.Effect<Room[], E, R> =>
-  Effect.map(apiRoomsEffect, rooms => rooms.map(convertApiRoomToWS))
-
-/**
- * Convert a single API Room Effect to WebSocket Room Effect
- */
-export const convertApiRoomEffect = <E, R>(
-  apiRoomEffect: Effect.Effect<ApiRoom, E, R>
-): Effect.Effect<Room, E, R> =>
-  Effect.map(apiRoomEffect, convertApiRoomToWS)

@@ -180,6 +180,7 @@ export const WebRTCProvider: ParentComponent = (props) => {
   const [audioLevel, setAudioLevel] = createSignal(0)
   const [selectedDeviceId, setSelectedDeviceId] = createSignal<string | null>(null)
 
+
   // Derived signals
   const isConnected = (): boolean => connectionState() === 'connected'
   const hasActiveProducer = (): boolean => 

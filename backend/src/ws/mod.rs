@@ -7,14 +7,14 @@ use axum::{
 };
 use futures_util::{SinkExt, StreamExt};
 use serde_json;
-use tracing::Instrument;
 use uuid::Uuid;
+use mediasoup::prelude::Transport;
 
 use crate::{
     models::{ClientCommand, ServerEvent, LobbyEvent},
-    state::{AppState, RoomStatus},
-    telemetry::{extract_trace_context_from_command, inject_trace_context_into_event, create_ws_message_span},
-    webrtc::{ProducerManager, ConsumerManager},
+    state::AppState,
+    telemetry::{extract_trace_context_from_command, inject_trace_context_into_event},
+    webrtc::ProducerManager,
 };
 
 /// WebSocket handler for room-specific connections (DJ control)
@@ -64,7 +64,7 @@ async fn handle_lobby_socket(socket: WebSocket, state: AppState) {
     // Send initial room list
     let rooms = state.get_rooms().await;
     if let Ok(msg) = serde_json::to_string(&LobbyEvent::RoomAdded { 
-        room: rooms.first().cloned().unwrap_or_else(|| crate::models::Room::example()),
+        room: rooms.first().cloned().unwrap_or_else(|| crate::models::Room::example()).into(),
         trace_context: None,
     }) {
         sender.send(Message::Text(msg)).await.ok();
@@ -94,9 +94,9 @@ async fn handle_client_command(
         ClientCommand::ConnectTransport { dtls_parameters, .. } => {
             // Connect DJ's WebRTC transport
             match handle_connect_transport(room_id, dtls_parameters, state).await {
-                Ok(_) => {
+                Ok(transport_id) => {
                     let mut response = ServerEvent::TransportConnected {
-                        transport_id: room_id.to_string(), // Use room_id as transport identifier
+                        transport_id, // Use actual transport ID from mediasoup
                         trace_context: None,
                     };
                     inject_trace_context_into_event(&mut response, &tracing::Span::current());
@@ -246,25 +246,30 @@ async fn handle_client_command(
 }
 
 /// Handle transport connection with DTLS parameters
-#[tracing::instrument(skip(state, dtls_parameters), fields(room_id = %room_id))]
+#[tracing::instrument(skip(state, dtls_parameters), fields(room_id = %room_id, transport_id))]
 async fn handle_connect_transport(
     room_id: Uuid,
     dtls_parameters: serde_json::Value,
     state: &AppState,
-) -> anyhow::Result<()> {
+) -> anyhow::Result<String> {
     let room_state = state.get_room_state(&room_id)
         .ok_or_else(|| anyhow::anyhow!("Room not found"))?;
     
     let room_state_guard = room_state.read().await;
     if let Some(dj_transport) = &room_state_guard.dj_transport {
+        let transport_id = dj_transport.id().to_string();
+        
+        // Record transport ID in span
+        tracing::Span::current().record("transport_id", &transport_id);
+        
         let transport_manager = state.mediasoup.get_transport_manager();
         transport_manager.connect_transport(dj_transport, dtls_parameters).await?;
-        tracing::info!("DJ transport connected for room {}", room_id);
+        tracing::info!("DJ transport connected for room {}, transport_id: {}", room_id, transport_id);
+        
+        Ok(transport_id)
     } else {
         return Err(anyhow::anyhow!("No DJ transport found for room"));
     }
-
-    Ok(())
 }
 
 /// Handle producer creation

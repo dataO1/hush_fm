@@ -3,6 +3,7 @@ use dashmap::DashMap;
 use mediasoup::producer::Producer;
 use mediasoup::router::Router;
 use mediasoup::webrtc_transport::WebRtcTransport;
+use mediasoup::prelude::Transport;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use tokio::sync::RwLock;
@@ -46,6 +47,11 @@ impl RoomState {
             created_at: now,
             last_activity: Arc::new(ArcSwap::from_pointee(now)),
         }
+    }
+    
+    /// Get the transport ID if DJ transport exists
+    pub fn get_dj_transport_id(&self) -> Option<String> {
+        self.dj_transport.as_ref().map(|transport| transport.id().to_string())
     }
 
     /// Check if room should be visible to public

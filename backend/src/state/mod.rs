@@ -37,7 +37,7 @@ impl AppState {
         let room_state = self.room_manager.create_room(room.clone()).await;
         self.broadcast_manager.broadcast_room_created(room.clone());
         let _ = self.broadcast_tx.send(LobbyEvent::RoomAdded { 
-            room: room.clone(),
+            room: room.clone().into(),
             trace_context: None,
         });
     }
@@ -51,7 +51,7 @@ impl AppState {
         
         self.broadcast_manager.broadcast_room_updated(room.clone());
         let _ = self.broadcast_tx.send(LobbyEvent::RoomUpdated { 
-            room: room.clone(),
+            room: room.clone().into(),
             trace_context: None,
         });
     }
@@ -75,7 +75,7 @@ impl AppState {
         let room_state = self.room_manager.create_room(room.clone()).await;
         self.broadcast_manager.broadcast_room_created(room.clone());
         let _ = self.broadcast_tx.send(LobbyEvent::RoomAdded { 
-            room: room.clone(),
+            room: room.clone().into(),
             trace_context: None,
         });
         room_state
@@ -100,7 +100,7 @@ impl AppState {
             self.broadcast_manager.broadcast_stream_started(room_id, producer_id);
             self.broadcast_manager.broadcast_room_updated(room.clone());
             let _ = self.broadcast_tx.send(LobbyEvent::RoomUpdated { 
-            room: room.clone(),
+            room: room.clone().into(),
             trace_context: None,
         });
         }
@@ -116,7 +116,7 @@ impl AppState {
             self.broadcast_manager.broadcast_stream_stopped(room_id);
             self.broadcast_manager.broadcast_room_updated(room.clone());
             let _ = self.broadcast_tx.send(LobbyEvent::RoomUpdated { 
-            room: room.clone(),
+            room: room.clone().into(),
             trace_context: None,
         });
         }
@@ -138,7 +138,7 @@ impl AppState {
             
             self.broadcast_manager.broadcast_room_updated(room.clone());
             let _ = self.broadcast_tx.send(LobbyEvent::RoomUpdated { 
-            room: room.clone(),
+            room: room.clone().into(),
             trace_context: None,
         });
         }

@@ -12,7 +12,7 @@ export default function ListenerRoom() {
 
   // Use new providers instead of local state
   const { state: webrtcState, connectionState } = useWebRTC()
-  const { connectToRoom } = useSignaling()
+  const { connectToRoom, sendCommand } = useSignaling()
 
   const [roomId] = createSignal(params.roomId)
   const [volume, setVolume] = createSignal(0.8)
@@ -81,7 +81,7 @@ export default function ListenerRoom() {
     setError(null)
 
     const program = Effect.gen(function* (_) {
-      const result = yield* _(joinRoomFlow(roomId()))
+      const result = yield* _(joinRoomFlow(roomId(), sendCommand))
       return result
     })
 

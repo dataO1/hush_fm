@@ -1,6 +1,7 @@
-import { Effect, pipe } from 'effect'
+import { Effect, Option, pipe } from 'effect'
 import type { Device, types } from 'mediasoup-client'
-import { withWebRTCSpan, withTransportTimeoutTracking } from '../telemetry'
+import { withWebRTCSpan } from '../telemetry'
+import type { ClientCommand } from '../models/websocket'
 
 /**
  * Transport-specific errors
@@ -38,9 +39,32 @@ export const isLocalNetworkOptimized = (options: TransportOptions): boolean =>
   options._localNetworkOptimized === true || options.iceCandidates.length === 0
 
 /**
+ * Signaling callback for sending commands to backend
+ */
+export type SignalingCallback = (roomId: string, command: any) => Promise<void>
+
+/**
  * Transport manager for WebRTC connections
  */
 export class TransportManager {
+  private signalingCallback: SignalingCallback | null = null
+  private currentRoomId: string | null = null
+  /**
+   * Set signaling callback for WebSocket communication
+   */
+  setSignaling = (roomId: string, callback: SignalingCallback): void => {
+    this.currentRoomId = roomId
+    this.signalingCallback = callback
+  }
+
+  /**
+   * Clear signaling callback
+   */
+  clearSignaling = (): void => {
+    this.currentRoomId = null
+    this.signalingCallback = null
+  }
+
   /**
    * Create send transport for DJ (audio streaming)
    */
@@ -61,10 +85,10 @@ export class TransportManager {
             sctpParameters: transportOptions.sctpParameters,
           })
 
-          // Set up event handlers
+          // Set up event handlers and monitoring
           this.setupTransportEvents(transport, 'send')
+          this.monitorTransportConnection(transport)
           
-          // Transport state is now managed by WebRTCProvider
           return transport
         },
         catch: (error) => new TransportError(
@@ -96,10 +120,10 @@ export class TransportManager {
             sctpParameters: transportOptions.sctpParameters,
           })
 
-          // Set up event handlers
+          // Set up event handlers and monitoring
           this.setupTransportEvents(transport, 'receive')
+          this.monitorTransportConnection(transport)
           
-          // Transport state is now managed by WebRTCProvider
           return transport
         },
         catch: (error) => new TransportError(
@@ -112,60 +136,22 @@ export class TransportManager {
     )
 
   /**
-   * Connect transport with DTLS parameters
+   * Monitor transport connection state changes (for debugging)
+   * Note: Connection happens automatically when produce() is called
    */
-  connectTransport = (
-    transport: types.Transport,
-    _dtlsParameters: any
-  ): Effect.Effect<void, TransportConnectionError> =>
-    pipe(
-      Effect.tryPromise({
-        try: async () => {
-          // Connection state is now managed by WebRTCProvider
-          
-          // For local network, we only need to handle DTLS
-          console.debug(`Transport initial state: ${transport.connectionState}`)
-          
-          if (transport.connectionState !== 'connected') {
-            // Transport will automatically connect for local network
-            // Just wait for the connection state to change
-            await new Promise<void>((resolve, reject) => {
-              const startTime = Date.now()
-              const timeout = setTimeout(() => {
-                const elapsed = Date.now() - startTime
-                console.error(`Transport connection timeout after ${elapsed}ms, final state: ${transport.connectionState}`)
-                reject(new Error(`Transport connection timeout after ${elapsed}ms`))
-              }, 10000) // 10 second timeout
-
-              transport.on('connectionstatechange', (state) => {
-                const elapsed = Date.now() - startTime
-                console.debug(`Transport state changed to '${state}' after ${elapsed}ms`)
-                
-                if (state === 'connected') {
-                  console.info(`Transport connected successfully after ${elapsed}ms`)
-                  clearTimeout(timeout)
-                  resolve()
-                } else if (state === 'failed' || state === 'closed') {
-                  console.error(`Transport connection failed with state '${state}' after ${elapsed}ms`)
-                  clearTimeout(timeout)
-                  reject(new Error(`Transport connection failed: ${state} after ${elapsed}ms`))
-                }
-              })
-              
-              console.debug(`Waiting for transport connection, starting state: ${transport.connectionState}`)
-            })
-          } else {
-            console.info(`Transport already connected: ${transport.connectionState}`)
-          }
-        },
-        catch: (error) => new TransportConnectionError(
-          `Failed to connect transport: ${error instanceof Error ? error.message : String(error)}`,
-          error
-        )
-      }),
-      withTransportTimeoutTracking(10000, transport.id),
-      Effect.tap(() => Effect.logInfo(`Transport connected: ${transport.id}`))
-    )
+  private monitorTransportConnection = (transport: types.Transport): void => {
+    console.debug(`Monitoring transport connection, initial state: ${transport.connectionState}`)
+    
+    transport.on('connectionstatechange', (state) => {
+      console.debug(`Transport state changed to '${state}'`)
+      
+      if (state === 'connected') {
+        console.info(`Transport connected successfully`)
+      } else if (state === 'failed' || state === 'closed') {
+        console.error(`Transport connection failed with state '${state}'`)
+      }
+    })
+  }
 
   /**
    * Set up transport event handlers for reactive updates
@@ -173,23 +159,34 @@ export class TransportManager {
   private setupTransportEvents(transport: types.Transport, direction: 'send' | 'receive'): void {
     // Connection state changes
     transport.on('connectionstatechange', (state: string) => {
-      Effect.runSync(
-        Effect.sync(() => {
-          // Connection state is now managed by WebRTCProvider
-          // Log for debugging purposes
-          console.debug('Transport connection state changed:', state)
-        })
-      )
+      console.debug('Transport connection state changed:', state)
+      // State updates are now handled by WebRTCProvider through subscription
     })
 
     // Handle the 'connect' event for send transports
     if (direction === 'send') {
-      transport.on('connect', async (_: any, callback: () => void, errback: (error: Error) => void) => {
+      transport.on('connect', async (dtlsParameters: any, callback: () => void, errback: (error: Error) => void) => {
         try {
-          // For local network, we need to send DTLS parameters to backend
-          // This will be handled by the WebSocket signaling
+          console.debug('Transport connect event triggered with DTLS parameters:', dtlsParameters)
+          
+          if (!this.signalingCallback || !this.currentRoomId) {
+            console.error('No signaling callback available for DTLS exchange')
+            errback(new Error('Signaling not available for DTLS exchange'))
+            return
+          }
+
+          // Send DTLS parameters to backend via WebSocket
+          const command: ClientCommand = {
+            type: 'connectTransport',
+            dtlsParameters: dtlsParameters,
+            _traceContext: Option.none()
+          }
+          await this.signalingCallback(this.currentRoomId, command)
+          
+          console.debug('DTLS parameters sent to backend, transport connected')
           callback()
         } catch (error) {
+          console.error('Transport connect event failed:', error)
           errback(error instanceof Error ? error : new Error(String(error)))
         }
       })
@@ -197,10 +194,28 @@ export class TransportManager {
       // Handle the 'produce' event
       transport.on('produce', async (parameters: any, callback: (params: { id: string }) => void, errback: (error: Error) => void) => {
         try {
-          // Send produce request to backend via WebSocket
-          // This will be handled by the WebSocket signaling
-          callback({ id: parameters.id || 'temp-producer-id' })
+          console.debug('Transport produce event triggered:', parameters)
+          
+          if (!this.signalingCallback || !this.currentRoomId) {
+            console.error('No signaling callback available for producer creation')
+            errback(new Error('Signaling not available for producer creation'))
+            return
+          }
+
+          // Send RTP parameters to backend for producer creation
+          const command: ClientCommand = {
+            type: 'produce',
+            rtpParameters: parameters,
+            _traceContext: Option.none()
+          }
+          await this.signalingCallback(this.currentRoomId, command)
+          
+          // For now use the kind as producer ID, the backend should return the actual ID
+          const producerId = `producer-${parameters.kind}-${Date.now()}`
+          console.debug(`Producer created with ID: ${producerId}`)
+          callback({ id: producerId })
         } catch (error) {
+          console.error('Transport produce event failed:', error)
           errback(error instanceof Error ? error : new Error(String(error)))
         }
       })

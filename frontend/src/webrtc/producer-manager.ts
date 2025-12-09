@@ -44,9 +44,6 @@ export class ProducerManager {
           producer,
         }
 
-        // Add to reactive store
-        // Producer state is now managed by WebRTCProvider
-
         // Set up event handlers
         this.setupProducerEvents(producer)
 
@@ -77,7 +74,6 @@ export class ProducerManager {
         Effect.tryPromise({
           try: async () => {
             await producer.pause()
-            // Paused state is now managed by WebRTCProvider
           },
           catch: (error) => new ProducerError(
             `Failed to pause producer ${producerId}: ${error instanceof Error ? error.message : String(error)}`,
@@ -98,7 +94,6 @@ export class ProducerManager {
         Effect.tryPromise({
           try: async () => {
             await producer.resume()
-            // Paused state is now managed by WebRTCProvider
           },
           catch: (error) => new ProducerError(
             `Failed to resume producer ${producerId}: ${error instanceof Error ? error.message : String(error)}`,
@@ -119,14 +114,12 @@ export class ProducerManager {
         Effect.sync(() => {
           producer.close()
           this.producers.delete(producerId)
-          // Producer removal is now managed by WebRTCProvider
         })
       ),
       Effect.catchAll(() => 
         // Even if producer not found, clean up store
         Effect.sync(() => {
           this.producers.delete(producerId)
-          // Producer removal is now managed by WebRTCProvider
         })
       ),
       Effect.tap(() => Effect.logInfo(`Closed producer: ${producerId}`))
@@ -163,9 +156,6 @@ export class ProducerManager {
         Effect.tryPromise({
           try: async () => {
             await producer.replaceTrack({ track: newTrack })
-            
-            // Update store with new track
-            // Producer track updates are now managed by WebRTCProvider
           },
           catch: (error) => new ProducerError(
             `Failed to replace track for producer ${producerId}: ${error instanceof Error ? error.message : String(error)}`,

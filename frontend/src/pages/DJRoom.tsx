@@ -51,6 +51,7 @@ export default function DJRoom() {
     if (connState === 'connected' && streaming && producer) {
       setStatus(producer.paused ? 'muted' : 'live')
       setIsInitializing(false)
+      setError(null) // Clear any previous errors on success
     } else if (connState === 'connecting') {
       setStatus('connecting')
     } else if (connState === 'failed') {
@@ -65,7 +66,7 @@ export default function DJRoom() {
     setError(null)
 
     const program = Effect.gen(function* (_) {
-      const result = yield* _(publishRoomFlow(`Room ${roomId()}`))
+      const result = yield* _(publishRoomFlow(`Room ${roomId()}`, sendCommand))
       return result
     })
 

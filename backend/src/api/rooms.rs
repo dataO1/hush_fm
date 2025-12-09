@@ -9,7 +9,7 @@ use serde_json::json;
 use uuid::Uuid;
 
 use crate::{
-    models::{CreateRoomRequest, CreateRoomResponse, JoinRoomResponse, Room, TransportOptions, RtpCapabilities},
+    models::{CreateRoomRequest, CreateRoomResponse, JoinRoomResponse, Room, TransportOptions, RtpCapabilities, events::RoomInfo},
     state::AppState,
     webrtc::ConsumerManager,
 };
@@ -60,6 +60,10 @@ pub async fn create_room(
     let room_clone = room.clone();
     let room_state = state.create_room_enhanced(room).await;
     
+    // Get router RTP capabilities before storing
+    let router_rtp_capabilities = serde_json::to_value(router.rtp_capabilities())
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    
     // Store router and transport in room state
     {
         let mut room_state_guard = room_state.write().await;
@@ -68,9 +72,10 @@ pub async fn create_room(
     }
 
     let response = CreateRoomResponse {
-        room: room_clone,
+        room: room_clone.into(), // Convert Room to RoomInfo
         dj_token: dj_id, // Simplified token for now
         transport_options: convert_transport_options(transport_options),
+        rtp_capabilities: convert_rtp_capabilities(router_rtp_capabilities),
         ws_url: format!("ws://localhost:3000/ws/room/{}", room_id),
     };
 
@@ -82,12 +87,14 @@ pub async fn create_room(
     get,
     path = "/api/rooms",
     responses(
-        (status = 200, description = "List of rooms", body = Vec<Room>),
+        (status = 200, description = "List of rooms", body = Vec<RoomInfo>),
     ),
     tag = "rooms"
 )]
-pub async fn list_rooms(State(state): State<AppState>) -> Json<Vec<Room>> {
-    Json(state.get_rooms().await)
+pub async fn list_rooms(State(state): State<AppState>) -> Json<Vec<RoomInfo>> {
+    let rooms = state.get_rooms().await;
+    let room_infos: Vec<RoomInfo> = rooms.into_iter().map(|room| room.into()).collect();
+    Json(room_infos)
 }
 
 /// Join a room as listener
@@ -143,7 +150,7 @@ pub async fn join_room(
     let rtp_capabilities = json!(ConsumerManager::get_consumer_audio_capabilities());
 
     let response = JoinRoomResponse {
-        room,
+        room: room.into(), // Convert Room to RoomInfo
         transport_options: convert_transport_options(transport_options),
         producer_id,
         rtp_capabilities: convert_rtp_capabilities(rtp_capabilities),
