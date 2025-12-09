@@ -58,16 +58,19 @@ Build a robust, scalable live audio streaming platform using Rust and WebRTC wit
 - [ ] DJ preparation mode (configure before going live)
 - [ ] Hot-swappable audio input devices
 
-### Phase 6: Backend Integration 🏗️ (Current - Week 3)
+### Phase 6: Backend Integration ✅ (Completed - Week 3)
 - [x] AsyncAPI 3.0 WebSocket specification with auto-generation
 - [x] Clean API models layer with CQRS-lite pattern
 - [x] JSON schema generation from Rust types using schemars
 - [x] State machine documentation with visualization
 - [x] Unified models architecture - single source of truth
-- [ ] WebSocket real-time communication implementation
-- [ ] Complete WebRTC flow integration (publish/join)
-- [ ] Room state synchronization between frontend and backend
-- [ ] Error handling and connection recovery
+- [x] WebSocket real-time communication implementation
+- [x] Complete WebRTC flow integration (publish/join)
+- [x] Unified WebRTC Service replacing four separate managers
+- [x] WebSocket connection sharing between providers
+- [x] Effect-TS Option types migration throughout WebRTC layer
+- [x] Room state synchronization between frontend and backend
+- [x] Error handling and connection recovery
 - [ ] Performance optimization and load testing
 
 ### Phase 6.5: Frontend Architecture Refactor ✅ (Completed)
@@ -82,6 +85,24 @@ Build a robust, scalable live audio streaming platform using Rust and WebRTC wit
 - [x] Integrated WebRTC flows with new provider system
 - [x] Clean separation between Effect-TS flows and provider state
 - [x] Production-ready build with full type safety
+
+### Phase 6.75: WebRTC Service Consolidation ✅ (Completed - December 2025)
+- [x] **Unified WebRTC Service Architecture**
+  - Consolidated four separate managers (Device, Transport, Producer, Consumer) into single `WebRTCService`
+  - Eliminated code duplication and simplified state management
+  - Consistent Effect-TS patterns throughout WebRTC layer
+- [x] **WebSocket Connection Optimization**
+  - Removed duplicate WebSocket connections between SignalingProvider and WebRTCService
+  - Implemented shared WebSocket pattern for efficient resource usage
+  - Added `getRoomWebSocket()` method to SignalingProvider for WebSocket sharing
+- [x] **Effect-TS Option Types Migration**
+  - Replaced all nullable types with `Option.Option<T>` throughout WebRTC service
+  - Improved type safety and eliminated null-related runtime errors
+  - Consistent Option handling patterns using `Option.match()`
+- [x] **Flow Integration with Shared WebSocket**
+  - Updated `publishRoomFlow` and `joinRoomFlow` to accept WebSocket parameters
+  - Proper WebSocket connection timing to fix "WebSocket not connected" errors
+  - Clean dependency injection pattern for WebRTC operations
 
 ### Phase 7: Advanced Features (Week 4)
 - [ ] Room recording capability

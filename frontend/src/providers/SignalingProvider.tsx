@@ -1,6 +1,6 @@
 import { createContext, useContext, ParentComponent, createSignal, createEffect, onCleanup } from 'solid-js'
 import { createStore } from 'solid-js/store'
-import { Effect, pipe, Ref, Queue } from 'effect'
+import { Effect, pipe, Ref, Queue, Option } from 'effect'
 import { connectWebSocket, subscribeToMessages } from '../ws/client'
 import type { ClientCommand, ServerEvent, LobbyEvent } from '../models/websocket'
 import type { Room } from '../models/websocket'
@@ -84,6 +84,7 @@ export type SignalingContextType = {
   // State getters
   getConnectionState: () => WSConnectionState
   getConnectedRooms: () => string[]
+  getRoomWebSocket: () => Option.Option<WebSocket>
 
   // Real-time subscriptions
   subscribeToRoomUpdates: (callback: (room: Room) => void) => () => void
@@ -457,6 +458,11 @@ export const SignalingProvider: ParentComponent = (props) => {
   const getConnectedRooms = (): string[] => Array.from(connectedRooms())
 
   /**
+   * Get the current room WebSocket connection
+   */
+  const getRoomWebSocket = (): Option.Option<WebSocket> => Option.fromNullable(state.roomWS)
+
+  /**
    * Process queued messages when connection is restored (migrated from SignalingManager)
    */
   const processQueuedMessages = (): Effect.Effect<void, never> =>
@@ -595,6 +601,7 @@ export const SignalingProvider: ParentComponent = (props) => {
     setEventHandlers,
     getConnectionState,
     getConnectedRooms,
+    getRoomWebSocket,
     subscribeToRoomUpdates,
     subscribeToServerMessages
   }

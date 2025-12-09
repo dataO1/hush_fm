@@ -8,12 +8,42 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
-- **AsyncAPI 3.0 WebSocket Specification**
-  - Manual AsyncAPI spec generation using schemars for type safety
-  - Clean API models layer separate from internal business models
-  - JSON schema generation from Rust types for frontend compatibility
-  - State machine documentation with interactive Mermaid diagrams
-  - Comprehensive WebSocket event documentation with examples
+- **WebRTC Service Consolidation (December 2025)**
+  - Unified WebRTC service replacing four separate managers (device, transport, producer, consumer)
+  - Single coherent interface for all WebRTC operations
+  - Consistent Effect-TS patterns throughout WebRTC layer
+  - Proper resource lifecycle management with automatic cleanup
+
+- **WebSocket Connection Optimization**
+  - Shared WebSocket connection between SignalingProvider and WebRTCService
+  - Eliminated duplicate connections to same room endpoint
+  - Added `getRoomWebSocket()` method to SignalingProvider for connection sharing
+  - Fixed "WebSocket not connected" timing errors during transport operations
+
+### Changed
+- **Effect-TS Option Types Migration**
+  - Replaced all nullable types with `Option.Option<T>` throughout WebRTC service
+  - Consistent Option handling patterns using `Option.match()`, `Option.some()`, `Option.none()`
+  - Improved type safety and eliminated null-related runtime errors
+  - Better alignment with Effect-TS ecosystem patterns
+
+- **WebRTC Flow Architecture**
+  - Updated `publishRoomFlow` and `joinRoomFlow` to accept WebSocket parameters
+  - Proper dependency injection pattern for WebSocket connections
+  - Ensured WebSocket availability before transport operations begin
+  - Clean separation between connection management and WebRTC operations
+
+### Removed
+- **Legacy WebRTC Managers**
+  - Deleted `device-manager.ts`, `transport-manager.ts`, `producer-manager.ts`, `consumer-manager.ts`
+  - Eliminated code duplication and inconsistent state management
+  - Simplified WebRTC architecture with single service pattern
+
+### Fixed
+- **WebSocket Connection Timing**
+  - Fixed "WebSocket not connected" errors during MediaSoup transport events
+  - Proper connection establishment before WebRTC transport creation
+  - Eliminated race conditions between WebSocket and transport setup
 
 ### Architecture Decisions
 - **AsyncAPI Implementation Strategy (December 2025)**
@@ -23,6 +53,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - AsyncAPI 3.0 for compatibility with latest frontend generation tools (@asyncapi/modelina)
 
 ### Technical Implementation
+- **WebRTC Service Refactor** (`src/services/webrtc-service.ts`):
+  - Single service interface with consistent Effect-TS patterns
+  - WebSocket connection sharing with `setWebSocket()` method
+  - Option types throughout for null safety
+  - Unified state management with reactive updates
+
+- **WebSocket Integration** (`src/providers/SignalingProvider.tsx`):
+  - Added `getRoomWebSocket()` method returning `Option.Option<WebSocket>`
+  - Consistent use of Effect-TS Option types in provider interface
+  - Proper WebSocket lifecycle management
+
+- **Flow Updates** (`src/effects/webrtc-flows.ts`):
+  - WebSocket parameter injection for publish and join flows
+  - Proper error handling with PublishFlowError and JoinFlowError
+  - Sequential flow steps with WebSocket setup before transport operations
+
 - **Unified Models Architecture** (`src/models/`):
   - Single source of truth for all data models across REST API, WebSocket, and internal logic
   - Eliminated duplicate `Room` vs `RoomInfo` models for simplified maintenance

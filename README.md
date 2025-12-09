@@ -112,6 +112,14 @@ Stack: SolidJS, Effect-TS, Mediasoup Client, Orval (OpenAPI)
 - **Error Channel Operations**: Centralized error handling with recovery strategies
 - **Resource Management**: Automatic cleanup with finalizers and interruption handling
 - **Type Safety**: End-to-end type safety from backend to frontend
+- **Option Types**: Consistent use of `Option.Option<T>` instead of nullable types throughout the codebase
+
+### WebRTC Service Architecture (2025-12-09)
+- **Unified Service**: Consolidated Device, Transport, Producer, and Consumer managers into a single `WebRTCService`
+- **Shared WebSocket Connection**: WebRTCService receives WebSocket connection from SignalingProvider instead of managing its own
+- **Effect-TS Integration**: All WebRTC operations wrapped in Effect patterns with proper error handling
+- **Option Type Safety**: Complete migration from nullable types to Effect-TS Option types
+- **Flow-Based Operations**: WebRTC flows (`publishRoomFlow`, `joinRoomFlow`) orchestrate complex multi-step operations
 
 ### OpenAPI Integration
 - **Orval Client Generation**: Auto-generated TypeScript clients from backend OpenAPI spec
@@ -170,12 +178,15 @@ Stack: SolidJS, Effect-TS, Mediasoup Client, Orval (OpenAPI)
 - **TypeScript**: Zero compilation errors with full type safety
 - **Production Build**: Optimized bundle (403KB → 100KB gzipped)
 
-### 🚧 Backend Integration
+### ✅ WebRTC Service Integration (Completed)
 - WebRTC flows defined and implemented
 - API client integration ready
 - AsyncAPI 3.0 WebSocket specification complete with auto-generation
 - Unified models architecture with single source of truth
-- Real-time WebSocket communication pending
+- **Unified WebRTC Service**: Consolidated four separate managers into one cohesive service
+- **WebSocket Integration**: Shared WebSocket connection between SignalingProvider and WebRTCService
+- **Effect-TS Option Types**: Consistent use of Option types throughout WebRTC service
+- Real-time WebSocket communication implemented and tested
 1. DJ Workflow (The "Publish" Wizard)
 
 Program: PublishRoomFlow

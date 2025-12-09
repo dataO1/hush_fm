@@ -1,6 +1,6 @@
 import { createSignal, onMount, onCleanup, Show, createEffect } from 'solid-js'
 import { useParams, useNavigate } from '@solidjs/router'
-import { Effect } from 'effect'
+import { Effect, Option } from 'effect'
 import { joinRoomFlow } from '../effects/webrtc-flows'
 // import { WaveformVisualizer } from '../components/shared/WaveformVisualizer'
 import { useWebRTC } from '../providers/WebRTCProvider'
@@ -11,8 +11,8 @@ export default function ListenerRoom() {
   const navigate = useNavigate()
 
   // Use new providers instead of local state
-  const { state: webrtcState, connectionState } = useWebRTC()
-  const { connectToRoom, sendCommand } = useSignaling()
+  const { connectionState } = useWebRTC()
+  const { connectToRoom, getRoomWebSocket } = useSignaling()
 
   const [roomId] = createSignal(params.roomId)
   const [volume, setVolume] = createSignal(0.8)
@@ -20,13 +20,10 @@ export default function ListenerRoom() {
   const [error, setError] = createSignal<string | null>(null)
   const [isInitializing, setIsInitializing] = createSignal(true)
 
-  // Derive state from providers
-  const activeConsumer = () => Array.from(webrtcState.consumers.values()).find(c => c.consumer && !c.paused)
-  const currentStream = () => {
-    const consumer = activeConsumer()
-    return consumer?.track ? new MediaStream([consumer.track]) : null
-  }
-  const isConnected = () => connectionState() === 'connected' && activeConsumer() != null
+  // Simple state - managed by flows
+  const [currentConsumerId, setCurrentConsumerId] = createSignal<string | null>(null)
+  const [currentStream] = createSignal<MediaStream | null>(null)
+  const isConnected = () => connectionState() === 'connected' && currentConsumerId() != null
 
   let audioElement: HTMLAudioElement | undefined
 
@@ -62,9 +59,9 @@ export default function ListenerRoom() {
   // Effect to sync initialization state with provider state
   createEffect(() => {
     const connState = connectionState()
-    const consumer = activeConsumer()
+    const consumerId = currentConsumerId()
 
-    if (connState === 'connected' && consumer) {
+    if (connState === 'connected' && consumerId) {
       setIsInitializing(false)
     } else if (connState === 'connecting') {
       // Keep initializing state
@@ -80,14 +77,34 @@ export default function ListenerRoom() {
     setIsInitializing(true)
     setError(null)
 
+    // Get the WebSocket from SignalingProvider
+    const roomWebSocketOption = getRoomWebSocket()
+    const roomWebSocket = Option.match(roomWebSocketOption, {
+      onNone: () => {
+        setError('No WebSocket connection available')
+        setIsInitializing(false)
+        return null
+      },
+      onSome: (ws) => ws
+    })
+
+    if (!roomWebSocket) return
+
     const program = Effect.gen(function* (_) {
-      const result = yield* _(joinRoomFlow(roomId(), sendCommand))
+      const result = yield* _(joinRoomFlow(roomId(), roomWebSocket))
       return result
     })
 
     try {
-      await Effect.runPromise(program)
-      // State updates handled by providers through effects
+      const result = await Effect.runPromise(program)
+      setCurrentConsumerId(result.consumerId)
+      
+      // Set up audio playback with the received audio element
+      audioElement = result.audioElement
+      audioElement.volume = volume()
+      audioElement.muted = isMuted()
+      
+      setIsInitializing(false)
 
     } catch (err: any) {
       console.error('Failed to join room:', err)

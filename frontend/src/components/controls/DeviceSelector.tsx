@@ -1,4 +1,5 @@
 import { createSignal, For, Show, onMount } from 'solid-js'
+import { Option } from 'effect'
 import { useWebRTC } from '../../providers/WebRTCProvider'
 
 type AudioDevice = {
@@ -41,8 +42,8 @@ export function DeviceSelector() {
       setDevices(audioInputs)
 
       // Auto-select first device if none selected
-      if (audioInputs.length > 0 && !selectedDeviceId()) {
-        setSelectedDeviceId(audioInputs[0].deviceId)
+      if (audioInputs.length > 0 && Option.isNone(selectedDeviceId())) {
+        setSelectedDeviceId(Option.some(audioInputs[0].deviceId))
       }
     } catch (err) {
       setError('Microphone access denied')
@@ -54,7 +55,7 @@ export function DeviceSelector() {
 
   const handleDeviceChange = (event: Event) => {
     const target = event.target as HTMLSelectElement
-    setSelectedDeviceId(target.value)
+    setSelectedDeviceId(Option.some(target.value))
   }
 
   return (
@@ -85,7 +86,7 @@ export function DeviceSelector() {
         >
           <select
             class="select select-bordered w-full"
-            value={selectedDeviceId() || ''}
+            value={Option.getOrElse(selectedDeviceId(), () => '')}
             onChange={handleDeviceChange}
           >
             <option disabled value="">

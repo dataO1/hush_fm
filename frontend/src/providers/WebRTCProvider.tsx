@@ -2,6 +2,9 @@ import { createContext, useContext, ParentComponent, createSignal, createEffect,
 import { createStore } from 'solid-js/store'
 import { Device } from 'mediasoup-client'
 import type { types } from 'mediasoup-client'
+import { Effect, Layer, Runtime, Option, pipe } from 'effect'
+import { WebRTCService, WebRTCServiceLive } from '../services/webrtc-service'
+import type { WebRTCState, WebRTCService as WebRTCServiceType } from '../services/webrtc-service'
 
 /**
  * Connection states for WebRTC components
@@ -17,10 +20,10 @@ export type ConnectionState =
  * Device state for mediasoup-client
  */
 export type DeviceState = {
-  device: Device | null
+  device: Option.Option<Device>
   loaded: boolean
-  capabilities: any | null
-  error: string | null
+  capabilities: Option.Option<any>
+  error: Option.Option<string>
 }
 
 /**
@@ -30,9 +33,9 @@ export type TransportState = {
   id: string
   direction: 'send' | 'receive'
   connectionState: ConnectionState
-  iceState: RTCIceConnectionState | null
-  dtlsState: RTCDtlsTransportState | null
-  transport: types.Transport | null
+  iceState: Option.Option<RTCIceConnectionState>
+  dtlsState: Option.Option<RTCDtlsTransportState>
+  transport: Option.Option<types.Transport>
 }
 
 /**
@@ -42,8 +45,8 @@ export type ProducerState = {
   id: string
   kind: 'audio' | 'video'
   paused: boolean
-  track: MediaStreamTrack | null
-  producer: types.Producer | null
+  track: Option.Option<MediaStreamTrack>
+  producer: Option.Option<types.Producer>
 }
 
 /**
@@ -53,30 +56,17 @@ export type ConsumerState = {
   id: string
   kind: 'audio' | 'video'
   paused: boolean
-  track: MediaStreamTrack | null
-  consumer: types.Consumer | null
+  track: Option.Option<MediaStreamTrack>
+  consumer: Option.Option<types.Consumer>
   producerId: string
 }
 
 /**
- * WebRTC store state
+ * Simplified WebRTC store state - UI-specific only
  */
 export type WebRTCStore = {
   // Device state
   device: DeviceState
-  
-  // Transport management
-  transports: Map<string, TransportState>
-  
-  // Producer management (for DJ)
-  producers: Map<string, ProducerState>
-  
-  // Consumer management (for listeners)
-  consumers: Map<string, ConsumerState>
-  
-  // Stream state
-  localStream: MediaStream | null
-  remoteStreams: Map<string, MediaStream>
   
   // Connection monitoring
   connectionQuality: {
@@ -88,44 +78,25 @@ export type WebRTCStore = {
 }
 
 /**
- * WebRTC action handlers
+ * Simplified WebRTC action handlers - UI-specific only
  */
 export type WebRTCActions = {
-  // Device management
-  setDevice: (device: Device | null) => void
-  setDeviceLoaded: (loaded: boolean) => void
-  setDeviceCapabilities: (capabilities: any) => void
-  setDeviceError: (error: string | null) => void
-  
-  // Transport management  
-  addTransport: (transport: TransportState) => void
-  updateTransportState: (id: string, connectionState: ConnectionState) => void
-  removeTransport: (id: string) => void
-  
-  // Producer management
-  addProducer: (producer: ProducerState) => void
-  updateProducerPaused: (id: string, paused: boolean) => void
-  updateProducer: (id: string, updates: Partial<ProducerState>) => void
-  removeProducer: (id: string) => void
-  
-  // Consumer management
-  addConsumer: (consumer: ConsumerState) => void
-  updateConsumerPaused: (id: string, paused: boolean) => void
-  removeConsumer: (id: string) => void
+  // Device management (read-only, managed by service)
+  setDeviceError: (error: Option.Option<string>) => void
   
   // Connection quality
   updateConnectionQuality: (quality: Partial<typeof initialStore.connectionQuality>) => void
 }
 
 /**
- * WebRTC Context type
+ * Simplified WebRTC Context type
  */
 export type WebRTCContextType = {
   state: WebRTCStore
   setState: (updates: Partial<WebRTCStore> | ((prev: WebRTCStore) => Partial<WebRTCStore>)) => void
   actions: WebRTCActions
   
-  // Additional reactive signals
+  // UI-specific reactive signals
   connectionState: () => ConnectionState
   setConnectionState: (state: ConnectionState) => void
   
@@ -135,13 +106,14 @@ export type WebRTCContextType = {
   audioLevel: () => number
   setAudioLevel: (level: number) => void
   
-  selectedDeviceId: () => string | null
-  setSelectedDeviceId: (deviceId: string | null) => void
+  selectedDeviceId: () => Option.Option<string>
+  setSelectedDeviceId: (deviceId: Option.Option<string>) => void
   
   // Derived state
   isConnected: () => boolean
-  hasActiveProducer: () => boolean
-  hasActiveConsumer: () => boolean
+  
+  // Direct access to WebRTC service for complex operations
+  getService: () => Effect.Effect<Option.Option<WebRTCServiceType>, never, never>
 }
 
 const WebRTCContext = createContext<WebRTCContextType>()
@@ -150,18 +122,13 @@ const WebRTCContext = createContext<WebRTCContextType>()
  * WebRTC Provider component
  * Manages all WebRTC state within proper SolidJS reactive context
  */
-const initialStore = {
+const initialStore: WebRTCStore = {
   device: {
-    device: null,
+    device: Option.none<Device>(),
     loaded: false,
-    capabilities: null,
-    error: null
+    capabilities: Option.none<any>(),
+    error: Option.none<string>()
   } as DeviceState,
-  transports: new Map<string, TransportState>(),
-  producers: new Map<string, ProducerState>(),
-  consumers: new Map<string, ConsumerState>(),
-  localStream: null as MediaStream | null,
-  remoteStreams: new Map<string, MediaStream>(),
   connectionQuality: {
     rtt: 0,
     packetsLost: 0,
@@ -178,124 +145,22 @@ export const WebRTCProvider: ParentComponent = (props) => {
   const [connectionState, setConnectionState] = createSignal<ConnectionState>('disconnected')
   const [isStreaming, setIsStreaming] = createSignal(false)
   const [audioLevel, setAudioLevel] = createSignal(0)
-  const [selectedDeviceId, setSelectedDeviceId] = createSignal<string | null>(null)
+  const [selectedDeviceId, setSelectedDeviceId] = createSignal<Option.Option<string>>(Option.none())
+
+  // WebRTC Service integration
+  const webrtcServiceLayer = WebRTCServiceLive
+  let serviceRuntime: Option.Option<Runtime.Runtime<WebRTCServiceType>> = Option.none()
+  let unsubscribe: Option.Option<() => void> = Option.none()
 
 
   // Derived signals
   const isConnected = (): boolean => connectionState() === 'connected'
-  const hasActiveProducer = (): boolean => 
-    Array.from(state.producers.values()).some(p => p.producer && !p.paused)
-  const hasActiveConsumer = (): boolean =>
-    Array.from(state.consumers.values()).some(c => c.consumer && !c.paused)
 
-  // WebRTC actions following the original store pattern
+  // Simplified actions - only UI-specific functionality
   const actions: WebRTCActions = {
-    // Device management
-    setDevice: (device: Device | null) => {
-      setState('device', 'device', device)
-    },
-    setDeviceLoaded: (loaded: boolean) => {
-      setState('device', 'loaded', loaded)
-    },
-    setDeviceCapabilities: (capabilities: any) => {
-      setState('device', 'capabilities', capabilities)
-    },
-    setDeviceError: (error: string | null) => {
+    // Device error management (for UI feedback)
+    setDeviceError: (error: Option.Option<string>) => {
       setState('device', 'error', error)
-    },
-
-    // Transport management
-    addTransport: (transport: TransportState) => {
-      setState('transports', transports => {
-        const newMap = new Map(transports)
-        newMap.set(transport.id, transport)
-        return newMap
-      })
-    },
-    updateTransportState: (id: string, connectionState: ConnectionState) => {
-      setState('transports', transports => {
-        const newMap = new Map(transports)
-        const existing = newMap.get(id)
-        if (existing) {
-          newMap.set(id, { ...existing, connectionState })
-        }
-        return newMap
-      })
-    },
-    removeTransport: (id: string) => {
-      setState('transports', transports => {
-        const newMap = new Map(transports)
-        newMap.delete(id)
-        return newMap
-      })
-    },
-
-    // Producer management
-    addProducer: (producer: ProducerState) => {
-      setState('producers', producers => {
-        const newMap = new Map(producers)
-        newMap.set(producer.id, producer)
-        return newMap
-      })
-      setIsStreaming(true)
-    },
-    updateProducerPaused: (id: string, paused: boolean) => {
-      setState('producers', producers => {
-        const newMap = new Map(producers)
-        const existing = newMap.get(id)
-        if (existing) {
-          newMap.set(id, { ...existing, paused })
-        }
-        return newMap
-      })
-    },
-    updateProducer: (id: string, updates: Partial<ProducerState>) => {
-      setState('producers', producers => {
-        const newMap = new Map(producers)
-        const existing = newMap.get(id)
-        if (existing) {
-          newMap.set(id, { ...existing, ...updates })
-        }
-        return newMap
-      })
-    },
-    removeProducer: (id: string) => {
-      setState('producers', producers => {
-        const newMap = new Map(producers)
-        newMap.delete(id)
-        return newMap
-      })
-      
-      // Update streaming state if no active producers
-      if (!hasActiveProducer()) {
-        setIsStreaming(false)
-      }
-    },
-
-    // Consumer management
-    addConsumer: (consumer: ConsumerState) => {
-      setState('consumers', consumers => {
-        const newMap = new Map(consumers)
-        newMap.set(consumer.id, consumer)
-        return newMap
-      })
-    },
-    updateConsumerPaused: (id: string, paused: boolean) => {
-      setState('consumers', consumers => {
-        const newMap = new Map(consumers)
-        const existing = newMap.get(id)
-        if (existing) {
-          newMap.set(id, { ...existing, paused })
-        }
-        return newMap
-      })
-    },
-    removeConsumer: (id: string) => {
-      setState('consumers', consumers => {
-        const newMap = new Map(consumers)
-        newMap.delete(id)
-        return newMap
-      })
     },
 
     // Connection quality
@@ -308,64 +173,114 @@ export const WebRTCProvider: ParentComponent = (props) => {
     }
   }
 
-  // Initialize mediasoup device
+  // Initialize WebRTC service and subscribe to state changes
   createEffect(() => {
-    const initDevice = async () => {
+    const initService = async () => {
       try {
-        const device = new Device()
-        setState('device', {
-          device,
-          loaded: false,
-          capabilities: null,
-          error: null
-        })
+        // Create service runtime with Layer
+        const runtime = await Effect.runPromise(
+          Effect.scoped(
+            Layer.toRuntime(webrtcServiceLayer)
+          )
+        )
+        serviceRuntime = Option.some(runtime)
+        
+        // Subscribe to service state changes
+        const subscribeEffect = pipe(
+          WebRTCService,
+          Effect.andThen(service => 
+            service.subscribeToStateChanges((serviceState: WebRTCState) => {
+              // Sync service state to SolidJS reactive store
+              syncServiceStateToStore(serviceState)
+            })
+          )
+        )
+        
+        const unsub = await Effect.runPromise(
+          Effect.provide(subscribeEffect, runtime)
+        )
+        unsubscribe = Option.some(unsub)
+        
       } catch (error) {
-        setState('device', 'error', String(error))
+        console.error('Failed to initialize WebRTC service:', error)
+        setState('device', 'error', Option.some(String(error)))
       }
     }
 
-    initDevice()
+    initService()
   })
+  
+  // Simplified sync - just pass service state through
+  const syncServiceStateToStore = (serviceState: WebRTCState) => {
+    // Update device state to match service structure
+    setState('device', {
+      device: serviceState.device,
+      loaded: serviceState.deviceLoaded,
+      capabilities: serviceState.rtpCapabilities,
+      error: serviceState.deviceError
+    })
+    
+    // Update connection quality
+    setState('connectionQuality', serviceState.connectionQuality)
+    
+    // Update derived reactive signals
+    const hasActiveProducers = serviceState.producers.size > 0
+    setIsStreaming(hasActiveProducers)
+    
+    // Update connection state based on WebSocket
+    Option.match(serviceState.ws, {
+      onNone: () => setConnectionState('disconnected'),
+      onSome: (ws) => {
+        setConnectionState(ws.readyState === WebSocket.OPEN ? 'connected' : 'connecting')
+      }
+    })
+  }
 
   // Cleanup on unmount
-  onCleanup(() => {
-    // Close all transports
-    state.transports.forEach(transport => {
-      transport.transport?.close()
+  onCleanup(async () => {
+    // Unsubscribe from service state changes
+    Option.match(unsubscribe, {
+      onNone: () => {},
+      onSome: (unsub) => unsub()
     })
-
-    // Close local stream tracks
-    if (state.localStream) {
-      state.localStream.getTracks().forEach(track => track.stop())
-    }
-
-    // Close remote stream tracks
-    state.remoteStreams.forEach(stream => {
-      stream.getTracks().forEach(track => track.stop())
-    })
-  })
-
-  // Automatic connection state management based on transports
-  createEffect(() => {
-    const transports = Array.from(state.transports.values())
     
-    if (transports.length === 0) {
-      setConnectionState('disconnected')
-      return
-    }
-
-    const hasConnected = transports.some(t => t.connectionState === 'connected')
-    const hasConnecting = transports.some(t => t.connectionState === 'connecting')
-    const hasFailed = transports.some(t => t.connectionState === 'failed')
-
-    if (hasConnected && !hasConnecting && !hasFailed) {
-      setConnectionState('connected')
-    } else if (hasConnecting) {
-      setConnectionState('connecting')
-    } else if (hasFailed) {
-      setConnectionState('failed')
-    }
+    // Cleanup WebRTC service
+    Option.match(serviceRuntime, {
+      onNone: () => {},
+      onSome: async (runtime) => {
+        try {
+          await Effect.runPromise(
+            Effect.provide(
+              pipe(
+                WebRTCService,
+                Effect.andThen(service => service.cleanup())
+              ),
+              runtime
+            )
+          )
+        } catch (error) {
+          console.error('Error cleaning up WebRTC service:', error)
+        }
+      }
+    })
   })
+
+  // Connection state is now managed in sync function based on WebSocket state
+
+  // Helper to get WebRTC service instance
+  const getService = (): Effect.Effect<Option.Option<WebRTCServiceType>, never, never> =>
+    pipe(
+      serviceRuntime,
+      Option.match({
+        onNone: () => Effect.succeed(Option.none<WebRTCServiceType>()),
+        onSome: (runtime) => pipe(
+          WebRTCService,
+          Effect.provide(runtime),
+          Effect.map(Option.some),
+          Effect.catchAll(() => Effect.succeed(Option.none<WebRTCServiceType>()))
+        )
+      })
+    )
 
   const contextValue: WebRTCContextType = {
     state,
@@ -380,8 +295,7 @@ export const WebRTCProvider: ParentComponent = (props) => {
     selectedDeviceId,
     setSelectedDeviceId,
     isConnected,
-    hasActiveProducer,
-    hasActiveConsumer
+    getService
   }
 
   return (

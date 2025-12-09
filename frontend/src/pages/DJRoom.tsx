@@ -1,7 +1,7 @@
 import { createSignal, onMount, onCleanup, Show, createEffect } from 'solid-js'
 import { useParams, useNavigate } from '@solidjs/router'
 import { Effect, Option } from 'effect'
-import { publishRoomFlow } from '../effects/webrtc-flows'
+import { publishRoomFlow, toggleProducerFlow } from '../effects/webrtc-flows'
 // import { WaveformVisualizer } from '../components/shared/WaveformVisualizer'
 import { DeviceSelector } from '../components/controls/DeviceSelector'
 import { useWebRTC } from '../providers/WebRTCProvider'
@@ -14,17 +14,17 @@ export default function DJRoom() {
   const navigate = useNavigate()
 
   // Use new providers instead of local state
-  const { state: webrtcState, connectionState, isStreaming } = useWebRTC()
-  const { connectToRoom, sendCommand } = useSignaling()
+  const { connectionState, isStreaming } = useWebRTC()
+  const { connectToRoom, sendCommand, getRoomWebSocket } = useSignaling()
 
   const [roomId] = createSignal(params.roomId)
   const [status, setStatus] = createSignal<StreamStatus>('connecting')
   const [error, setError] = createSignal<string | null>(null)
   const [isInitializing, setIsInitializing] = createSignal(true)
 
-  // Derive state from providers
-  const activeProducer = () => Array.from(webrtcState.producers.values()).find(p => p.producer && !p.paused)
-  const isMuted = () => activeProducer()?.paused || false
+  // Simple state - streaming state managed by flows
+  const [currentProducerId, setCurrentProducerId] = createSignal<string | null>(null)
+  const [isMuted, setIsMuted] = createSignal(false)
 
   // Connect to room WebSocket on mount
   onMount(async () => {
@@ -46,10 +46,10 @@ export default function DJRoom() {
   createEffect(() => {
     const connState = connectionState()
     const streaming = isStreaming()
-    const producer = activeProducer()
+    const muted = isMuted()
 
-    if (connState === 'connected' && streaming && producer) {
-      setStatus(producer.paused ? 'muted' : 'live')
+    if (connState === 'connected' && streaming) {
+      setStatus(muted ? 'muted' : 'live')
       setIsInitializing(false)
       setError(null) // Clear any previous errors on success
     } else if (connState === 'connecting') {
@@ -65,13 +65,28 @@ export default function DJRoom() {
     setStatus('connecting')
     setError(null)
 
+    // Get the WebSocket from SignalingProvider
+    const roomWebSocketOption = getRoomWebSocket()
+    const roomWebSocket = Option.match(roomWebSocketOption, {
+      onNone: () => {
+        setError('No WebSocket connection available')
+        setStatus('error')
+        setIsInitializing(false)
+        return null
+      },
+      onSome: (ws) => ws
+    })
+
+    if (!roomWebSocket) return
+
     const program = Effect.gen(function* (_) {
-      const result = yield* _(publishRoomFlow(`Room ${roomId()}`, sendCommand))
+      const result = yield* _(publishRoomFlow(`Room ${roomId()}`, roomWebSocket))
       return result
     })
 
     try {
-      await Effect.runPromise(program)
+      const result = await Effect.runPromise(program)
+      setCurrentProducerId(result.producerId)
       // State updates handled by providers through effects
 
     } catch (err: any) {
@@ -83,26 +98,14 @@ export default function DJRoom() {
   }
 
   const toggleMute = async () => {
-    const producer = activeProducer()
-    if (!producer?.producer) return
+    const producerId = currentProducerId()
+    if (!producerId) return
 
     try {
-      if (producer.paused) {
-        await producer.producer.resume()
-        // Send WebSocket message to backend
-        await sendCommand(roomId(), {
-          type: 'produce',
-          rtpParameters: producer.producer.rtpParameters,
-          _traceContext: Option.none()
-        })
-      } else {
-        await producer.producer.pause()
-        // Send pause message to backend
-        await sendCommand(roomId(), {
-          type: 'pauseStream',
-          _traceContext: Option.none()
-        })
-      }
+      const currentMuted = isMuted()
+      const program = toggleProducerFlow(producerId, !currentMuted)
+      await Effect.runPromise(program)
+      setIsMuted(!currentMuted)
     } catch (err: any) {
       console.error('Failed to toggle mute:', err)
       setError(err.message)
