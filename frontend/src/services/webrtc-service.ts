@@ -1,7 +1,7 @@
 import { Context, Effect, Layer, pipe, Option } from 'effect'
 import { Device, types } from 'mediasoup-client'
 import type { ClientCommand, ServerEvent } from '../models/websocket'
-import { sendMessage, subscribeToMessages } from '../ws/client'
+import { subscribeToMessages } from '../ws/client'
 
 /**
  * Simplified transport options for internal use
@@ -307,26 +307,7 @@ class WebRTCServiceImpl implements WebRTCService {
         }
       })
 
-      // Handle the 'produce' event
-      transport.on('produce', async (parameters: any, callback: (params: { id: string }) => void, errback: (error: Error) => void) => {
-        try {
-          const command: ClientCommand = {
-            type: 'produce',
-            rtpParameters: parameters,
-            _traceContext: Option.none()
-          }
-          
-          // Use WebSocket client to send command
-          await Effect.runPromise(this.sendCommand(command))
-          
-          // Generate temporary producer ID - server will provide the real one via ServerEvent
-          const producerId = `producer-${parameters.kind}-${Date.now()}`
-          callback({ id: producerId })
-        } catch (error) {
-          console.error('Transport produce failed:', error)
-          errback(error instanceof Error ? error : new Error(String(error)))
-        }
-      })
+      // Produce event is now handled in createSendTransport
     }
 
     // Handle the 'connect' event for receive transports
@@ -482,15 +463,77 @@ class WebRTCServiceImpl implements WebRTCService {
 
   sendCommand = (command: ClientCommand): Effect.Effect<void, WebRTCError> =>
     pipe(
-      this.ws,
-      Option.match({
-        onNone: () => Effect.fail(new WebRTCError('WebSocket not connected')),
-        onSome: (ws) => pipe(
-          sendMessage(ws, command),
-          Effect.mapError(error => new WebRTCError(`Failed to send command: ${error.message}`, error))
-        )
-      })
+      Effect.logTrace(`Preparing to send WebSocket command: ${command.type}`),
+      Effect.andThen(() => Effect.sync(() => this.ws)),
+      Effect.andThen(wsOption =>
+        Option.match(wsOption, {
+          onNone: () => Effect.fail(new WebRTCError(
+            'WebSocket not connected - cannot send command',
+            new Error(`Command: ${command.type}`)
+          )),
+          onSome: (socket) => pipe(
+            Effect.logTrace(`WebSocket state: ${socket.readyState} (${this.getWebSocketStateText(socket.readyState)})`),
+            Effect.andThen(() => {
+              // Check WebSocket state with detailed error reporting
+              switch (socket.readyState) {
+                case WebSocket.CONNECTING:
+                  return Effect.fail(new WebRTCError(
+                    'WebSocket is still connecting - command cannot be sent yet',
+                    new Error(`Command: ${command.type}, State: CONNECTING`)
+                  ))
+                case WebSocket.OPEN:
+                  return Effect.tryPromise({
+                    try: async () => {
+                      const message = JSON.stringify(command)
+                      socket.send(message)
+                    },
+                    catch: (error) => new WebRTCError(
+                      `Failed to send WebSocket message`,
+                      error instanceof Error ? error : new Error(String(error))
+                    )
+                  })
+                case WebSocket.CLOSING:
+                  return Effect.fail(new WebRTCError(
+                    'WebSocket is closing - cannot send command',
+                    new Error(`Command: ${command.type}, State: CLOSING`)
+                  ))
+                case WebSocket.CLOSED:
+                  return Effect.fail(new WebRTCError(
+                    'WebSocket is closed - cannot send command',
+                    new Error(`Command: ${command.type}, State: CLOSED`)
+                  ))
+                default:
+                  return Effect.fail(new WebRTCError(
+                    `Unknown WebSocket state: ${socket.readyState}`,
+                    new Error(`Command: ${command.type}`)
+                  ))
+              }
+            })
+          )
+        })
+      ),
+      Effect.tap(() => Effect.logInfo(
+        `Successfully sent WebSocket command: ${command.type}`,
+        { command_type: command.type, room_id: Option.getOrElse(this.roomId, () => 'unknown') }
+      )),
+      Effect.tapError((error) => Effect.logError(
+        `Failed to send WebSocket command: ${command.type} - ${error.message}`,
+        { command_type: command.type, error_message: error.message }
+      ))
     )
+
+  /**
+   * Get human-readable WebSocket state text
+   */
+  private getWebSocketStateText = (state: number): string => {
+    switch (state) {
+      case WebSocket.CONNECTING: return 'CONNECTING'
+      case WebSocket.OPEN: return 'OPEN'
+      case WebSocket.CLOSING: return 'CLOSING'
+      case WebSocket.CLOSED: return 'CLOSED'
+      default: return 'UNKNOWN'
+    }
+  }
 
   setRoomId = (roomId: string): Effect.Effect<void, never> =>
     Effect.sync(() => {
@@ -677,8 +720,68 @@ class WebRTCServiceImpl implements WebRTCService {
             dtlsParameters: options.dtlsParameters,
             sctpParameters: options.sctpParameters,
           })
+
+          // CRITICAL: Set up produce event handler immediately
+          transport.on('produce', (parameters, callback, errback) => {
+            // Run Effect to handle produce event
+            const handleProduce = pipe(
+              Effect.logInfo('Produce event triggered, preparing to send command'),
+              Effect.andThen(() => Effect.sync(() => this.ws)),
+              Effect.andThen(wsOption =>
+                Option.match(wsOption, {
+                  onNone: () => Effect.fail(new Error('WebSocket not connected')),
+                  onSome: (ws) => Effect.succeed(ws)
+                })
+              ),
+              // Create command
+              Effect.andThen(ws => {
+                const command: ClientCommand = {
+                  type: 'produce',
+                  rtpParameters: parameters.rtpParameters,
+                  _traceContext: Option.none()
+                }
+                return Effect.succeed({ ws, command })
+              }),
+              // Send command via WebSocket
+              Effect.andThen(({ ws, command }) =>
+                Effect.sync(() => {
+                  if (ws.readyState === WebSocket.OPEN) {
+                    const message = JSON.stringify(command)
+                    ws.send(message)
+                    
+                    // Generate temporary producer ID
+                    const producerId = `producer-${parameters.kind}-${Date.now()}`
+                    return producerId
+                  } else {
+                    throw new Error(`WebSocket not ready: state=${ws.readyState}`)
+                  }
+                })
+              ),
+              // Handle success
+              Effect.tap(() => 
+                Effect.logInfo('Produce command sent successfully to backend')
+              ),
+              Effect.andThen(producerId => {
+                callback({ id: producerId })
+                return Effect.succeed(producerId)
+              }),
+              // Handle errors
+              Effect.tapError((error) =>
+                Effect.logError(`Failed to send produce command: ${error}`)
+              ),
+              Effect.catchAll(error => {
+                errback(error instanceof Error ? error : new Error(String(error)))
+                return Effect.fail(error)
+              })
+            )
+
+            // Run the effect without blocking
+            Effect.runPromise(handleProduce).catch(() => {
+              // Error already handled in catchAll
+            })
+          })
           
-          // Store transport and set up events
+          // Store transport and set up other events
           this.transports.set(transport.id, transport)
           this.sendTransport = Option.some(transport)
           this.setupTransportEvents(transport, 'send')
@@ -785,13 +888,33 @@ class WebRTCServiceImpl implements WebRTCService {
   // Producer operations  
   produce = (track: MediaStreamTrack): Effect.Effect<string, ProducerError> =>
     pipe(
-      Effect.sync(() => this.sendTransport),
-      Effect.andThen(transportOpt =>
-        Option.match(transportOpt, {
-          onNone: () => Effect.fail(new ProducerError('Send transport not available')),
-          onSome: (transport) => Effect.succeed(transport)
+      Effect.logTrace(`Starting producer creation process`),
+      Effect.andThen(() => Effect.sync(() => ({
+        sendTransport: this.sendTransport,
+        roomId: this.roomId,
+        trackId: track.id,
+        trackKind: track.kind,
+        trackLabel: track.label
+      }))),
+      Effect.tap(({ trackId, trackKind, trackLabel }) => 
+        Effect.logInfo(
+          `Producing track: ${trackKind} track with ID ${trackId}`,
+          { track_id: trackId, track_kind: trackKind, track_label: trackLabel }
+        )
+      ),
+      Effect.andThen(({ sendTransport, roomId }) =>
+        Option.match(sendTransport, {
+          onNone: () => Effect.fail(new ProducerError(
+            'Send transport not available - cannot produce track',
+            new Error(`Room: ${Option.getOrElse(roomId, () => 'unknown')}`)
+          )),
+          onSome: (transport) => pipe(
+            Effect.logTrace(`Using send transport: ${transport.id}`),
+            Effect.andThen(() => Effect.succeed(transport))
+          )
         })
       ),
+      Effect.tap(() => Effect.logTrace('About to call transport.produce() - produce event should fire during this call')),
       Effect.andThen(transport =>
         Effect.tryPromise({
           try: async () => {
@@ -810,10 +933,28 @@ class WebRTCServiceImpl implements WebRTCService {
             
             return producer.id
           },
-          catch: (error) => new ProducerError(`Failed to create producer: ${error}`, error)
+          catch: (error) => new ProducerError(
+            `Failed to create producer via MediaSoup transport`,
+            error instanceof Error ? error : new Error(String(error))
+          )
         })
       ),
-      Effect.tap((id) => Effect.logInfo(`Created producer: ${id}`))
+      Effect.tap((producerId) => Effect.logInfo(
+        `Successfully created producer: ${producerId}`,
+        { 
+          producer_id: producerId,
+          track_kind: track.kind,
+          room_id: Option.getOrElse(this.roomId, () => 'unknown')
+        }
+      )),
+      Effect.tapError((error) => Effect.logError(
+        `Producer creation failed: ${error.message}`,
+        { 
+          error_message: error.message,
+          track_kind: track.kind,
+          room_id: Option.getOrElse(this.roomId, () => 'unknown')
+        }
+      ))
     )
 
   pauseProducer = (producerId: string): Effect.Effect<void, ProducerError> =>

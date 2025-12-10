@@ -187,6 +187,10 @@ Stack: SolidJS, Effect-TS, Mediasoup Client, Orval (OpenAPI)
 - **WebSocket Integration**: Shared WebSocket connection between SignalingProvider and WebRTCService
 - **Effect-TS Option Types**: Consistent use of Option types throughout WebRTC service
 - Real-time WebSocket communication implemented and tested
+- **Producer Flow Debugging (December 2025)**: Fixed room visibility issues with comprehensive Jaeger tracing
+  - Resolved silent WebSocket deserialization failures
+  - Fixed transport/room ID confusion in WebRTC service state
+  - Enhanced producer event handler timing for reliable WebSocket command delivery
 1. DJ Workflow (The "Publish" Wizard)
 
 Program: PublishRoomFlow

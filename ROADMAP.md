@@ -71,6 +71,11 @@ Build a robust, scalable live audio streaming platform using Rust and WebRTC wit
 - [x] Effect-TS Option types migration throughout WebRTC layer
 - [x] Room state synchronization between frontend and backend
 - [x] Error handling and connection recovery
+- [x] **WebRTC Producer Flow Debugging (December 2025)**
+  - Fixed silent WebSocket deserialization errors with comprehensive Jaeger tracing
+  - Resolved transport ID vs room ID confusion preventing room visibility
+  - Enhanced producer event handler timing to ensure WebSocket commands reach backend
+  - Added Effect-TS error handling throughout WebRTC pipeline with OpenTelemetry integration
 - [ ] Performance optimization and load testing
 
 ### Phase 6.5: Frontend Architecture Refactor ✅ (Completed)

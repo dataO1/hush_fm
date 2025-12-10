@@ -43,8 +43,28 @@ async fn handle_room_socket(socket: WebSocket, room_id: Uuid, state: AppState) {
         while let Some(msg) = receiver.next().await {
             if let Ok(msg) = msg {
                 if let Message::Text(text) = msg {
-                    if let Ok(client_cmd) = serde_json::from_str::<ClientCommand>(&text) {
-                        handle_client_command(client_cmd, room_id, &state_clone, &mut sender).await;
+                    let message_span = tracing::debug_span!(
+                        "websocket_message_received",
+                        room_id = %room_id,
+                        message_length = text.len(),
+                        command_type = tracing::field::Empty
+                    );
+                    let _enter = message_span.enter();
+                    
+                    tracing::debug!("Raw WebSocket message received");
+                    match serde_json::from_str::<ClientCommand>(&text) {
+                        Ok(client_cmd) => {
+                            message_span.record("command_type", client_cmd.command_type());
+                            tracing::info!("Successfully parsed WebSocket command: {}", client_cmd.command_type());
+                            handle_client_command(client_cmd, room_id, &state_clone, &mut sender).await;
+                        }
+                        Err(e) => {
+                            tracing::error!(
+                                raw_message = %text,
+                                parse_error = %e,
+                                "Failed to parse ClientCommand from WebSocket message"
+                            );
+                        }
                     }
                 }
             } else {
@@ -273,31 +293,66 @@ async fn handle_connect_transport(
 }
 
 /// Handle producer creation
-#[tracing::instrument(skip(state, rtp_parameters), fields(room_id = %room_id))]
+#[tracing::instrument(skip(state, rtp_parameters), fields(
+    room_id = %room_id,
+    rtp_parameters_size = rtp_parameters.to_string().len()
+))]
 async fn handle_produce(
     room_id: Uuid,
     rtp_parameters: serde_json::Value,
     state: &AppState,
 ) -> anyhow::Result<String> {
+    let span = tracing::Span::current();
+    span.record("has_rtp_codecs", rtp_parameters.get("codecs").is_some());
+    span.record("has_rtp_encodings", rtp_parameters.get("encodings").is_some());
+    span.record("has_rtp_header_extensions", rtp_parameters.get("headerExtensions").is_some());
+    
     let room_state = state.get_room_state(&room_id)
-        .ok_or_else(|| anyhow::anyhow!("Room not found"))?;
+        .ok_or_else(|| {
+            span.record("error", "room_not_found");
+            anyhow::anyhow!("Room not found")
+        })?;
     
     let mut room_state_guard = room_state.write().await;
     
+    span.record("has_dj_transport", room_state_guard.dj_transport.is_some());
+    span.record("room_status_before", format!("{:?}", room_state_guard.status));
+    span.record("room_was_public", room_state_guard.is_public());
+    
     if let Some(dj_transport) = &room_state_guard.dj_transport {
-        // Create audio producer
-        let (producer, producer_id) = ProducerManager::create_audio_producer(
-            dj_transport,
-            room_id,
-            rtp_parameters,
-        ).await?;
+        // Create audio producer with span
+        let producer_span = tracing::info_span!(
+            "create_audio_producer",
+            transport_id = %dj_transport.id(),
+            room_id = %room_id
+        );
+        
+        let (producer, producer_id) = producer_span.in_scope(|| async {
+            ProducerManager::create_audio_producer(
+                dj_transport,
+                room_id,
+                rtp_parameters,
+            ).await
+        }).await?;
         
         // Store producer in room state (atomic publication)
         room_state_guard.set_audio_producer(producer.clone());
         
-        tracing::info!("Audio producer created for room {}: {}", room_id, producer_id);
+        span.record("producer_id", &producer_id);
+        span.record("room_is_public_now", room_state_guard.is_public());
+        span.record("room_status_after", format!("{:?}", room_state_guard.status));
+        span.record("room_dj_streaming", room_state_guard.room.dj_streaming);
+        
+        tracing::info!(
+            producer_id = %producer_id,
+            is_public = room_state_guard.is_public(),
+            status = ?room_state_guard.status,
+            "Audio producer created and room updated"
+        );
+        
         Ok(producer_id)
     } else {
+        span.record("error", "no_dj_transport");
         Err(anyhow::anyhow!("No DJ transport found for room"))
     }
 }

@@ -7,7 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- **WebRTC Room Visibility Issue (December 2025)**
+  - Fixed silent WebSocket deserialization failures preventing producer commands from reaching backend
+  - Added comprehensive Jaeger tracing to WebSocket message handling with OpenTelemetry spans
+  - Corrected transport ID vs room ID confusion in WebRTC service state
+  - Fixed `createSendTransport` using room ID instead of transport ID from response
+  - Backend now properly logs WebSocket parsing failures with detailed error context
+
+- **Producer Creation Flow**
+  - Fixed 'produce' event handler timing - moved setup to `createSendTransport` before `transport.produce()`
+  - Enhanced Effect-based error handling in produce command with proper WebSocket state checking
+  - Added Effect-TS tracing throughout producer creation pipeline
+  - Rooms now correctly transition from Setup to Live status when audio producer is created
+
 ### Added
+- **Enhanced WebSocket Debugging**
+  - Added structured Jaeger tracing to WebSocket message reception with span context
+  - WebSocket parsing errors now logged with raw message content and detailed error information
+  - Command type tracking in OpenTelemetry spans for better observability
+  - Comprehensive Effect-based logging in WebRTC service operations
+
 - **WebRTC Service Consolidation (December 2025)**
   - Unified WebRTC service replacing four separate managers (device, transport, producer, consumer)
   - Single coherent interface for all WebRTC operations

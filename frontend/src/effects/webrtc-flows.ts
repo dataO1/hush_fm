@@ -96,7 +96,7 @@ export const createConsumer = (
 export const publishRoomFlow = (
   roomName: string,
   roomWebSocket: WebSocket,
-  deviceId?: string
+  deviceId: string
 ): Effect.Effect<
   { roomId: string, producerId: string },
   PublishFlowError
@@ -105,11 +105,18 @@ export const publishRoomFlow = (
   const rootSpan = createRootSpan('publish_room_flow', {
     'room.name': roomName,
     'user.role': 'dj',
-    ...(deviceId && { 'audio.device_id': deviceId })
+    'audio.device_id': deviceId
   })
 
   return pipe(
     Effect.gen(function* (_) {
+      // ✅ Step 0: Validate required parameters
+      if (!deviceId) {
+        yield* _(Effect.fail(new PublishFlowError(
+          'Device ID is required for publishing',
+          'validateInput'
+        )))
+      }
       // ✅ Step 1: Create room using Effect API
       const roomResponse = yield* _(
         pipe(
@@ -155,7 +162,7 @@ export const publishRoomFlow = (
         pipe(
           WebRTCService,
           Effect.andThen(service => service.createSendTransport({
-            id: roomResponse.room.id,
+            id: roomResponse.transportOptions.id,
             dtlsParameters: roomResponse.transportOptions.dtlsParameters,
             iceParameters: roomResponse.transportOptions.iceParameters,
             iceCandidates: roomResponse.transportOptions.iceCandidates,
