@@ -4,7 +4,7 @@ import { Effect, pipe, Ref, Queue, Option } from 'effect'
 import { connectWebSocket, subscribeToMessages } from '../ws/client'
 import type { ClientCommand, ServerEvent, LobbyEvent } from '../models/websocket'
 import type { Room } from '../models/websocket'
-import { injectTraceContext, createWebSocketSpan } from '../telemetry'
+import { createWebSocketSpan } from '../telemetry'
 
 // Re-export message types for external use
 export type { ClientCommand, ServerEvent, LobbyEvent }
@@ -408,9 +408,9 @@ export const SignalingProvider: ParentComponent = (props) => {
     })
     
     try {
-      // Inject trace context into the message
-      const enrichedMessage = await Effect.runPromise(injectTraceContext(message))
-      const signalingMessage: SignalingMessage = { channel: 'room', roomId, data: enrichedMessage }
+      // ClientCommand already has trace context from getWebSocketTraceContext()
+      // No need for additional injection since it uses SerializedTraceContext format
+      const signalingMessage: SignalingMessage = { channel: 'room', roomId, data: message }
       const program = sendMessage(signalingMessage)
 
       await Effect.runPromise(program)

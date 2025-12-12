@@ -8,7 +8,11 @@ type AudioDevice = {
   groupId: string
 }
 
-export function DeviceSelector() {
+type Props = {
+  disabled?: boolean
+}
+
+export function DeviceSelector(props: Props = {}) {
   const { selectedDeviceId, setSelectedDeviceId } = useWebRTC()
   const [devices, setDevices] = createSignal<AudioDevice[]>([])
   const [isLoading, setIsLoading] = createSignal(false)
@@ -78,7 +82,11 @@ export function DeviceSelector() {
           fallback={
             <div class="alert alert-error">
               <span>{error()}</span>
-              <button class="btn btn-sm" onClick={loadAudioDevices}>
+              <button 
+                class="btn btn-sm" 
+                onClick={loadAudioDevices}
+                disabled={props.disabled}
+              >
                 Retry
               </button>
             </div>
@@ -88,6 +96,7 @@ export function DeviceSelector() {
             class="select select-bordered w-full"
             value={Option.getOrElse(selectedDeviceId(), () => '')}
             onChange={handleDeviceChange}
+            disabled={props.disabled || isLoading()}
           >
             <option disabled value="">
               Select microphone

@@ -2,6 +2,7 @@ import { Context, Effect, Layer, pipe, Option } from 'effect'
 import { Device, types } from 'mediasoup-client'
 import type { ClientCommand, ServerEvent } from '../models/websocket'
 import { subscribeToMessages } from '../ws/client'
+import { getWebSocketTraceContext } from '../telemetry'
 
 /**
  * Simplified transport options for internal use
@@ -292,11 +293,23 @@ class WebRTCServiceImpl implements WebRTCService {
     if (direction === 'send') {
       transport.on('connect', async (dtlsParameters: any, callback: () => void, errback: (error: Error) => void) => {
         try {
+          // Ensure DTLS parameters have required role field
+          const dtlsParams = {
+            ...dtlsParameters,
+            role: dtlsParameters.role || 'auto'
+          }
+          
+          const traceContext = getWebSocketTraceContext()
+          console.debug('DTLS params being sent:', dtlsParams)
+          console.debug('Trace context being sent:', traceContext)
+          
           const command: ClientCommand = {
             type: 'connectTransport',
-            dtlsParameters: dtlsParameters,
-            _traceContext: Option.none()
+            dtlsParameters: dtlsParams,
+            _traceContext: traceContext
           }
+          
+          console.debug('Full command being sent:', JSON.stringify(command, null, 2))
           
           // Use WebSocket client to send command
           await Effect.runPromise(this.sendCommand(command))
@@ -314,10 +327,16 @@ class WebRTCServiceImpl implements WebRTCService {
     if (direction === 'receive') {
       transport.on('connect', async (dtlsParameters: any, callback: () => void, errback: (error: Error) => void) => {
         try {
+          // Ensure DTLS parameters have required role field
+          const dtlsParams = {
+            ...dtlsParameters,
+            role: dtlsParameters.role || 'auto'
+          }
+          
           const command: ClientCommand = {
             type: 'connectListenerTransport',
-            dtlsParameters: dtlsParameters,
-            _traceContext: Option.none()
+            dtlsParameters: dtlsParams,
+            _traceContext: getWebSocketTraceContext()
           }
           
           // Use WebSocket client to send command
@@ -738,7 +757,7 @@ class WebRTCServiceImpl implements WebRTCService {
                 const command: ClientCommand = {
                   type: 'produce',
                   rtpParameters: parameters.rtpParameters,
-                  _traceContext: Option.none()
+                  _traceContext: getWebSocketTraceContext()
                 }
                 return Effect.succeed({ ws, command })
               }),

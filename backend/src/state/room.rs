@@ -10,6 +10,7 @@ use tokio::sync::RwLock;
 use uuid::Uuid;
 
 use crate::models::Room;
+use crate::webrtc::consumer::ConsumerState;
 
 /// Enhanced room state with WebRTC resources
 #[derive(Debug, Clone)]
@@ -18,6 +19,8 @@ pub struct RoomState {
     pub router: Option<Arc<Router>>,
     pub dj_transport: Option<Arc<WebRtcTransport>>,
     pub audio_producer: Option<Arc<Producer>>,
+    pub consumers: Arc<DashMap<String, ConsumerState>>, // listener_id -> consumer
+    pub listener_transports: Arc<DashMap<String, Arc<WebRtcTransport>>>, // listener_id -> transport
     pub status: RoomStatus,
     pub created_at: chrono::DateTime<chrono::Utc>,
     pub last_activity: Arc<ArcSwap<chrono::DateTime<chrono::Utc>>>,
@@ -43,6 +46,8 @@ impl RoomState {
             router: None,
             dj_transport: None,
             audio_producer: None,
+            consumers: Arc::new(DashMap::new()),
+            listener_transports: Arc::new(DashMap::new()),
             status: RoomStatus::Setup,
             created_at: now,
             last_activity: Arc::new(ArcSwap::from_pointee(now)),
@@ -79,7 +84,15 @@ impl RoomState {
     }
 
     /// Set audio producer and transition to live if all resources ready
+    #[tracing::instrument(skip(self, producer), fields(
+        room_id = %self.room.id,
+        status_before = ?self.status,
+        has_router = self.router.is_some(),
+        has_transport = self.dj_transport.is_some()
+    ))]
     pub fn set_audio_producer(&mut self, producer: Arc<Producer>) {
+        let was_public = self.is_public();
+        
         self.audio_producer = Some(producer);
         self.room.dj_streaming = true;
         
@@ -87,6 +100,16 @@ impl RoomState {
         if self.router.is_some() && self.dj_transport.is_some() {
             self.status = RoomStatus::Live;
         }
+        
+        let is_public_now = self.is_public();
+        
+        tracing::info!(
+            status_after = ?self.status,
+            was_public = was_public,
+            is_public_now = is_public_now,
+            dj_streaming = self.room.dj_streaming,
+            "Set audio producer on room"
+        );
         
         self.update_activity();
     }
@@ -114,6 +137,46 @@ impl RoomState {
         self.status = RoomStatus::Closing;
         self.room.dj_streaming = false;
         self.update_activity();
+    }
+
+    /// Add consumer for listener
+    pub fn add_consumer(&self, listener_id: String, consumer_state: ConsumerState) {
+        self.consumers.insert(listener_id, consumer_state);
+        self.update_activity();
+    }
+
+    /// Remove consumer for listener
+    pub fn remove_consumer(&self, listener_id: &str) -> Option<ConsumerState> {
+        let consumer = self.consumers.remove(listener_id).map(|(_, state)| state);
+        if consumer.is_some() {
+            self.update_activity();
+        }
+        consumer
+    }
+
+    /// Add listener transport
+    pub fn add_listener_transport(&self, listener_id: String, transport: Arc<WebRtcTransport>) {
+        self.listener_transports.insert(listener_id, transport);
+        self.update_activity();
+    }
+
+    /// Remove listener transport
+    pub fn remove_listener_transport(&self, listener_id: &str) -> Option<Arc<WebRtcTransport>> {
+        let transport = self.listener_transports.remove(listener_id).map(|(_, transport)| transport);
+        if transport.is_some() {
+            self.update_activity();
+        }
+        transport
+    }
+
+    /// Get number of active listeners
+    pub fn get_listener_count(&self) -> usize {
+        self.consumers.len()
+    }
+
+    /// Update room listener count from actual consumers
+    pub fn update_listener_count(&mut self) {
+        self.room.listener_count = self.get_listener_count() as u32;
     }
 
     /// Get time since last activity
@@ -149,15 +212,36 @@ impl RoomStateManager {
     }
 
     /// Get all public rooms (live or paused with producers)
+    #[tracing::instrument(skip(self))]
     pub async fn get_public_rooms(&self) -> Vec<Room> {
         let mut public_rooms = Vec::new();
+        let total_rooms = self.rooms.len();
         
         for entry in self.rooms.iter() {
             let room_state = entry.value().read().await;
-            if room_state.is_public() {
+            let is_public = room_state.is_public();
+            
+            tracing::debug!(
+                room_id = %room_state.room.id,
+                status = ?room_state.status,
+                has_router = room_state.router.is_some(),
+                has_dj_transport = room_state.dj_transport.is_some(),
+                has_audio_producer = room_state.audio_producer.is_some(),
+                dj_streaming = room_state.room.dj_streaming,
+                is_public = is_public,
+                "Checking room visibility"
+            );
+            
+            if is_public {
                 public_rooms.push(room_state.room.clone());
             }
         }
+        
+        tracing::info!(
+            total_rooms = total_rooms,
+            public_rooms = public_rooms.len(),
+            "Filtered public rooms"
+        );
         
         public_rooms
     }

@@ -68,15 +68,6 @@ pub enum ClientCommand {
         trace_context: Option<TraceContext>,
     },
     
-    #[serde(rename_all = "camelCase")]
-    ConsumeAudio {
-        /// Producer ID to consume from
-        producer_id: String,
-        /// Optional trace context for request tracing
-        #[serde(rename = "_traceContext")]
-        trace_context: Option<TraceContext>,
-    },
-    
     /// Leave the current room
     #[serde(rename_all = "camelCase")]
     LeaveRoom {
@@ -97,7 +88,6 @@ impl ClientCommand {
             Self::CloseRoom { trace_context } => trace_context.as_ref(),
             Self::JoinRoom { trace_context, .. } => trace_context.as_ref(),
             Self::ConnectListenerTransport { trace_context, .. } => trace_context.as_ref(),
-            Self::ConsumeAudio { trace_context, .. } => trace_context.as_ref(),
             Self::LeaveRoom { trace_context } => trace_context.as_ref(),
         }
     }
@@ -112,7 +102,6 @@ impl ClientCommand {
             Self::CloseRoom { .. } => "closeRoom",
             Self::JoinRoom { .. } => "joinRoom",
             Self::ConnectListenerTransport { .. } => "connectListenerTransport",
-            Self::ConsumeAudio { .. } => "consumeAudio",
             Self::LeaveRoom { .. } => "leaveRoom",
         }
     }

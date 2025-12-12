@@ -1,0 +1,468 @@
+{
+    "data": [
+        {
+            "traceID": "310d718ac4ac699dbfb5b0a6932d6f2b",
+            "spans": [
+                {
+                    "traceID": "310d718ac4ac699dbfb5b0a6932d6f2b",
+                    "spanID": "5006745dcdfa5396",
+                    "operationName": "connect_transport",
+                    "references": [
+                        {
+                            "refType": "CHILD_OF",
+                            "traceID": "310d718ac4ac699dbfb5b0a6932d6f2b",
+                            "spanID": "3c0aeb36471fb7fc"
+                        }
+                    ],
+                    "startTime": 1765392083759056,
+                    "duration": 96,
+                    "tags": [
+                        {
+                            "key": "busy_ns",
+                            "type": "int64",
+                            "value": 75567
+                        },
+                        {
+                            "key": "code.file.path",
+                            "type": "string",
+                            "value": "src/webrtc/transport.rs"
+                        },
+                        {
+                            "key": "code.line.number",
+                            "type": "int64",
+                            "value": 147
+                        },
+                        {
+                            "key": "code.module.name",
+                            "type": "string",
+                            "value": "server::webrtc::transport"
+                        },
+                        {
+                            "key": "idle_ns",
+                            "type": "int64",
+                            "value": 27098
+                        },
+                        {
+                            "key": "otel.scope.name",
+                            "type": "string",
+                            "value": "hushfm-backend"
+                        },
+                        {
+                            "key": "span.kind",
+                            "type": "string",
+                            "value": "internal"
+                        },
+                        {
+                            "key": "target",
+                            "type": "string",
+                            "value": "server::webrtc::transport"
+                        },
+                        {
+                            "key": "thread.id",
+                            "type": "int64",
+                            "value": 2
+                        },
+                        {
+                            "key": "thread.name",
+                            "type": "string",
+                            "value": "tokio-runtime-worker"
+                        },
+                        {
+                            "key": "transport_id",
+                            "type": "string",
+                            "value": "5a5763c1-1559-4014-bcf5-3f75c14f8120"
+                        }
+                    ],
+                    "logs": [],
+                    "processID": "p1",
+                    "warnings": null
+                },
+                {
+                    "traceID": "310d718ac4ac699dbfb5b0a6932d6f2b",
+                    "spanID": "3c0aeb36471fb7fc",
+                    "operationName": "handle_connect_transport",
+                    "references": [
+                        {
+                            "refType": "CHILD_OF",
+                            "traceID": "310d718ac4ac699dbfb5b0a6932d6f2b",
+                            "spanID": "56fc5d3576765898"
+                        }
+                    ],
+                    "startTime": 1765392083758952,
+                    "duration": 273,
+                    "tags": [
+                        {
+                            "key": "busy_ns",
+                            "type": "int64",
+                            "value": 250517
+                        },
+                        {
+                            "key": "code.file.path",
+                            "type": "string",
+                            "value": "src/ws/mod.rs"
+                        },
+                        {
+                            "key": "code.line.number",
+                            "type": "int64",
+                            "value": 268
+                        },
+                        {
+                            "key": "code.module.name",
+                            "type": "string",
+                            "value": "server::ws"
+                        },
+                        {
+                            "key": "idle_ns",
+                            "type": "int64",
+                            "value": 29053
+                        },
+                        {
+                            "key": "otel.scope.name",
+                            "type": "string",
+                            "value": "hushfm-backend"
+                        },
+                        {
+                            "key": "room_id",
+                            "type": "string",
+                            "value": "631927a4-ed09-4032-9c0b-1c3f8b0b19de"
+                        },
+                        {
+                            "key": "span.kind",
+                            "type": "string",
+                            "value": "internal"
+                        },
+                        {
+                            "key": "target",
+                            "type": "string",
+                            "value": "server::ws"
+                        },
+                        {
+                            "key": "thread.id",
+                            "type": "int64",
+                            "value": 2
+                        },
+                        {
+                            "key": "thread.name",
+                            "type": "string",
+                            "value": "tokio-runtime-worker"
+                        },
+                        {
+                            "key": "transport_id",
+                            "type": "string",
+                            "value": "5a5763c1-1559-4014-bcf5-3f75c14f8120"
+                        }
+                    ],
+                    "logs": [],
+                    "processID": "p1",
+                    "warnings": null
+                },
+                {
+                    "traceID": "310d718ac4ac699dbfb5b0a6932d6f2b",
+                    "spanID": "56fc5d3576765898",
+                    "operationName": "handle_client_command",
+                    "references": [
+                        {
+                            "refType": "CHILD_OF",
+                            "traceID": "310d718ac4ac699dbfb5b0a6932d6f2b",
+                            "spanID": "c81d8dda1f0dcfa3"
+                        }
+                    ],
+                    "startTime": 1765392083758850,
+                    "duration": 811,
+                    "tags": [
+                        {
+                            "key": "busy_ns",
+                            "type": "int64",
+                            "value": 761607
+                        },
+                        {
+                            "key": "code.file.path",
+                            "type": "string",
+                            "value": "src/ws/mod.rs"
+                        },
+                        {
+                            "key": "code.line.number",
+                            "type": "int64",
+                            "value": 103
+                        },
+                        {
+                            "key": "code.module.name",
+                            "type": "string",
+                            "value": "server::ws"
+                        },
+                        {
+                            "key": "command_type",
+                            "type": "string",
+                            "value": "connectTransport"
+                        },
+                        {
+                            "key": "error",
+                            "type": "bool",
+                            "value": true
+                        },
+                        {
+                            "key": "idle_ns",
+                            "type": "int64",
+                            "value": 58875
+                        },
+                        {
+                            "key": "otel.scope.name",
+                            "type": "string",
+                            "value": "hushfm-backend"
+                        },
+                        {
+                            "key": "otel.status_code",
+                            "type": "string",
+                            "value": "ERROR"
+                        },
+                        {
+                            "key": "room_id",
+                            "type": "string",
+                            "value": "631927a4-ed09-4032-9c0b-1c3f8b0b19de"
+                        },
+                        {
+                            "key": "span.kind",
+                            "type": "string",
+                            "value": "internal"
+                        },
+                        {
+                            "key": "target",
+                            "type": "string",
+                            "value": "server::ws"
+                        },
+                        {
+                            "key": "thread.id",
+                            "type": "int64",
+                            "value": 2
+                        },
+                        {
+                            "key": "thread.name",
+                            "type": "string",
+                            "value": "tokio-runtime-worker"
+                        }
+                    ],
+                    "logs": [
+                        {
+                            "timestamp": 1765392083759367,
+                            "fields": [
+                                {
+                                    "key": "event",
+                                    "type": "string",
+                                    "value": "Failed to connect transport for room 631927a4-ed09-4032-9c0b-1c3f8b0b19de: missing field `fingerprints`"
+                                },
+                                {
+                                    "key": "code.file.path",
+                                    "type": "string",
+                                    "value": "src/ws/mod.rs"
+                                },
+                                {
+                                    "key": "code.line.number",
+                                    "type": "int64",
+                                    "value": 129
+                                },
+                                {
+                                    "key": "code.module.name",
+                                    "type": "string",
+                                    "value": "server::ws"
+                                },
+                                {
+                                    "key": "level",
+                                    "type": "string",
+                                    "value": "ERROR"
+                                },
+                                {
+                                    "key": "target",
+                                    "type": "string",
+                                    "value": "server::ws"
+                                }
+                            ]
+                        }
+                    ],
+                    "processID": "p1",
+                    "warnings": null
+                },
+                {
+                    "traceID": "310d718ac4ac699dbfb5b0a6932d6f2b",
+                    "spanID": "c81d8dda1f0dcfa3",
+                    "operationName": "websocket_message_received",
+                    "references": [],
+                    "startTime": 1765392083758413,
+                    "duration": 1302,
+                    "tags": [
+                        {
+                            "key": "busy_ns",
+                            "type": "int64",
+                            "value": 1216406
+                        },
+                        {
+                            "key": "code.file.path",
+                            "type": "string",
+                            "value": "src/ws/mod.rs"
+                        },
+                        {
+                            "key": "code.line.number",
+                            "type": "int64",
+                            "value": 46
+                        },
+                        {
+                            "key": "code.module.name",
+                            "type": "string",
+                            "value": "server::ws"
+                        },
+                        {
+                            "key": "command_type",
+                            "type": "string",
+                            "value": "connectTransport"
+                        },
+                        {
+                            "key": "idle_ns",
+                            "type": "int64",
+                            "value": 100011
+                        },
+                        {
+                            "key": "message_length",
+                            "type": "string",
+                            "value": "342"
+                        },
+                        {
+                            "key": "otel.scope.name",
+                            "type": "string",
+                            "value": "hushfm-backend"
+                        },
+                        {
+                            "key": "room_id",
+                            "type": "string",
+                            "value": "631927a4-ed09-4032-9c0b-1c3f8b0b19de"
+                        },
+                        {
+                            "key": "span.kind",
+                            "type": "string",
+                            "value": "internal"
+                        },
+                        {
+                            "key": "target",
+                            "type": "string",
+                            "value": "server::ws"
+                        },
+                        {
+                            "key": "thread.id",
+                            "type": "int64",
+                            "value": 2
+                        },
+                        {
+                            "key": "thread.name",
+                            "type": "string",
+                            "value": "tokio-runtime-worker"
+                        }
+                    ],
+                    "logs": [
+                        {
+                            "timestamp": 1765392083758621,
+                            "fields": [
+                                {
+                                    "key": "event",
+                                    "type": "string",
+                                    "value": "Raw WebSocket message received"
+                                },
+                                {
+                                    "key": "code.file.path",
+                                    "type": "string",
+                                    "value": "src/ws/mod.rs"
+                                },
+                                {
+                                    "key": "code.line.number",
+                                    "type": "int64",
+                                    "value": 54
+                                },
+                                {
+                                    "key": "code.module.name",
+                                    "type": "string",
+                                    "value": "server::ws"
+                                },
+                                {
+                                    "key": "level",
+                                    "type": "string",
+                                    "value": "DEBUG"
+                                },
+                                {
+                                    "key": "target",
+                                    "type": "string",
+                                    "value": "server::ws"
+                                }
+                            ]
+                        },
+                        {
+                            "timestamp": 1765392083758806,
+                            "fields": [
+                                {
+                                    "key": "event",
+                                    "type": "string",
+                                    "value": "Successfully parsed WebSocket command: connectTransport"
+                                },
+                                {
+                                    "key": "code.file.path",
+                                    "type": "string",
+                                    "value": "src/ws/mod.rs"
+                                },
+                                {
+                                    "key": "code.line.number",
+                                    "type": "int64",
+                                    "value": 58
+                                },
+                                {
+                                    "key": "code.module.name",
+                                    "type": "string",
+                                    "value": "server::ws"
+                                },
+                                {
+                                    "key": "level",
+                                    "type": "string",
+                                    "value": "INFO"
+                                },
+                                {
+                                    "key": "target",
+                                    "type": "string",
+                                    "value": "server::ws"
+                                }
+                            ]
+                        }
+                    ],
+                    "processID": "p1",
+                    "warnings": null
+                }
+            ],
+            "processes": {
+                "p1": {
+                    "serviceName": "hushfm-backend",
+                    "tags": [
+                        {
+                            "key": "service.version",
+                            "type": "string",
+                            "value": "0.1.0"
+                        },
+                        {
+                            "key": "telemetry.sdk.language",
+                            "type": "string",
+                            "value": "rust"
+                        },
+                        {
+                            "key": "telemetry.sdk.name",
+                            "type": "string",
+                            "value": "opentelemetry"
+                        },
+                        {
+                            "key": "telemetry.sdk.version",
+                            "type": "string",
+                            "value": "0.31.0"
+                        }
+                    ]
+                }
+            },
+            "warnings": null
+        }
+    ],
+    "total": 0,
+    "limit": 0,
+    "offset": 0,
+    "errors": null
+}

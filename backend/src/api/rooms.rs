@@ -9,9 +9,9 @@ use serde_json::json;
 use uuid::Uuid;
 
 use crate::{
-    models::{CreateRoomRequest, CreateRoomResponse, JoinRoomResponse, Room, TransportOptions, RtpCapabilities, events::RoomInfo},
+    models::{CreateRoomRequest, CreateRoomResponse, JoinRoomResponse, Room, TransportOptions, RtpCapabilities, ConsumerParameters, events::RoomInfo},
     state::AppState,
-    webrtc::ConsumerManager,
+    webrtc::{ConsumerManager, consumer::ConsumerState},
 };
 
 pub fn rooms_router() -> Router<AppState> {
@@ -91,8 +91,25 @@ pub async fn create_room(
     ),
     tag = "rooms"
 )]
+#[tracing::instrument(skip(state))]
 pub async fn list_rooms(State(state): State<AppState>) -> Json<Vec<RoomInfo>> {
     let rooms = state.get_rooms().await;
+    
+    tracing::info!(
+        total_public_rooms = rooms.len(),
+        "Fetched public rooms for API response"
+    );
+    
+    for room in &rooms {
+        tracing::debug!(
+            room_id = %room.id,
+            room_name = %room.name,
+            dj_streaming = room.dj_streaming,
+            listener_count = room.listener_count,
+            "Public room details"
+        );
+    }
+    
     let room_infos: Vec<RoomInfo> = rooms.into_iter().map(|room| room.into()).collect();
     Json(room_infos)
 }
@@ -120,27 +137,70 @@ pub async fn join_room(
     
     let listener_id = format!("listener_{}", Uuid::new_v4());
     
-    // Create consumer transport for this listener
-    let (transport_options, producer_id, room) = {
+    // Create consumer transport and consumer for this listener
+    let (transport_options, producer_id, room, consumer_parameters) = {
         let room_state_guard = room_state.read().await;
         let room = room_state_guard.room.clone();
         
         if let Some(router) = &room_state_guard.router {
             let transport_manager = state.mediasoup.get_transport_manager();
-            let (_, transport_options) = transport_manager
+            let (listener_transport, transport_options) = transport_manager
                 .create_listener_transport(router, room_id, &listener_id)
                 .await
                 .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+            // Store the listener transport in room state
+            room_state_guard.add_listener_transport(listener_id.clone(), listener_transport.clone());
                 
-            let producer_id = if room.dj_streaming {
-                room_state_guard.audio_producer
-                    .as_ref()
-                    .map(|p| p.id().to_string())
+            let (producer_id, consumer_parameters) = if room.dj_streaming {
+                if let Some(producer) = &room_state_guard.audio_producer {
+                    // Get client RTP capabilities for creating consumer
+                    let client_capabilities = json!(ConsumerManager::get_consumer_audio_capabilities());
+                    
+                    // Create consumer on the backend
+                    match ConsumerManager::create_audio_consumer(
+                        &listener_transport,
+                        producer,
+                        room_id,
+                        &listener_id,
+                        client_capabilities.clone()
+                    ).await {
+                        Ok((consumer, consumer_id, consumer_params)) => {
+                            // Store consumer in room state
+                            let consumer_state = ConsumerState::new(
+                                consumer,
+                                consumer_id.clone(),
+                                room_id,
+                                listener_id.clone(),
+                                producer.id().to_string()
+                            );
+                            room_state_guard.add_consumer(listener_id.clone(), consumer_state);
+                            
+                            // Convert to our schema type
+                            let consumer_parameters = ConsumerParameters {
+                                id: consumer_id,
+                                producer_id: producer.id().to_string(),
+                                kind: "audio".to_string(),
+                                rtp_parameters: consumer_params,
+                                r#type: "simple".to_string(),
+                                producer_paused: false,
+                            };
+                            
+                            (Some(producer.id().to_string()), Some(consumer_parameters))
+                        },
+                        Err(e) => {
+                            tracing::error!("Failed to create consumer: {}", e);
+                            (Some(producer.id().to_string()), None)
+                        }
+                    }
+                } else {
+                    (None, None)
+                }
             } else {
-                None
+                (None, None)
             };
             
-            (transport_options, producer_id, room)
+            (transport_options, producer_id, room, consumer_parameters)
         } else {
             return Err(StatusCode::INTERNAL_SERVER_ERROR);
         }
@@ -154,6 +214,7 @@ pub async fn join_room(
         transport_options: convert_transport_options(transport_options),
         producer_id,
         rtp_capabilities: convert_rtp_capabilities(rtp_capabilities),
+        consumer_parameters,
     };
 
     Ok(Json(response))

@@ -13,6 +13,7 @@ import type { RoomInfo } from '../generated/api.schemas'
 
 /**
  * Trace context for distributed tracing (W3C Trace Context)
+ * Internal representation with Option types for Effect-TS compatibility
  */
 export interface TraceContext {
   /** W3C trace-parent header */
@@ -21,6 +22,19 @@ export interface TraceContext {
   tracestate: Option.Option<string>
   /** Additional trace metadata */
   metadata: Option.Option<Record<string, string>>
+}
+
+/**
+ * Serialized trace context for wire format
+ * Matches backend Rust TraceContext structure exactly
+ */
+export interface SerializedTraceContext {
+  /** W3C trace-parent header */
+  traceparent: string
+  /** Optional W3C trace-state header */
+  tracestate?: string | null
+  /** Optional trace metadata */
+  metadata?: Record<string, string> | null
 }
 
 /**
@@ -40,57 +54,50 @@ export type ClientCommand =
       type: 'connectTransport'
       /** DTLS parameters for WebRTC transport connection */
       dtlsParameters: any
-      /** Optional trace context for request tracing */
-      _traceContext: Option.Option<TraceContext>
+      /** Trace context for request tracing */
+      _traceContext: SerializedTraceContext
     }
   | {
       type: 'produce'
       /** RTP parameters for media production */
       rtpParameters: any
-      /** Optional trace context for request tracing */
-      _traceContext: Option.Option<TraceContext>
+      /** Trace context for request tracing */
+      _traceContext: SerializedTraceContext
     }
   | {
       type: 'pauseStream'
-      /** Optional trace context for request tracing */
-      _traceContext: Option.Option<TraceContext>
+      /** Trace context for request tracing */
+      _traceContext: SerializedTraceContext
     }
   | {
       type: 'resumeStream'
-      /** Optional trace context for request tracing */
-      _traceContext: Option.Option<TraceContext>
+      /** Trace context for request tracing */
+      _traceContext: SerializedTraceContext
     }
   | {
       type: 'closeRoom'
-      /** Optional trace context for request tracing */
-      _traceContext: Option.Option<TraceContext>
+      /** Trace context for request tracing */
+      _traceContext: SerializedTraceContext
     }
   // Listener Commands - Audio Consumption
   | {
       type: 'joinRoom'
       /** ID of the room to join */
       roomId: string
-      /** Optional trace context for request tracing */
-      _traceContext: Option.Option<TraceContext>
+      /** Trace context for request tracing */
+      _traceContext: SerializedTraceContext
     }
   | {
       type: 'connectListenerTransport'
       /** DTLS parameters for WebRTC transport connection */
       dtlsParameters: any
-      /** Optional trace context for request tracing */
-      _traceContext: Option.Option<TraceContext>
-    }
-  | {
-      type: 'consumeAudio'
-      /** Producer ID to consume from */
-      producerId: string
-      /** Optional trace context for request tracing */
-      _traceContext: Option.Option<TraceContext>
+      /** Trace context for request tracing */
+      _traceContext: SerializedTraceContext
     }
   | {
       type: 'leaveRoom'
-      /** Optional trace context for request tracing */
-      _traceContext: Option.Option<TraceContext>
+      /** Trace context for request tracing */
+      _traceContext: SerializedTraceContext
     }
 
 /**

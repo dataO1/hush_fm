@@ -52,6 +52,7 @@ async fn handle_room_socket(socket: WebSocket, room_id: Uuid, state: AppState) {
                     let _enter = message_span.enter();
                     
                     tracing::debug!("Raw WebSocket message received");
+                    tracing::debug!("Raw message content: {}", &text);
                     match serde_json::from_str::<ClientCommand>(&text) {
                         Ok(client_cmd) => {
                             message_span.record("command_type", client_cmd.command_type());
@@ -250,7 +251,6 @@ async fn handle_client_command(
         // Handle listener commands (these should probably be on a different handler)
         ClientCommand::JoinRoom { .. } |
         ClientCommand::ConnectListenerTransport { .. } |
-        ClientCommand::ConsumeAudio { .. } |
         ClientCommand::LeaveRoom { .. } => {
             tracing::warn!("Received listener command on DJ handler: {:?}", cmd.command_type());
             let response = ServerEvent::CommandFailed {
@@ -272,6 +272,7 @@ async fn handle_connect_transport(
     dtls_parameters: serde_json::Value,
     state: &AppState,
 ) -> anyhow::Result<String> {
+    tracing::debug!("DTLS parameters received: {}", serde_json::to_string_pretty(&dtls_parameters).unwrap_or_else(|_| "Invalid JSON".to_string()));
     let room_state = state.get_room_state(&room_id)
         .ok_or_else(|| anyhow::anyhow!("Room not found"))?;
     

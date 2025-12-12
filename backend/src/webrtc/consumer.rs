@@ -54,11 +54,21 @@ impl ConsumerManager {
 
     /// Generate consumer parameters for client
     async fn generate_consumer_parameters(consumer: &Consumer) -> anyhow::Result<Value> {
+        // Get RTP parameters and ensure proper serialization
+        let rtp_parameters = consumer.rtp_parameters();
+        let rtp_params_value = serde_json::to_value(&rtp_parameters)?;
+        
+        tracing::debug!(
+            consumer_id = %consumer.id(),
+            rtp_parameters = ?rtp_params_value,
+            "Generated consumer parameters"
+        );
+        
         Ok(serde_json::json!({
             "id": consumer.id().to_string(),
             "producerId": consumer.producer_id().to_string(),
             "kind": "audio",
-            "rtpParameters": consumer.rtp_parameters(),
+            "rtpParameters": rtp_params_value,
             "type": "simple", // Simple consumer type for local network
             "paused": consumer.paused(),
         }))

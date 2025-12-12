@@ -55,7 +55,7 @@ pub struct RtpCapabilities {
 }
 
 /// Consumer parameters for audio consumption
-#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct ConsumerParameters {
     /// Consumer ID
@@ -152,6 +152,9 @@ pub struct JoinRoomResponse {
     
     /// RTP capabilities for consuming
     pub rtp_capabilities: RtpCapabilities,
+    
+    /// Consumer parameters (if producer is available)
+    pub consumer_parameters: Option<ConsumerParameters>,
 }
 
 /// Error response

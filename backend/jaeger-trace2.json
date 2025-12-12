@@ -1,0 +1,750 @@
+{
+    "data": [
+        {
+            "traceID": "1f17dd57e1ed116a748cd5ed942df2ff",
+            "spans": [
+                {
+                    "traceID": "1f17dd57e1ed116a748cd5ed942df2ff",
+                    "spanID": "19cfa900608a290b",
+                    "operationName": "create_dj_transport",
+                    "references": [
+                        {
+                            "refType": "CHILD_OF",
+                            "traceID": "1f17dd57e1ed116a748cd5ed942df2ff",
+                            "spanID": "b6d9f84885c50528"
+                        }
+                    ],
+                    "startTime": 1765315688885313,
+                    "duration": 889,
+                    "tags": [
+                        {
+                            "key": "busy_ns",
+                            "type": "int64",
+                            "value": 603550
+                        },
+                        {
+                            "key": "code.file.path",
+                            "type": "string",
+                            "value": "src/webrtc/transport.rs"
+                        },
+                        {
+                            "key": "code.line.number",
+                            "type": "int64",
+                            "value": 42
+                        },
+                        {
+                            "key": "code.module.name",
+                            "type": "string",
+                            "value": "server::webrtc::transport"
+                        },
+                        {
+                            "key": "idle_ns",
+                            "type": "int64",
+                            "value": 290344
+                        },
+                        {
+                            "key": "otel.scope.name",
+                            "type": "string",
+                            "value": "hushfm-backend"
+                        },
+                        {
+                            "key": "room_id",
+                            "type": "string",
+                            "value": "f4fc4ca6-e719-4892-84bf-175788e4b6a7"
+                        },
+                        {
+                            "key": "span.kind",
+                            "type": "string",
+                            "value": "internal"
+                        },
+                        {
+                            "key": "target",
+                            "type": "string",
+                            "value": "server::webrtc::transport"
+                        },
+                        {
+                            "key": "thread.id",
+                            "type": "int64",
+                            "value": 2
+                        },
+                        {
+                            "key": "thread.name",
+                            "type": "string",
+                            "value": "tokio-runtime-worker"
+                        },
+                        {
+                            "key": "transport_id",
+                            "type": "string",
+                            "value": "0458c3ed-fe68-44b5-b837-814828f94bfa"
+                        },
+                        {
+                            "key": "transport_type",
+                            "type": "string",
+                            "value": "dj"
+                        }
+                    ],
+                    "logs": [
+                        {
+                            "timestamp": 1765315688885426,
+                            "fields": [
+                                {
+                                    "key": "event",
+                                    "type": "string",
+                                    "value": "create_webrtc_transport()"
+                                },
+                                {
+                                    "key": "code.file.path",
+                                    "type": "string",
+                                    "value": "/home/data01/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/mediasoup-0.20.0/src/router.rs"
+                                },
+                                {
+                                    "key": "code.line.number",
+                                    "type": "int64",
+                                    "value": 648
+                                },
+                                {
+                                    "key": "code.module.name",
+                                    "type": "string",
+                                    "value": "mediasoup::router"
+                                },
+                                {
+                                    "key": "level",
+                                    "type": "string",
+                                    "value": "DEBUG"
+                                },
+                                {
+                                    "key": "target",
+                                    "type": "string",
+                                    "value": "mediasoup::router"
+                                }
+                            ]
+                        },
+                        {
+                            "timestamp": 1765315688885473,
+                            "fields": [
+                                {
+                                    "key": "event",
+                                    "type": "string",
+                                    "value": "request() [method:RouterCreateWebrtctransport, id:1]"
+                                },
+                                {
+                                    "key": "code.file.path",
+                                    "type": "string",
+                                    "value": "/home/data01/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/mediasoup-0.20.0/src/worker/channel.rs"
+                                },
+                                {
+                                    "key": "code.line.number",
+                                    "type": "int64",
+                                    "value": 377
+                                },
+                                {
+                                    "key": "code.module.name",
+                                    "type": "string",
+                                    "value": "mediasoup::worker::channel"
+                                },
+                                {
+                                    "key": "level",
+                                    "type": "string",
+                                    "value": "DEBUG"
+                                },
+                                {
+                                    "key": "target",
+                                    "type": "string",
+                                    "value": "mediasoup::worker::channel"
+                                }
+                            ]
+                        },
+                        {
+                            "timestamp": 1765315688885891,
+                            "fields": [
+                                {
+                                    "key": "event",
+                                    "type": "string",
+                                    "value": "request succeeded [method:RouterCreateWebrtctransport, id:1]"
+                                },
+                                {
+                                    "key": "code.file.path",
+                                    "type": "string",
+                                    "value": "/home/data01/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/mediasoup-0.20.0/src/worker/channel.rs"
+                                },
+                                {
+                                    "key": "code.line.number",
+                                    "type": "int64",
+                                    "value": 429
+                                },
+                                {
+                                    "key": "code.module.name",
+                                    "type": "string",
+                                    "value": "mediasoup::worker::channel"
+                                },
+                                {
+                                    "key": "level",
+                                    "type": "string",
+                                    "value": "DEBUG"
+                                },
+                                {
+                                    "key": "target",
+                                    "type": "string",
+                                    "value": "mediasoup::worker::channel"
+                                }
+                            ]
+                        },
+                        {
+                            "timestamp": 1765315688886055,
+                            "fields": [
+                                {
+                                    "key": "event",
+                                    "type": "string",
+                                    "value": "new()"
+                                },
+                                {
+                                    "key": "code.file.path",
+                                    "type": "string",
+                                    "value": "/home/data01/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/mediasoup-0.20.0/src/router/webrtc_transport.rs"
+                                },
+                                {
+                                    "key": "code.line.number",
+                                    "type": "int64",
+                                    "value": 813
+                                },
+                                {
+                                    "key": "code.module.name",
+                                    "type": "string",
+                                    "value": "mediasoup::router::webrtc_transport"
+                                },
+                                {
+                                    "key": "level",
+                                    "type": "string",
+                                    "value": "DEBUG"
+                                },
+                                {
+                                    "key": "target",
+                                    "type": "string",
+                                    "value": "mediasoup::router::webrtc_transport"
+                                }
+                            ]
+                        }
+                    ],
+                    "processID": "p1",
+                    "warnings": null
+                },
+                {
+                    "traceID": "1f17dd57e1ed116a748cd5ed942df2ff",
+                    "spanID": "b6d9f84885c50528",
+                    "operationName": "create_room",
+                    "references": [
+                        {
+                            "refType": "CHILD_OF",
+                            "traceID": "1f17dd57e1ed116a748cd5ed942df2ff",
+                            "spanID": "c3cc3ab3479359da"
+                        }
+                    ],
+                    "startTime": 1765315688882782,
+                    "duration": 3682,
+                    "tags": [
+                        {
+                            "key": "busy_ns",
+                            "type": "int64",
+                            "value": 1883337
+                        },
+                        {
+                            "key": "code.file.path",
+                            "type": "string",
+                            "value": "src/api/rooms.rs"
+                        },
+                        {
+                            "key": "code.line.number",
+                            "type": "int64",
+                            "value": 35
+                        },
+                        {
+                            "key": "code.module.name",
+                            "type": "string",
+                            "value": "server::api::rooms"
+                        },
+                        {
+                            "key": "dj_name",
+                            "type": "string",
+                            "value": "DJ 1765315688878"
+                        },
+                        {
+                            "key": "idle_ns",
+                            "type": "int64",
+                            "value": 1801874
+                        },
+                        {
+                            "key": "otel.scope.name",
+                            "type": "string",
+                            "value": "hushfm-backend"
+                        },
+                        {
+                            "key": "room_name",
+                            "type": "string",
+                            "value": "test"
+                        },
+                        {
+                            "key": "span.kind",
+                            "type": "string",
+                            "value": "internal"
+                        },
+                        {
+                            "key": "target",
+                            "type": "string",
+                            "value": "server::api::rooms"
+                        },
+                        {
+                            "key": "thread.id",
+                            "type": "int64",
+                            "value": 2
+                        },
+                        {
+                            "key": "thread.name",
+                            "type": "string",
+                            "value": "tokio-runtime-worker"
+                        }
+                    ],
+                    "logs": [
+                        {
+                            "timestamp": 1765315688882863,
+                            "fields": [
+                                {
+                                    "key": "event",
+                                    "type": "string",
+                                    "value": "create_worker()"
+                                },
+                                {
+                                    "key": "code.file.path",
+                                    "type": "string",
+                                    "value": "/home/data01/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/mediasoup-0.20.0/src/worker_manager.rs"
+                                },
+                                {
+                                    "key": "code.line.number",
+                                    "type": "int64",
+                                    "value": 128
+                                },
+                                {
+                                    "key": "code.module.name",
+                                    "type": "string",
+                                    "value": "mediasoup::worker_manager"
+                                },
+                                {
+                                    "key": "level",
+                                    "type": "string",
+                                    "value": "DEBUG"
+                                },
+                                {
+                                    "key": "target",
+                                    "type": "string",
+                                    "value": "mediasoup::worker_manager"
+                                }
+                            ]
+                        },
+                        {
+                            "timestamp": 1765315688882891,
+                            "fields": [
+                                {
+                                    "key": "event",
+                                    "type": "string",
+                                    "value": "new()"
+                                },
+                                {
+                                    "key": "code.file.path",
+                                    "type": "string",
+                                    "value": "/home/data01/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/mediasoup-0.20.0/src/worker.rs"
+                                },
+                                {
+                                    "key": "code.line.number",
+                                    "type": "int64",
+                                    "value": 374
+                                },
+                                {
+                                    "key": "code.module.name",
+                                    "type": "string",
+                                    "value": "mediasoup::worker"
+                                },
+                                {
+                                    "key": "level",
+                                    "type": "string",
+                                    "value": "DEBUG"
+                                },
+                                {
+                                    "key": "target",
+                                    "type": "string",
+                                    "value": "mediasoup::worker"
+                                }
+                            ]
+                        },
+                        {
+                            "timestamp": 1765315688882946,
+                            "fields": [
+                                {
+                                    "key": "event",
+                                    "type": "string",
+                                    "value": "spawning worker with arguments [id:2519b7da-cc7a-444a-973b-75933adba62d]:  --logLevel=warn --logTag=info --logTag=ice --logTag=dtls --logTag=rtp --logTag=srtp --logTag=rtcp --logTag=rtx --logTag=bwe --logTag=score --logTag=simulcast --logTag=svc --logTag=sctp --logTag=message --rtcMinPort=10000 --rtcMaxPort=59999 --disableLiburing=true"
+                                },
+                                {
+                                    "key": "code.file.path",
+                                    "type": "string",
+                                    "value": "/home/data01/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/mediasoup-0.20.0/src/worker.rs"
+                                },
+                                {
+                                    "key": "code.line.number",
+                                    "type": "int64",
+                                    "value": 421
+                                },
+                                {
+                                    "key": "code.module.name",
+                                    "type": "string",
+                                    "value": "mediasoup::worker"
+                                },
+                                {
+                                    "key": "level",
+                                    "type": "string",
+                                    "value": "DEBUG"
+                                },
+                                {
+                                    "key": "target",
+                                    "type": "string",
+                                    "value": "mediasoup::worker"
+                                }
+                            ]
+                        },
+                        {
+                            "timestamp": 1765315688884883,
+                            "fields": [
+                                {
+                                    "key": "event",
+                                    "type": "string",
+                                    "value": "create_router()"
+                                },
+                                {
+                                    "key": "code.file.path",
+                                    "type": "string",
+                                    "value": "/home/data01/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/mediasoup-0.20.0/src/worker.rs"
+                                },
+                                {
+                                    "key": "code.line.number",
+                                    "type": "int64",
+                                    "value": 715
+                                },
+                                {
+                                    "key": "code.module.name",
+                                    "type": "string",
+                                    "value": "mediasoup::worker"
+                                },
+                                {
+                                    "key": "level",
+                                    "type": "string",
+                                    "value": "DEBUG"
+                                },
+                                {
+                                    "key": "target",
+                                    "type": "string",
+                                    "value": "mediasoup::worker"
+                                }
+                            ]
+                        },
+                        {
+                            "timestamp": 1765315688884983,
+                            "fields": [
+                                {
+                                    "key": "event",
+                                    "type": "string",
+                                    "value": "request() [method:WorkerCreateRouter, id:0]"
+                                },
+                                {
+                                    "key": "code.file.path",
+                                    "type": "string",
+                                    "value": "/home/data01/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/mediasoup-0.20.0/src/worker/channel.rs"
+                                },
+                                {
+                                    "key": "code.line.number",
+                                    "type": "int64",
+                                    "value": 377
+                                },
+                                {
+                                    "key": "code.module.name",
+                                    "type": "string",
+                                    "value": "mediasoup::worker::channel"
+                                },
+                                {
+                                    "key": "level",
+                                    "type": "string",
+                                    "value": "DEBUG"
+                                },
+                                {
+                                    "key": "target",
+                                    "type": "string",
+                                    "value": "mediasoup::worker::channel"
+                                }
+                            ]
+                        },
+                        {
+                            "timestamp": 1765315688885238,
+                            "fields": [
+                                {
+                                    "key": "event",
+                                    "type": "string",
+                                    "value": "request succeeded [method:WorkerCreateRouter, id:0]"
+                                },
+                                {
+                                    "key": "code.file.path",
+                                    "type": "string",
+                                    "value": "/home/data01/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/mediasoup-0.20.0/src/worker/channel.rs"
+                                },
+                                {
+                                    "key": "code.line.number",
+                                    "type": "int64",
+                                    "value": 429
+                                },
+                                {
+                                    "key": "code.module.name",
+                                    "type": "string",
+                                    "value": "mediasoup::worker::channel"
+                                },
+                                {
+                                    "key": "level",
+                                    "type": "string",
+                                    "value": "DEBUG"
+                                },
+                                {
+                                    "key": "target",
+                                    "type": "string",
+                                    "value": "mediasoup::worker::channel"
+                                }
+                            ]
+                        },
+                        {
+                            "timestamp": 1765315688885263,
+                            "fields": [
+                                {
+                                    "key": "event",
+                                    "type": "string",
+                                    "value": "new()"
+                                },
+                                {
+                                    "key": "code.file.path",
+                                    "type": "string",
+                                    "value": "/home/data01/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/mediasoup-0.20.0/src/router.rs"
+                                },
+                                {
+                                    "key": "code.line.number",
+                                    "type": "int64",
+                                    "value": 474
+                                },
+                                {
+                                    "key": "code.module.name",
+                                    "type": "string",
+                                    "value": "mediasoup::router"
+                                },
+                                {
+                                    "key": "level",
+                                    "type": "string",
+                                    "value": "DEBUG"
+                                },
+                                {
+                                    "key": "target",
+                                    "type": "string",
+                                    "value": "mediasoup::router"
+                                }
+                            ]
+                        }
+                    ],
+                    "processID": "p1",
+                    "warnings": null
+                },
+                {
+                    "traceID": "1f17dd57e1ed116a748cd5ed942df2ff",
+                    "spanID": "c3cc3ab3479359da",
+                    "operationName": "request",
+                    "references": [],
+                    "startTime": 1765315688882541,
+                    "duration": 4406,
+                    "tags": [
+                        {
+                            "key": "busy_ns",
+                            "type": "int64",
+                            "value": 2569312
+                        },
+                        {
+                            "key": "code.file.path",
+                            "type": "string",
+                            "value": "/home/data01/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tower-http-0.6.7/src/trace/make_span.rs"
+                        },
+                        {
+                            "key": "code.line.number",
+                            "type": "int64",
+                            "value": 109
+                        },
+                        {
+                            "key": "code.module.name",
+                            "type": "string",
+                            "value": "tower_http::trace::make_span"
+                        },
+                        {
+                            "key": "idle_ns",
+                            "type": "int64",
+                            "value": 1843310
+                        },
+                        {
+                            "key": "method",
+                            "type": "string",
+                            "value": "POST"
+                        },
+                        {
+                            "key": "otel.scope.name",
+                            "type": "string",
+                            "value": "hushfm-backend"
+                        },
+                        {
+                            "key": "span.kind",
+                            "type": "string",
+                            "value": "internal"
+                        },
+                        {
+                            "key": "target",
+                            "type": "string",
+                            "value": "tower_http::trace::make_span"
+                        },
+                        {
+                            "key": "thread.id",
+                            "type": "int64",
+                            "value": 2
+                        },
+                        {
+                            "key": "thread.name",
+                            "type": "string",
+                            "value": "tokio-runtime-worker"
+                        },
+                        {
+                            "key": "uri",
+                            "type": "string",
+                            "value": "/api/rooms"
+                        },
+                        {
+                            "key": "version",
+                            "type": "string",
+                            "value": "HTTP/1.1"
+                        }
+                    ],
+                    "logs": [
+                        {
+                            "timestamp": 1765315688882634,
+                            "fields": [
+                                {
+                                    "key": "event",
+                                    "type": "string",
+                                    "value": "started processing request"
+                                },
+                                {
+                                    "key": "code.file.path",
+                                    "type": "string",
+                                    "value": "/home/data01/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tower-http-0.6.7/src/trace/on_request.rs"
+                                },
+                                {
+                                    "key": "code.line.number",
+                                    "type": "int64",
+                                    "value": 80
+                                },
+                                {
+                                    "key": "code.module.name",
+                                    "type": "string",
+                                    "value": "tower_http::trace::on_request"
+                                },
+                                {
+                                    "key": "level",
+                                    "type": "string",
+                                    "value": "DEBUG"
+                                },
+                                {
+                                    "key": "target",
+                                    "type": "string",
+                                    "value": "tower_http::trace::on_request"
+                                }
+                            ]
+                        },
+                        {
+                            "timestamp": 1765315688886894,
+                            "fields": [
+                                {
+                                    "key": "event",
+                                    "type": "string",
+                                    "value": "finished processing request"
+                                },
+                                {
+                                    "key": "code.file.path",
+                                    "type": "string",
+                                    "value": "/home/data01/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tower-http-0.6.7/src/trace/on_response.rs"
+                                },
+                                {
+                                    "key": "code.line.number",
+                                    "type": "int64",
+                                    "value": 114
+                                },
+                                {
+                                    "key": "code.module.name",
+                                    "type": "string",
+                                    "value": "tower_http::trace::on_response"
+                                },
+                                {
+                                    "key": "latency",
+                                    "type": "string",
+                                    "value": "4 ms"
+                                },
+                                {
+                                    "key": "level",
+                                    "type": "string",
+                                    "value": "DEBUG"
+                                },
+                                {
+                                    "key": "status",
+                                    "type": "int64",
+                                    "value": 201
+                                },
+                                {
+                                    "key": "target",
+                                    "type": "string",
+                                    "value": "tower_http::trace::on_response"
+                                }
+                            ]
+                        }
+                    ],
+                    "processID": "p1",
+                    "warnings": null
+                }
+            ],
+            "processes": {
+                "p1": {
+                    "serviceName": "hushfm-backend",
+                    "tags": [
+                        {
+                            "key": "service.version",
+                            "type": "string",
+                            "value": "0.1.0"
+                        },
+                        {
+                            "key": "telemetry.sdk.language",
+                            "type": "string",
+                            "value": "rust"
+                        },
+                        {
+                            "key": "telemetry.sdk.name",
+                            "type": "string",
+                            "value": "opentelemetry"
+                        },
+                        {
+                            "key": "telemetry.sdk.version",
+                            "type": "string",
+                            "value": "0.31.0"
+                        }
+                    ]
+                }
+            },
+            "warnings": null
+        }
+    ],
+    "total": 0,
+    "limit": 0,
+    "offset": 0,
+    "errors": null
+}

@@ -6,40 +6,54 @@ import { publishRoomFlow, toggleProducerFlow } from '../effects/webrtc-flows'
 import { DeviceSelector } from '../components/controls/DeviceSelector'
 import { useWebRTC } from '../providers/WebRTCProvider'
 import { useSignaling } from '../providers/SignalingProvider'
+import { getWebSocketTraceContext } from '../telemetry'
 
-type StreamStatus = 'connecting' | 'live' | 'muted' | 'error'
+type StreamStatus = 'idle' | 'ready' | 'connecting' | 'live' | 'muted' | 'error'
 
 export default function DJRoom() {
   const params = useParams()
   const navigate = useNavigate()
 
   // Use new providers instead of local state
-  const { connectionState, isStreaming } = useWebRTC()
+  const { connectionState, isStreaming, selectedDeviceId } = useWebRTC()
   const { connectToRoom, sendCommand, getRoomWebSocket } = useSignaling()
 
   const [roomId] = createSignal(params.roomId)
-  const [status, setStatus] = createSignal<StreamStatus>('connecting')
+  const [status, setStatus] = createSignal<StreamStatus>('idle')
   const [error, setError] = createSignal<string | null>(null)
   const [isInitializing, setIsInitializing] = createSignal(true)
 
   // Simple state - streaming state managed by flows
   const [currentProducerId, setCurrentProducerId] = createSignal<string | null>(null)
   const [isMuted, setIsMuted] = createSignal(false)
+  
+  // Device selection state
+  const [deviceSelected, setDeviceSelected] = createSignal(false)
+  const [isReadyToStream, setIsReadyToStream] = createSignal(false)
 
-  // Connect to room WebSocket on mount
+  // Connect to room WebSocket on mount (but don't start streaming automatically)
   onMount(async () => {
     try {
       await connectToRoom(roomId())
-      startStreaming()
+      setIsInitializing(false)
+      setIsReadyToStream(true)
+      setStatus('ready') // Set to ready when WebSocket connected
     } catch (err: any) {
       console.error('Failed to connect to room:', err)
       setError(err.message)
       setStatus('error')
+      setIsInitializing(false)
     }
   })
 
   onCleanup(() => {
     // Cleanup handled by providers
+  })
+
+  // Effect to monitor device selection
+  createEffect(() => {
+    const device = selectedDeviceId()
+    setDeviceSelected(Option.isSome(device))
   })
 
   // Effect to sync status with provider state
@@ -48,19 +62,26 @@ export default function DJRoom() {
     const streaming = isStreaming()
     const muted = isMuted()
 
-    if (connState === 'connected' && streaming) {
+    // Only update status when actually streaming
+    if (streaming) {
       setStatus(muted ? 'muted' : 'live')
       setIsInitializing(false)
       setError(null) // Clear any previous errors on success
-    } else if (connState === 'connecting') {
-      setStatus('connecting')
     } else if (connState === 'failed') {
       setStatus('error')
       setIsInitializing(false)
     }
+    // Don't set 'connecting' here - that's only for streaming
   })
 
   const startStreaming = async () => {
+    // Check device selection first
+    const deviceId = Option.getOrUndefined(selectedDeviceId())
+    if (!deviceId) {
+      setError('Please select an audio device first')
+      return
+    }
+
     setIsInitializing(true)
     setStatus('connecting')
     setError(null)
@@ -80,7 +101,7 @@ export default function DJRoom() {
     if (!roomWebSocket) return
 
     const program = Effect.gen(function* (_) {
-      const result = yield* _(publishRoomFlow(`Room ${roomId()}`, roomWebSocket))
+      const result = yield* _(publishRoomFlow(`Room ${roomId()}`, roomWebSocket, deviceId))
       return result
     })
 
@@ -117,7 +138,7 @@ export default function DJRoom() {
       // Send delete room message to backend
       await sendCommand(roomId(), {
         type: 'closeRoom',
-        _traceContext: Option.none()
+        _traceContext: getWebSocketTraceContext()
       })
     } catch (error) {
       console.error('Failed to notify backend of room deletion:', error)
@@ -158,17 +179,44 @@ export default function DJRoom() {
                   status() === 'live' ? 'badge-success' :
                   status() === 'muted' ? 'badge-warning' :
                   status() === 'error' ? 'badge-error' :
-                  'badge-info'
+                  status() === 'ready' ? 'badge-info' :
+                  'badge-ghost'
                 }`}>
-                  {status().toUpperCase()}
+                  {status() === 'idle' ? 'SETUP' : status().toUpperCase()}
                 </div>
               </div>
 
-              <DeviceSelector />
+              <DeviceSelector disabled={isStreaming()} />
               {/*
               <WaveformVisualizer stream={currentStream() || undefined} />
                 */}
-              <div class="flex gap-2 justify-center mt-4">
+              
+              {/* Show Go Live button when not streaming */}
+              <Show when={!isStreaming()}>
+                <div class="text-center mt-4">
+                  <button
+                    class="btn btn-primary btn-lg"
+                    onClick={startStreaming}
+                    disabled={!deviceSelected() || !isReadyToStream() || status() === 'connecting'}
+                  >
+                    {status() === 'connecting' ? (
+                      <>
+                        <span class="loading loading-spinner loading-sm"></span>
+                        Connecting...
+                      </>
+                    ) : (
+                      'Go Live'
+                    )}
+                  </button>
+                  <div class="text-sm text-base-content/60 mt-2">
+                    Select a microphone to get started
+                  </div>
+                </div>
+              </Show>
+
+              {/* Show streaming controls when live */}
+              <Show when={isStreaming()}>
+                <div class="flex gap-2 justify-center mt-4">
                 <button
                   class={`btn btn-circle btn-lg ${
                     isMuted() ? 'btn-error' : 'btn-success'
@@ -191,7 +239,8 @@ export default function DJRoom() {
                 <button class="btn btn-error btn-sm" onClick={endStream}>
                   End
                 </button>
-              </div>
+                </div>
+              </Show>
             </div>
           </div>
         </Show>

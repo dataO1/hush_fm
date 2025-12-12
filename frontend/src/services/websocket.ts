@@ -8,12 +8,11 @@
  * - Message queueing for offline states
  */
 
-import { Effect, pipe, Queue, Ref, Option } from 'effect'
+import { Effect, pipe, Queue, Ref } from 'effect'
 import type { 
   ClientCommand, 
   ServerEvent, 
-  LobbyEvent,
-  TraceContext 
+  LobbyEvent
 } from '../models/websocket'
 
 /**
@@ -122,24 +121,11 @@ export const createWebSocketService = (
     const reconnectAttempts = yield* _(Ref.make(0))
 
     /**
-     * Validate and inject trace context into messages
+     * ClientCommand already contains proper trace context from getWebSocketTraceContext()
+     * This function is now just a pass-through for compatibility
      */
     const enrichMessage = (message: ClientCommand): Effect.Effect<ClientCommand, never> =>
-      Effect.sync(() => {
-        if (!finalConfig.enableTracing) return message
-
-        // Generate trace context if not present
-        if (Option.isNone(message._traceContext)) {
-          const traceContext: TraceContext = {
-            traceparent: `00-${generateTraceId()}-${generateSpanId()}-01`,
-            tracestate: Option.none(),
-            metadata: Option.none()
-          }
-          return { ...message, _traceContext: Option.some(traceContext) }
-        }
-
-        return message
-      })
+      Effect.sync(() => message)
 
     /**
      * Validate incoming messages
@@ -455,14 +441,4 @@ export const createWebSocketService = (
 /**
  * Utility functions
  */
-const generateTraceId = (): string => {
-  return Array.from({ length: 16 }, () =>
-    Math.floor(Math.random() * 16).toString(16)
-  ).join('')
-}
-
-const generateSpanId = (): string => {
-  return Array.from({ length: 8 }, () =>
-    Math.floor(Math.random() * 16).toString(16)
-  ).join('')
-}
+// Trace ID generation moved to telemetry.ts for unified handling

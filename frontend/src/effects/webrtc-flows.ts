@@ -275,10 +275,10 @@ export const joinRoomFlow = (
 
       const consumerId = yield* _(
         createConsumer({
-          id: `consumer-${joinResponse.producerId || 'unknown'}-${Date.now()}`,
-          producerId: joinResponse.producerId || 'unknown',
+          id: `consumer_${joinResponse.producerId!}_${Date.now()}`,
+          producerId: joinResponse.producerId!,
           kind: 'audio',
-          rtpParameters: {} // Backend provides
+          rtpParameters: joinResponse.rtpCapabilities
         })
       )
 

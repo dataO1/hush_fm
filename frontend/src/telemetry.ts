@@ -5,7 +5,7 @@ import { getWebAutoInstrumentations } from '@opentelemetry/auto-instrumentations
 import { BatchSpanProcessor } from '@opentelemetry/sdk-trace-base'
 import { OTLPTraceExporter } from '@opentelemetry/exporter-trace-otlp-http'
 import * as Option from 'effect/Option'
-import type { TraceContext } from './models/websocket'
+import type { TraceContext, SerializedTraceContext } from './models/websocket'
 
 /**
  * Unified Cross-Service Span Architecture for HushFM
@@ -336,6 +336,58 @@ export const injectTraceContext = <T extends { _traceContext: Option.Option<Trac
     Effect.andThen(service => service.injectTraceContext(message)),
     Effect.provide(TraceServiceLive)
   )
+}
+
+/**
+ * Generate a random trace ID (32 hex characters)
+ */
+const generateTraceId = (): string => {
+  return Array.from({ length: 16 }, () =>
+    Math.floor(Math.random() * 16).toString(16)
+  ).join('')
+}
+
+/**
+ * Generate a random span ID (16 hex characters)
+ */
+const generateSpanId = (): string => {
+  return Array.from({ length: 8 }, () =>
+    Math.floor(Math.random() * 16).toString(16)
+  ).join('')
+}
+
+/**
+ * THE SINGLE SOURCE OF TRUTH for WebSocket trace context
+ * 
+ * This function always returns a valid SerializedTraceContext that matches
+ * the backend Rust TraceContext struct exactly:
+ * - traceparent: String (required)
+ * - tracestate: Option<String> (optional, sent as null if missing)
+ * - metadata: Option<HashMap<String, String>> (optional, sent as null if missing)
+ * 
+ * Use this function EVERYWHERE for WebSocket commands to ensure unified tracing.
+ */
+export const getWebSocketTraceContext = (): SerializedTraceContext => {
+  // Try to get current OpenTelemetry context
+  const carrier: Record<string, string> = {}
+  propagation.inject(otelContext.active(), carrier)
+  
+  // If we have an active span, use its trace context
+  if (carrier.traceparent) {
+    return {
+      traceparent: carrier.traceparent,
+      tracestate: carrier.tracestate || null,
+      metadata: null  // We don't use metadata for now
+    }
+  }
+  
+  // No active span - create new trace for this WebSocket command
+  // This ensures every command is traceable even outside Effect spans
+  return {
+    traceparent: `00-${generateTraceId()}-${generateSpanId()}-01`,
+    tracestate: null,
+    metadata: null
+  }
 }
 
 export const extractTraceContext = (context: Option.Option<TraceContext>): Effect.Effect<void, never> => {
