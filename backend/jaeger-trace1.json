@@ -1,26 +1,26 @@
 {
     "data": [
         {
-            "traceID": "310d718ac4ac699dbfb5b0a6932d6f2b",
+            "traceID": "892a628edf7e09ce13882cce9944c288",
             "spans": [
                 {
-                    "traceID": "310d718ac4ac699dbfb5b0a6932d6f2b",
-                    "spanID": "5006745dcdfa5396",
+                    "traceID": "892a628edf7e09ce13882cce9944c288",
+                    "spanID": "35cab9dbadbd75b7",
                     "operationName": "connect_transport",
                     "references": [
                         {
                             "refType": "CHILD_OF",
-                            "traceID": "310d718ac4ac699dbfb5b0a6932d6f2b",
-                            "spanID": "3c0aeb36471fb7fc"
+                            "traceID": "892a628edf7e09ce13882cce9944c288",
+                            "spanID": "f4694a9501324b91"
                         }
                     ],
-                    "startTime": 1765392083759056,
-                    "duration": 96,
+                    "startTime": 1765544889400341,
+                    "duration": 53,
                     "tags": [
                         {
                             "key": "busy_ns",
                             "type": "int64",
-                            "value": 75567
+                            "value": 38133
                         },
                         {
                             "key": "code.file.path",
@@ -40,7 +40,7 @@
                         {
                             "key": "idle_ns",
                             "type": "int64",
-                            "value": 27098
+                            "value": 19836
                         },
                         {
                             "key": "otel.scope.name",
@@ -60,7 +60,7 @@
                         {
                             "key": "thread.id",
                             "type": "int64",
-                            "value": 2
+                            "value": 15
                         },
                         {
                             "key": "thread.name",
@@ -70,7 +70,7 @@
                         {
                             "key": "transport_id",
                             "type": "string",
-                            "value": "5a5763c1-1559-4014-bcf5-3f75c14f8120"
+                            "value": "53181dd5-8270-424c-b413-13b7613a027b"
                         }
                     ],
                     "logs": [],
@@ -78,23 +78,23 @@
                     "warnings": null
                 },
                 {
-                    "traceID": "310d718ac4ac699dbfb5b0a6932d6f2b",
-                    "spanID": "3c0aeb36471fb7fc",
+                    "traceID": "892a628edf7e09ce13882cce9944c288",
+                    "spanID": "f4694a9501324b91",
                     "operationName": "handle_connect_transport",
                     "references": [
                         {
                             "refType": "CHILD_OF",
-                            "traceID": "310d718ac4ac699dbfb5b0a6932d6f2b",
-                            "spanID": "56fc5d3576765898"
+                            "traceID": "892a628edf7e09ce13882cce9944c288",
+                            "spanID": "445e66b3068714a1"
                         }
                     ],
-                    "startTime": 1765392083758952,
-                    "duration": 273,
+                    "startTime": 1765544889400182,
+                    "duration": 253,
                     "tags": [
                         {
                             "key": "busy_ns",
                             "type": "int64",
-                            "value": 250517
+                            "value": 238719
                         },
                         {
                             "key": "code.file.path",
@@ -104,7 +104,7 @@
                         {
                             "key": "code.line.number",
                             "type": "int64",
-                            "value": 268
+                            "value": 269
                         },
                         {
                             "key": "code.module.name",
@@ -114,7 +114,7 @@
                         {
                             "key": "idle_ns",
                             "type": "int64",
-                            "value": 29053
+                            "value": 19626
                         },
                         {
                             "key": "otel.scope.name",
@@ -124,7 +124,7 @@
                         {
                             "key": "room_id",
                             "type": "string",
-                            "value": "631927a4-ed09-4032-9c0b-1c3f8b0b19de"
+                            "value": "7d3687bc-1b99-4018-a0ee-e260293f2dd8"
                         },
                         {
                             "key": "span.kind",
@@ -139,7 +139,7 @@
                         {
                             "key": "thread.id",
                             "type": "int64",
-                            "value": 2
+                            "value": 15
                         },
                         {
                             "key": "thread.name",
@@ -149,31 +149,67 @@
                         {
                             "key": "transport_id",
                             "type": "string",
-                            "value": "5a5763c1-1559-4014-bcf5-3f75c14f8120"
+                            "value": "53181dd5-8270-424c-b413-13b7613a027b"
                         }
                     ],
-                    "logs": [],
+                    "logs": [
+                        {
+                            "timestamp": 1765544889400281,
+                            "fields": [
+                                {
+                                    "key": "event",
+                                    "type": "string",
+                                    "value": "DTLS parameters received: {\n  \"dtlsParameters\": {\n    \"fingerprints\": [\n      {\n        \"algorithm\": \"sha-256\",\n        \"value\": \"36:57:8D:0D:4D:20:E1:01:F5:74:65:34:AC:35:DF:C4:0D:D8:B2:C1:06:88:75:24:19:9A:87:54:35:1A:C4:09\"\n      }\n    ],\n    \"role\": \"client\"\n  },\n  \"role\": \"auto\"\n}"
+                                },
+                                {
+                                    "key": "code.file.path",
+                                    "type": "string",
+                                    "value": "src/ws/mod.rs"
+                                },
+                                {
+                                    "key": "code.line.number",
+                                    "type": "int64",
+                                    "value": 275
+                                },
+                                {
+                                    "key": "code.module.name",
+                                    "type": "string",
+                                    "value": "server::ws"
+                                },
+                                {
+                                    "key": "level",
+                                    "type": "string",
+                                    "value": "DEBUG"
+                                },
+                                {
+                                    "key": "target",
+                                    "type": "string",
+                                    "value": "server::ws"
+                                }
+                            ]
+                        }
+                    ],
                     "processID": "p1",
                     "warnings": null
                 },
                 {
-                    "traceID": "310d718ac4ac699dbfb5b0a6932d6f2b",
-                    "spanID": "56fc5d3576765898",
+                    "traceID": "892a628edf7e09ce13882cce9944c288",
+                    "spanID": "445e66b3068714a1",
                     "operationName": "handle_client_command",
                     "references": [
                         {
                             "refType": "CHILD_OF",
-                            "traceID": "310d718ac4ac699dbfb5b0a6932d6f2b",
-                            "spanID": "c81d8dda1f0dcfa3"
+                            "traceID": "892a628edf7e09ce13882cce9944c288",
+                            "spanID": "a25e548bcc672d24"
                         }
                     ],
-                    "startTime": 1765392083758850,
-                    "duration": 811,
+                    "startTime": 1765544889400081,
+                    "duration": 593,
                     "tags": [
                         {
                             "key": "busy_ns",
                             "type": "int64",
-                            "value": 761607
+                            "value": 538480
                         },
                         {
                             "key": "code.file.path",
@@ -183,7 +219,7 @@
                         {
                             "key": "code.line.number",
                             "type": "int64",
-                            "value": 103
+                            "value": 104
                         },
                         {
                             "key": "code.module.name",
@@ -203,7 +239,7 @@
                         {
                             "key": "idle_ns",
                             "type": "int64",
-                            "value": 58875
+                            "value": 61671
                         },
                         {
                             "key": "otel.scope.name",
@@ -218,7 +254,7 @@
                         {
                             "key": "room_id",
                             "type": "string",
-                            "value": "631927a4-ed09-4032-9c0b-1c3f8b0b19de"
+                            "value": "7d3687bc-1b99-4018-a0ee-e260293f2dd8"
                         },
                         {
                             "key": "span.kind",
@@ -233,7 +269,7 @@
                         {
                             "key": "thread.id",
                             "type": "int64",
-                            "value": 2
+                            "value": 15
                         },
                         {
                             "key": "thread.name",
@@ -243,12 +279,12 @@
                     ],
                     "logs": [
                         {
-                            "timestamp": 1765392083759367,
+                            "timestamp": 1765544889400498,
                             "fields": [
                                 {
                                     "key": "event",
                                     "type": "string",
-                                    "value": "Failed to connect transport for room 631927a4-ed09-4032-9c0b-1c3f8b0b19de: missing field `fingerprints`"
+                                    "value": "Failed to connect transport for room 7d3687bc-1b99-4018-a0ee-e260293f2dd8: missing field `fingerprints`"
                                 },
                                 {
                                     "key": "code.file.path",
@@ -258,7 +294,7 @@
                                 {
                                     "key": "code.line.number",
                                     "type": "int64",
-                                    "value": 129
+                                    "value": 130
                                 },
                                 {
                                     "key": "code.module.name",
@@ -282,17 +318,17 @@
                     "warnings": null
                 },
                 {
-                    "traceID": "310d718ac4ac699dbfb5b0a6932d6f2b",
-                    "spanID": "c81d8dda1f0dcfa3",
+                    "traceID": "892a628edf7e09ce13882cce9944c288",
+                    "spanID": "a25e548bcc672d24",
                     "operationName": "websocket_message_received",
                     "references": [],
-                    "startTime": 1765392083758413,
-                    "duration": 1302,
+                    "startTime": 1765544889399615,
+                    "duration": 1080,
                     "tags": [
                         {
                             "key": "busy_ns",
                             "type": "int64",
-                            "value": 1216406
+                            "value": 996853
                         },
                         {
                             "key": "code.file.path",
@@ -317,7 +353,7 @@
                         {
                             "key": "idle_ns",
                             "type": "int64",
-                            "value": 100011
+                            "value": 99315
                         },
                         {
                             "key": "message_length",
@@ -332,7 +368,7 @@
                         {
                             "key": "room_id",
                             "type": "string",
-                            "value": "631927a4-ed09-4032-9c0b-1c3f8b0b19de"
+                            "value": "7d3687bc-1b99-4018-a0ee-e260293f2dd8"
                         },
                         {
                             "key": "span.kind",
@@ -347,7 +383,7 @@
                         {
                             "key": "thread.id",
                             "type": "int64",
-                            "value": 2
+                            "value": 15
                         },
                         {
                             "key": "thread.name",
@@ -357,7 +393,7 @@
                     ],
                     "logs": [
                         {
-                            "timestamp": 1765392083758621,
+                            "timestamp": 1765544889399802,
                             "fields": [
                                 {
                                     "key": "event",
@@ -392,7 +428,42 @@
                             ]
                         },
                         {
-                            "timestamp": 1765392083758806,
+                            "timestamp": 1765544889399911,
+                            "fields": [
+                                {
+                                    "key": "event",
+                                    "type": "string",
+                                    "value": "Raw message content: {\"type\":\"connectTransport\",\"dtlsParameters\":{\"dtlsParameters\":{\"role\":\"client\",\"fingerprints\":[{\"algorithm\":\"sha-256\",\"value\":\"36:57:8D:0D:4D:20:E1:01:F5:74:65:34:AC:35:DF:C4:0D:D8:B2:C1:06:88:75:24:19:9A:87:54:35:1A:C4:09\"}]},\"role\":\"auto\"},\"_traceContext\":{\"traceparent\":\"00-b3b8e5a7912735b9-e235c572-01\",\"tracestate\":null,\"metadata\":null}}"
+                                },
+                                {
+                                    "key": "code.file.path",
+                                    "type": "string",
+                                    "value": "src/ws/mod.rs"
+                                },
+                                {
+                                    "key": "code.line.number",
+                                    "type": "int64",
+                                    "value": 55
+                                },
+                                {
+                                    "key": "code.module.name",
+                                    "type": "string",
+                                    "value": "server::ws"
+                                },
+                                {
+                                    "key": "level",
+                                    "type": "string",
+                                    "value": "DEBUG"
+                                },
+                                {
+                                    "key": "target",
+                                    "type": "string",
+                                    "value": "server::ws"
+                                }
+                            ]
+                        },
+                        {
+                            "timestamp": 1765544889400048,
                             "fields": [
                                 {
                                     "key": "event",
@@ -407,7 +478,7 @@
                                 {
                                     "key": "code.line.number",
                                     "type": "int64",
-                                    "value": 58
+                                    "value": 59
                                 },
                                 {
                                     "key": "code.module.name",

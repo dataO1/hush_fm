@@ -5,6 +5,55 @@ use super::events::RoomInfo;
 use uuid::Uuid;
 use std::collections::HashMap;
 
+/// DTLS fingerprint for API responses (clean schema for OpenAPI)
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, ToSchema)]
+pub struct DtlsFingerprintSchema {
+    /// Hash algorithm name (e.g., "sha-256")
+    pub algorithm: String,
+    /// Fingerprint value as colon-separated hex string
+    pub value: String,
+}
+
+/// DTLS parameters for API responses (clean schema for OpenAPI)
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, ToSchema)]
+pub struct DtlsParametersSchema {
+    /// DTLS role as string: "auto", "client", or "server"
+    pub role: String,
+    /// DTLS fingerprints array
+    pub fingerprints: Vec<DtlsFingerprintSchema>,
+}
+
+/// ICE parameters for API responses
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct IceParametersSchema {
+    /// ICE username fragment
+    pub username_fragment: String,
+    /// ICE password
+    pub password: String,
+    /// ICE lite flag
+    pub ice_lite: Option<bool>,
+}
+
+/// ICE candidate for API responses
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, ToSchema)]
+pub struct IceCandidateSchema {
+    /// Foundation
+    pub foundation: String,
+    /// Component ID
+    pub component: u32,
+    /// Transport protocol
+    pub protocol: String,
+    /// Priority
+    pub priority: u64,
+    /// IP address
+    pub ip: String,
+    /// Port number
+    pub port: u16,
+    /// Candidate type
+    #[serde(rename = "type")]
+    pub candidate_type: String,
+}
 
 /// Trace context for distributed tracing (W3C Trace Context)
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
@@ -28,13 +77,13 @@ pub struct TransportOptions {
     pub id: String,
     
     /// ICE parameters for WebRTC
-    pub ice_parameters: serde_json::Value,
+    pub ice_parameters: IceParametersSchema,
     
     /// ICE candidates (empty for local network optimization)
-    pub ice_candidates: Vec<serde_json::Value>,
+    pub ice_candidates: Vec<IceCandidateSchema>,
     
     /// DTLS parameters for secure connection
-    pub dtls_parameters: serde_json::Value,
+    pub dtls_parameters: DtlsParametersSchema,
     
     /// SCTP parameters (if applicable)
     pub sctp_parameters: Option<serde_json::Value>,
@@ -42,16 +91,39 @@ pub struct TransportOptions {
 
 /// RTP capabilities for media consumption
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, ToSchema)]
-#[serde(rename_all = "camelCase")]
 pub struct RtpCapabilities {
     /// Supported codecs
     pub codecs: Vec<serde_json::Value>,
     
     /// Header extensions
+    #[serde(rename = "headerExtensions")]
     pub header_extensions: Vec<serde_json::Value>,
     
-    /// FEC mechanisms
+    /// FEC mechanisms (optional as MediaSoup doesn't always include this)
+    #[serde(rename = "fecMechanisms", default)]
     pub fec_mechanisms: Vec<serde_json::Value>,
+}
+
+/// Room info response (without consumer creation)
+#[derive(Debug, Clone, Serialize, JsonSchema, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct RoomInfoResponse {
+    /// Room information (clean client model)
+    pub room: RoomInfo,
+    
+    /// Router RTP capabilities for device initialization
+    pub rtp_capabilities: RtpCapabilities,
+    
+    /// Producer ID (if streaming)
+    pub producer_id: Option<String>,
+}
+
+/// Join room request with listener RTP capabilities
+#[derive(Debug, Clone, Deserialize, JsonSchema, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct JoinRoomRequest {
+    /// Listener's device RTP capabilities
+    pub rtp_capabilities: RtpCapabilities,
 }
 
 /// Consumer parameters for audio consumption
@@ -149,9 +221,6 @@ pub struct JoinRoomResponse {
     
     /// Producer ID to consume from (if streaming)
     pub producer_id: Option<String>,
-    
-    /// RTP capabilities for consuming
-    pub rtp_capabilities: RtpCapabilities,
     
     /// Consumer parameters (if producer is available)
     pub consumer_parameters: Option<ConsumerParameters>,

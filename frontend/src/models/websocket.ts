@@ -9,7 +9,11 @@
  */
 
 import { Option } from 'effect'
-import type { RoomInfo } from '../generated/api.schemas'
+import type { RoomInfo, DtlsParametersSchema, DtlsFingerprintSchema } from '../generated/api.schemas'
+
+// Re-export the generated schema types for WebSocket usage
+export type DtlsParameters = DtlsParametersSchema
+export type DtlsFingerprint = DtlsFingerprintSchema
 
 /**
  * Trace context for distributed tracing (W3C Trace Context)
@@ -53,7 +57,7 @@ export type ClientCommand =
   | {
       type: 'connectTransport'
       /** DTLS parameters for WebRTC transport connection */
-      dtlsParameters: any
+      dtlsParameters: DtlsParameters
       /** Trace context for request tracing */
       _traceContext: SerializedTraceContext
     }
@@ -90,7 +94,7 @@ export type ClientCommand =
   | {
       type: 'connectListenerTransport'
       /** DTLS parameters for WebRTC transport connection */
-      dtlsParameters: any
+      dtlsParameters: DtlsParameters
       /** Trace context for request tracing */
       _traceContext: SerializedTraceContext
     }

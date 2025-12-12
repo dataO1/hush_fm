@@ -3,13 +3,16 @@ import { Effect, pipe } from 'effect'
 import {
   listRooms as listRoomsGenerated,
   createRoom as createRoomGenerated,
-  joinRoom as joinRoomGenerated
+  joinRoom as joinRoomGenerated,
+  getRoomInfo as getRoomInfoGenerated
 } from '../generated/rooms/rooms'
 import type {
   Room,
   CreateRoomRequest,
   CreateRoomResponse,
-  JoinRoomResponse
+  JoinRoomResponse,
+  JoinRoomRequest,
+  RoomInfoResponse
 } from '../generated/api.schemas'  // ✅ Import from schemas
 
 export class ApiError extends Error {
@@ -60,10 +63,27 @@ export const createRoom = (
     })
   )
 
-export const joinRoom = (roomId: string): Effect.Effect<JoinRoomResponse, ApiError> =>
+export const getRoomInfo = (roomId: string): Effect.Effect<RoomInfoResponse, ApiError> =>
   pipe(
     Effect.tryPromise({
-      try: () => joinRoomGenerated(roomId),
+      try: () => getRoomInfoGenerated(roomId),
+      catch: error => new ApiError('Network error', 0, error)
+    }),
+    Effect.flatMap((response: any) => {
+      if (response.status === 200 && response.data) {
+        return Effect.succeed(response.data)
+      }
+      return Effect.fail(new ApiError(
+        `Get room info failed: ${response.status}`,
+        response.status
+      ))
+    })
+  )
+
+export const joinRoom = (roomId: string, request: JoinRoomRequest): Effect.Effect<JoinRoomResponse, ApiError> =>
+  pipe(
+    Effect.tryPromise({
+      try: () => joinRoomGenerated(roomId, request),
       catch: error => new ApiError('Network error', 0, error)
     }),
     Effect.flatMap((response: any) => {

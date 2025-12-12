@@ -58,11 +58,30 @@ impl ConsumerManager {
         let rtp_parameters = consumer.rtp_parameters();
         let rtp_params_value = serde_json::to_value(&rtp_parameters)?;
         
+        tracing::info!(
+            consumer_id = %consumer.id(),
+            "Generated consumer parameters with RTP structure"
+        );
+        
         tracing::debug!(
             consumer_id = %consumer.id(),
             rtp_parameters = ?rtp_params_value,
-            "Generated consumer parameters"
+            "Full RTP parameters structure"
         );
+        
+        // Validate that we have the required fields for MediaSoup client
+        if let Some(codecs) = rtp_params_value.get("codecs").and_then(|c| c.as_array()) {
+            tracing::info!("Consumer has {} codecs", codecs.len());
+            for (i, codec) in codecs.iter().enumerate() {
+                if let Some(payload_type) = codec.get("payloadType") {
+                    tracing::info!("Codec {}: payloadType = {}", i, payload_type);
+                } else {
+                    tracing::warn!("Codec {} is missing payloadType field!", i);
+                }
+            }
+        } else {
+            tracing::error!("Consumer RTP parameters missing 'codecs' field!");
+        }
         
         Ok(serde_json::json!({
             "id": consumer.id().to_string(),

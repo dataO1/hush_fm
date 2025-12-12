@@ -1,15 +1,16 @@
 use axum::{
-    extract::{Path, State},
+    extract::{Path, State, Request},
     http::StatusCode,
     response::Json,
     routing::{get, post},
     Router,
+    body,
 };
 use serde_json::json;
 use uuid::Uuid;
 
 use crate::{
-    models::{CreateRoomRequest, CreateRoomResponse, JoinRoomResponse, Room, TransportOptions, RtpCapabilities, ConsumerParameters, events::RoomInfo},
+    models::{CreateRoomRequest, CreateRoomResponse, Room, events::RoomInfo, schemas::{JoinRoomResponse, JoinRoomRequest, RoomInfoResponse, TransportOptions, RtpCapabilities, ConsumerParameters, DtlsParametersSchema, DtlsFingerprintSchema, IceParametersSchema, IceCandidateSchema}},
     state::AppState,
     webrtc::{ConsumerManager, consumer::ConsumerState},
 };
@@ -18,6 +19,7 @@ pub fn rooms_router() -> Router<AppState> {
     Router::new()
         .route("/rooms", post(create_room))
         .route("/rooms", get(list_rooms))
+        .route("/rooms/:room_id", get(get_room_info))
         .route("/rooms/:room_id/join", post(join_room))
 }
 
@@ -114,6 +116,46 @@ pub async fn list_rooms(State(state): State<AppState>) -> Json<Vec<RoomInfo>> {
     Json(room_infos)
 }
 
+/// Get room information and router RTP capabilities (for device initialization)
+#[utoipa::path(
+    get,
+    path = "/api/rooms/{room_id}",
+    params(
+        ("room_id" = Uuid, Path, description = "Room ID")
+    ),
+    responses(
+        (status = 200, description = "Room info retrieved successfully", body = RoomInfoResponse),
+        (status = 404, description = "Room not found")
+    ),
+    tag = "rooms"
+)]
+pub async fn get_room_info(
+    Path(room_id): Path<Uuid>,
+    State(state): State<AppState>,
+) -> Result<Json<RoomInfoResponse>, StatusCode> {
+    let room_state = state.get_room_state(&room_id)
+        .ok_or(StatusCode::NOT_FOUND)?;
+
+    let room_state_guard = room_state.read().await;
+    let room = room_state_guard.room.clone();
+    
+    // Get router RTP capabilities for device initialization
+    let router_rtp_capabilities = room_state_guard.router.as_ref()
+        .ok_or(StatusCode::INTERNAL_SERVER_ERROR)?
+        .rtp_capabilities();
+    
+    let router_rtp_capabilities_value = serde_json::to_value(router_rtp_capabilities)
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    let response = RoomInfoResponse {
+        room: room.into(),
+        rtp_capabilities: convert_rtp_capabilities(router_rtp_capabilities_value),
+        producer_id: room_state_guard.audio_producer.as_ref().map(|p| p.id().to_string()),
+    };
+
+    Ok(Json(response))
+}
+
 /// Join a room as listener
 #[utoipa::path(
     post,
@@ -121,6 +163,7 @@ pub async fn list_rooms(State(state): State<AppState>) -> Json<Vec<RoomInfo>> {
     params(
         ("room_id" = Uuid, Path, description = "Room ID")
     ),
+    request_body = JoinRoomRequest,
     responses(
         (status = 200, description = "Joined room successfully", body = JoinRoomResponse),
         (status = 404, description = "Room not found")
@@ -131,7 +174,22 @@ pub async fn list_rooms(State(state): State<AppState>) -> Json<Vec<RoomInfo>> {
 pub async fn join_room(
     Path(room_id): Path<Uuid>,
     State(state): State<AppState>,
+    req: Request,
 ) -> Result<Json<JoinRoomResponse>, StatusCode> {
+    // First, let's see the raw request body for debugging
+    let body_bytes = body::to_bytes(req.into_body(), usize::MAX)
+        .await
+        .map_err(|_| StatusCode::BAD_REQUEST)?;
+    
+    let body_str = String::from_utf8_lossy(&body_bytes);
+    tracing::info!("Raw join room request body: {}", body_str);
+    
+    // Now try to deserialize
+    let request: JoinRoomRequest = serde_json::from_slice(&body_bytes)
+        .map_err(|e| {
+            tracing::error!("Failed to deserialize join room request: {}", e);
+            StatusCode::UNPROCESSABLE_ENTITY
+        })?;
     let room_state = state.get_room_state(&room_id)
         .ok_or(StatusCode::NOT_FOUND)?;
     
@@ -154,8 +212,13 @@ pub async fn join_room(
                 
             let (producer_id, consumer_parameters) = if room.dj_streaming {
                 if let Some(producer) = &room_state_guard.audio_producer {
-                    // Get client RTP capabilities for creating consumer
-                    let client_capabilities = json!(ConsumerManager::get_consumer_audio_capabilities());
+                    // Use listener's RTP capabilities from request
+                    let listener_capabilities = json!(request.rtp_capabilities);
+                    
+                    tracing::info!(
+                        listener_id = %listener_id,
+                        "Creating consumer with listener's RTP capabilities"
+                    );
                     
                     // Create consumer on the backend
                     match ConsumerManager::create_audio_consumer(
@@ -163,7 +226,7 @@ pub async fn join_room(
                         producer,
                         room_id,
                         &listener_id,
-                        client_capabilities.clone()
+                        listener_capabilities.clone()
                     ).await {
                         Ok((consumer, consumer_id, consumer_params)) => {
                             // Store consumer in room state
@@ -206,14 +269,10 @@ pub async fn join_room(
         }
     };
     
-    // Get RTP capabilities for client
-    let rtp_capabilities = json!(ConsumerManager::get_consumer_audio_capabilities());
-
     let response = JoinRoomResponse {
         room: room.into(), // Convert Room to RoomInfo
         transport_options: convert_transport_options(transport_options),
         producer_id,
-        rtp_capabilities: convert_rtp_capabilities(rtp_capabilities),
         consumer_parameters,
     };
 
@@ -222,12 +281,37 @@ pub async fn join_room(
 
 /// Convert WebRTC transport options to our unified type
 fn convert_transport_options(options: serde_json::Value) -> TransportOptions {
-    // For now, we'll extract the basic fields and use the raw value for complex ones
+    // Extract and convert DTLS parameters
+    let dtls_params = options.get("dtlsParameters").cloned().unwrap_or_default();
+    let dtls_parameters = DtlsParametersSchema {
+        role: dtls_params.get("role").and_then(|v| v.as_str()).unwrap_or("auto").to_string(),
+        fingerprints: dtls_params.get("fingerprints")
+            .and_then(|v| v.as_array())
+            .map(|arr| arr.iter().filter_map(|fp| {
+                Some(DtlsFingerprintSchema {
+                    algorithm: fp.get("algorithm")?.as_str()?.to_string(),
+                    value: fp.get("value")?.as_str()?.to_string(),
+                })
+            }).collect())
+            .unwrap_or_default(),
+    };
+
+    // Extract and convert ICE parameters
+    let ice_params = options.get("iceParameters").cloned().unwrap_or_default();
+    let ice_parameters = IceParametersSchema {
+        username_fragment: ice_params.get("usernameFragment").and_then(|v| v.as_str()).unwrap_or("").to_string(),
+        password: ice_params.get("password").and_then(|v| v.as_str()).unwrap_or("").to_string(),
+        ice_lite: ice_params.get("iceLite").and_then(|v| v.as_bool()),
+    };
+
+    // For local network optimization, we keep ICE candidates empty as intended
+    let ice_candidates = vec![];
+
     TransportOptions {
         id: options.get("id").and_then(|v| v.as_str()).unwrap_or("unknown").to_string(),
-        ice_parameters: options.get("iceParameters").cloned().unwrap_or_default(),
-        ice_candidates: vec![], // Empty for local network optimization
-        dtls_parameters: options.get("dtlsParameters").cloned().unwrap_or_default(),
+        ice_parameters,
+        ice_candidates,
+        dtls_parameters,
         sctp_parameters: options.get("sctpParameters").cloned(),
     }
 }

@@ -5,14 +5,14 @@ import { subscribeToMessages } from '../ws/client'
 import { getWebSocketTraceContext } from '../telemetry'
 
 /**
- * Simplified transport options for internal use
+ * Internal transport options (compatible with MediaSoup client)
  */
 export interface TransportOptions {
   id: string
-  dtlsParameters: any
-  iceParameters: any
-  iceCandidates: any[]
-  sctpParameters?: any
+  dtlsParameters: any  // MediaSoup client's native type
+  iceParameters: any   // MediaSoup client's native type  
+  iceCandidates: any[] // MediaSoup client's native type
+  sctpParameters?: any // MediaSoup client's native type
 }
 
 /**
@@ -291,21 +291,16 @@ class WebRTCServiceImpl implements WebRTCService {
 
     // Handle the 'connect' event for send transports
     if (direction === 'send') {
-      transport.on('connect', async (dtlsParameters: any, callback: () => void, errback: (error: Error) => void) => {
+      transport.on('connect', async ({ dtlsParameters }: { dtlsParameters: any }, callback: () => void, errback: (error: Error) => void) => {
         try {
-          // Ensure DTLS parameters have required role field
-          const dtlsParams = {
-            ...dtlsParameters,
-            role: dtlsParameters.role || 'auto'
-          }
-          
+          // MediaSoup provides complete DTLS parameters, use them directly
           const traceContext = getWebSocketTraceContext()
-          console.debug('DTLS params being sent:', dtlsParams)
+          console.debug('DTLS params being sent:', dtlsParameters)
           console.debug('Trace context being sent:', traceContext)
           
           const command: ClientCommand = {
             type: 'connectTransport',
-            dtlsParameters: dtlsParams,
+            dtlsParameters: dtlsParameters,
             _traceContext: traceContext
           }
           
@@ -325,17 +320,12 @@ class WebRTCServiceImpl implements WebRTCService {
 
     // Handle the 'connect' event for receive transports
     if (direction === 'receive') {
-      transport.on('connect', async (dtlsParameters: any, callback: () => void, errback: (error: Error) => void) => {
+      transport.on('connect', async ({ dtlsParameters }: { dtlsParameters: any }, callback: () => void, errback: (error: Error) => void) => {
         try {
-          // Ensure DTLS parameters have required role field
-          const dtlsParams = {
-            ...dtlsParameters,
-            role: dtlsParameters.role || 'auto'
-          }
-          
+          // MediaSoup provides complete DTLS parameters, use them directly
           const command: ClientCommand = {
             type: 'connectListenerTransport',
-            dtlsParameters: dtlsParams,
+            dtlsParameters: dtlsParameters,
             _traceContext: getWebSocketTraceContext()
           }
           
@@ -397,9 +387,12 @@ class WebRTCServiceImpl implements WebRTCService {
           
           await device.load({ routerRtpCapabilities: rtpCapabilities })
           
+          // Store device's own RTP capabilities (intersection of router + browser capabilities)
+          const deviceRtpCapabilities = device.rtpCapabilities
+          
           this.device = Option.some(device)
           this.deviceLoaded = true
-          this.rtpCapabilities = Option.some(rtpCapabilities)
+          this.rtpCapabilities = Option.some(deviceRtpCapabilities)
           this.deviceError = Option.none()
           this.notifyStateChange()
         },

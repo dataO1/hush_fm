@@ -8,7 +8,7 @@ use axum::{
 use futures_util::{SinkExt, StreamExt};
 use serde_json;
 use uuid::Uuid;
-use mediasoup::prelude::Transport;
+use mediasoup::prelude::{DtlsParameters, Transport};
 
 use crate::{
     models::{ClientCommand, ServerEvent, LobbyEvent},
@@ -50,7 +50,7 @@ async fn handle_room_socket(socket: WebSocket, room_id: Uuid, state: AppState) {
                         command_type = tracing::field::Empty
                     );
                     let _enter = message_span.enter();
-                    
+
                     tracing::debug!("Raw WebSocket message received");
                     tracing::debug!("Raw message content: {}", &text);
                     match serde_json::from_str::<ClientCommand>(&text) {
@@ -84,7 +84,7 @@ async fn handle_lobby_socket(socket: WebSocket, state: AppState) {
 
     // Send initial room list
     let rooms = state.get_rooms().await;
-    if let Ok(msg) = serde_json::to_string(&LobbyEvent::RoomAdded { 
+    if let Ok(msg) = serde_json::to_string(&LobbyEvent::RoomAdded {
         room: rooms.first().cloned().unwrap_or_else(|| crate::models::Room::example()).into(),
         trace_context: None,
     }) {
@@ -110,18 +110,27 @@ async fn handle_client_command(
 ) {
     // Extract trace context from the message and set up parent span
     let _parent_context = extract_trace_context_from_command(&cmd);
-    
+
     match cmd {
         ClientCommand::ConnectTransport { dtls_parameters, .. } => {
+            // Convert JSON DTLS parameters to native MediaSoup types
+            let native_dtls_parameters = match DtlsParameters::try_from(dtls_parameters) {
+                Ok(params) => params,
+                Err(e) => {
+                    tracing::error!("Failed to convert DTLS parameters: {}", e);
+                    return;
+                }
+            };
+            
             // Connect DJ's WebRTC transport
-            match handle_connect_transport(room_id, dtls_parameters, state).await {
+            match handle_connect_transport(room_id, native_dtls_parameters, state).await {
                 Ok(transport_id) => {
                     let mut response = ServerEvent::TransportConnected {
                         transport_id, // Use actual transport ID from mediasoup
                         trace_context: None,
                     };
                     inject_trace_context_into_event(&mut response, &tracing::Span::current());
-                    
+
                     if let Ok(msg) = serde_json::to_string(&response) {
                         sender.send(Message::Text(msg)).await.ok();
                     }
@@ -134,7 +143,7 @@ async fn handle_client_command(
                         trace_context: None,
                     };
                     inject_trace_context_into_event(&mut response, &tracing::Span::current());
-                    
+
                     if let Ok(msg) = serde_json::to_string(&response) {
                         sender.send(Message::Text(msg)).await.ok();
                     }
@@ -148,7 +157,7 @@ async fn handle_client_command(
                     // Update room to streaming using enhanced method
                     state.start_stream(room_id, producer_id.clone()).await;
 
-                    let response = ServerEvent::ProducerCreated { 
+                    let response = ServerEvent::ProducerCreated {
                         producer_id,
                         room_id: room_id.to_string(),
                         trace_context: None,
@@ -269,24 +278,24 @@ async fn handle_client_command(
 #[tracing::instrument(skip(state, dtls_parameters), fields(room_id = %room_id, transport_id))]
 async fn handle_connect_transport(
     room_id: Uuid,
-    dtls_parameters: serde_json::Value,
+    dtls_parameters: DtlsParameters,
     state: &AppState,
 ) -> anyhow::Result<String> {
     tracing::debug!("DTLS parameters received: {}", serde_json::to_string_pretty(&dtls_parameters).unwrap_or_else(|_| "Invalid JSON".to_string()));
     let room_state = state.get_room_state(&room_id)
         .ok_or_else(|| anyhow::anyhow!("Room not found"))?;
-    
+
     let room_state_guard = room_state.read().await;
     if let Some(dj_transport) = &room_state_guard.dj_transport {
         let transport_id = dj_transport.id().to_string();
-        
+
         // Record transport ID in span
         tracing::Span::current().record("transport_id", &transport_id);
-        
+
         let transport_manager = state.mediasoup.get_transport_manager();
         transport_manager.connect_transport(dj_transport, dtls_parameters).await?;
         tracing::info!("DJ transport connected for room {}, transport_id: {}", room_id, transport_id);
-        
+
         Ok(transport_id)
     } else {
         return Err(anyhow::anyhow!("No DJ transport found for room"));
@@ -307,19 +316,19 @@ async fn handle_produce(
     span.record("has_rtp_codecs", rtp_parameters.get("codecs").is_some());
     span.record("has_rtp_encodings", rtp_parameters.get("encodings").is_some());
     span.record("has_rtp_header_extensions", rtp_parameters.get("headerExtensions").is_some());
-    
+
     let room_state = state.get_room_state(&room_id)
         .ok_or_else(|| {
             span.record("error", "room_not_found");
             anyhow::anyhow!("Room not found")
         })?;
-    
+
     let mut room_state_guard = room_state.write().await;
-    
+
     span.record("has_dj_transport", room_state_guard.dj_transport.is_some());
     span.record("room_status_before", format!("{:?}", room_state_guard.status));
     span.record("room_was_public", room_state_guard.is_public());
-    
+
     if let Some(dj_transport) = &room_state_guard.dj_transport {
         // Create audio producer with span
         let producer_span = tracing::info_span!(
@@ -327,7 +336,7 @@ async fn handle_produce(
             transport_id = %dj_transport.id(),
             room_id = %room_id
         );
-        
+
         let (producer, producer_id) = producer_span.in_scope(|| async {
             ProducerManager::create_audio_producer(
                 dj_transport,
@@ -335,22 +344,22 @@ async fn handle_produce(
                 rtp_parameters,
             ).await
         }).await?;
-        
+
         // Store producer in room state (atomic publication)
         room_state_guard.set_audio_producer(producer.clone());
-        
+
         span.record("producer_id", &producer_id);
         span.record("room_is_public_now", room_state_guard.is_public());
         span.record("room_status_after", format!("{:?}", room_state_guard.status));
         span.record("room_dj_streaming", room_state_guard.room.dj_streaming);
-        
+
         tracing::info!(
             producer_id = %producer_id,
             is_public = room_state_guard.is_public(),
             status = ?room_state_guard.status,
             "Audio producer created and room updated"
         );
-        
+
         Ok(producer_id)
     } else {
         span.record("error", "no_dj_transport");
@@ -365,9 +374,9 @@ async fn handle_stop_producing(
 ) -> anyhow::Result<()> {
     let room_state = state.get_room_state(&room_id)
         .ok_or_else(|| anyhow::anyhow!("Room not found"))?;
-    
+
     let mut room_state_guard = room_state.write().await;
-    
+
     if let Some(producer) = &room_state_guard.audio_producer {
         ProducerManager::pause_producer(producer).await?;
         room_state_guard.pause();
@@ -384,21 +393,21 @@ async fn handle_delete_room(
 ) -> anyhow::Result<()> {
     let room_state = state.get_room_state(&room_id)
         .ok_or_else(|| anyhow::anyhow!("Room not found"))?;
-    
+
     let mut room_state_guard = room_state.write().await;
-    
+
     // Close producer if exists
     if let Some(producer) = room_state_guard.audio_producer.take() {
         ProducerManager::close_producer(&producer).await?;
     }
-    
+
     // Close transport if exists
     if let Some(_transport) = room_state_guard.dj_transport.take() {
         // Transport will be cleaned up when dropped
     }
-    
+
     room_state_guard.start_closing();
-    
+
     tracing::info!("Room {} marked for deletion", room_id);
     Ok(())
 }
@@ -410,9 +419,9 @@ async fn handle_resume_producing(
 ) -> anyhow::Result<()> {
     let room_state = state.get_room_state(&room_id)
         .ok_or_else(|| anyhow::anyhow!("Room not found"))?;
-    
+
     let mut room_state_guard = room_state.write().await;
-    
+
     if let Some(producer) = &room_state_guard.audio_producer {
         ProducerManager::resume_producer(producer).await?;
         room_state_guard.resume();
