@@ -9,15 +9,26 @@
  */
 
 import { Option } from 'effect'
-import type { RoomInfo, DtlsParametersSchema, DtlsFingerprintSchema } from '../generated/api.schemas'
+import { types } from 'mediasoup-client'
+import type { 
+  RoomInfo, 
+  DtlsParametersWrapper, 
+  DtlsFingerprintWrapper,
+  TransportOptions as ApiTransportOptions,
+  RtpCapabilitiesWrapper,
+  RtpParametersWrapper,
+  ConsumerParameters as ApiConsumerParameters
+} from '../generated/api.schemas'
 
-// Re-export the generated schema types for WebSocket usage
-export type DtlsParameters = DtlsParametersSchema
-export type DtlsFingerprint = DtlsFingerprintSchema
+// Re-export the generated wrapper types for WebSocket usage
+export type DtlsParameters = DtlsParametersWrapper
+export type DtlsFingerprint = DtlsFingerprintWrapper
+export type RtpCapabilities = RtpCapabilitiesWrapper
+export type RtpParameters = RtpParametersWrapper
 
 /**
- * Trace context for distributed tracing (W3C Trace Context)
- * Internal representation with Option types for Effect-TS compatibility
+ * Internal trace context for Effect-TS compatibility
+ * Uses Option types for safer null handling
  */
 export interface TraceContext {
   /** W3C trace-parent header */
@@ -64,7 +75,7 @@ export type ClientCommand =
   | {
       type: 'produce'
       /** RTP parameters for media production */
-      rtpParameters: any
+      rtpParameters: RtpParameters
       /** Trace context for request tracing */
       _traceContext: SerializedTraceContext
     }
@@ -144,7 +155,7 @@ export type ServerEvent =
       /** ID of the producer being consumed */
       producerId: string
       /** Consumer parameters for WebRTC */
-      consumerParameters: any
+      consumerParameters: ApiConsumerParameters
       /** Optional trace context for request tracing */
       _traceContext: Option.Option<TraceContext>
     }
@@ -169,11 +180,11 @@ export type ServerEvent =
       /** Room information */
       room: Room
       /** Transport options for WebRTC connection */
-      transportOptions: any
+      transportOptions: ApiTransportOptions
       /** Producer ID to consume from (if available) */
       producerId?: string
       /** RTP capabilities for consuming */
-      rtpCapabilities: any
+      rtpCapabilities: RtpCapabilities
       /** Optional trace context for request tracing */
       _traceContext: Option.Option<TraceContext>
     }
@@ -302,3 +313,98 @@ export const LEGACY_MESSAGE_MAPPING = {
  * Note: Room type now directly uses the clean RoomInfo model from the API.
  * No conversion functions are needed since the backend now sends clean client models.
  */
+
+/**
+ * Type conversion schemas using Effect's Brand system
+ * Similar to Rust's From/Into traits
+ * 
+ * These convert between API wrapper types (used for WebSocket/HTTP communication)
+ * and native MediaSoup client types (used internally)
+ */
+
+// Transport options conversion
+export const TransportOptionsFromApi = {
+  decode: (api: ApiTransportOptions): InternalTransportOptions => ({
+    id: api.id,
+    dtlsParameters: api.dtlsParameters,
+    iceParameters: api.iceParameters, 
+    iceCandidates: api.iceCandidates,
+    sctpParameters: api.sctpParameters
+  }),
+  encode: (native: InternalTransportOptions): ApiTransportOptions => ({
+    id: native.id,
+    dtlsParameters: native.dtlsParameters as any,
+    iceParameters: native.iceParameters as any,
+    iceCandidates: native.iceCandidates as any,
+    sctpParameters: native.sctpParameters
+  })
+}
+
+// RTP capabilities conversion
+export const RtpCapabilitiesFromApi = {
+  decode: (api: RtpCapabilitiesWrapper): types.RtpCapabilities => ({
+    codecs: api.codecs as any,
+    headerExtensions: api.headerExtensions as any
+    // Note: fecMechanisms not present in MediaSoup RtpCapabilities
+  }) as types.RtpCapabilities,
+  encode: (native: types.RtpCapabilities): RtpCapabilitiesWrapper => ({
+    codecs: native.codecs as any,
+    headerExtensions: native.headerExtensions as any,
+    fecMechanisms: [] // Always empty for MediaSoup
+  })
+}
+
+// Consumer options conversion
+export const ConsumerOptionsFromApi = {
+  decode: (api: ApiConsumerParameters): InternalConsumerOptions => ({
+    id: api.id,
+    producerId: api.producerId,
+    kind: api.kind as 'audio' | 'video',
+    rtpParameters: api.rtpParameters as any
+  }),
+  encode: (native: InternalConsumerOptions): ApiConsumerParameters => ({
+    id: native.id,
+    producerId: native.producerId,
+    kind: native.kind,
+    rtpParameters: native.rtpParameters as any,
+    type: 'simple',
+    producerPaused: false
+  })
+}
+
+// RTP parameters conversion for WebSocket communication
+export const RtpParametersFromApi = {
+  decode: (api: RtpParametersWrapper): types.RtpParameters => ({
+    mid: api.mid || undefined,
+    codecs: api.codecs as any,
+    headerExtensions: api.headerExtensions as any,
+    encodings: api.encodings as any,
+    rtcp: api.rtcp as any
+  }) as types.RtpParameters,
+  encode: (native: types.RtpParameters): RtpParametersWrapper => ({
+    mid: native.mid || null,
+    codecs: native.codecs as any,
+    headerExtensions: native.headerExtensions as any,
+    encodings: native.encodings as any,
+    rtcp: native.rtcp as any
+  })
+}
+
+/**
+ * Internal types for native MediaSoup usage
+ * These match MediaSoup client expectations exactly
+ */
+export interface InternalTransportOptions {
+  id: string
+  dtlsParameters: any  // Native MediaSoup client type
+  iceParameters: any   // Native MediaSoup client type  
+  iceCandidates: any[] // Native MediaSoup client type
+  sctpParameters?: any // Native MediaSoup client type
+}
+
+export interface InternalConsumerOptions {
+  id: string
+  producerId: string
+  kind: 'audio' | 'video'
+  rtpParameters: types.RtpParameters
+}

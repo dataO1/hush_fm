@@ -1,5 +1,6 @@
-// src/effects/api.ts - 100% WORKING
+// src/effects/api.ts - API client with internal type conversions
 import { Effect, pipe } from 'effect'
+import { types } from 'mediasoup-client'
 import {
   listRooms as listRoomsGenerated,
   createRoom as createRoomGenerated,
@@ -8,12 +9,13 @@ import {
 } from '../generated/rooms/rooms'
 import type {
   Room,
-  CreateRoomRequest,
+  CreateRoomRequest as GeneratedCreateRoomRequest,
   CreateRoomResponse,
   JoinRoomResponse,
-  JoinRoomRequest,
+  JoinRoomRequest as GeneratedJoinRoomRequest,
   RoomInfoResponse
-} from '../generated/api.schemas'  // ✅ Import from schemas
+} from '../generated/api.schemas'
+import { RtpCapabilitiesFromApi } from '../models/websocket'
 
 export class ApiError extends Error {
   constructor(
@@ -44,12 +46,33 @@ export const listRooms = (): Effect.Effect<Room[], ApiError> =>
     })
   )
 
+// Internal request types (native MediaSoup compatible)
+export interface CreateRoomRequest {
+  name: string
+  description?: string
+  tags?: string[]
+  djName: string
+}
+
+export interface JoinRoomRequest {
+  deviceRtpCapabilities: types.RtpCapabilities
+}
+
 export const createRoom = (
   request: CreateRoomRequest
 ): Effect.Effect<CreateRoomResponse, ApiError> =>
   pipe(
     Effect.tryPromise({
-      try: () => createRoomGenerated(request),
+      try: () => {
+        // Convert internal request to API format
+        const apiRequest: GeneratedCreateRoomRequest = {
+          name: request.name,
+          description: request.description || null,
+          tags: request.tags || null,
+          djName: request.djName
+        }
+        return createRoomGenerated(apiRequest)
+      },
       catch: error => new ApiError('Network error', 0, error)
     }),
     Effect.flatMap((response: any) => {
@@ -83,7 +106,13 @@ export const getRoomInfo = (roomId: string): Effect.Effect<RoomInfoResponse, Api
 export const joinRoom = (roomId: string, request: JoinRoomRequest): Effect.Effect<JoinRoomResponse, ApiError> =>
   pipe(
     Effect.tryPromise({
-      try: () => joinRoomGenerated(roomId, request),
+      try: () => {
+        // Convert native RTP capabilities to API wrapper format
+        const apiRequest: GeneratedJoinRoomRequest = {
+          rtpCapabilities: RtpCapabilitiesFromApi.encode(request.deviceRtpCapabilities)
+        }
+        return joinRoomGenerated(roomId, apiRequest)
+      },
       catch: error => new ApiError('Network error', 0, error)
     }),
     Effect.flatMap((response: any) => {

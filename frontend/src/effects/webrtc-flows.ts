@@ -2,21 +2,8 @@ import { Effect, pipe, Option } from 'effect'
 import { WebRTCService, WebRTCServiceLive } from '../services/webrtc-service'
 import { createRoom, getRoomInfo, joinRoom } from '../effects/api'
 import { createRootSpan } from '../telemetry'
-import type { TransportOptions as ApiTransportOptions } from '../generated/api.schemas'
-import type { TransportOptions } from '../services/webrtc-service'
+import type { ConsumerParameters as ApiConsumerParameters } from '../generated/api.schemas'
 
-/**
- * Convert API transport options to internal transport options (MediaSoup format)
- */
-function convertApiTransportOptions(apiOptions: ApiTransportOptions): TransportOptions {
-  return {
-    id: apiOptions.id,
-    dtlsParameters: apiOptions.dtlsParameters as any,  // MediaSoup will handle the format
-    iceParameters: apiOptions.iceParameters as any,    // MediaSoup will handle the format
-    iceCandidates: apiOptions.iceCandidates as any,    // MediaSoup will handle the format
-    sctpParameters: apiOptions.sctpParameters as any   // MediaSoup will handle the format
-  }
-}
 
 /**
  * Flow-specific error types
@@ -35,11 +22,12 @@ export class JoinFlowError extends Error {
   }
 }
 
-/**
- * Request types for the flows
- */
+// Simple request types for flows
 export type CreateRoomRequest = {
   name: string
+  description?: string
+  tags?: string[]
+  djName: string
 }
 
 export type JoinRoomRequest = {
@@ -87,10 +75,10 @@ export const createProducer = (
   )
 
 /**
- * Create consumer using WebRTC service
+ * Create consumer using WebRTC service (service handles type conversion)
  */
 export const createConsumer = (
-  consumerOptions: { id: string; producerId: string; kind: 'audio' | 'video'; rtpParameters: any }
+  consumerOptions: ApiConsumerParameters
 ): Effect.Effect<string, JoinFlowError> =>
   pipe(
     WebRTCService,
@@ -176,7 +164,7 @@ export const publishRoomFlow = (
           pipe(
               WebRTCService,
               Effect.andThen(service => service.createSendTransport(
-                convertApiTransportOptions(roomResponse.transportOptions)
+                roomResponse.transportOptions
               )),
               Effect.mapError(error => new PublishFlowError(error.message, 'createSendTransport', error))
           )
@@ -271,7 +259,8 @@ export const joinRoomFlow = (
       // ✅ Step 5: Join room with device RTP capabilities
       const joinResponse = yield* _(
         pipe(
-          joinRoom(roomId, { rtpCapabilities: deviceRtpCapabilities }),
+          // API client handles the conversion of device capabilities
+          joinRoom(roomId, { deviceRtpCapabilities }),
           Effect.mapError(error => new JoinFlowError(
             error.message || 'Failed to join room',
             'joinRoom',
@@ -292,7 +281,7 @@ export const joinRoomFlow = (
         pipe(
           WebRTCService,
           Effect.andThen(service => service.createReceiveTransport(
-            convertApiTransportOptions(joinResponse.transportOptions)
+            joinResponse.transportOptions
           )),
           Effect.mapError(error => new JoinFlowError(error.message, 'createReceiveTransport', error))
         )
@@ -307,13 +296,12 @@ export const joinRoomFlow = (
         return yield* _(Effect.fail(new JoinFlowError('Consumer parameters not available from backend', 'checkConsumerParameters')))
       }
 
+      // ✅ Step 7: Create consumer (if producer is available)
+      // The API client should return the consumer in a format the service expects
       const consumerId = yield* _(
-        createConsumer({
-          id: joinResponse.consumerParameters!.id,
-          producerId: joinResponse.consumerParameters!.producerId,
-          kind: joinResponse.consumerParameters!.kind as 'audio' | 'video',
-          rtpParameters: joinResponse.consumerParameters!.rtpParameters
-        })
+        joinResponse.consumerParameters
+          ? createConsumer(joinResponse.consumerParameters)
+          : Effect.fail(new JoinFlowError('No consumer parameters available', 'createConsumer', new Error('Producer not streaming')))
       )
 
       // ✅ Step 8: Create audio element

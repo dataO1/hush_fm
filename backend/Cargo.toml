@@ -26,6 +26,7 @@ serde_json = "1"
 
 # WebRTC
 mediasoup = "0.20"
+mediasoup-types = "0.2"
 
 # OpenAPI
 utoipa = { version = "5", features = ["axum_extras", "uuid"] }
@@ -36,12 +37,16 @@ utoipa-swagger-ui = { version = "8", features = ["axum"] }
 schemars = { version = "0.8", features = ["uuid1"] }
 serde_yaml = "0.9"
 
+# Serde extensions for custom serialization
+serde_with = { version = "3", features = ["schemars_0_8"] }
+
 # Utilities
 uuid = { version = "1", features = ["v4", "serde"] }
 dashmap = "6"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 anyhow = "1"
+hex = "0.4"
 
 # OpenTelemetry and OTLP (using exact versions from working example)
 opentelemetry = "0.31"
@@ -54,7 +59,6 @@ tracing-opentelemetry = "0.32"
 arc-swap = "1"
 once_cell = "1"
 tokio-stream = { version = "0.1", features = ["sync"] }
-serde_with = "3"
 chrono = { version = "0.4", features = ["serde"] }
 
 [dev-dependencies]

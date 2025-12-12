@@ -1,6 +1,7 @@
 pub mod commands;
 pub mod events;
 pub mod schemas;
+pub mod mediasoup_schemas;
 
 // Re-export main types
 pub use commands::ClientCommand;
@@ -8,7 +9,7 @@ pub use events::{ServerEvent, LobbyEvent};
 pub use schemas::{
     Room, TraceContext,
     CreateRoomRequest, CreateRoomResponse, JoinRoomResponse,
-    TransportOptions, RtpCapabilities, ConsumerParameters,
+    TransportOptions, RtpCapabilitiesWrapper, ConsumerParameters,
     ConnectionState, ErrorResponse
 };
 

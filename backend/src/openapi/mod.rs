@@ -1,6 +1,6 @@
 use utoipa::OpenApi;
 
-use crate::models::{Room, CreateRoomRequest, CreateRoomResponse, JoinRoomResponse, events::RoomInfo, schemas::{RoomInfoResponse, JoinRoomRequest}};
+use crate::models::{Room, CreateRoomRequest, CreateRoomResponse, JoinRoomResponse, events::RoomInfo, schemas::{RoomInfoResponse, JoinRoomRequest, ConsumerParameters, TransportOptions, RtpCapabilitiesWrapper, IceCandidateSchema}};
 
 #[derive(OpenApi)]
 #[openapi(
@@ -11,7 +11,8 @@ use crate::models::{Room, CreateRoomRequest, CreateRoomResponse, JoinRoomRespons
         crate::api::rooms::join_room,
     ),
     components(
-        schemas(Room, RoomInfo, CreateRoomRequest, CreateRoomResponse, JoinRoomResponse, RoomInfoResponse, JoinRoomRequest)
+        schemas(Room, RoomInfo, CreateRoomRequest, CreateRoomResponse, JoinRoomResponse, RoomInfoResponse, JoinRoomRequest, 
+                ConsumerParameters, TransportOptions, RtpCapabilitiesWrapper, IceCandidateSchema)
     ),
     tags(
         (name = "rooms", description = "Room management API")

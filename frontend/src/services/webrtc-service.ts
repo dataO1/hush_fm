@@ -1,19 +1,15 @@
 import { Context, Effect, Layer, pipe, Option } from 'effect'
 import { Device, types } from 'mediasoup-client'
 import type { ClientCommand, ServerEvent } from '../models/websocket'
+import type { TransportOptions as ApiTransportOptions, RtpCapabilitiesWrapper, ConsumerParameters as ApiConsumerParameters } from '../generated/api.schemas'
+import { RtpCapabilitiesFromApi, RtpParametersFromApi, TransportOptionsFromApi, ConsumerOptionsFromApi, type InternalTransportOptions, type InternalConsumerOptions } from '../models/websocket'
 import { subscribeToMessages } from '../ws/client'
 import { getWebSocketTraceContext } from '../telemetry'
 
-/**
- * Internal transport options (compatible with MediaSoup client)
- */
-export interface TransportOptions {
-  id: string
-  dtlsParameters: any  // MediaSoup client's native type
-  iceParameters: any   // MediaSoup client's native type  
-  iceCandidates: any[] // MediaSoup client's native type
-  sctpParameters?: any // MediaSoup client's native type
-}
+// Use the transport options from the websocket models
+export type TransportOptions = InternalTransportOptions
+
+
 
 /**
  * Unified WebRTC state for the service
@@ -26,7 +22,7 @@ export interface WebRTCState {
   // Device state
   device: Option.Option<Device>
   deviceLoaded: boolean
-  rtpCapabilities: Option.Option<any>
+  rtpCapabilities: Option.Option<types.RtpCapabilities>
   deviceError: Option.Option<string>
   
   // Transports
@@ -96,15 +92,8 @@ export class ConsumerError extends WebRTCError {
  */
 export type SignalingCallback = (roomId: string, command: ClientCommand) => Promise<void>
 
-/**
- * Consumer options
- */
-export interface ConsumerOptions {
-  id: string
-  producerId: string
-  kind: 'audio' | 'video'
-  rtpParameters: any
-}
+// Use the consumer options from the websocket models  
+export type ConsumerOptions = InternalConsumerOptions
 
 /**
  * Unified WebRTC Service interface
@@ -126,7 +115,7 @@ export type ConnectionState =
 export type DeviceState = {
   device: Option.Option<Device>
   loaded: boolean
-  capabilities: Option.Option<any>
+  capabilities: Option.Option<types.RtpCapabilities>
   error: Option.Option<string>
 }
 
@@ -171,17 +160,17 @@ export interface WebRTCService {
   readonly sendCommand: (command: ClientCommand) => Effect.Effect<void, WebRTCError>
   readonly setRoomId: (roomId: string) => Effect.Effect<void, never>
   
-  // Device operations
-  readonly initializeDevice: (rtpCapabilities: any) => Effect.Effect<void, DeviceError>
+  // Device operations (accept API wrapper types and convert internally)
+  readonly initializeDevice: (rtpCapabilities: RtpCapabilitiesWrapper) => Effect.Effect<void, DeviceError>
   readonly getDevice: () => Effect.Effect<Option.Option<Device>, never>
-  readonly getRtpCapabilities: () => Effect.Effect<Option.Option<any>, never>
+  readonly getRtpCapabilities: () => Effect.Effect<Option.Option<types.RtpCapabilities>, never>
   readonly canProduceAudio: () => Effect.Effect<boolean, DeviceError>
   readonly canProduceVideo: () => Effect.Effect<boolean, DeviceError>
   readonly resetDevice: () => Effect.Effect<void, never>
   
-  // Transport operations
-  readonly createSendTransport: (options: TransportOptions) => Effect.Effect<void, TransportError>
-  readonly createReceiveTransport: (options: TransportOptions) => Effect.Effect<void, TransportError>
+  // Transport operations (accept API wrapper types and convert internally)
+  readonly createSendTransport: (options: ApiTransportOptions) => Effect.Effect<void, TransportError>
+  readonly createReceiveTransport: (options: ApiTransportOptions) => Effect.Effect<void, TransportError>
   readonly getSendTransport: () => Effect.Effect<Option.Option<types.Transport>, never>
   readonly getReceiveTransport: () => Effect.Effect<Option.Option<types.Transport>, never>
   
@@ -192,8 +181,8 @@ export interface WebRTCService {
   readonly resumeProducer: (producerId: string) => Effect.Effect<void, ProducerError>
   readonly closeProducer: (producerId: string) => Effect.Effect<void, never>
   
-  // Consumer operations
-  readonly consume: (options: ConsumerOptions) => Effect.Effect<string, ConsumerError>
+  // Consumer operations (accept API wrapper types and convert internally)
+  readonly consume: (options: ApiConsumerParameters) => Effect.Effect<string, ConsumerError>
   readonly getConsumer: (consumerId: string) => Effect.Effect<Option.Option<types.Consumer>, never>
   readonly pauseConsumer: (consumerId: string) => Effect.Effect<void, ConsumerError>
   readonly resumeConsumer: (consumerId: string) => Effect.Effect<void, ConsumerError>
@@ -241,7 +230,7 @@ class WebRTCServiceImpl implements WebRTCService {
   
   // Device state
   private deviceLoaded = false
-  private rtpCapabilities: Option.Option<any> = Option.none()
+  private rtpCapabilities: Option.Option<types.RtpCapabilities> = Option.none()
   private deviceError: Option.Option<string> = Option.none()
 
   /**
@@ -371,7 +360,7 @@ class WebRTCServiceImpl implements WebRTCService {
   }
 
   // Device operations
-  initializeDevice = (rtpCapabilities: any): Effect.Effect<void, DeviceError> =>
+  initializeDevice = (rtpCapabilities: RtpCapabilitiesWrapper): Effect.Effect<void, DeviceError> =>
     pipe(
       Effect.tryPromise({
         try: async () => {
@@ -385,7 +374,9 @@ class WebRTCServiceImpl implements WebRTCService {
             throw error
           }
           
-          await device.load({ routerRtpCapabilities: rtpCapabilities })
+          // Convert API RTP capabilities to native format
+          const nativeRtpCapabilities = RtpCapabilitiesFromApi.decode(rtpCapabilities)
+          await device.load({ routerRtpCapabilities: nativeRtpCapabilities })
           
           // Store device's own RTP capabilities (intersection of router + browser capabilities)
           const deviceRtpCapabilities = device.rtpCapabilities
@@ -407,7 +398,7 @@ class WebRTCServiceImpl implements WebRTCService {
   getDevice = (): Effect.Effect<Option.Option<Device>, never> =>
     Effect.succeed(this.device)
 
-  getRtpCapabilities = (): Effect.Effect<Option.Option<any>, never> =>
+  getRtpCapabilities = (): Effect.Effect<Option.Option<types.RtpCapabilities>, never> =>
     Effect.succeed(this.rtpCapabilities)
 
   canProduceAudio = (): Effect.Effect<boolean, DeviceError> =>
@@ -438,7 +429,7 @@ class WebRTCServiceImpl implements WebRTCService {
     loaded: boolean
     canProduceAudio: boolean
     canProduceVideo: boolean
-    rtpCapabilities: any
+    rtpCapabilities: Option.Option<types.RtpCapabilities>
   }, DeviceError> =>
     pipe(
       Effect.all({
@@ -634,8 +625,8 @@ class WebRTCServiceImpl implements WebRTCService {
         // Successfully joined a room as listener
         console.info(`Joined room: ${event.room.id}`)
         this.roomId = Option.some(event.room.id)
-        // Store RTP capabilities for device initialization
-        this.rtpCapabilities = Option.some(event.rtpCapabilities)
+        // Store RTP capabilities for device initialization (convert from API format)
+        this.rtpCapabilities = Option.some(RtpCapabilitiesFromApi.decode(event.rtpCapabilities))
         this.notifyStateChange()
         break
         
@@ -692,7 +683,7 @@ class WebRTCServiceImpl implements WebRTCService {
     }
   }
 
-  ensureDevice = (rtpCapabilities: any): Effect.Effect<Device, DeviceError> =>
+  ensureDevice = (rtpCapabilities: RtpCapabilitiesWrapper): Effect.Effect<Device, DeviceError> =>
     pipe(
       this.device,
       Option.match({
@@ -718,19 +709,20 @@ class WebRTCServiceImpl implements WebRTCService {
     )
 
   // Transport operations
-  createSendTransport = (options: TransportOptions): Effect.Effect<void, TransportError> =>
+  createSendTransport = (options: ApiTransportOptions): Effect.Effect<void, TransportError> =>
     pipe(
       this.device,
       Option.match({
         onNone: () => Effect.fail(new TransportError('Device not initialized')),
         onSome: (device) => Effect.sync(() => {
-          // Transport creation is synchronous
+          // Convert API transport options to native format
+          const nativeOptions = TransportOptionsFromApi.decode(options)
           const transport = device.createSendTransport({
-            id: options.id,
-            iceParameters: options.iceParameters,
-            iceCandidates: options.iceCandidates,
-            dtlsParameters: options.dtlsParameters,
-            sctpParameters: options.sctpParameters,
+            id: nativeOptions.id,
+            iceParameters: nativeOptions.iceParameters,
+            iceCandidates: nativeOptions.iceCandidates,
+            dtlsParameters: nativeOptions.dtlsParameters,
+            sctpParameters: nativeOptions.sctpParameters,
           })
 
           // CRITICAL: Set up produce event handler immediately
@@ -749,7 +741,7 @@ class WebRTCServiceImpl implements WebRTCService {
               Effect.andThen(ws => {
                 const command: ClientCommand = {
                   type: 'produce',
-                  rtpParameters: parameters.rtpParameters,
+                  rtpParameters: RtpParametersFromApi.encode(parameters.rtpParameters),
                   _traceContext: getWebSocketTraceContext()
                 }
                 return Effect.succeed({ ws, command })
@@ -803,19 +795,20 @@ class WebRTCServiceImpl implements WebRTCService {
       Effect.tap(() => Effect.logInfo(`Created send transport: ${options.id}`))
     )
 
-  createReceiveTransport = (options: TransportOptions): Effect.Effect<void, TransportError> =>
+  createReceiveTransport = (options: ApiTransportOptions): Effect.Effect<void, TransportError> =>
     pipe(
       this.device,
       Option.match({
         onNone: () => Effect.fail(new TransportError('Device not initialized')),
         onSome: (device) => Effect.sync(() => {
-          // Transport creation is synchronous
+          // Convert API transport options to native format
+          const nativeOptions = TransportOptionsFromApi.decode(options)
           const transport = device.createRecvTransport({
-            id: options.id,
-            iceParameters: options.iceParameters,
-            iceCandidates: options.iceCandidates,
-            dtlsParameters: options.dtlsParameters,
-            sctpParameters: options.sctpParameters,
+            id: nativeOptions.id,
+            iceParameters: nativeOptions.iceParameters,
+            iceCandidates: nativeOptions.iceCandidates,
+            dtlsParameters: nativeOptions.dtlsParameters,
+            sctpParameters: nativeOptions.sctpParameters,
           })
           
           // Store transport and set up events
@@ -1109,7 +1102,7 @@ class WebRTCServiceImpl implements WebRTCService {
     )
 
   // Consumer operations
-  consume = (options: ConsumerOptions): Effect.Effect<string, ConsumerError> =>
+  consume = (options: ApiConsumerParameters): Effect.Effect<string, ConsumerError> =>
     pipe(
       Effect.sync(() => this.receiveTransport),
       Effect.andThen(transportOpt =>
@@ -1121,7 +1114,9 @@ class WebRTCServiceImpl implements WebRTCService {
       Effect.andThen(transport =>
         Effect.tryPromise({
           try: async () => {
-            const consumer = await transport.consume(options)
+            // Convert API consumer options to native format
+            const nativeOptions = ConsumerOptionsFromApi.decode(options)
+            const consumer = await transport.consume(nativeOptions)
             
             // Store consumer and set up events
             this.consumers.set(consumer.id, consumer)

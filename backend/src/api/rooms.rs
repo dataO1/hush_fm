@@ -10,7 +10,7 @@ use serde_json::json;
 use uuid::Uuid;
 
 use crate::{
-    models::{CreateRoomRequest, CreateRoomResponse, Room, events::RoomInfo, schemas::{JoinRoomResponse, JoinRoomRequest, RoomInfoResponse, TransportOptions, RtpCapabilities, ConsumerParameters, DtlsParametersSchema, DtlsFingerprintSchema, IceParametersSchema, IceCandidateSchema}},
+    models::{CreateRoomRequest, CreateRoomResponse, Room, events::RoomInfo, schemas::{JoinRoomResponse, JoinRoomRequest, RoomInfoResponse, TransportOptions, RtpCapabilitiesWrapper, ConsumerParameters, IceCandidateSchema}},
     state::AppState,
     webrtc::{ConsumerManager, consumer::ConsumerState},
 };
@@ -62,9 +62,8 @@ pub async fn create_room(
     let room_clone = room.clone();
     let room_state = state.create_room_enhanced(room).await;
     
-    // Get router RTP capabilities before storing
-    let router_rtp_capabilities = serde_json::to_value(router.rtp_capabilities())
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    // Get router RTP capabilities as native type
+    let router_rtp_capabilities = router.rtp_capabilities();
     
     // Store router and transport in room state
     {
@@ -76,8 +75,8 @@ pub async fn create_room(
     let response = CreateRoomResponse {
         room: room_clone.into(), // Convert Room to RoomInfo
         dj_token: dj_id, // Simplified token for now
-        transport_options: convert_transport_options(transport_options),
-        rtp_capabilities: convert_rtp_capabilities(router_rtp_capabilities),
+        transport_options: convert_transport_options_to_wrapper(transport_options),
+        rtp_capabilities: router_rtp_capabilities.into(),
         ws_url: format!("ws://localhost:3000/ws/room/{}", room_id),
     };
 
@@ -143,13 +142,10 @@ pub async fn get_room_info(
     let router_rtp_capabilities = room_state_guard.router.as_ref()
         .ok_or(StatusCode::INTERNAL_SERVER_ERROR)?
         .rtp_capabilities();
-    
-    let router_rtp_capabilities_value = serde_json::to_value(router_rtp_capabilities)
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
     let response = RoomInfoResponse {
         room: room.into(),
-        rtp_capabilities: convert_rtp_capabilities(router_rtp_capabilities_value),
+        rtp_capabilities: router_rtp_capabilities.into(),
         producer_id: room_state_guard.audio_producer.as_ref().map(|p| p.id().to_string()),
     };
 
@@ -212,8 +208,11 @@ pub async fn join_room(
                 
             let (producer_id, consumer_parameters) = if room.dj_streaming {
                 if let Some(producer) = &room_state_guard.audio_producer {
-                    // Use listener's RTP capabilities from request
-                    let listener_capabilities = json!(request.rtp_capabilities);
+                    // Convert listener's RTP capabilities wrapper to native MediaSoup type
+                    let native_rtp_capabilities: mediasoup::prelude::RtpCapabilities = request.rtp_capabilities.try_into()
+                        .map_err(|_| StatusCode::UNPROCESSABLE_ENTITY)?;
+                    let listener_capabilities = serde_json::to_value(&native_rtp_capabilities)
+                        .map_err(|_| StatusCode::UNPROCESSABLE_ENTITY)?;
                     
                     tracing::info!(
                         listener_id = %listener_id,
@@ -231,7 +230,7 @@ pub async fn join_room(
                         Ok((consumer, consumer_id, consumer_params)) => {
                             // Store consumer in room state
                             let consumer_state = ConsumerState::new(
-                                consumer,
+                                consumer.clone(),
                                 consumer_id.clone(),
                                 room_id,
                                 listener_id.clone(),
@@ -239,12 +238,15 @@ pub async fn join_room(
                             );
                             room_state_guard.add_consumer(listener_id.clone(), consumer_state);
                             
-                            // Convert to our schema type
+                            // Extract MediaSoup's native RTP parameters from consumer
+                            let rtp_parameters = consumer.rtp_parameters().clone();
+                            
+                            // Create consumer parameters with wrapper types
                             let consumer_parameters = ConsumerParameters {
                                 id: consumer_id,
                                 producer_id: producer.id().to_string(),
                                 kind: "audio".to_string(),
-                                rtp_parameters: consumer_params,
+                                rtp_parameters: rtp_parameters.into(),
                                 r#type: "simple".to_string(),
                                 producer_paused: false,
                             };
@@ -271,7 +273,7 @@ pub async fn join_room(
     
     let response = JoinRoomResponse {
         room: room.into(), // Convert Room to RoomInfo
-        transport_options: convert_transport_options(transport_options),
+        transport_options: convert_transport_options_to_wrapper(transport_options),
         producer_id,
         consumer_parameters,
     };
@@ -279,48 +281,17 @@ pub async fn join_room(
     Ok(Json(response))
 }
 
-/// Convert WebRTC transport options to our unified type
-fn convert_transport_options(options: serde_json::Value) -> TransportOptions {
-    // Extract and convert DTLS parameters
-    let dtls_params = options.get("dtlsParameters").cloned().unwrap_or_default();
-    let dtls_parameters = DtlsParametersSchema {
-        role: dtls_params.get("role").and_then(|v| v.as_str()).unwrap_or("auto").to_string(),
-        fingerprints: dtls_params.get("fingerprints")
-            .and_then(|v| v.as_array())
-            .map(|arr| arr.iter().filter_map(|fp| {
-                Some(DtlsFingerprintSchema {
-                    algorithm: fp.get("algorithm")?.as_str()?.to_string(),
-                    value: fp.get("value")?.as_str()?.to_string(),
-                })
-            }).collect())
-            .unwrap_or_default(),
-    };
-
-    // Extract and convert ICE parameters
-    let ice_params = options.get("iceParameters").cloned().unwrap_or_default();
-    let ice_parameters = IceParametersSchema {
-        username_fragment: ice_params.get("usernameFragment").and_then(|v| v.as_str()).unwrap_or("").to_string(),
-        password: ice_params.get("password").and_then(|v| v.as_str()).unwrap_or("").to_string(),
-        ice_lite: ice_params.get("iceLite").and_then(|v| v.as_bool()),
-    };
-
-    // For local network optimization, we keep ICE candidates empty as intended
-    let ice_candidates = vec![];
-
+/// Convert MediaSoup transport options JSON to our wrapper types
+/// 
+/// This function converts the raw JSON transport options from MediaSoup
+/// to our properly typed wrapper structs for API responses.
+fn convert_transport_options_to_wrapper(options: serde_json::Value) -> TransportOptions {
     TransportOptions {
         id: options.get("id").and_then(|v| v.as_str()).unwrap_or("unknown").to_string(),
-        ice_parameters,
-        ice_candidates,
-        dtls_parameters,
+        ice_parameters: serde_json::from_value(options.get("iceParameters").cloned().unwrap_or_default()).unwrap(),
+        ice_candidates: vec![], // Empty for local network optimization  
+        dtls_parameters: serde_json::from_value(options.get("dtlsParameters").cloned().unwrap_or_default()).unwrap(),
         sctp_parameters: options.get("sctpParameters").cloned(),
     }
 }
 
-/// Convert RTP capabilities to our unified type
-fn convert_rtp_capabilities(capabilities: serde_json::Value) -> RtpCapabilities {
-    RtpCapabilities {
-        codecs: capabilities.get("codecs").and_then(|v| v.as_array()).cloned().unwrap_or_default(),
-        header_extensions: capabilities.get("headerExtensions").and_then(|v| v.as_array()).cloned().unwrap_or_default(),
-        fec_mechanisms: capabilities.get("fecMechanisms").and_then(|v| v.as_array()).cloned().unwrap_or_default(),
-    }
-}
