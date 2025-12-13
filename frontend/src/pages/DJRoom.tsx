@@ -232,8 +232,8 @@ export default function DJRoom() {
                 </div>
               </Show>
 
-              {/* Show recording controls when connected */}
-              <Show when={isReadyToStream() && !isInitializing()}>
+              {/* Show recording controls when streaming */}
+              <Show when={isStreaming()}>
                 <div class="flex gap-2 justify-center mt-4">
                   
                   {/* Record/Stop Button */}
