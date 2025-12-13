@@ -505,8 +505,8 @@ async fn handle_listener_command(
             // Connect listener's WebRTC transport
             let listener_id = connection_id.to_string(); // Use consistent connection_id as listener_id
             match handle_connect_listener_transport(room_id, listener_id, native_dtls_parameters, state).await {
-                Ok((transport_id, consumer_info)) => {
-                    // Send TransportConnected event first
+                Ok(transport_id) => {
+                    // Send TransportConnected event
                     let mut response = ServerEvent::TransportConnected {
                         transport_id,
                         trace_context: None,
@@ -516,30 +516,8 @@ async fn handle_listener_command(
                     if let Ok(msg) = serde_json::to_string(&response) {
                         sender.send(Message::Text(msg)).await.ok();
                     }
-
-                    // Send ConsumerCreated event if consumer was created
-                    if let Some((consumer_id, producer_id, consumer_params)) = consumer_info {
-                        // Convert Value to ConsumerParameters
-                        match serde_json::from_value::<crate::models::schemas::ConsumerParameters>(consumer_params) {
-                            Ok(consumer_parameters) => {
-                                let mut consumer_response = ServerEvent::ConsumerCreated {
-                                    consumer_id: consumer_id.clone(),
-                                    producer_id,
-                                    consumer_parameters,
-                                    trace_context: None,
-                                };
-                                inject_trace_context_into_event(&mut consumer_response, &tracing::Span::current());
-
-                                if let Ok(consumer_msg) = serde_json::to_string(&consumer_response) {
-                                    sender.send(Message::Text(consumer_msg)).await.ok();
-                                    tracing::info!("Sent ConsumerCreated event for consumer {}", consumer_id);
-                                }
-                            }
-                            Err(e) => {
-                                tracing::error!("Failed to convert consumer parameters: {}", e);
-                            }
-                        }
-                    }
+                    
+                    // Consumer creation is handled separately via requestConsumer command
                 }
                 Err(e) => {
                     tracing::error!("Failed to connect listener transport for room {}: {}", room_id, e);
@@ -896,7 +874,7 @@ async fn handle_connect_listener_transport(
     listener_id: String,
     dtls_parameters: DtlsParameters,
     state: &AppState,
-) -> anyhow::Result<(String, Option<(String, String, serde_json::Value)>)> {
+) -> anyhow::Result<String> {
     let span = tracing::Span::current();
     tracing::debug!("DTLS parameters received for listener: {}", serde_json::to_string_pretty(&dtls_parameters).unwrap_or_else(|_| "Invalid JSON".to_string()));
     
@@ -917,59 +895,15 @@ async fn handle_connect_listener_transport(
         dtls_parameters 
     }).await.map_err(|e| anyhow::anyhow!("Failed to connect listener transport: {}", e))?;
 
-    // Now create consumer if producer exists and is streaming
-    if let Some(producer) = &room_state_guard.audio_producer {
-        // Use stored device RTP capabilities instead of router capabilities
-        let device_rtp_capabilities = listener_state.device_rtp_capabilities.clone();
-            
-        tracing::info!(
-            listener_id = %listener_id,
-            producer_id = %producer.id(),
-            "Creating consumer for connected listener transport using device RTP capabilities"
-        );
-
-        // Create consumer on the backend using device capabilities
-        match crate::webrtc::ConsumerManager::create_audio_consumer(
-            &listener_state.transport,
-            producer,
-            room_id,
-            &listener_id,
-            device_rtp_capabilities
-            ).await {
-                Ok((consumer, consumer_id, consumer_params)) => {
-                    span.record("consumer_id", &consumer_id);
-
-                    // Update ListenerState with consumer information
-                    room_state_guard.update_listener(&listener_id, |state| {
-                        state.set_consumer(consumer.clone(), consumer_id.clone(), producer.id().to_string());
-                    });
-
-                    tracing::info!(
-                        listener_id = %listener_id,
-                        transport_id = %transport_id,
-                        consumer_id = %consumer_id,
-                        producer_id = %producer.id(),
-                        room_id = %room_id,
-                        "Listener transport connected and consumer created"
-                    );
-
-                    Ok((transport_id, Some((consumer_id, producer.id().to_string(), consumer_params))))
-                },
-                Err(e) => {
-                    tracing::error!("Failed to create consumer for listener {}: {}", listener_id, e);
-                    // Still return success for transport connection, consumer creation can be retried
-                    Ok((transport_id, None))
-                }
-            }
-        } else {
-            tracing::info!(
-                listener_id = %listener_id,
-                transport_id = %transport_id,
-                room_id = %room_id,
-                "Listener transport connected (no producer available yet)"
-            );
-            Ok((transport_id, None))
-        }
+    tracing::info!(
+        listener_id = %listener_id,
+        transport_id = %transport_id,
+        room_id = %room_id,
+        "Listener transport connected successfully"
+    );
+    
+    // Transport connection is complete - consumer creation handled separately via requestConsumer
+    Ok(transport_id)
 }
 
 /// Handle listener leaving the room with full cleanup

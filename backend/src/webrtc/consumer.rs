@@ -22,10 +22,10 @@ impl ConsumerManager {
         rtp_capabilities: Value,
     ) -> anyhow::Result<(Arc<Consumer>, String, Value)> {
         // Consumer ID will be generated automatically by mediasoup
-        
+
         // Parse client's RTP capabilities
         let client_capabilities: RtpCapabilities = serde_json::from_value(rtp_capabilities)?;
-        
+
         // Note: We'll skip the can_consume check for now as it's not available in this API version
         // In production, you'd want to validate compatibility between producer and consumer
 
@@ -36,15 +36,15 @@ impl ConsumerManager {
         // Note: consumer_id and paused options may not be available in this API version
 
         let consumer = transport.consume(consumer_options).await?;
-        
+
         let actual_consumer_id = consumer.id().to_string();
-        
+
         // Generate consumer parameters for client
         let consumer_parameters = Self::generate_consumer_parameters(&consumer).await?;
-        
+
         tracing::info!(
-            "Created audio consumer {} for listener {} in room {}", 
-            actual_consumer_id, 
+            "Created audio consumer {} for listener {} in room {}",
+            actual_consumer_id,
             listener_id,
             room_id
         );
@@ -54,25 +54,25 @@ impl ConsumerManager {
 
     /// Generate consumer parameters for client
     async fn generate_consumer_parameters(consumer: &Consumer) -> anyhow::Result<Value> {
-        // Get RTP parameters and ensure proper serialization
-        let rtp_parameters = consumer.rtp_parameters();
-        let rtp_params_value = serde_json::to_value(&rtp_parameters)?;
-        
+        // Get RTP parameters and convert to wrapper
+        let rtp_parameters = consumer.rtp_parameters().clone();
+        let rtp_wrapper = crate::models::schemas::RtpParametersWrapper::from(rtp_parameters);
+
         tracing::info!(
             consumer_id = %consumer.id(),
             "Generated consumer parameters with RTP structure"
         );
-        
+
         tracing::debug!(
             consumer_id = %consumer.id(),
-            rtp_parameters = ?rtp_params_value,
+            rtp_parameters = ?rtp_wrapper,
             "Full RTP parameters structure"
         );
-        
+
         // Validate that we have the required fields for MediaSoup client
-        if let Some(codecs) = rtp_params_value.get("codecs").and_then(|c| c.as_array()) {
-            tracing::info!("Consumer has {} codecs", codecs.len());
-            for (i, codec) in codecs.iter().enumerate() {
+        if !rtp_wrapper.codecs.is_empty() {
+            tracing::info!("Consumer has {} codecs", rtp_wrapper.codecs.len());
+            for (i, codec) in rtp_wrapper.codecs.iter().enumerate() {
                 if let Some(payload_type) = codec.get("payloadType") {
                     tracing::info!("Codec {}: payloadType = {}", i, payload_type);
                 } else {
@@ -80,17 +80,21 @@ impl ConsumerManager {
                 }
             }
         } else {
-            tracing::error!("Consumer RTP parameters missing 'codecs' field!");
+            tracing::error!("Consumer RTP parameters missing codecs!");
         }
-        
-        Ok(serde_json::json!({
-            "id": consumer.id().to_string(),
-            "producerId": consumer.producer_id().to_string(),
-            "kind": "audio",
-            "rtpParameters": rtp_params_value,
-            "type": "simple", // Simple consumer type for local network
-            "paused": consumer.paused(),
-        }))
+
+        // Create ConsumerParameters struct directly
+        let consumer_params = crate::models::schemas::ConsumerParameters {
+            id: consumer.id().to_string(),
+            producer_id: consumer.producer_id().to_string(),
+            kind: "audio".to_string(),
+            rtp_parameters: rtp_wrapper,
+            r#type: "simple".to_string(), // Simple consumer type for local network
+            producer_paused: consumer.paused(),
+        };
+
+        // Serialize the struct to Value - serde will handle the field naming correctly
+        serde_json::to_value(consumer_params).map_err(|e| anyhow::anyhow!("Failed to serialize consumer parameters: {}", e))
     }
 
     /// Pause consumer (listener stops receiving audio)
@@ -345,7 +349,7 @@ mod tests {
         let caps = ConsumerManager::get_consumer_audio_capabilities();
         assert!(!caps.codecs.is_empty());
         assert!(!caps.header_extensions.is_empty());
-        
+
         // Check for Opus codec
         let has_opus = caps.codecs.iter().any(|codec| {
             matches!(codec, RtpCodecCapability::Audio { mime_type: MimeTypeAudio::Opus, .. })
@@ -366,7 +370,7 @@ mod tests {
         let consumer_id = "test_consumer".to_string();
         let listener_id = "test_listener".to_string();
         let producer_id = "test_producer".to_string();
-        
+
         // Test state creation (without real Consumer)
         assert!(!consumer_id.is_empty());
         assert!(!listener_id.is_empty());
