@@ -2,6 +2,7 @@ import { createSignal, onMount, onCleanup, Show, createEffect } from 'solid-js'
 import { useParams, useNavigate } from '@solidjs/router'
 import { Effect, Option } from 'effect'
 import { joinRoomFlow } from '../effects/webrtc-flows'
+import { connectWebSocket } from '../ws/client'
 // import { WaveformVisualizer } from '../components/shared/WaveformVisualizer'
 import { useWebRTC } from '../providers/WebRTCProvider'
 import { useSignaling } from '../providers/SignalingProvider'
@@ -12,48 +13,62 @@ export default function ListenerRoom() {
 
   // Use new providers instead of local state
   const { connectionState } = useWebRTC()
-  const { connectToRoom, getRoomWebSocket } = useSignaling()
+  // Listeners only need lobby updates, not room WebSocket
+  const { } = useSignaling()
 
   const [roomId] = createSignal(params.roomId)
   const [volume, setVolume] = createSignal(0.8)
   const [isMuted, setIsMuted] = createSignal(false)
-  const [error, setError] = createSignal<string | null>(null)
+  const [error, setError] = createSignal<Option.Option<string>>(Option.none())
   const [isInitializing, setIsInitializing] = createSignal(true)
+  const [needsUserPlay, setNeedsUserPlay] = createSignal(false)
 
   // Simple state - managed by flows
-  const [currentConsumerId, setCurrentConsumerId] = createSignal<string | null>(null)
-  const [currentStream] = createSignal<MediaStream | null>(null)
-  const isConnected = () => connectionState() === 'connected' && currentConsumerId() != null
+  const [currentConsumerId, setCurrentConsumerId] = createSignal<Option.Option<string>>(Option.none())
+  const [currentStream] = createSignal<Option.Option<MediaStream>>(Option.none())
+  const isConnected = () => connectionState() === 'connected' && Option.isSome(currentConsumerId())
 
-  let audioElement: HTMLAudioElement | undefined
+  const [audioElement, setAudioElement] = createSignal<Option.Option<HTMLAudioElement>>(Option.none())
+  const [listenerWebSocket, setListenerWebSocket] = createSignal<Option.Option<WebSocket>>(Option.none())
 
-  // Connect to room WebSocket on mount
+  // Start join room flow on mount (create WebSocket connection for listeners)
   onMount(async () => {
     try {
-      await connectToRoom(roomId())
-      joinRoom()
+      await joinRoom()
     } catch (err: any) {
-      console.error('Failed to connect to room:', err)
+      console.error('Failed to join room:', err)
       setError(err.message)
       setIsInitializing(false)
     }
   })
 
   onCleanup(() => {
-    // Cleanup handled by providers and audio element cleanup
-    if (audioElement) {
-      audioElement.pause()
-      audioElement.srcObject = null
-      audioElement = undefined
-    }
+    // Cleanup WebSocket and audio element
+    Option.match(listenerWebSocket(), {
+      onSome: (ws) => {
+        ws.close()
+        setListenerWebSocket(Option.none())
+      },
+      onNone: () => {}
+    })
+    
+    Option.match(audioElement(), {
+      onSome: (audio) => {
+        audio.pause()
+        audio.srcObject = null
+        setAudioElement(Option.none())
+      },
+      onNone: () => {}
+    })
   })
 
   // Effect to set up audio playback when stream changes
   createEffect(() => {
     const stream = currentStream()
-    if (stream) {
-      setupAudioPlayback(stream)
-    }
+    Option.match(stream, {
+      onSome: (s) => setupAudioPlayback(s),
+      onNone: () => {}
+    })
   })
 
   // Effect to sync initialization state with provider state
@@ -61,64 +76,75 @@ export default function ListenerRoom() {
     const connState = connectionState()
     const consumerId = currentConsumerId()
 
-    if (connState === 'connected' && consumerId) {
+    if (connState === 'connected' && Option.isSome(consumerId)) {
       setIsInitializing(false)
     } else if (connState === 'connecting') {
       // Keep initializing state
     } else if (connState === 'failed') {
       setIsInitializing(false)
-      if (!error()) {
-        setError('Connection failed')
-      }
+      Option.match(error(), {
+        onNone: () => setError(Option.some('Connection failed')),
+        onSome: () => {}
+      })
     }
   })
 
   const joinRoom = async () => {
     setIsInitializing(true)
-    setError(null)
-
-    // Get the WebSocket from SignalingProvider
-    const roomWebSocketOption = getRoomWebSocket()
-    const roomWebSocket = Option.match(roomWebSocketOption, {
-      onNone: () => {
-        setError('No WebSocket connection available')
-        setIsInitializing(false)
-        return null
-      },
-      onSome: (ws) => ws
-    })
-
-    if (!roomWebSocket) return
+    setError(Option.none())
 
     const program = Effect.gen(function* (_) {
-      const result = yield* _(joinRoomFlow(roomId(), roomWebSocket))
+      // Connect to WebSocket and wait for connection to be established
+      const ws = yield* _(connectWebSocket(`ws://localhost:3000/ws/listen/${roomId()}`))
+      setListenerWebSocket(Option.some(ws))
+      
+      // Now proceed with join flow using connected WebSocket
+      const result = yield* _(joinRoomFlow(roomId(), ws))
       return result
     })
 
     try {
       const result = await Effect.runPromise(program)
-      setCurrentConsumerId(result.consumerId)
+      setCurrentConsumerId(Option.some(result.consumerId))
       
-      // Set up audio playback with the received audio element
-      audioElement = result.audioElement
-      audioElement.volume = volume()
-      audioElement.muted = isMuted()
+      // Set up audio playbook with the received audio element
+      const audio = result.audioElement
+      audio.volume = volume()
+      audio.muted = isMuted()
+      setAudioElement(Option.some(audio))
+      
+      // Check if autoplay was blocked
+      if (audio.getAttribute('data-autoplay-blocked') === 'true') {
+        setNeedsUserPlay(true)
+      }
       
       setIsInitializing(false)
 
     } catch (err: any) {
       console.error('Failed to join room:', err)
-      setError(err.message)
+      
+      // Provide more specific error messages
+      let errorMessage = err.message || 'Unknown error occurred'
+      if (err.message?.includes('Failed to connect')) {
+        errorMessage = 'Could not connect to the room. Please check your network connection and try again.'
+      } else if (err.message?.includes('WebSocket')) {
+        errorMessage = 'Connection lost to the room. Please try again.'
+      } else if (err.message?.includes('Room not found') || err.message?.includes('producer')) {
+        errorMessage = 'This room is no longer available or the DJ has stopped streaming.'
+      }
+      
+      setError(Option.some(errorMessage))
       setIsInitializing(false)
     }
   }
 
   const setupAudioPlayback = (stream: MediaStream) => {
     try {
-      audioElement = new Audio()
-      audioElement.srcObject = stream
-      audioElement.autoplay = true
-      audioElement.volume = isMuted() ? 0 : volume()
+      const audio = new Audio()
+      audio.srcObject = stream
+      audio.autoplay = true
+      audio.volume = isMuted() ? 0 : volume()
+      setAudioElement(Option.some(audio))
 
     } catch (err) {
       console.error('Failed to set up audio playback:', err)
@@ -130,27 +156,54 @@ export default function ListenerRoom() {
     const newVolume = parseFloat(target.value)
     setVolume(newVolume)
 
-    if (audioElement && !isMuted()) {
-      audioElement.volume = newVolume
-    }
+    Option.match(audioElement(), {
+      onSome: (audio) => {
+        if (!isMuted()) {
+          audio.volume = newVolume
+        }
+      },
+      onNone: () => {}
+    })
   }
 
   const toggleMute = () => {
     const newMuted = !isMuted()
     setIsMuted(newMuted)
 
-    if (audioElement) {
-      audioElement.volume = newMuted ? 0 : volume()
-    }
+    Option.match(audioElement(), {
+      onSome: (audio) => {
+        audio.volume = newMuted ? 0 : volume()
+      },
+      onNone: () => {}
+    })
+  }
+
+  const handleManualPlay = async () => {
+    Option.match(audioElement(), {
+      onSome: async (audio) => {
+        try {
+          await audio.play()
+          setNeedsUserPlay(false)
+          audio.removeAttribute('data-autoplay-blocked')
+        } catch (error) {
+          console.error('Failed to start playback:', error)
+          setError(Option.some('Failed to start audio playback'))
+        }
+      },
+      onNone: () => {}
+    })
   }
 
   const leaveRoom = () => {
     // Cleanup audio element
-    if (audioElement) {
-      audioElement.pause()
-      audioElement.srcObject = null
-      audioElement = undefined
-    }
+    Option.match(audioElement(), {
+      onSome: (audio) => {
+        audio.pause()
+        audio.srcObject = null
+        setAudioElement(Option.none())
+      },
+      onNone: () => {}
+    })
     navigate('/')
   }
 
@@ -170,10 +223,10 @@ export default function ListenerRoom() {
           </div>
         </Show>
 
-        <Show when={error()}>
+        <Show when={Option.isSome(error())}>
           <div class="alert alert-error mb-4">
-            <span>{error()}</span>
-            <button class="btn btn-sm btn-circle" onClick={() => setError(null)}>✕</button>
+            <span>{Option.getOrElse(error(), () => '')}</span>
+            <button class="btn btn-sm btn-circle" onClick={() => setError(Option.none())}>✕</button>
           </div>
         </Show>
 
@@ -186,6 +239,18 @@ export default function ListenerRoom() {
                   {isConnected() ? 'LIVE' : 'DISCONNECTED'}
                 </div>
               </div>
+
+              <Show when={needsUserPlay()}>
+                <div class="alert alert-info mb-4">
+                  <svg class="stroke-current shrink-0 h-6 w-6" fill="none" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L3.732 19c-.77.833.192 2.5 1.732 2.5z" />
+                  </svg>
+                  <span>Click to start audio playback</span>
+                  <button class="btn btn-sm btn-success" onClick={handleManualPlay}>
+                    ▶ Play
+                  </button>
+                </div>
+              </Show>
 
               {/*
               <WaveformVisualizer stream={currentStream() || undefined} />

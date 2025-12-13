@@ -20,11 +20,11 @@ import type {
   ConsumerParameters as ApiConsumerParameters
 } from '../generated/api.schemas'
 
-// Re-export the generated wrapper types for WebSocket usage
+// Use native MediaSoup types for WebSocket communication
 export type DtlsParameters = DtlsParametersWrapper
 export type DtlsFingerprint = DtlsFingerprintWrapper
-export type RtpCapabilities = RtpCapabilitiesWrapper
-export type RtpParameters = RtpParametersWrapper
+export type RtpCapabilities = types.RtpCapabilities
+export type RtpParameters = types.RtpParameters
 
 /**
  * Internal trace context for Effect-TS compatibility
@@ -66,7 +66,7 @@ export type Room = RoomInfo
 export type ClientCommand =
   // DJ Commands - Room Management
   | {
-      type: 'connectTransport'
+      type: 'connectDjTransport'
       /** DTLS parameters for WebRTC transport connection */
       dtlsParameters: DtlsParameters
       /** Trace context for request tracing */
@@ -96,9 +96,18 @@ export type ClientCommand =
     }
   // Listener Commands - Audio Consumption
   | {
-      type: 'joinRoom'
+      type: 'getRouterCapabilities'
+      /** ID of the room to get capabilities for */
+      roomId: string
+      /** Trace context for request tracing */
+      _traceContext: SerializedTraceContext
+    }
+  | {
+      type: 'requestJoin'
       /** ID of the room to join */
       roomId: string
+      /** RTP capabilities for media consumption (native MediaSoup type) */
+      rtpCapabilities: types.RtpCapabilities
       /** Trace context for request tracing */
       _traceContext: SerializedTraceContext
     }
@@ -111,6 +120,13 @@ export type ClientCommand =
     }
   | {
       type: 'leaveRoom'
+      /** Trace context for request tracing */
+      _traceContext: SerializedTraceContext
+    }
+  | {
+      type: 'requestConsumer'
+      /** ID of the producer to consume from */
+      producerId: string
       /** Trace context for request tracing */
       _traceContext: SerializedTraceContext
     }
@@ -176,6 +192,28 @@ export type ServerEvent =
     }
   // Room Events
   | {
+      type: 'routerCapabilities'
+      /** ID of the room these capabilities are for */
+      roomId: string
+      /** Router RTP capabilities for device initialization (native MediaSoup type) */
+      rtpCapabilities: types.RtpCapabilities
+      /** Optional trace context for request tracing */
+      _traceContext: Option.Option<TraceContext>
+    }
+  | {
+      type: 'joinReady'
+      /** Room information */
+      room: Room
+      /** Transport options for WebRTC connection */
+      transportOptions: ApiTransportOptions
+      /** Producer ID to consume from (guaranteed to exist) */
+      producerId: string
+      /** RTP capabilities for consuming (native MediaSoup type) */
+      rtpCapabilities: types.RtpCapabilities
+      /** Optional trace context for request tracing */
+      _traceContext: Option.Option<TraceContext>
+    }
+  | {
       type: 'roomJoined'
       /** Room information */
       room: Room
@@ -183,8 +221,8 @@ export type ServerEvent =
       transportOptions: ApiTransportOptions
       /** Producer ID to consume from (if available) */
       producerId?: string
-      /** RTP capabilities for consuming */
-      rtpCapabilities: RtpCapabilities
+      /** RTP capabilities for consuming (native MediaSoup type) */
+      rtpCapabilities: types.RtpCapabilities
       /** Optional trace context for request tracing */
       _traceContext: Option.Option<TraceContext>
     }
@@ -269,11 +307,11 @@ export type WebSocketMessage = ClientCommand | ServerEvent | LobbyEvent
  * Type guards for message discrimination
  */
 export const isClientCommand = (message: WebSocketMessage): message is ClientCommand => {
-  return ['connectTransport', 'produce', 'pauseStream', 'resumeStream', 'closeRoom', 'joinRoom', 'connectListenerTransport', 'consumeAudio', 'leaveRoom'].includes(message.type)
+  return ['connectDjTransport', 'produce', 'pauseStream', 'resumeStream', 'closeRoom', 'getRouterCapabilities', 'requestJoin', 'connectListenerTransport', 'leaveRoom', 'requestConsumer'].includes(message.type)
 }
 
 export const isServerEvent = (message: WebSocketMessage): message is ServerEvent => {
-  return ['transportReady', 'transportConnected', 'producerCreated', 'consumerCreated', 'streamPaused', 'streamResumed', 'roomJoined', 'roomClosed', 'listenerCountUpdated', 'commandFailed', 'authenticationError', 'roomNotFound'].includes(message.type)
+  return ['transportReady', 'transportConnected', 'producerCreated', 'consumerCreated', 'streamPaused', 'streamResumed', 'routerCapabilities', 'joinReady', 'roomJoined', 'roomClosed', 'listenerCountUpdated', 'commandFailed', 'authenticationError', 'roomNotFound'].includes(message.type)
 }
 
 export const isLobbyEvent = (message: WebSocketMessage): message is LobbyEvent => {

@@ -1,6 +1,6 @@
 import { Effect, pipe, Option } from 'effect'
 import { WebRTCService, WebRTCServiceLive } from '../services/webrtc-service'
-import { createRoom, getRoomInfo, joinRoom } from '../effects/api'
+import { createRoom } from '../effects/api'
 import { createRootSpan } from '../telemetry'
 import type { ConsumerParameters as ApiConsumerParameters } from '../generated/api.schemas'
 
@@ -138,8 +138,8 @@ export const publishRoomFlow = (
       yield* _(
           pipe(
               WebRTCService,
-              Effect.andThen(service => service.setWebSocket(roomWebSocket)),
-              Effect.mapError(error => new PublishFlowError('Failed to set WebSocket', 'setWebSocket', error))
+              Effect.andThen(service => service.setDjWebSocket(roomWebSocket)),
+              Effect.mapError(error => new PublishFlowError('Failed to set DJ WebSocket', 'setDjWebSocket', error))
           )
       )
 
@@ -200,36 +200,33 @@ export const publishRoomFlow = (
 }
 
 /**
- * Listener Join Room Flow - Connect to existing stream
+ * Listener Join Room Flow - Connect to existing stream via WebSocket
+ * Uses WebSocket for real-time signaling instead of REST API
  */
-// webrtc-flows.ts - JOIN ROOM FLOW (Listener)
 export const joinRoomFlow = (
   roomId: string,
-  roomWebSocket: WebSocket
+  listenerWebSocket: WebSocket
 ): Effect.Effect<
   { consumerId: string, audioElement: HTMLAudioElement },
   JoinFlowError
 > =>
   pipe(
     Effect.gen(function* (_) {
-      // ✅ Step 1: Get room info and router RTP capabilities
-      const roomInfo = yield* _(
-        pipe(
-          getRoomInfo(roomId),
-          Effect.mapError(error => new JoinFlowError(
-            error.message || 'Failed to get room info',
-            'getRoomInfo',
-            error
-          ))
-        )
-      )
-
-      // ✅ Step 2: Set WebSocket connection on service
+      // ✅ Step 1: Set WebSocket connection on service
       yield* _(
         pipe(
           WebRTCService,
-          Effect.andThen(service => service.setWebSocket(roomWebSocket)),
-          Effect.mapError(error => new JoinFlowError('Failed to set WebSocket', 'setWebSocket', error))
+          Effect.andThen(service => service.setListenerWebSocket(listenerWebSocket)),
+          Effect.mapError(error => new JoinFlowError('Failed to set Listener WebSocket', 'setListenerWebSocket', error))
+        )
+      )
+
+      // ✅ Step 2: Get router RTP capabilities from backend
+      const routerRtpCapabilities = yield* _(
+        pipe(
+          WebRTCService,
+          Effect.andThen(service => service.getRouterCapabilities(roomId)),
+          Effect.mapError(error => new JoinFlowError('Failed to get router capabilities', 'getRouterCapabilities', error))
         )
       )
 
@@ -237,12 +234,19 @@ export const joinRoomFlow = (
       yield* _(
         pipe(
           WebRTCService,
-          Effect.andThen(service => service.initializeDevice(roomInfo.rtpCapabilities)),
+          Effect.andThen(service => service.initializeDevice(routerRtpCapabilities)),
           Effect.mapError(error => new JoinFlowError(error.message, 'initializeDevice', error))
         )
       )
 
-      // ✅ Step 4: Get device RTP capabilities
+      // ✅ Step 4: Set room ID and get device RTP capabilities (now properly initialized)
+      yield* _(
+        pipe(
+          WebRTCService,
+          Effect.andThen(service => service.setRoomId(roomId))
+        )
+      )
+
       const deviceRtpCapabilities = yield* _(
         pipe(
           WebRTCService,
@@ -256,55 +260,53 @@ export const joinRoomFlow = (
         )
       )
 
-      // ✅ Step 5: Join room with device RTP capabilities
-      const joinResponse = yield* _(
-        pipe(
-          // API client handles the conversion of device capabilities
-          joinRoom(roomId, { deviceRtpCapabilities }),
-          Effect.mapError(error => new JoinFlowError(
-            error.message || 'Failed to join room',
-            'joinRoom',
-            error
-          ))
-        )
-      )
-
-      // ✅ Step 6: Set room ID and create receive transport
+      // ✅ Step 5: Send requestJoin WebSocket message
       yield* _(
         pipe(
           WebRTCService,
-          Effect.andThen(service => service.setRoomId(roomId))
+          Effect.andThen(service => service.sendWebSocketMessage({
+            type: 'requestJoin',
+            roomId: roomId,
+            rtpCapabilities: deviceRtpCapabilities,
+            _traceContext: { traceparent: 'dummy', tracestate: null, metadata: null }
+          })),
+          Effect.mapError(error => new JoinFlowError('Failed to send requestJoin', 'sendRequestJoin', error))
         )
       )
 
+      // ✅ Step 6: Wait for joinReady response (handled by WebSocket service)
+      // The service will handle the joinReady message and create the receive transport
+      const joinReadyData = yield* _(
+        pipe(
+          WebRTCService,
+          Effect.andThen(service => service.waitForJoinReady(roomId)),
+          Effect.mapError(error => new JoinFlowError('Failed to receive joinReady', 'waitForJoinReady', error))
+        )
+      )
+
+      // ✅ Step 7: Create receive transport with received transport options
       yield* _(
         pipe(
           WebRTCService,
-          Effect.andThen(service => service.createReceiveTransport(
-            joinResponse.transportOptions
-          )),
+          Effect.andThen(service => service.createReceiveTransport(joinReadyData.transportOptions)),
           Effect.mapError(error => new JoinFlowError(error.message, 'createReceiveTransport', error))
         )
       )
 
-      // ✅ Step 7: Create consumer if producer exists and backend provided consumer parameters
-      if (!joinResponse.producerId) {
-        return yield* _(Effect.fail(new JoinFlowError('No producer available in room', 'checkProducer')))
-      }
+      // ✅ Step 8: Transport connection handled automatically by transport 'connect' event
+      // When consumer is created, MediaSoup triggers transport's 'connect' event
+      // which sends DTLS parameters to backend via connectListenerTransport command
 
-      if (!joinResponse.consumerParameters) {
-        return yield* _(Effect.fail(new JoinFlowError('Consumer parameters not available from backend', 'checkConsumerParameters')))
-      }
-
-      // ✅ Step 7: Create consumer (if producer is available)
-      // The API client should return the consumer in a format the service expects
+      // ✅ Step 9: Create consumer with the producer ID from joinReady
       const consumerId = yield* _(
-        joinResponse.consumerParameters
-          ? createConsumer(joinResponse.consumerParameters)
-          : Effect.fail(new JoinFlowError('No consumer parameters available', 'createConsumer', new Error('Producer not streaming')))
+        pipe(
+          WebRTCService,
+          Effect.andThen(service => service.createConsumerFromProducer(joinReadyData.producerId)),
+          Effect.mapError(error => new JoinFlowError(error.message, 'createConsumer', error))
+        )
       )
 
-      // ✅ Step 8: Create audio element
+      // ✅ Step 10: Create audio element
       const audioElement = yield* _(
         pipe(
           WebRTCService,

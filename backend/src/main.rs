@@ -28,7 +28,7 @@ mod openapi;
 use api::rooms::rooms_router;
 use openapi::ApiDoc;
 use state::AppState;
-use ws::ws_handler;
+use ws::{ws_handler, listener_handler};
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -54,6 +54,7 @@ async fn main() -> anyhow::Result<()> {
 
     let stateful_routes = Router::new()
         .route("/ws/room/:room_id", get(ws_handler))
+        .route("/ws/listen/:room_id", get(listener_handler))
         .route("/ws/lobby", get(ws::lobby_handler))
         .nest("/api", rooms_router())
         .with_state(app_state);

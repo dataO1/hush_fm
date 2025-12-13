@@ -34,6 +34,15 @@ pub async fn lobby_handler(
     ws.on_upgrade(move |socket| handle_lobby_socket(socket, state))
 }
 
+/// WebSocket handler for listener connections
+pub async fn listener_handler(
+    ws: WebSocketUpgrade,
+    Path(room_id): Path<Uuid>,
+    State(state): State<AppState>,
+) -> Response {
+    ws.on_upgrade(move |socket| handle_listener_socket(socket, room_id, state))
+}
+
 async fn handle_room_socket(socket: WebSocket, room_id: Uuid, state: AppState) {
     let (mut sender, mut receiver) = socket.split();
 
@@ -101,6 +110,106 @@ async fn handle_lobby_socket(socket: WebSocket, state: AppState) {
     }
 }
 
+async fn handle_listener_socket(socket: WebSocket, room_id: Uuid, state: AppState) {
+    let (mut sender, mut receiver) = socket.split();
+    let connection_id = Uuid::new_v4();
+    
+    tracing::info!(
+        room_id = %room_id,
+        connection_id = %connection_id,
+        "New listener WebSocket connection established"
+    );
+
+    // Increment listener count when connection is established
+    if let Some(room_state) = state.get_room_state(&room_id) {
+        let mut room_state_guard = room_state.write().await;
+        room_state_guard.room.listener_count += 1;
+        
+        tracing::info!(
+            room_id = %room_id,
+            connection_id = %connection_id,
+            new_listener_count = room_state_guard.room.listener_count,
+            "Listener count incremented"
+        );
+        
+        // Broadcast listener count update
+        let lobby_event = crate::models::events::LobbyEvent::RoomUpdated {
+            room: room_state_guard.room.clone().into(),
+            trace_context: None,
+        };
+        state.broadcast_tx.send(lobby_event).ok();
+    }
+
+    // Spawn task to handle incoming messages
+    let state_clone = state.clone();
+    let send_task = tokio::spawn(async move {
+        while let Some(msg) = receiver.next().await {
+            if let Ok(msg) = msg {
+                if let Message::Text(text) = msg {
+                    let message_span = tracing::debug_span!(
+                        "listener_websocket_message_received",
+                        room_id = %room_id,
+                        connection_id = %connection_id,
+                        message_length = text.len(),
+                        command_type = tracing::field::Empty
+                    );
+                    let _enter = message_span.enter();
+
+                    tracing::debug!("Raw listener WebSocket message received");
+                    tracing::debug!("Raw message content: {}", &text);
+                    match serde_json::from_str::<ClientCommand>(&text) {
+                        Ok(client_cmd) => {
+                            message_span.record("command_type", client_cmd.command_type());
+                            tracing::info!("Successfully parsed listener WebSocket command: {}", client_cmd.command_type());
+                            handle_listener_command(client_cmd, room_id, connection_id, &state_clone, &mut sender).await;
+                        }
+                        Err(e) => {
+                            tracing::error!(
+                                raw_message = %text,
+                                parse_error = %e,
+                                "Failed to parse ClientCommand from listener WebSocket message"
+                            );
+                        }
+                    }
+                }
+            } else {
+                tracing::debug!(
+                    room_id = %room_id,
+                    connection_id = %connection_id,
+                    "Listener WebSocket connection closed by client"
+                );
+                break;
+            }
+        }
+    });
+
+    // Wait for the sending task to finish
+    send_task.await.ok();
+    
+    // Connection closed - perform cleanup
+    tracing::info!(
+        room_id = %room_id,
+        connection_id = %connection_id,
+        "Listener WebSocket connection closed, performing cleanup"
+    );
+    
+    // Automatic cleanup on disconnect
+    if let Err(e) = handle_listener_leave(room_id, &state).await {
+        tracing::error!(
+            room_id = %room_id,
+            connection_id = %connection_id,
+            error = %e,
+            "Failed to clean up listener resources on disconnect"
+        );
+    }
+    
+    tracing::info!(
+        room_id = %room_id,
+        connection_id = %connection_id,
+        "Listener cleanup completed"
+    );
+}
+
 #[tracing::instrument(skip(cmd, state, sender), fields(room_id = %room_id, command_type = cmd.command_type()))]
 async fn handle_client_command(
     cmd: ClientCommand,
@@ -112,7 +221,7 @@ async fn handle_client_command(
     let _parent_context = extract_trace_context_from_command(&cmd);
 
     match cmd {
-        ClientCommand::ConnectTransport { dtls_parameters, .. } => {
+        ClientCommand::ConnectDjTransport { dtls_parameters, .. } => {
             // Convert JSON DTLS parameters to native MediaSoup types
             let native_dtls_parameters = match DtlsParameters::try_from(dtls_parameters) {
                 Ok(params) => params,
@@ -257,16 +366,264 @@ async fn handle_client_command(
                 }
             }
         }
-        // Handle listener commands (these should probably be on a different handler)
-        ClientCommand::JoinRoom { .. } |
+        // Handle listener commands (these should be on a different handler)
+        ClientCommand::RequestJoin { .. } |
         ClientCommand::ConnectListenerTransport { .. } |
-        ClientCommand::LeaveRoom { .. } => {
+        ClientCommand::GetRouterCapabilities { .. } |
+        ClientCommand::LeaveRoom { .. } |
+        ClientCommand::RequestConsumer { .. } => {
             tracing::warn!("Received listener command on DJ handler: {:?}", cmd.command_type());
             let response = ServerEvent::CommandFailed {
                 command: cmd.command_type().to_string(),
                 error: "Listener commands not supported on DJ endpoint".to_string(),
                 trace_context: None,
             };
+            if let Ok(msg) = serde_json::to_string(&response) {
+                sender.send(Message::Text(msg)).await.ok();
+            }
+        }
+    }
+}
+
+#[tracing::instrument(skip(cmd, state, sender), fields(room_id = %room_id, connection_id = %connection_id, command_type = cmd.command_type()))]
+async fn handle_listener_command(
+    cmd: ClientCommand,
+    room_id: Uuid,
+    connection_id: Uuid,
+    state: &AppState,
+    sender: &mut futures_util::stream::SplitSink<WebSocket, Message>,
+) {
+    // Extract trace context from the message and set up parent span
+    let _parent_context = extract_trace_context_from_command(&cmd);
+
+    match cmd {
+        ClientCommand::GetRouterCapabilities { room_id: requested_room_id, .. } => {
+            // Validate that the requested room ID matches the WebSocket path
+            if requested_room_id != room_id.to_string() {
+                tracing::warn!("Room ID mismatch: requested {} but connected to {}", requested_room_id, room_id);
+                let mut response = ServerEvent::CommandFailed {
+                    command: "getRouterCapabilities".to_string(),
+                    error: "Room ID mismatch".to_string(),
+                    trace_context: None,
+                };
+                inject_trace_context_into_event(&mut response, &tracing::Span::current());
+
+                if let Ok(msg) = serde_json::to_string(&response) {
+                    sender.send(Message::Text(msg)).await.ok();
+                }
+                return;
+            }
+
+            // Handle router capabilities request
+            match handle_get_router_capabilities(room_id, state).await {
+                Ok(rtp_capabilities) => {
+                    let mut response = ServerEvent::RouterCapabilities {
+                        room_id: room_id.to_string(),
+                        rtp_capabilities,
+                        trace_context: None,
+                    };
+                    inject_trace_context_into_event(&mut response, &tracing::Span::current());
+
+                    if let Ok(msg) = serde_json::to_string(&response) {
+                        sender.send(Message::Text(msg)).await.ok();
+                    }
+                }
+                Err(e) => {
+                    tracing::error!("Failed to get router capabilities for room {}: {}", room_id, e);
+                    let mut response = ServerEvent::CommandFailed {
+                        command: "getRouterCapabilities".to_string(),
+                        error: format!("Failed to get router capabilities: {}", e),
+                        trace_context: None,
+                    };
+                    inject_trace_context_into_event(&mut response, &tracing::Span::current());
+
+                    if let Ok(msg) = serde_json::to_string(&response) {
+                        sender.send(Message::Text(msg)).await.ok();
+                    }
+                }
+            }
+        }
+        ClientCommand::RequestJoin { room_id: requested_room_id, rtp_capabilities, .. } => {
+            // Validate that the requested room ID matches the WebSocket path
+            if requested_room_id != room_id.to_string() {
+                tracing::warn!("Room ID mismatch: requested {} but connected to {}", requested_room_id, room_id);
+                let mut response = ServerEvent::CommandFailed {
+                    command: "requestJoin".to_string(),
+                    error: "Room ID mismatch".to_string(),
+                    trace_context: None,
+                };
+                inject_trace_context_into_event(&mut response, &tracing::Span::current());
+                
+                if let Ok(msg) = serde_json::to_string(&response) {
+                    sender.send(Message::Text(msg)).await.ok();
+                }
+                return;
+            }
+
+            // Handle join request with producer validation and Jaeger spans
+            let listener_id = connection_id.to_string(); // Use consistent connection_id as listener_id
+            match handle_request_join(room_id, rtp_capabilities, listener_id, state).await {
+                Ok((room_info, transport_options, producer_id, rtp_capabilities)) => {
+                    let mut response = ServerEvent::JoinReady {
+                        room: room_info,
+                        transport_options,
+                        producer_id,
+                        rtp_capabilities,
+                        trace_context: None,
+                    };
+                    inject_trace_context_into_event(&mut response, &tracing::Span::current());
+
+                    if let Ok(msg) = serde_json::to_string(&response) {
+                        sender.send(Message::Text(msg)).await.ok();
+                    }
+                }
+                Err(e) => {
+                    tracing::error!("Failed to process join request for room {}: {}", room_id, e);
+                    let mut response = ServerEvent::CommandFailed {
+                        command: "requestJoin".to_string(),
+                        error: format!("Join request failed: {}", e),
+                        trace_context: None,
+                    };
+                    inject_trace_context_into_event(&mut response, &tracing::Span::current());
+
+                    if let Ok(msg) = serde_json::to_string(&response) {
+                        sender.send(Message::Text(msg)).await.ok();
+                    }
+                }
+            }
+        }
+        ClientCommand::ConnectListenerTransport { dtls_parameters, .. } => {
+            // Convert JSON DTLS parameters to native MediaSoup types
+            let native_dtls_parameters = match DtlsParameters::try_from(dtls_parameters) {
+                Ok(params) => params,
+                Err(e) => {
+                    tracing::error!("Failed to convert DTLS parameters: {}", e);
+                    return;
+                }
+            };
+            
+            // Connect listener's WebRTC transport
+            let listener_id = connection_id.to_string(); // Use consistent connection_id as listener_id
+            match handle_connect_listener_transport(room_id, listener_id, native_dtls_parameters, state).await {
+                Ok((transport_id, consumer_info)) => {
+                    // Send TransportConnected event first
+                    let mut response = ServerEvent::TransportConnected {
+                        transport_id,
+                        trace_context: None,
+                    };
+                    inject_trace_context_into_event(&mut response, &tracing::Span::current());
+
+                    if let Ok(msg) = serde_json::to_string(&response) {
+                        sender.send(Message::Text(msg)).await.ok();
+                    }
+
+                    // Send ConsumerCreated event if consumer was created
+                    if let Some((consumer_id, producer_id, consumer_params)) = consumer_info {
+                        // Convert Value to ConsumerParameters
+                        match serde_json::from_value::<crate::models::schemas::ConsumerParameters>(consumer_params) {
+                            Ok(consumer_parameters) => {
+                                let mut consumer_response = ServerEvent::ConsumerCreated {
+                                    consumer_id: consumer_id.clone(),
+                                    producer_id,
+                                    consumer_parameters,
+                                    trace_context: None,
+                                };
+                                inject_trace_context_into_event(&mut consumer_response, &tracing::Span::current());
+
+                                if let Ok(consumer_msg) = serde_json::to_string(&consumer_response) {
+                                    sender.send(Message::Text(consumer_msg)).await.ok();
+                                    tracing::info!("Sent ConsumerCreated event for consumer {}", consumer_id);
+                                }
+                            }
+                            Err(e) => {
+                                tracing::error!("Failed to convert consumer parameters: {}", e);
+                            }
+                        }
+                    }
+                }
+                Err(e) => {
+                    tracing::error!("Failed to connect listener transport for room {}: {}", room_id, e);
+                    let mut response = ServerEvent::CommandFailed {
+                        command: "connectListenerTransport".to_string(),
+                        error: format!("Transport connection failed: {}", e),
+                        trace_context: None,
+                    };
+                    inject_trace_context_into_event(&mut response, &tracing::Span::current());
+
+                    if let Ok(msg) = serde_json::to_string(&response) {
+                        sender.send(Message::Text(msg)).await.ok();
+                    }
+                }
+            }
+        }
+        ClientCommand::LeaveRoom { .. } => {
+            // Handle listener leaving the room
+            match handle_listener_leave(room_id, state).await {
+                Ok(_) => {
+                    tracing::info!("Listener left room {}", room_id);
+                    // Connection will be closed by the client
+                }
+                Err(e) => {
+                    tracing::error!("Failed to handle listener leave for room {}: {}", room_id, e);
+                    let mut response = ServerEvent::CommandFailed {
+                        command: "leaveRoom".to_string(),
+                        error: format!("Leave room failed: {}", e),
+                        trace_context: None,
+                    };
+                    inject_trace_context_into_event(&mut response, &tracing::Span::current());
+
+                    if let Ok(msg) = serde_json::to_string(&response) {
+                        sender.send(Message::Text(msg)).await.ok();
+                    }
+                }
+            }
+        }
+        ClientCommand::RequestConsumer { producer_id, .. } => {
+            // Handle listener requesting consumer creation for a specific producer
+            match handle_request_consumer(room_id, connection_id, producer_id.clone(), state).await {
+                Ok(consumer_params) => {
+                    // Send ConsumerCreated event with consumer parameters
+                    let mut response = ServerEvent::ConsumerCreated {
+                        consumer_id: consumer_params.id.clone(),
+                        producer_id: consumer_params.producer_id.clone(),
+                        consumer_parameters: consumer_params,
+                        trace_context: None,
+                    };
+                    inject_trace_context_into_event(&mut response, &tracing::Span::current());
+
+                    if let Ok(msg) = serde_json::to_string(&response) {
+                        sender.send(Message::Text(msg)).await.ok();
+                    }
+                }
+                Err(e) => {
+                    tracing::error!("Failed to create consumer for producer {}: {}", producer_id, e);
+                    let mut response = ServerEvent::CommandFailed {
+                        command: "requestConsumer".to_string(),
+                        error: format!("Consumer creation failed: {}", e),
+                        trace_context: None,
+                    };
+                    inject_trace_context_into_event(&mut response, &tracing::Span::current());
+
+                    if let Ok(msg) = serde_json::to_string(&response) {
+                        sender.send(Message::Text(msg)).await.ok();
+                    }
+                }
+            }
+        }
+        // Reject DJ commands on listener handler
+        ClientCommand::ConnectDjTransport { .. } |
+        ClientCommand::Produce { .. } |
+        ClientCommand::PauseStream { .. } |
+        ClientCommand::ResumeStream { .. } |
+        ClientCommand::CloseRoom { .. } => {
+            tracing::warn!("Received DJ command on listener handler: {:?}", cmd.command_type());
+            let mut response = ServerEvent::CommandFailed {
+                command: cmd.command_type().to_string(),
+                error: "DJ commands not supported on listener endpoint".to_string(),
+                trace_context: None,
+            };
+            inject_trace_context_into_event(&mut response, &tracing::Span::current());
+
             if let Ok(msg) = serde_json::to_string(&response) {
                 sender.send(Message::Text(msg)).await.ok();
             }
@@ -429,4 +786,328 @@ async fn handle_resume_producing(
     }
 
     Ok(())
+}
+
+/// Handle get router capabilities request
+#[tracing::instrument(skip(state), fields(room_id = %room_id))]
+async fn handle_get_router_capabilities(
+    room_id: Uuid,
+    state: &AppState,
+) -> anyhow::Result<crate::models::schemas::RtpCapabilitiesWrapper> {
+    let room_state = state.get_room_state(&room_id)
+        .ok_or_else(|| anyhow::anyhow!("Room not found"))?;
+
+    let room_state_guard = room_state.read().await;
+
+    // Get router RTP capabilities
+    let router_rtp_capabilities = room_state_guard.router.as_ref()
+        .ok_or_else(|| anyhow::anyhow!("No router found for room"))?
+        .rtp_capabilities();
+
+    tracing::info!(
+        room_id = %room_id,
+        "Returned router RTP capabilities for device initialization"
+    );
+
+    Ok(router_rtp_capabilities.into())
+}
+
+/// Handle join request with producer validation and Jaeger spans
+#[tracing::instrument(skip(state, device_rtp_capabilities), fields(room_id = %room_id, producer_exists = tracing::field::Empty, listener_count = tracing::field::Empty))]
+async fn handle_request_join(
+    room_id: Uuid,
+    device_rtp_capabilities: serde_json::Value,
+    listener_id: String,
+    state: &AppState,
+) -> anyhow::Result<(crate::models::events::RoomInfo, crate::models::schemas::TransportOptions, String, crate::models::schemas::RtpCapabilitiesWrapper)> {
+    let span = tracing::Span::current();
+
+    let room_state = state.get_room_state(&room_id)
+        .ok_or_else(|| anyhow::anyhow!("Room not found"))?;
+
+    let mut room_state_guard = room_state.write().await;
+    let room = room_state_guard.room.clone();
+
+    // We'll create the ListenerState after the transport is created (in the return section)
+    tracing::info!(
+        listener_id = %listener_id,
+        "Processing join request with device RTP capabilities"
+    );
+
+    // REQUIRED: Validate that producer exists (rooms without producers should not exist)
+    let producer_id = if let Some(producer) = &room_state_guard.audio_producer {
+        span.record("producer_exists", true);
+        producer.id().to_string()
+    } else {
+        span.record("producer_exists", false);
+        return Err(anyhow::anyhow!("No producer available in room - room without producer should not exist"));
+    };
+
+    // Get router RTP capabilities for device initialization
+    let router_rtp_capabilities = room_state_guard.router.as_ref()
+        .ok_or_else(|| anyhow::anyhow!("No router found for room"))?
+        .rtp_capabilities();
+
+    // Create template transport options for listener using the transport manager
+    let transport_manager = crate::webrtc::transport::TransportManager::default();
+    let router = room_state_guard.router.as_ref()
+        .ok_or_else(|| anyhow::anyhow!("No router found for room"))?;
+    
+    let (listener_transport, transport_options_json) = transport_manager
+        .create_listener_transport(router, room_id, "temp")
+        .await
+        .map_err(|e| anyhow::anyhow!("Failed to create listener transport: {}", e))?;
+
+    // Convert the JSON transport options to our typed TransportOptions struct
+    let transport_options: crate::models::schemas::TransportOptions = serde_json::from_value(transport_options_json)
+        .map_err(|e| anyhow::anyhow!("Failed to convert transport options: {}", e))?;
+
+    // Create and store ListenerState with transport and device capabilities
+    let listener_state = crate::webrtc::consumer::ListenerState::new(
+        listener_id.clone(),
+        room_id,
+        listener_transport,
+        device_rtp_capabilities,
+    );
+    room_state_guard.add_listener(listener_state);
+
+    span.record("listener_count", room.listener_count);
+    
+    tracing::info!(
+        room_id = %room_id,
+        producer_id = %producer_id,
+        listener_id = %listener_id,
+        listener_count = room.listener_count,
+        "Join request validated - ListenerState created and stored"
+    );
+
+    Ok((
+        room.into(), // Convert Room to RoomInfo
+        transport_options,
+        producer_id,
+        router_rtp_capabilities.into(), // Convert to RtpCapabilitiesWrapper
+    ))
+}
+
+/// Handle listener transport connection with DTLS parameters and consumer creation
+#[tracing::instrument(skip(state, dtls_parameters), fields(room_id = %room_id, listener_id = %listener_id, transport_id = tracing::field::Empty, consumer_id = tracing::field::Empty))]
+async fn handle_connect_listener_transport(
+    room_id: Uuid,
+    listener_id: String,
+    dtls_parameters: DtlsParameters,
+    state: &AppState,
+) -> anyhow::Result<(String, Option<(String, String, serde_json::Value)>)> {
+    let span = tracing::Span::current();
+    tracing::debug!("DTLS parameters received for listener: {}", serde_json::to_string_pretty(&dtls_parameters).unwrap_or_else(|_| "Invalid JSON".to_string()));
+    
+    let room_state = state.get_room_state(&room_id)
+        .ok_or_else(|| anyhow::anyhow!("Room not found"))?;
+
+    let room_state_guard = room_state.read().await;
+    
+    // Get existing ListenerState (created during requestJoin)
+    let mut listener_state = room_state_guard.get_listener(&listener_id)
+        .ok_or_else(|| anyhow::anyhow!("No ListenerState found for listener_id: {}", listener_id))?;
+    
+    let transport_id = listener_state.transport.id().to_string();
+    span.record("transport_id", &transport_id);
+
+    // Connect the existing transport with provided DTLS parameters
+    listener_state.transport.connect(mediasoup::prelude::WebRtcTransportRemoteParameters { 
+        dtls_parameters 
+    }).await.map_err(|e| anyhow::anyhow!("Failed to connect listener transport: {}", e))?;
+
+    // Now create consumer if producer exists and is streaming
+    if let Some(producer) = &room_state_guard.audio_producer {
+        // Use stored device RTP capabilities instead of router capabilities
+        let device_rtp_capabilities = listener_state.device_rtp_capabilities.clone();
+            
+        tracing::info!(
+            listener_id = %listener_id,
+            producer_id = %producer.id(),
+            "Creating consumer for connected listener transport using device RTP capabilities"
+        );
+
+        // Create consumer on the backend using device capabilities
+        match crate::webrtc::ConsumerManager::create_audio_consumer(
+            &listener_state.transport,
+            producer,
+            room_id,
+            &listener_id,
+            device_rtp_capabilities
+            ).await {
+                Ok((consumer, consumer_id, consumer_params)) => {
+                    span.record("consumer_id", &consumer_id);
+
+                    // Update ListenerState with consumer information
+                    room_state_guard.update_listener(&listener_id, |state| {
+                        state.set_consumer(consumer.clone(), consumer_id.clone(), producer.id().to_string());
+                    });
+
+                    tracing::info!(
+                        listener_id = %listener_id,
+                        transport_id = %transport_id,
+                        consumer_id = %consumer_id,
+                        producer_id = %producer.id(),
+                        room_id = %room_id,
+                        "Listener transport connected and consumer created"
+                    );
+
+                    Ok((transport_id, Some((consumer_id, producer.id().to_string(), consumer_params))))
+                },
+                Err(e) => {
+                    tracing::error!("Failed to create consumer for listener {}: {}", listener_id, e);
+                    // Still return success for transport connection, consumer creation can be retried
+                    Ok((transport_id, None))
+                }
+            }
+        } else {
+            tracing::info!(
+                listener_id = %listener_id,
+                transport_id = %transport_id,
+                room_id = %room_id,
+                "Listener transport connected (no producer available yet)"
+            );
+            Ok((transport_id, None))
+        }
+}
+
+/// Handle listener leaving the room with full cleanup
+#[tracing::instrument(skip(state), fields(room_id = %room_id, listeners_cleaned = tracing::field::Empty, transports_cleaned = tracing::field::Empty, consumers_cleaned = tracing::field::Empty))]
+async fn handle_listener_leave(
+    room_id: Uuid,
+    state: &AppState,
+) -> anyhow::Result<()> {
+    let span = tracing::Span::current();
+    
+    let room_state = state.get_room_state(&room_id)
+        .ok_or_else(|| anyhow::anyhow!("Room not found"))?;
+
+    let mut room_state_guard = room_state.write().await;
+    
+    // Get all listener IDs to clean up
+    let listener_ids: Vec<String> = room_state_guard.listeners.iter().map(|entry| entry.key().clone()).collect();
+    
+    let mut transports_cleaned = 0;
+    let mut consumers_cleaned = 0;
+    
+    // Clean up all listener resources
+    for listener_id in &listener_ids {
+        // Remove listener state (includes transport and consumer)
+        if let Some((_listener_id, listener_state)) = room_state_guard.listeners.remove(listener_id) {
+            // Close consumer if exists
+            if let Some(consumer) = listener_state.consumer {
+                if let Err(e) = crate::webrtc::ConsumerManager::close_consumer(&consumer).await {
+                    tracing::warn!("Failed to close consumer for listener {}: {}", listener_id, e);
+                } else {
+                    consumers_cleaned += 1;
+                    tracing::debug!("Closed consumer for listener {}", listener_id);
+                }
+            }
+            
+            // Transport will be automatically closed when dropped (it's in the listener_state.transport)
+            transports_cleaned += 1;
+            tracing::debug!("Cleaned up transport for listener {}", listener_id);
+        }
+    }
+    
+    // Update listener count
+    let previous_count = room_state_guard.room.listener_count;
+    room_state_guard.room.listener_count = room_state_guard.room.listener_count.saturating_sub(listener_ids.len() as u32);
+    
+    span.record("listeners_cleaned", listener_ids.len());
+    span.record("transports_cleaned", transports_cleaned);
+    span.record("consumers_cleaned", consumers_cleaned);
+    
+    tracing::info!(
+        room_id = %room_id,
+        listeners_cleaned = listener_ids.len(),
+        transports_cleaned = transports_cleaned,
+        consumers_cleaned = consumers_cleaned,
+        previous_listener_count = previous_count,
+        new_listener_count = room_state_guard.room.listener_count,
+        "Completed listener cleanup for room"
+    );
+    
+    // Broadcast listener count update
+    if previous_count != room_state_guard.room.listener_count {
+        let listener_update = crate::models::events::ServerEvent::ListenerCountUpdated {
+            room_id: room_id.to_string(),
+            count: room_state_guard.room.listener_count,
+            trace_context: None,
+        };
+        
+        if let Ok(msg) = serde_json::to_string(&listener_update) {
+            // Broadcast to lobby
+            let lobby_event = crate::models::events::LobbyEvent::RoomUpdated {
+                room: room_state_guard.room.clone().into(),
+                trace_context: None,
+            };
+            state.broadcast_tx.send(lobby_event).ok();
+        }
+    }
+    
+    Ok(())
+}
+
+/// Handle listener requesting consumer creation for a specific producer
+#[tracing::instrument(skip(state), fields(room_id = %room_id, connection_id = %connection_id, producer_id = %producer_id, consumer_id = tracing::field::Empty))]
+async fn handle_request_consumer(
+    room_id: Uuid,
+    connection_id: Uuid,
+    producer_id: String,
+    state: &AppState,
+) -> anyhow::Result<crate::models::schemas::ConsumerParameters> {
+    let span = tracing::Span::current();
+    let listener_id = connection_id.to_string();
+    
+    let room_state = state.get_room_state(&room_id)
+        .ok_or_else(|| anyhow::anyhow!("Room not found"))?;
+
+    let mut room_state_guard = room_state.write().await;
+    
+    // Get the producer
+    let producer = room_state_guard.audio_producer.as_ref()
+        .ok_or_else(|| anyhow::anyhow!("No audio producer found in room"))?;
+    
+    // Validate producer ID matches
+    if producer.id().to_string() != producer_id {
+        return Err(anyhow::anyhow!("Producer ID mismatch: expected {}, got {}", producer.id(), producer_id));
+    }
+    
+    // Get listener's state which includes transport and RTP capabilities
+    let listener_state = room_state_guard.get_listener(&listener_id)
+        .ok_or_else(|| anyhow::anyhow!("Listener state not found"))?;
+    
+    let listener_transport = &listener_state.transport;
+    let rtp_capabilities = listener_state.device_rtp_capabilities.clone();
+    
+    // Create the consumer
+    let (consumer, consumer_id, consumer_params) = crate::webrtc::ConsumerManager::create_audio_consumer(
+        listener_transport,
+        producer,
+        room_id,
+        &listener_id,
+        rtp_capabilities,
+    ).await?;
+    
+    span.record("consumer_id", &consumer_id);
+    
+    // Update ListenerState with consumer information
+    room_state_guard.update_listener(&listener_id, |state| {
+        state.set_consumer(consumer.clone(), consumer_id.clone(), producer.id().to_string());
+    });
+    
+    // Convert Value to ConsumerParameters struct
+    let consumer_parameters = serde_json::from_value::<crate::models::schemas::ConsumerParameters>(consumer_params)?;
+    
+    tracing::info!(
+        room_id = %room_id,
+        listener_id = %listener_id,
+        consumer_id = %consumer_id,
+        producer_id = %producer_id,
+        "Consumer created successfully for listener"
+    );
+    
+    Ok(consumer_parameters)
 }

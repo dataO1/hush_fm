@@ -227,10 +227,15 @@ export const WebRTCProvider: ParentComponent = (props) => {
     const hasActiveProducers = serviceState.producers.size > 0
     setIsStreaming(hasActiveProducers)
     
-    // Update connection state based on WebSocket
+    // Update connection state - for DJ (has WebSocket) or Listener (has consumers)
     Option.match(serviceState.ws, {
-      onNone: () => setConnectionState('disconnected'),
+      onNone: () => {
+        // For listeners without WebSocket, check if we have active consumers
+        const hasActiveConsumers = serviceState.consumers.size > 0
+        setConnectionState(hasActiveConsumers ? 'connected' : 'disconnected')
+      },
       onSome: (ws) => {
+        // For DJ with WebSocket
         setConnectionState(ws.readyState === WebSocket.OPEN ? 'connected' : 'connecting')
       }
     })

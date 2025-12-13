@@ -268,7 +268,19 @@ export const SignalingProvider: ParentComponent = (props) => {
         switch (lobbyMessage.type) {
           case 'roomAdded':
             if (lobbyMessage.room) {
-              setState('rooms', prev => [...prev, lobbyMessage.room!])
+              // Only add room if it doesn't already exist
+              setState('rooms', prev => {
+                const existingIndex = prev.findIndex(r => r.id === lobbyMessage.room!.id)
+                if (existingIndex >= 0) {
+                  // Room already exists, update it instead
+                  const updated = [...prev]
+                  updated[existingIndex] = lobbyMessage.room!
+                  return updated
+                } else {
+                  // New room, add it
+                  return [...prev, lobbyMessage.room!]
+                }
+              })
               roomUpdateSubscribers().forEach(callback => callback(lobbyMessage.room!))
             }
             break

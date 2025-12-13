@@ -1,334 +1,20 @@
 {
     "data": [
         {
-            "traceID": "892a628edf7e09ce13882cce9944c288",
+            "traceID": "0866e94cb6887bffe21c193a4a14096e",
             "spans": [
                 {
-                    "traceID": "892a628edf7e09ce13882cce9944c288",
-                    "spanID": "35cab9dbadbd75b7",
-                    "operationName": "connect_transport",
-                    "references": [
-                        {
-                            "refType": "CHILD_OF",
-                            "traceID": "892a628edf7e09ce13882cce9944c288",
-                            "spanID": "f4694a9501324b91"
-                        }
-                    ],
-                    "startTime": 1765544889400341,
-                    "duration": 53,
-                    "tags": [
-                        {
-                            "key": "busy_ns",
-                            "type": "int64",
-                            "value": 38133
-                        },
-                        {
-                            "key": "code.file.path",
-                            "type": "string",
-                            "value": "src/webrtc/transport.rs"
-                        },
-                        {
-                            "key": "code.line.number",
-                            "type": "int64",
-                            "value": 147
-                        },
-                        {
-                            "key": "code.module.name",
-                            "type": "string",
-                            "value": "server::webrtc::transport"
-                        },
-                        {
-                            "key": "idle_ns",
-                            "type": "int64",
-                            "value": 19836
-                        },
-                        {
-                            "key": "otel.scope.name",
-                            "type": "string",
-                            "value": "hushfm-backend"
-                        },
-                        {
-                            "key": "span.kind",
-                            "type": "string",
-                            "value": "internal"
-                        },
-                        {
-                            "key": "target",
-                            "type": "string",
-                            "value": "server::webrtc::transport"
-                        },
-                        {
-                            "key": "thread.id",
-                            "type": "int64",
-                            "value": 15
-                        },
-                        {
-                            "key": "thread.name",
-                            "type": "string",
-                            "value": "tokio-runtime-worker"
-                        },
-                        {
-                            "key": "transport_id",
-                            "type": "string",
-                            "value": "53181dd5-8270-424c-b413-13b7613a027b"
-                        }
-                    ],
-                    "logs": [],
-                    "processID": "p1",
-                    "warnings": null
-                },
-                {
-                    "traceID": "892a628edf7e09ce13882cce9944c288",
-                    "spanID": "f4694a9501324b91",
-                    "operationName": "handle_connect_transport",
-                    "references": [
-                        {
-                            "refType": "CHILD_OF",
-                            "traceID": "892a628edf7e09ce13882cce9944c288",
-                            "spanID": "445e66b3068714a1"
-                        }
-                    ],
-                    "startTime": 1765544889400182,
-                    "duration": 253,
-                    "tags": [
-                        {
-                            "key": "busy_ns",
-                            "type": "int64",
-                            "value": 238719
-                        },
-                        {
-                            "key": "code.file.path",
-                            "type": "string",
-                            "value": "src/ws/mod.rs"
-                        },
-                        {
-                            "key": "code.line.number",
-                            "type": "int64",
-                            "value": 269
-                        },
-                        {
-                            "key": "code.module.name",
-                            "type": "string",
-                            "value": "server::ws"
-                        },
-                        {
-                            "key": "idle_ns",
-                            "type": "int64",
-                            "value": 19626
-                        },
-                        {
-                            "key": "otel.scope.name",
-                            "type": "string",
-                            "value": "hushfm-backend"
-                        },
-                        {
-                            "key": "room_id",
-                            "type": "string",
-                            "value": "7d3687bc-1b99-4018-a0ee-e260293f2dd8"
-                        },
-                        {
-                            "key": "span.kind",
-                            "type": "string",
-                            "value": "internal"
-                        },
-                        {
-                            "key": "target",
-                            "type": "string",
-                            "value": "server::ws"
-                        },
-                        {
-                            "key": "thread.id",
-                            "type": "int64",
-                            "value": 15
-                        },
-                        {
-                            "key": "thread.name",
-                            "type": "string",
-                            "value": "tokio-runtime-worker"
-                        },
-                        {
-                            "key": "transport_id",
-                            "type": "string",
-                            "value": "53181dd5-8270-424c-b413-13b7613a027b"
-                        }
-                    ],
-                    "logs": [
-                        {
-                            "timestamp": 1765544889400281,
-                            "fields": [
-                                {
-                                    "key": "event",
-                                    "type": "string",
-                                    "value": "DTLS parameters received: {\n  \"dtlsParameters\": {\n    \"fingerprints\": [\n      {\n        \"algorithm\": \"sha-256\",\n        \"value\": \"36:57:8D:0D:4D:20:E1:01:F5:74:65:34:AC:35:DF:C4:0D:D8:B2:C1:06:88:75:24:19:9A:87:54:35:1A:C4:09\"\n      }\n    ],\n    \"role\": \"client\"\n  },\n  \"role\": \"auto\"\n}"
-                                },
-                                {
-                                    "key": "code.file.path",
-                                    "type": "string",
-                                    "value": "src/ws/mod.rs"
-                                },
-                                {
-                                    "key": "code.line.number",
-                                    "type": "int64",
-                                    "value": 275
-                                },
-                                {
-                                    "key": "code.module.name",
-                                    "type": "string",
-                                    "value": "server::ws"
-                                },
-                                {
-                                    "key": "level",
-                                    "type": "string",
-                                    "value": "DEBUG"
-                                },
-                                {
-                                    "key": "target",
-                                    "type": "string",
-                                    "value": "server::ws"
-                                }
-                            ]
-                        }
-                    ],
-                    "processID": "p1",
-                    "warnings": null
-                },
-                {
-                    "traceID": "892a628edf7e09ce13882cce9944c288",
-                    "spanID": "445e66b3068714a1",
-                    "operationName": "handle_client_command",
-                    "references": [
-                        {
-                            "refType": "CHILD_OF",
-                            "traceID": "892a628edf7e09ce13882cce9944c288",
-                            "spanID": "a25e548bcc672d24"
-                        }
-                    ],
-                    "startTime": 1765544889400081,
-                    "duration": 593,
-                    "tags": [
-                        {
-                            "key": "busy_ns",
-                            "type": "int64",
-                            "value": 538480
-                        },
-                        {
-                            "key": "code.file.path",
-                            "type": "string",
-                            "value": "src/ws/mod.rs"
-                        },
-                        {
-                            "key": "code.line.number",
-                            "type": "int64",
-                            "value": 104
-                        },
-                        {
-                            "key": "code.module.name",
-                            "type": "string",
-                            "value": "server::ws"
-                        },
-                        {
-                            "key": "command_type",
-                            "type": "string",
-                            "value": "connectTransport"
-                        },
-                        {
-                            "key": "error",
-                            "type": "bool",
-                            "value": true
-                        },
-                        {
-                            "key": "idle_ns",
-                            "type": "int64",
-                            "value": 61671
-                        },
-                        {
-                            "key": "otel.scope.name",
-                            "type": "string",
-                            "value": "hushfm-backend"
-                        },
-                        {
-                            "key": "otel.status_code",
-                            "type": "string",
-                            "value": "ERROR"
-                        },
-                        {
-                            "key": "room_id",
-                            "type": "string",
-                            "value": "7d3687bc-1b99-4018-a0ee-e260293f2dd8"
-                        },
-                        {
-                            "key": "span.kind",
-                            "type": "string",
-                            "value": "internal"
-                        },
-                        {
-                            "key": "target",
-                            "type": "string",
-                            "value": "server::ws"
-                        },
-                        {
-                            "key": "thread.id",
-                            "type": "int64",
-                            "value": 15
-                        },
-                        {
-                            "key": "thread.name",
-                            "type": "string",
-                            "value": "tokio-runtime-worker"
-                        }
-                    ],
-                    "logs": [
-                        {
-                            "timestamp": 1765544889400498,
-                            "fields": [
-                                {
-                                    "key": "event",
-                                    "type": "string",
-                                    "value": "Failed to connect transport for room 7d3687bc-1b99-4018-a0ee-e260293f2dd8: missing field `fingerprints`"
-                                },
-                                {
-                                    "key": "code.file.path",
-                                    "type": "string",
-                                    "value": "src/ws/mod.rs"
-                                },
-                                {
-                                    "key": "code.line.number",
-                                    "type": "int64",
-                                    "value": 130
-                                },
-                                {
-                                    "key": "code.module.name",
-                                    "type": "string",
-                                    "value": "server::ws"
-                                },
-                                {
-                                    "key": "level",
-                                    "type": "string",
-                                    "value": "ERROR"
-                                },
-                                {
-                                    "key": "target",
-                                    "type": "string",
-                                    "value": "server::ws"
-                                }
-                            ]
-                        }
-                    ],
-                    "processID": "p1",
-                    "warnings": null
-                },
-                {
-                    "traceID": "892a628edf7e09ce13882cce9944c288",
-                    "spanID": "a25e548bcc672d24",
-                    "operationName": "websocket_message_received",
+                    "traceID": "0866e94cb6887bffe21c193a4a14096e",
+                    "spanID": "6694cb6fd01ecd1a",
+                    "operationName": "listener_websocket_message_received",
                     "references": [],
-                    "startTime": 1765544889399615,
-                    "duration": 1080,
+                    "startTime": 1765640908393795,
+                    "duration": 6771,
                     "tags": [
                         {
                             "key": "busy_ns",
                             "type": "int64",
-                            "value": 996853
+                            "value": 6673976
                         },
                         {
                             "key": "code.file.path",
@@ -338,7 +24,7 @@
                         {
                             "key": "code.line.number",
                             "type": "int64",
-                            "value": 46
+                            "value": 149
                         },
                         {
                             "key": "code.module.name",
@@ -348,17 +34,22 @@
                         {
                             "key": "command_type",
                             "type": "string",
-                            "value": "connectTransport"
+                            "value": "requestJoin"
+                        },
+                        {
+                            "key": "connection_id",
+                            "type": "string",
+                            "value": "99e07a7d-ca0f-4613-be6d-354a2c5e24e0"
                         },
                         {
                             "key": "idle_ns",
                             "type": "int64",
-                            "value": 99315
+                            "value": 114824
                         },
                         {
                             "key": "message_length",
                             "type": "string",
-                            "value": "342"
+                            "value": "1649"
                         },
                         {
                             "key": "otel.scope.name",
@@ -368,7 +59,7 @@
                         {
                             "key": "room_id",
                             "type": "string",
-                            "value": "7d3687bc-1b99-4018-a0ee-e260293f2dd8"
+                            "value": "f8913e1a-cf11-4b86-bb82-c72011b4fdb0"
                         },
                         {
                             "key": "span.kind",
@@ -383,7 +74,7 @@
                         {
                             "key": "thread.id",
                             "type": "int64",
-                            "value": 15
+                            "value": 2
                         },
                         {
                             "key": "thread.name",
@@ -393,12 +84,12 @@
                     ],
                     "logs": [
                         {
-                            "timestamp": 1765544889399802,
+                            "timestamp": 1765640908394047,
                             "fields": [
                                 {
                                     "key": "event",
                                     "type": "string",
-                                    "value": "Raw WebSocket message received"
+                                    "value": "Raw listener WebSocket message received"
                                 },
                                 {
                                     "key": "code.file.path",
@@ -408,7 +99,7 @@
                                 {
                                     "key": "code.line.number",
                                     "type": "int64",
-                                    "value": 54
+                                    "value": 158
                                 },
                                 {
                                     "key": "code.module.name",
@@ -428,12 +119,12 @@
                             ]
                         },
                         {
-                            "timestamp": 1765544889399911,
+                            "timestamp": 1765640908394462,
                             "fields": [
                                 {
                                     "key": "event",
                                     "type": "string",
-                                    "value": "Raw message content: {\"type\":\"connectTransport\",\"dtlsParameters\":{\"dtlsParameters\":{\"role\":\"client\",\"fingerprints\":[{\"algorithm\":\"sha-256\",\"value\":\"36:57:8D:0D:4D:20:E1:01:F5:74:65:34:AC:35:DF:C4:0D:D8:B2:C1:06:88:75:24:19:9A:87:54:35:1A:C4:09\"}]},\"role\":\"auto\"},\"_traceContext\":{\"traceparent\":\"00-b3b8e5a7912735b9-e235c572-01\",\"tracestate\":null,\"metadata\":null}}"
+                                    "value": "Raw message content: {\"type\":\"requestJoin\",\"roomId\":\"f8913e1a-cf11-4b86-bb82-c72011b4fdb0\",\"rtpCapabilities\":{\"codecs\":[{\"kind\":\"audio\",\"mimeType\":\"audio/opus\",\"preferredPayloadType\":111,\"clockRate\":48000,\"channels\":2,\"parameters\":{\"minptime\":10,\"useinbandfec\":1},\"rtcpFeedback\":[{\"parameter\":\"\",\"type\":\"transport-cc\"},{\"parameter\":\"\",\"type\":\"nack\"}]},{\"kind\":\"audio\",\"mimeType\":\"audio/PCMU\",\"preferredPayloadType\":0,\"clockRate\":8000,\"channels\":1,\"parameters\":{},\"rtcpFeedback\":[]},{\"kind\":\"audio\",\"mimeType\":\"audio/PCMA\",\"preferredPayloadType\":8,\"clockRate\":8000,\"channels\":1,\"parameters\":{},\"rtcpFeedback\":[]}],\"headerExtensions\":[{\"kind\":\"video\",\"uri\":\"urn:ietf:params:rtp-hdrext:sdes:mid\",\"preferredId\":1,\"preferredEncrypt\":false,\"direction\":\"sendrecv\"},{\"kind\":\"video\",\"uri\":\"http://www.webrtc.org/experiments/rtp-hdrext/abs-send-time\",\"preferredId\":4,\"preferredEncrypt\":false,\"direction\":\"sendrecv\"},{\"kind\":\"video\",\"uri\":\"http://www.ietf.org/id/draft-holmer-rmcat-transport-wide-cc-extensions-01\",\"preferredId\":5,\"preferredEncrypt\":false,\"direction\":\"sendrecv\"},{\"kind\":\"audio\",\"uri\":\"urn:ietf:params:rtp-hdrext:ssrc-audio-level\",\"preferredId\":10,\"preferredEncrypt\":false,\"direction\":\"sendrecv\"},{\"kind\":\"video\",\"uri\":\"urn:3gpp:video-orientation\",\"preferredId\":11,\"preferredEncrypt\":false,\"direction\":\"sendrecv\"},{\"kind\":\"video\",\"uri\":\"urn:ietf:params:rtp-hdrext:toffset\",\"preferredId\":12,\"preferredEncrypt\":false,\"direction\":\"sendrecv\"},{\"kind\":\"video\",\"uri\":\"http://www.webrtc.org/experiments/rtp-hdrext/playout-delay\",\"preferredId\":14,\"preferredEncrypt\":false,\"direction\":\"sendrecv\"}]},\"_traceContext\":{\"traceparent\":\"dummy\",\"tracestate\":null,\"metadata\":null}}"
                                 },
                                 {
                                     "key": "code.file.path",
@@ -443,7 +134,7 @@
                                 {
                                     "key": "code.line.number",
                                     "type": "int64",
-                                    "value": 55
+                                    "value": 159
                                 },
                                 {
                                     "key": "code.module.name",
@@ -463,12 +154,12 @@
                             ]
                         },
                         {
-                            "timestamp": 1765544889400048,
+                            "timestamp": 1765640908395127,
                             "fields": [
                                 {
                                     "key": "event",
                                     "type": "string",
-                                    "value": "Successfully parsed WebSocket command: connectTransport"
+                                    "value": "Successfully parsed listener WebSocket command: requestJoin"
                                 },
                                 {
                                     "key": "code.file.path",
@@ -478,7 +169,7 @@
                                 {
                                     "key": "code.line.number",
                                     "type": "int64",
-                                    "value": 59
+                                    "value": 163
                                 },
                                 {
                                     "key": "code.module.name",
@@ -498,6 +189,505 @@
                             ]
                         }
                     ],
+                    "processID": "p1",
+                    "warnings": null
+                },
+                {
+                    "traceID": "0866e94cb6887bffe21c193a4a14096e",
+                    "spanID": "e03628a8788d5ab0",
+                    "operationName": "create_listener_transport",
+                    "references": [
+                        {
+                            "refType": "CHILD_OF",
+                            "traceID": "0866e94cb6887bffe21c193a4a14096e",
+                            "spanID": "f6a93e6c67501dc7"
+                        }
+                    ],
+                    "startTime": 1765640908395788,
+                    "duration": 2876,
+                    "tags": [
+                        {
+                            "key": "busy_ns",
+                            "type": "int64",
+                            "value": 2046438
+                        },
+                        {
+                            "key": "code.file.path",
+                            "type": "string",
+                            "value": "src/webrtc/transport.rs"
+                        },
+                        {
+                            "key": "code.line.number",
+                            "type": "int64",
+                            "value": 85
+                        },
+                        {
+                            "key": "code.module.name",
+                            "type": "string",
+                            "value": "server::webrtc::transport"
+                        },
+                        {
+                            "key": "idle_ns",
+                            "type": "int64",
+                            "value": 842114
+                        },
+                        {
+                            "key": "listener_id",
+                            "type": "string",
+                            "value": "temp"
+                        },
+                        {
+                            "key": "otel.scope.name",
+                            "type": "string",
+                            "value": "hushfm-backend"
+                        },
+                        {
+                            "key": "room_id",
+                            "type": "string",
+                            "value": "f8913e1a-cf11-4b86-bb82-c72011b4fdb0"
+                        },
+                        {
+                            "key": "span.kind",
+                            "type": "string",
+                            "value": "internal"
+                        },
+                        {
+                            "key": "target",
+                            "type": "string",
+                            "value": "server::webrtc::transport"
+                        },
+                        {
+                            "key": "thread.id",
+                            "type": "int64",
+                            "value": 2
+                        },
+                        {
+                            "key": "thread.name",
+                            "type": "string",
+                            "value": "tokio-runtime-worker"
+                        },
+                        {
+                            "key": "transport_id",
+                            "type": "string",
+                            "value": "b9014ef0-7959-4f65-a090-c0ff7460c244"
+                        },
+                        {
+                            "key": "transport_type",
+                            "type": "string",
+                            "value": "listener"
+                        }
+                    ],
+                    "logs": [
+                        {
+                            "timestamp": 1765640908396273,
+                            "fields": [
+                                {
+                                    "key": "event",
+                                    "type": "string",
+                                    "value": "create_webrtc_transport()"
+                                },
+                                {
+                                    "key": "code.file.path",
+                                    "type": "string",
+                                    "value": "/home/data01/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/mediasoup-0.20.0/src/router.rs"
+                                },
+                                {
+                                    "key": "code.line.number",
+                                    "type": "int64",
+                                    "value": 648
+                                },
+                                {
+                                    "key": "code.module.name",
+                                    "type": "string",
+                                    "value": "mediasoup::router"
+                                },
+                                {
+                                    "key": "level",
+                                    "type": "string",
+                                    "value": "DEBUG"
+                                },
+                                {
+                                    "key": "target",
+                                    "type": "string",
+                                    "value": "mediasoup::router"
+                                }
+                            ]
+                        },
+                        {
+                            "timestamp": 1765640908396596,
+                            "fields": [
+                                {
+                                    "key": "event",
+                                    "type": "string",
+                                    "value": "request() [method:RouterCreateWebrtctransport, id:4]"
+                                },
+                                {
+                                    "key": "code.file.path",
+                                    "type": "string",
+                                    "value": "/home/data01/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/mediasoup-0.20.0/src/worker/channel.rs"
+                                },
+                                {
+                                    "key": "code.line.number",
+                                    "type": "int64",
+                                    "value": 377
+                                },
+                                {
+                                    "key": "code.module.name",
+                                    "type": "string",
+                                    "value": "mediasoup::worker::channel"
+                                },
+                                {
+                                    "key": "level",
+                                    "type": "string",
+                                    "value": "DEBUG"
+                                },
+                                {
+                                    "key": "target",
+                                    "type": "string",
+                                    "value": "mediasoup::worker::channel"
+                                }
+                            ]
+                        },
+                        {
+                            "timestamp": 1765640908397886,
+                            "fields": [
+                                {
+                                    "key": "event",
+                                    "type": "string",
+                                    "value": "request succeeded [method:RouterCreateWebrtctransport, id:4]"
+                                },
+                                {
+                                    "key": "code.file.path",
+                                    "type": "string",
+                                    "value": "/home/data01/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/mediasoup-0.20.0/src/worker/channel.rs"
+                                },
+                                {
+                                    "key": "code.line.number",
+                                    "type": "int64",
+                                    "value": 429
+                                },
+                                {
+                                    "key": "code.module.name",
+                                    "type": "string",
+                                    "value": "mediasoup::worker::channel"
+                                },
+                                {
+                                    "key": "level",
+                                    "type": "string",
+                                    "value": "DEBUG"
+                                },
+                                {
+                                    "key": "target",
+                                    "type": "string",
+                                    "value": "mediasoup::worker::channel"
+                                }
+                            ]
+                        },
+                        {
+                            "timestamp": 1765640908398341,
+                            "fields": [
+                                {
+                                    "key": "event",
+                                    "type": "string",
+                                    "value": "new()"
+                                },
+                                {
+                                    "key": "code.file.path",
+                                    "type": "string",
+                                    "value": "/home/data01/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/mediasoup-0.20.0/src/router/webrtc_transport.rs"
+                                },
+                                {
+                                    "key": "code.line.number",
+                                    "type": "int64",
+                                    "value": 813
+                                },
+                                {
+                                    "key": "code.module.name",
+                                    "type": "string",
+                                    "value": "mediasoup::router::webrtc_transport"
+                                },
+                                {
+                                    "key": "level",
+                                    "type": "string",
+                                    "value": "DEBUG"
+                                },
+                                {
+                                    "key": "target",
+                                    "type": "string",
+                                    "value": "mediasoup::router::webrtc_transport"
+                                }
+                            ]
+                        }
+                    ],
+                    "processID": "p1",
+                    "warnings": null
+                },
+                {
+                    "traceID": "0866e94cb6887bffe21c193a4a14096e",
+                    "spanID": "f6a93e6c67501dc7",
+                    "operationName": "handle_request_join",
+                    "references": [
+                        {
+                            "refType": "CHILD_OF",
+                            "traceID": "0866e94cb6887bffe21c193a4a14096e",
+                            "spanID": "5ae3b5fc29de0ff4"
+                        }
+                    ],
+                    "startTime": 1765640908395390,
+                    "duration": 4083,
+                    "tags": [
+                        {
+                            "key": "busy_ns",
+                            "type": "int64",
+                            "value": 3304056
+                        },
+                        {
+                            "key": "code.file.path",
+                            "type": "string",
+                            "value": "src/ws/mod.rs"
+                        },
+                        {
+                            "key": "code.line.number",
+                            "type": "int64",
+                            "value": 783
+                        },
+                        {
+                            "key": "code.module.name",
+                            "type": "string",
+                            "value": "server::ws"
+                        },
+                        {
+                            "key": "idle_ns",
+                            "type": "int64",
+                            "value": 789381
+                        },
+                        {
+                            "key": "listener_count",
+                            "type": "string",
+                            "value": "1"
+                        },
+                        {
+                            "key": "listener_id",
+                            "type": "string",
+                            "value": "99e07a7d-ca0f-4613-be6d-354a2c5e24e0"
+                        },
+                        {
+                            "key": "otel.scope.name",
+                            "type": "string",
+                            "value": "hushfm-backend"
+                        },
+                        {
+                            "key": "producer_exists",
+                            "type": "bool",
+                            "value": true
+                        },
+                        {
+                            "key": "room_id",
+                            "type": "string",
+                            "value": "f8913e1a-cf11-4b86-bb82-c72011b4fdb0"
+                        },
+                        {
+                            "key": "span.kind",
+                            "type": "string",
+                            "value": "internal"
+                        },
+                        {
+                            "key": "target",
+                            "type": "string",
+                            "value": "server::ws"
+                        },
+                        {
+                            "key": "thread.id",
+                            "type": "int64",
+                            "value": 2
+                        },
+                        {
+                            "key": "thread.name",
+                            "type": "string",
+                            "value": "tokio-runtime-worker"
+                        }
+                    ],
+                    "logs": [
+                        {
+                            "timestamp": 1765640908395667,
+                            "fields": [
+                                {
+                                    "key": "event",
+                                    "type": "string",
+                                    "value": "Processing join request with device RTP capabilities"
+                                },
+                                {
+                                    "key": "code.file.path",
+                                    "type": "string",
+                                    "value": "src/ws/mod.rs"
+                                },
+                                {
+                                    "key": "code.line.number",
+                                    "type": "int64",
+                                    "value": 799
+                                },
+                                {
+                                    "key": "code.module.name",
+                                    "type": "string",
+                                    "value": "server::ws"
+                                },
+                                {
+                                    "key": "level",
+                                    "type": "string",
+                                    "value": "INFO"
+                                },
+                                {
+                                    "key": "listener_id",
+                                    "type": "string",
+                                    "value": "99e07a7d-ca0f-4613-be6d-354a2c5e24e0"
+                                },
+                                {
+                                    "key": "target",
+                                    "type": "string",
+                                    "value": "server::ws"
+                                }
+                            ]
+                        },
+                        {
+                            "timestamp": 1765640908399056,
+                            "fields": [
+                                {
+                                    "key": "event",
+                                    "type": "string",
+                                    "value": "Join request validated - ListenerState created and stored"
+                                },
+                                {
+                                    "key": "code.file.path",
+                                    "type": "string",
+                                    "value": "src/ws/mod.rs"
+                                },
+                                {
+                                    "key": "code.line.number",
+                                    "type": "int64",
+                                    "value": 843
+                                },
+                                {
+                                    "key": "code.module.name",
+                                    "type": "string",
+                                    "value": "server::ws"
+                                },
+                                {
+                                    "key": "level",
+                                    "type": "string",
+                                    "value": "INFO"
+                                },
+                                {
+                                    "key": "listener_count",
+                                    "type": "string",
+                                    "value": "1"
+                                },
+                                {
+                                    "key": "listener_id",
+                                    "type": "string",
+                                    "value": "99e07a7d-ca0f-4613-be6d-354a2c5e24e0"
+                                },
+                                {
+                                    "key": "producer_id",
+                                    "type": "string",
+                                    "value": "91bda143-fdef-474e-bd66-2c9c0239adc4"
+                                },
+                                {
+                                    "key": "room_id",
+                                    "type": "string",
+                                    "value": "f8913e1a-cf11-4b86-bb82-c72011b4fdb0"
+                                },
+                                {
+                                    "key": "target",
+                                    "type": "string",
+                                    "value": "server::ws"
+                                }
+                            ]
+                        }
+                    ],
+                    "processID": "p1",
+                    "warnings": null
+                },
+                {
+                    "traceID": "0866e94cb6887bffe21c193a4a14096e",
+                    "spanID": "5ae3b5fc29de0ff4",
+                    "operationName": "handle_listener_command",
+                    "references": [
+                        {
+                            "refType": "CHILD_OF",
+                            "traceID": "0866e94cb6887bffe21c193a4a14096e",
+                            "spanID": "6694cb6fd01ecd1a"
+                        }
+                    ],
+                    "startTime": 1765640908395204,
+                    "duration": 5304,
+                    "tags": [
+                        {
+                            "key": "busy_ns",
+                            "type": "int64",
+                            "value": 4500422
+                        },
+                        {
+                            "key": "code.file.path",
+                            "type": "string",
+                            "value": "src/ws/mod.rs"
+                        },
+                        {
+                            "key": "code.line.number",
+                            "type": "int64",
+                            "value": 387
+                        },
+                        {
+                            "key": "code.module.name",
+                            "type": "string",
+                            "value": "server::ws"
+                        },
+                        {
+                            "key": "command_type",
+                            "type": "string",
+                            "value": "requestJoin"
+                        },
+                        {
+                            "key": "connection_id",
+                            "type": "string",
+                            "value": "99e07a7d-ca0f-4613-be6d-354a2c5e24e0"
+                        },
+                        {
+                            "key": "idle_ns",
+                            "type": "int64",
+                            "value": 818924
+                        },
+                        {
+                            "key": "otel.scope.name",
+                            "type": "string",
+                            "value": "hushfm-backend"
+                        },
+                        {
+                            "key": "room_id",
+                            "type": "string",
+                            "value": "f8913e1a-cf11-4b86-bb82-c72011b4fdb0"
+                        },
+                        {
+                            "key": "span.kind",
+                            "type": "string",
+                            "value": "internal"
+                        },
+                        {
+                            "key": "target",
+                            "type": "string",
+                            "value": "server::ws"
+                        },
+                        {
+                            "key": "thread.id",
+                            "type": "int64",
+                            "value": 2
+                        },
+                        {
+                            "key": "thread.name",
+                            "type": "string",
+                            "value": "tokio-runtime-worker"
+                        }
+                    ],
+                    "logs": [],
                     "processID": "p1",
                     "warnings": null
                 }

@@ -1,4 +1,4 @@
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 use schemars::JsonSchema;
 use utoipa::ToSchema;
 use super::TraceContext;
@@ -90,7 +90,7 @@ pub enum ServerEvent {
         /// ID of the producer being consumed
         producer_id: String,
         /// Consumer parameters for WebRTC
-        consumer_parameters: serde_json::Value,
+        consumer_parameters: super::schemas::ConsumerParameters,
         /// Optional trace context for request tracing
         #[serde(rename = "_traceContext")]
         trace_context: Option<TraceContext>,
@@ -118,17 +118,33 @@ pub enum ServerEvent {
     },
     
     // Room Events
+    /// Room is ready for joining (listener flow)
+    #[serde(rename_all = "camelCase")]
+    JoinReady {
+        /// Room information (clean model for clients)
+        room: RoomInfo,
+        /// Transport options for WebRTC connection
+        transport_options: super::schemas::TransportOptions,
+        /// Producer ID to consume from (guaranteed to exist)
+        producer_id: String,
+        /// RTP capabilities for consuming
+        rtp_capabilities: super::schemas::RtpCapabilitiesWrapper,
+        /// Optional trace context for request tracing
+        #[serde(rename = "_traceContext")]
+        trace_context: Option<TraceContext>,
+    },
+
     /// Successfully joined a room as a listener
     #[serde(rename_all = "camelCase")]
     RoomJoined {
         /// Room information (clean model for clients)
         room: RoomInfo,
         /// Transport options for WebRTC connection
-        transport_options: serde_json::Value,
+        transport_options: super::schemas::TransportOptions,
         /// Producer ID to consume from (if available)
         producer_id: Option<String>,
         /// RTP capabilities for consuming
-        rtp_capabilities: serde_json::Value,
+        rtp_capabilities: super::schemas::RtpCapabilitiesWrapper,
         /// Optional trace context for request tracing
         #[serde(rename = "_traceContext")]
         trace_context: Option<TraceContext>,
@@ -181,6 +197,18 @@ pub enum ServerEvent {
         trace_context: Option<TraceContext>,
     },
     
+    /// Router RTP capabilities for device initialization
+    #[serde(rename_all = "camelCase")]
+    RouterCapabilities {
+        /// ID of the room these capabilities are for
+        room_id: String,
+        /// Router RTP capabilities (native MediaSoup type)
+        rtp_capabilities: super::schemas::RtpCapabilitiesWrapper,
+        /// Optional trace context for request tracing
+        #[serde(rename = "_traceContext")]
+        trace_context: Option<TraceContext>,
+    },
+
     /// Room not found error
     #[serde(rename_all = "camelCase")]
     RoomNotFound {
@@ -237,11 +265,13 @@ impl ServerEvent {
             Self::ConsumerCreated { trace_context, .. } => trace_context.as_ref(),
             Self::StreamPaused { trace_context, .. } => trace_context.as_ref(),
             Self::StreamResumed { trace_context, .. } => trace_context.as_ref(),
+            Self::JoinReady { trace_context, .. } => trace_context.as_ref(),
             Self::RoomJoined { trace_context, .. } => trace_context.as_ref(),
             Self::RoomClosed { trace_context, .. } => trace_context.as_ref(),
             Self::ListenerCountUpdated { trace_context, .. } => trace_context.as_ref(),
             Self::CommandFailed { trace_context, .. } => trace_context.as_ref(),
             Self::AuthenticationError { trace_context, .. } => trace_context.as_ref(),
+            Self::RouterCapabilities { trace_context, .. } => trace_context.as_ref(),
             Self::RoomNotFound { trace_context, .. } => trace_context.as_ref(),
         }
     }
@@ -255,11 +285,13 @@ impl ServerEvent {
             Self::ConsumerCreated { trace_context: ref mut tc, .. } => *tc = trace_context,
             Self::StreamPaused { trace_context: ref mut tc, .. } => *tc = trace_context,
             Self::StreamResumed { trace_context: ref mut tc, .. } => *tc = trace_context,
+            Self::JoinReady { trace_context: ref mut tc, .. } => *tc = trace_context,
             Self::RoomJoined { trace_context: ref mut tc, .. } => *tc = trace_context,
             Self::RoomClosed { trace_context: ref mut tc, .. } => *tc = trace_context,
             Self::ListenerCountUpdated { trace_context: ref mut tc, .. } => *tc = trace_context,
             Self::CommandFailed { trace_context: ref mut tc, .. } => *tc = trace_context,
             Self::AuthenticationError { trace_context: ref mut tc, .. } => *tc = trace_context,
+            Self::RouterCapabilities { trace_context: ref mut tc, .. } => *tc = trace_context,
             Self::RoomNotFound { trace_context: ref mut tc, .. } => *tc = trace_context,
         }
     }
@@ -273,11 +305,13 @@ impl ServerEvent {
             Self::ConsumerCreated { .. } => "consumerCreated",
             Self::StreamPaused { .. } => "streamPaused",
             Self::StreamResumed { .. } => "streamResumed",
+            Self::JoinReady { .. } => "joinReady",
             Self::RoomJoined { .. } => "roomJoined",
             Self::RoomClosed { .. } => "roomClosed",
             Self::ListenerCountUpdated { .. } => "listenerCountUpdated",
             Self::CommandFailed { .. } => "commandFailed",
             Self::AuthenticationError { .. } => "authenticationError",
+            Self::RouterCapabilities { .. } => "routerCapabilities",
             Self::RoomNotFound { .. } => "roomNotFound",
         }
     }

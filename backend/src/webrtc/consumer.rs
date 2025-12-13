@@ -158,7 +158,52 @@ impl ConsumerManager {
     }
 }
 
-/// Consumer state for listener management
+/// Complete listener state containing all WebRTC resources and metadata
+#[derive(Debug, Clone)]
+pub struct ListenerState {
+    pub listener_id: String,
+    pub room_id: Uuid,
+    pub transport: Arc<WebRtcTransport>,
+    pub device_rtp_capabilities: serde_json::Value,
+    pub consumer: Option<Arc<Consumer>>,
+    pub consumer_id: Option<String>,
+    pub producer_id: Option<String>,
+    pub connected_at: chrono::DateTime<chrono::Utc>,
+    pub is_paused: bool,
+}
+
+impl ListenerState {
+    pub fn new(
+        listener_id: String,
+        room_id: Uuid,
+        transport: Arc<WebRtcTransport>,
+        device_rtp_capabilities: serde_json::Value,
+    ) -> Self {
+        Self {
+            listener_id,
+            room_id,
+            transport,
+            device_rtp_capabilities,
+            consumer: None,
+            consumer_id: None,
+            producer_id: None,
+            connected_at: chrono::Utc::now(),
+            is_paused: false,
+        }
+    }
+
+    pub fn set_consumer(&mut self, consumer: Arc<Consumer>, consumer_id: String, producer_id: String) {
+        self.consumer = Some(consumer);
+        self.consumer_id = Some(consumer_id);
+        self.producer_id = Some(producer_id);
+    }
+
+    pub fn has_consumer(&self) -> bool {
+        self.consumer.is_some()
+    }
+}
+
+/// Consumer state for listener management (legacy - use ListenerState instead)
 #[derive(Debug, Clone)]
 pub struct ConsumerState {
     pub consumer: Arc<Consumer>,

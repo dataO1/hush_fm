@@ -1,8 +1,8 @@
-import { Context, Effect, Layer, pipe, Option } from 'effect'
+import { Context, Effect, Layer, pipe, Option, Deferred, Fiber } from 'effect'
 import { Device, types } from 'mediasoup-client'
 import type { ClientCommand, ServerEvent } from '../models/websocket'
-import type { TransportOptions as ApiTransportOptions, RtpCapabilitiesWrapper, ConsumerParameters as ApiConsumerParameters } from '../generated/api.schemas'
-import { RtpCapabilitiesFromApi, RtpParametersFromApi, TransportOptionsFromApi, ConsumerOptionsFromApi, type InternalTransportOptions, type InternalConsumerOptions } from '../models/websocket'
+import type { TransportOptions as ApiTransportOptions, ConsumerParameters as ApiConsumerParameters } from '../generated/api.schemas'
+import { TransportOptionsFromApi, ConsumerOptionsFromApi, type InternalTransportOptions, type InternalConsumerOptions } from '../models/websocket'
 import { subscribeToMessages } from '../ws/client'
 import { getWebSocketTraceContext } from '../telemetry'
 
@@ -157,11 +157,25 @@ export type ConsumerState = {
 export interface WebRTCService {
   // WebSocket connection management
   readonly setWebSocket: (ws: WebSocket) => Effect.Effect<void, never>
+  readonly setDjWebSocket: (ws: WebSocket) => Effect.Effect<void, never>
+  readonly setListenerWebSocket: (ws: WebSocket) => Effect.Effect<void, never>
   readonly sendCommand: (command: ClientCommand) => Effect.Effect<void, WebRTCError>
+  readonly sendWebSocketMessage: (message: ClientCommand) => Effect.Effect<void, WebRTCError>
   readonly setRoomId: (roomId: string) => Effect.Effect<void, never>
   
-  // Device operations (accept API wrapper types and convert internally)
-  readonly initializeDevice: (rtpCapabilities: RtpCapabilitiesWrapper) => Effect.Effect<void, DeviceError>
+  // Router capabilities for device initialization
+  readonly getRouterCapabilities: (roomId: string) => Effect.Effect<types.RtpCapabilities, WebRTCError>
+  readonly waitForRouterCapabilities: (roomId: string) => Effect.Effect<types.RtpCapabilities, WebRTCError>
+  
+  readonly waitForJoinReady: (roomId: string) => Effect.Effect<{
+    room: any,
+    transportOptions: ApiTransportOptions,
+    producerId: string,
+    rtpCapabilities: types.RtpCapabilities
+  }, WebRTCError>
+  
+  // Device operations (use native MediaSoup types)
+  readonly initializeDevice: (rtpCapabilities: types.RtpCapabilities) => Effect.Effect<void, DeviceError>
   readonly getDevice: () => Effect.Effect<Option.Option<Device>, never>
   readonly getRtpCapabilities: () => Effect.Effect<Option.Option<types.RtpCapabilities>, never>
   readonly canProduceAudio: () => Effect.Effect<boolean, DeviceError>
@@ -183,6 +197,7 @@ export interface WebRTCService {
   
   // Consumer operations (accept API wrapper types and convert internally)
   readonly consume: (options: ApiConsumerParameters) => Effect.Effect<string, ConsumerError>
+  readonly createConsumerFromProducer: (producerId: string) => Effect.Effect<string, ConsumerError>
   readonly getConsumer: (consumerId: string) => Effect.Effect<Option.Option<types.Consumer>, never>
   readonly pauseConsumer: (consumerId: string) => Effect.Effect<void, ConsumerError>
   readonly resumeConsumer: (consumerId: string) => Effect.Effect<void, ConsumerError>
@@ -221,9 +236,11 @@ class WebRTCServiceImpl implements WebRTCService {
   private consumers = new Map<string, types.Consumer>()
   private audioElements = new Map<string, HTMLAudioElement>()
   
-  // WebSocket connection
-  private ws: Option.Option<WebSocket> = Option.none()
+  // WebSocket connections - separate endpoints for DJ and listener
+  private djWebSocket: Option.Option<WebSocket> = Option.none()
+  private listenerWebSocket: Option.Option<WebSocket> = Option.none()
   private roomId: Option.Option<string> = Option.none()
+  private connectionType: 'dj' | 'listener' | null = null
   
   // State management
   private stateSubscribers = new Set<(state: WebRTCState) => void>()
@@ -238,7 +255,7 @@ class WebRTCServiceImpl implements WebRTCService {
    */
   private getStateSnapshot(): WebRTCState {
     return {
-      ws: this.ws,
+      ws: this.connectionType === 'dj' ? this.djWebSocket : this.listenerWebSocket,
       roomId: this.roomId,
       device: this.device,
       deviceLoaded: this.deviceLoaded,
@@ -288,7 +305,7 @@ class WebRTCServiceImpl implements WebRTCService {
           console.debug('Trace context being sent:', traceContext)
           
           const command: ClientCommand = {
-            type: 'connectTransport',
+            type: 'connectDjTransport',
             dtlsParameters: dtlsParameters,
             _traceContext: traceContext
           }
@@ -311,18 +328,26 @@ class WebRTCServiceImpl implements WebRTCService {
     if (direction === 'receive') {
       transport.on('connect', async ({ dtlsParameters }: { dtlsParameters: any }, callback: () => void, errback: (error: Error) => void) => {
         try {
-          // MediaSoup provides complete DTLS parameters, use them directly
+          console.debug('Receive transport connect event - sending DTLS parameters to backend', dtlsParameters)
+          
+          // MediaSoup provides complete DTLS parameters with fingerprints - send them to backend
+          const traceContext = getWebSocketTraceContext()
           const command: ClientCommand = {
             type: 'connectListenerTransport',
             dtlsParameters: dtlsParameters,
-            _traceContext: getWebSocketTraceContext()
+            _traceContext: traceContext
           }
           
-          // Use WebSocket client to send command
-          await Effect.runPromise(this.sendCommand(command))
+          // Send via WebSocket to backend
+          const result = this.sendWebSocketMessage(command)
+          
+          // Execute the Effect to actually send the message
+          await Effect.runPromise(result)
+          
+          // Acknowledge the connection is ready
           callback()
         } catch (error) {
-          console.error('Listener transport connect failed:', error)
+          console.error('Receive transport connect failed:', error)
           errback(error instanceof Error ? error : new Error(String(error)))
         }
       })
@@ -360,7 +385,7 @@ class WebRTCServiceImpl implements WebRTCService {
   }
 
   // Device operations
-  initializeDevice = (rtpCapabilities: RtpCapabilitiesWrapper): Effect.Effect<void, DeviceError> =>
+  initializeDevice = (rtpCapabilities: types.RtpCapabilities): Effect.Effect<void, DeviceError> =>
     pipe(
       Effect.tryPromise({
         try: async () => {
@@ -375,7 +400,7 @@ class WebRTCServiceImpl implements WebRTCService {
           }
           
           // Convert API RTP capabilities to native format
-          const nativeRtpCapabilities = RtpCapabilitiesFromApi.decode(rtpCapabilities)
+          const nativeRtpCapabilities = rtpCapabilities
           await device.load({ routerRtpCapabilities: nativeRtpCapabilities })
           
           // Store device's own RTP capabilities (intersection of router + browser capabilities)
@@ -458,8 +483,20 @@ class WebRTCServiceImpl implements WebRTCService {
   // WebSocket Operations (using existing ws/client.ts)
   // =========================
   setWebSocket = (ws: WebSocket): Effect.Effect<void, never> =>
+    this.setListenerWebSocket(ws)
+
+  setDjWebSocket = (ws: WebSocket): Effect.Effect<void, never> =>
     Effect.sync(() => {
-      this.ws = Option.some(ws)
+      this.djWebSocket = Option.some(ws)
+      this.connectionType = 'dj'
+      this.setupWebSocketEventHandlers(ws)
+      this.notifyStateChange()
+    })
+
+  setListenerWebSocket = (ws: WebSocket): Effect.Effect<void, never> =>
+    Effect.sync(() => {
+      this.listenerWebSocket = Option.some(ws)
+      this.connectionType = 'listener'
       this.setupWebSocketEventHandlers(ws)
       this.notifyStateChange()
     })
@@ -467,12 +504,12 @@ class WebRTCServiceImpl implements WebRTCService {
   sendCommand = (command: ClientCommand): Effect.Effect<void, WebRTCError> =>
     pipe(
       Effect.logTrace(`Preparing to send WebSocket command: ${command.type}`),
-      Effect.andThen(() => Effect.sync(() => this.ws)),
+      Effect.andThen(() => Effect.sync(() => this.getActiveWebSocket(command))),
       Effect.andThen(wsOption =>
         Option.match(wsOption, {
           onNone: () => Effect.fail(new WebRTCError(
-            'WebSocket not connected - cannot send command',
-            new Error(`Command: ${command.type}`)
+            'Appropriate WebSocket not connected - cannot send command',
+            new Error(`Command: ${command.type}, Connection type: ${this.connectionType}`)
           )),
           onSome: (socket) => pipe(
             Effect.logTrace(`WebSocket state: ${socket.readyState} (${this.getWebSocketStateText(socket.readyState)})`),
@@ -526,6 +563,33 @@ class WebRTCServiceImpl implements WebRTCService {
     )
 
   /**
+   * Get the appropriate WebSocket for the given command
+   */
+  private getActiveWebSocket = (command: ClientCommand): Option.Option<WebSocket> => {
+    // Determine which WebSocket to use based on command type
+    switch (command.type) {
+      // DJ commands use DJ WebSocket
+      case 'connectDjTransport':
+      case 'produce':
+      case 'pauseStream':
+      case 'resumeStream':
+      case 'closeRoom':
+        return this.djWebSocket
+      
+      // Listener commands use Listener WebSocket  
+      case 'requestJoin':
+      case 'connectListenerTransport':
+      case 'leaveRoom':
+      case 'requestConsumer':
+        return this.listenerWebSocket
+      
+      default:
+        // Fallback to current connection type
+        return this.connectionType === 'dj' ? this.djWebSocket : this.listenerWebSocket
+    }
+  }
+
+  /**
    * Get human-readable WebSocket state text
    */
   private getWebSocketStateText = (state: number): string => {
@@ -543,6 +607,100 @@ class WebRTCServiceImpl implements WebRTCService {
       this.roomId = Option.some(roomId)
       this.notifyStateChange()
     })
+
+  sendWebSocketMessage = (message: ClientCommand): Effect.Effect<void, WebRTCError> =>
+    this.sendCommand(message)
+
+  private joinReadyPromises = new Map<string, {
+    resolve: (value: any) => void,
+    reject: (error: Error) => void
+  }>()
+  
+  private routerCapabilitiesDeferred = new Map<string, Deferred.Deferred<types.RtpCapabilities, WebRTCError>>()
+
+  waitForJoinReady = (roomId: string): Effect.Effect<{
+    room: any,
+    transportOptions: ApiTransportOptions,
+    producerId: string,
+    rtpCapabilities: types.RtpCapabilities
+  }, WebRTCError> =>
+    Effect.tryPromise({
+      try: () => new Promise((resolve, reject) => {
+        // Store the promise resolvers
+        this.joinReadyPromises.set(roomId, { resolve, reject })
+        
+        // Clean up after timeout
+        setTimeout(() => {
+          const pending = this.joinReadyPromises.get(roomId)
+          if (pending) {
+            this.joinReadyPromises.delete(roomId)
+            reject(new Error('Timeout waiting for joinReady'))
+          }
+        }, 30000) // 30 second timeout
+      }),
+      catch: (error) => new WebRTCError(
+        'Failed to wait for joinReady event',
+        error instanceof Error ? error : new Error(String(error))
+      )
+    })
+
+  getRouterCapabilities = (roomId: string): Effect.Effect<types.RtpCapabilities, WebRTCError> => {
+    const self = this
+    return pipe(
+      Effect.gen(function* (_) {
+        // Send getRouterCapabilities command
+        const command: ClientCommand = {
+          type: 'getRouterCapabilities',
+          roomId,
+          _traceContext: {
+            traceparent: 'dummy-trace',
+            tracestate: null,
+            metadata: null
+          }
+        }
+        
+        yield* _(self.sendWebSocketMessage(command))
+        
+        // Wait for routerCapabilities response
+        const capabilities = yield* _(self.waitForRouterCapabilities(roomId))
+        
+        return capabilities
+      })
+    )
+  }
+
+  waitForRouterCapabilities = (roomId: string): Effect.Effect<types.RtpCapabilities, WebRTCError> => {
+    const self = this
+    return pipe(
+      Effect.gen(function* (_) {
+        // Create a new deferred for this room
+        const deferred = yield* _(Deferred.make<types.RtpCapabilities, WebRTCError>())
+        
+        // Store the deferred
+        self.routerCapabilitiesDeferred.set(roomId, deferred)
+        
+        // Set up timeout cleanup
+        const timeoutFiber = yield* _(
+          pipe(
+            Effect.sleep(30000), // 30 second timeout
+            Effect.andThen(() => {
+              self.routerCapabilitiesDeferred.delete(roomId)
+              return Deferred.fail(deferred, new WebRTCError('Timeout waiting for router capabilities'))
+            }),
+            Effect.fork
+          )
+        )
+        
+        // Wait for the deferred to be resolved
+        const result = yield* _(Deferred.await(deferred))
+        
+        // Cancel timeout fiber
+        yield* _(Fiber.interrupt(timeoutFiber))
+        
+        return result
+      })
+    )
+  }
 
   /**
    * Set up WebSocket event handlers using existing client
@@ -589,7 +747,34 @@ class WebRTCServiceImpl implements WebRTCService {
       case 'consumerCreated':
         // Consumer was created, we can start consuming
         console.info(`Consumer created: ${event.consumerId} for producer ${event.producerId}`)
-        // Consumer parameters are provided by server
+        
+        // Get the waiting deferred for this producer
+        const consumerDeferred = this.consumerCreationPromises.get(event.producerId)
+        if (consumerDeferred) {
+          // Use the parameters from the server to create the actual consumer
+          const consumeEffect = pipe(
+            this.consume(event.consumerParameters),
+            Effect.tap((consumerId) => Effect.logInfo(`Successfully consumed: ${consumerId} for producer ${event.producerId}`)),
+            Effect.andThen((consumerId) => Deferred.succeed(consumerDeferred, consumerId)),
+            Effect.tapError((error) => {
+              console.error('Failed to consume after ConsumerCreated event:', error)
+              return Deferred.fail(consumerDeferred, error)
+            }),
+            Effect.catchAll((error) => {
+              // Ensure deferred is resolved even on error
+              return Deferred.fail(consumerDeferred, error instanceof ConsumerError ? error : new ConsumerError('Consumer creation failed', error))
+            })
+          )
+          
+          // Run the effect to complete consumer creation
+          Effect.runFork(consumeEffect)
+          
+          // Clean up the promise map
+          this.consumerCreationPromises.delete(event.producerId)
+        } else {
+          console.warn(`Received ConsumerCreated event for producer ${event.producerId} but no pending request found`)
+        }
+        
         this.notifyStateChange()
         break
         
@@ -621,12 +806,46 @@ class WebRTCServiceImpl implements WebRTCService {
         })
         break
         
+      case 'routerCapabilities':
+        // Router capabilities received for device initialization
+        console.info(`Router capabilities received for room: ${event.roomId}`)
+        // Store RTP capabilities for device initialization
+        this.rtpCapabilities = Option.some(event.rtpCapabilities)
+        // Resolve waiting Effect
+        const routerCapsDeferred = this.routerCapabilitiesDeferred.get(event.roomId)
+        if (routerCapsDeferred) {
+          Effect.runFork(Deferred.succeed(routerCapsDeferred, event.rtpCapabilities))
+          this.routerCapabilitiesDeferred.delete(event.roomId)
+        }
+        this.notifyStateChange()
+        break
+        
+      case 'joinReady':
+        // Room is ready for joining (listener flow)
+        console.info(`Join ready for room: ${event.room.id}`)
+        this.roomId = Option.some(event.room.id)
+        // Store RTP capabilities for device initialization
+        this.rtpCapabilities = Option.some(event.rtpCapabilities)
+        // Resolve waiting promise
+        const pending = this.joinReadyPromises.get(event.room.id)
+        if (pending) {
+          pending.resolve({
+            room: event.room,
+            transportOptions: event.transportOptions,
+            producerId: event.producerId,
+            rtpCapabilities: event.rtpCapabilities
+          })
+          this.joinReadyPromises.delete(event.room.id)
+        }
+        this.notifyStateChange()
+        break
+        
       case 'roomJoined':
         // Successfully joined a room as listener
         console.info(`Joined room: ${event.room.id}`)
         this.roomId = Option.some(event.room.id)
         // Store RTP capabilities for device initialization (convert from API format)
-        this.rtpCapabilities = Option.some(RtpCapabilitiesFromApi.decode(event.rtpCapabilities))
+        this.rtpCapabilities = Option.some(event.rtpCapabilities)
         this.notifyStateChange()
         break
         
@@ -683,7 +902,7 @@ class WebRTCServiceImpl implements WebRTCService {
     }
   }
 
-  ensureDevice = (rtpCapabilities: RtpCapabilitiesWrapper): Effect.Effect<Device, DeviceError> =>
+  ensureDevice = (rtpCapabilities: types.RtpCapabilities): Effect.Effect<Device, DeviceError> =>
     pipe(
       this.device,
       Option.match({
@@ -730,7 +949,7 @@ class WebRTCServiceImpl implements WebRTCService {
             // Run Effect to handle produce event
             const handleProduce = pipe(
               Effect.logInfo('Produce event triggered, preparing to send command'),
-              Effect.andThen(() => Effect.sync(() => this.ws)),
+              Effect.andThen(() => Effect.sync(() => this.connectionType === 'dj' ? this.djWebSocket : this.listenerWebSocket)),
               Effect.andThen(wsOption =>
                 Option.match(wsOption, {
                   onNone: () => Effect.fail(new Error('WebSocket not connected')),
@@ -741,7 +960,7 @@ class WebRTCServiceImpl implements WebRTCService {
               Effect.andThen(ws => {
                 const command: ClientCommand = {
                   type: 'produce',
-                  rtpParameters: RtpParametersFromApi.encode(parameters.rtpParameters),
+                  rtpParameters: parameters.rtpParameters,
                   _traceContext: getWebSocketTraceContext()
                 }
                 return Effect.succeed({ ws, command })
@@ -826,6 +1045,7 @@ class WebRTCServiceImpl implements WebRTCService {
 
   getReceiveTransport = (): Effect.Effect<Option.Option<types.Transport>, never> =>
     Effect.succeed(this.receiveTransport)
+
 
   getTransport = (id: string): Effect.Effect<Option.Option<types.Transport>, never> =>
     Effect.succeed(Option.fromNullable(this.transports.get(id)))
@@ -1131,6 +1351,62 @@ class WebRTCServiceImpl implements WebRTCService {
       Effect.tap((id) => Effect.logInfo(`Created consumer: ${id}`))
     )
 
+  // Map to store pending consumer creation requests
+  private consumerCreationPromises = new Map<string, Deferred.Deferred<string, ConsumerError>>()
+
+  createConsumerFromProducer = (producerId: string): Effect.Effect<string, ConsumerError> =>
+    pipe(
+      Effect.logInfo(`Requesting consumer creation for producer: ${producerId}`),
+      Effect.andThen(() => Effect.sync(() => this.receiveTransport)),
+      Effect.andThen(transportOpt =>
+        Option.match(transportOpt, {
+          onNone: () => Effect.fail(new ConsumerError('Receive transport not available for consumer creation')),
+          onSome: (transport) => Effect.succeed(transport)
+        })
+      ),
+      Effect.andThen(_transport =>
+        pipe(
+          // Create deferred for this producer's consumer creation
+          Deferred.make<string, ConsumerError>(),
+          Effect.andThen(deferred => {
+            // Store the deferred for this producer
+            this.consumerCreationPromises.set(producerId, deferred)
+            
+            // Set up timeout cleanup
+            const timeoutId = setTimeout(() => {
+              this.consumerCreationPromises.delete(producerId)
+              Effect.runFork(Deferred.fail(deferred, new ConsumerError('Timeout waiting for consumer creation')))
+            }, 30000)
+            
+            // Send requestConsumer command to backend to trigger consumer creation
+            const requestConsumerEffect = this.sendWebSocketMessage({
+              type: 'requestConsumer',
+              producerId: producerId,
+              _traceContext: { traceparent: 'dummy', tracestate: null, metadata: null }
+            })
+            
+            Effect.runFork(requestConsumerEffect.pipe(
+              Effect.tapError(error => {
+                console.error('Failed to send requestConsumer command:', error)
+                this.consumerCreationPromises.delete(producerId)
+                return Deferred.fail(deferred, new ConsumerError('Failed to request consumer creation'))
+              })
+            ))
+            
+            // The consumer creation will be completed when we receive the ConsumerCreated event
+            // The transport 'connect' event will fire when we actually call transport.consume() with real parameters
+            
+            return pipe(
+              // Wait for the backend to send ConsumerCreated event with actual consumer parameters
+              Deferred.await(deferred),
+              Effect.tap(() => Effect.sync(() => clearTimeout(timeoutId)))
+            )
+          })
+        )
+      ),
+      Effect.tap((id) => Effect.logInfo(`Consumer creation completed: ${id} for producer: ${producerId}`))
+    )
+
   pauseConsumer = (consumerId: string): Effect.Effect<void, ConsumerError> =>
     pipe(
       Effect.sync(() => {
@@ -1213,6 +1489,15 @@ class WebRTCServiceImpl implements WebRTCService {
         audioElement.controls = false
         
         this.audioElements.set(consumerId, audioElement)
+        
+        // Try to play immediately, handle autoplay restrictions
+        if (autoplay) {
+          audioElement.play().catch((error) => {
+            console.warn('Autoplay blocked by browser, user interaction required:', error)
+            // Mark that manual play is needed
+            audioElement.setAttribute('data-autoplay-blocked', 'true')
+          })
+        }
         
         return audioElement
       }),
@@ -1409,7 +1694,8 @@ class WebRTCServiceImpl implements WebRTCService {
         this.device = Option.none()
         this.sendTransport = Option.none()
         this.receiveTransport = Option.none()
-        this.ws = Option.none()
+        this.djWebSocket = Option.none()
+        this.listenerWebSocket = Option.none()
         this.roomId = Option.none()
         this.rtpCapabilities = Option.none()
         this.deviceError = Option.none()

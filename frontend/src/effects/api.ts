@@ -4,18 +4,37 @@ import { types } from 'mediasoup-client'
 import {
   listRooms as listRoomsGenerated,
   createRoom as createRoomGenerated,
-  joinRoom as joinRoomGenerated,
   getRoomInfo as getRoomInfoGenerated
 } from '../generated/rooms/rooms'
 import type {
   Room,
   CreateRoomRequest as GeneratedCreateRoomRequest,
-  CreateRoomResponse,
-  JoinRoomResponse,
-  JoinRoomRequest as GeneratedJoinRoomRequest,
-  RoomInfoResponse
+  CreateRoomResponse as GeneratedCreateRoomResponse,
+  RoomInfoResponse,
+  TransportOptions,
+  RoomInfo
 } from '../generated/api.schemas'
-import { RtpCapabilitiesFromApi } from '../models/websocket'
+
+// Internal response types using native MediaSoup types
+export interface CreateRoomResponse {
+  djToken: string
+  room: RoomInfo
+  rtpCapabilities: types.RtpCapabilities  // Native type
+  transportOptions: TransportOptions
+  wsUrl: string
+}
+
+// Convert generated API response to internal format
+const convertCreateRoomResponse = (apiResponse: GeneratedCreateRoomResponse): CreateRoomResponse => ({
+  djToken: apiResponse.djToken,
+  room: apiResponse.room,
+  rtpCapabilities: {
+    codecs: apiResponse.rtpCapabilities.codecs as any,
+    headerExtensions: apiResponse.rtpCapabilities.headerExtensions as any
+  } as types.RtpCapabilities,
+  transportOptions: apiResponse.transportOptions,
+  wsUrl: apiResponse.wsUrl
+})
 
 export class ApiError extends Error {
   constructor(
@@ -54,9 +73,6 @@ export interface CreateRoomRequest {
   djName: string
 }
 
-export interface JoinRoomRequest {
-  deviceRtpCapabilities: types.RtpCapabilities
-}
 
 export const createRoom = (
   request: CreateRoomRequest
@@ -77,7 +93,8 @@ export const createRoom = (
     }),
     Effect.flatMap((response: any) => {
       if (response.status === 201 && response.data) {
-        return Effect.succeed(response.data)
+        // Convert API response to internal format
+        return Effect.succeed(convertCreateRoomResponse(response.data))
       }
       return Effect.fail(new ApiError(
         `Create failed: ${response.status}`,
@@ -103,25 +120,3 @@ export const getRoomInfo = (roomId: string): Effect.Effect<RoomInfoResponse, Api
     })
   )
 
-export const joinRoom = (roomId: string, request: JoinRoomRequest): Effect.Effect<JoinRoomResponse, ApiError> =>
-  pipe(
-    Effect.tryPromise({
-      try: () => {
-        // Convert native RTP capabilities to API wrapper format
-        const apiRequest: GeneratedJoinRoomRequest = {
-          rtpCapabilities: RtpCapabilitiesFromApi.encode(request.deviceRtpCapabilities)
-        }
-        return joinRoomGenerated(roomId, apiRequest)
-      },
-      catch: error => new ApiError('Network error', 0, error)
-    }),
-    Effect.flatMap((response: any) => {
-      if (response.status === 200 && response.data) {
-        return Effect.succeed(response.data)
-      }
-      return Effect.fail(new ApiError(
-        `Join failed: ${response.status}`,
-        response.status
-      ))
-    })
-  )

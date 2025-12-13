@@ -8,7 +8,7 @@ pub use commands::ClientCommand;
 pub use events::{ServerEvent, LobbyEvent};
 pub use schemas::{
     Room, TraceContext,
-    CreateRoomRequest, CreateRoomResponse, JoinRoomResponse,
+    CreateRoomRequest, CreateRoomResponse,
     TransportOptions, RtpCapabilitiesWrapper, ConsumerParameters,
     ConnectionState, ErrorResponse
 };

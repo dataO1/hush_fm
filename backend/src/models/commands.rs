@@ -112,7 +112,7 @@ impl TryFrom<DtlsFingerprintJson> for DtlsFingerprint {
 pub enum ClientCommand {
     // DJ Commands - Room Management
     #[serde(rename_all = "camelCase")]
-    ConnectTransport {
+    ConnectDjTransport {
         /// DTLS parameters for WebRTC transport connection
         #[serde(rename = "dtlsParameters")]
         dtls_parameters: DtlsParametersJson,
@@ -156,9 +156,11 @@ pub enum ClientCommand {
 
     // Listener Commands - Audio Consumption
     #[serde(rename_all = "camelCase")]
-    JoinRoom {
+    RequestJoin {
         /// ID of the room to join
         room_id: String,
+        /// RTP capabilities for media consumption
+        rtp_capabilities: serde_json::Value,
         /// Optional trace context for request tracing
         #[serde(rename = "_traceContext")]
         trace_context: Option<TraceContext>,
@@ -174,9 +176,29 @@ pub enum ClientCommand {
         trace_context: Option<TraceContext>,
     },
 
+    /// Get router RTP capabilities for device initialization
+    #[serde(rename_all = "camelCase")]
+    GetRouterCapabilities {
+        /// ID of the room to get capabilities for
+        room_id: String,
+        /// Optional trace context for request tracing
+        #[serde(rename = "_traceContext")]
+        trace_context: Option<TraceContext>,
+    },
+
     /// Leave the current room
     #[serde(rename_all = "camelCase")]
     LeaveRoom {
+        /// Optional trace context for request tracing
+        #[serde(rename = "_traceContext")]
+        trace_context: Option<TraceContext>,
+    },
+
+    /// Request consumer creation for a specific producer
+    #[serde(rename_all = "camelCase")]
+    RequestConsumer {
+        /// ID of the producer to consume from
+        producer_id: String,
         /// Optional trace context for request tracing
         #[serde(rename = "_traceContext")]
         trace_context: Option<TraceContext>,
@@ -187,28 +209,32 @@ impl ClientCommand {
     /// Extract trace context from any command
     pub fn trace_context(&self) -> Option<&TraceContext> {
         match self {
-            Self::ConnectTransport { trace_context, .. } => trace_context.as_ref(),
+            Self::ConnectDjTransport { trace_context, .. } => trace_context.as_ref(),
             Self::Produce { trace_context, .. } => trace_context.as_ref(),
             Self::PauseStream { trace_context } => trace_context.as_ref(),
             Self::ResumeStream { trace_context } => trace_context.as_ref(),
             Self::CloseRoom { trace_context } => trace_context.as_ref(),
-            Self::JoinRoom { trace_context, .. } => trace_context.as_ref(),
+            Self::RequestJoin { trace_context, .. } => trace_context.as_ref(),
             Self::ConnectListenerTransport { trace_context, .. } => trace_context.as_ref(),
+            Self::GetRouterCapabilities { trace_context, .. } => trace_context.as_ref(),
             Self::LeaveRoom { trace_context } => trace_context.as_ref(),
+            Self::RequestConsumer { trace_context, .. } => trace_context.as_ref(),
         }
     }
 
     /// Get the command type as a string for logging
     pub fn command_type(&self) -> &'static str {
         match self {
-            Self::ConnectTransport { .. } => "connectTransport",
+            Self::ConnectDjTransport { .. } => "connectDjTransport",
             Self::Produce { .. } => "produce",
             Self::PauseStream { .. } => "pauseStream",
             Self::ResumeStream { .. } => "resumeStream",
             Self::CloseRoom { .. } => "closeRoom",
-            Self::JoinRoom { .. } => "joinRoom",
+            Self::RequestJoin { .. } => "requestJoin",
             Self::ConnectListenerTransport { .. } => "connectListenerTransport",
+            Self::GetRouterCapabilities { .. } => "getRouterCapabilities",
             Self::LeaveRoom { .. } => "leaveRoom",
+            Self::RequestConsumer { .. } => "requestConsumer",
         }
     }
 }
