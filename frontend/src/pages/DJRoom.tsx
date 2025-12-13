@@ -24,8 +24,8 @@ export default function DJRoom() {
   const [isInitializing, setIsInitializing] = createSignal(true)
 
   // Simple state - streaming state managed by flows
-  const [currentProducerId, setCurrentProducerId] = createSignal<string | null>(null)
   const [isMuted, setIsMuted] = createSignal(false)
+  const [isRecording, setIsRecording] = createSignal(false)
   
   // Device selection state
   const [deviceSelected, setDeviceSelected] = createSignal(false)
@@ -106,8 +106,8 @@ export default function DJRoom() {
     })
 
     try {
-      const result = await Effect.runPromise(program)
-      setCurrentProducerId(result.producerId)
+      await Effect.runPromise(program)
+      setIsRecording(true) // Set recording state
       // State updates handled by providers through effects
 
     } catch (err: any) {
@@ -119,17 +119,35 @@ export default function DJRoom() {
   }
 
   const toggleMute = async () => {
-    const producerId = currentProducerId()
-    if (!producerId) return
+    if (!isRecording()) return // Only allow mute when recording
 
     try {
       const currentMuted = isMuted()
-      const program = toggleProducerFlow(producerId, !currentMuted)
+      const program = toggleProducerFlow(!currentMuted) // pause = !currentMuted (if not muted, pause)
       await Effect.runPromise(program)
       setIsMuted(!currentMuted)
     } catch (err: any) {
       console.error('Failed to toggle mute:', err)
       setError(err.message)
+    }
+  }
+
+  const toggleRecording = async () => {
+    if (!isRecording()) {
+      // Start recording (same as current startStreaming)
+      await startStreaming()
+    } else {
+      // Stop recording but keep connection
+      try {
+        const program = toggleProducerFlow(true) // pause the stream
+        await Effect.runPromise(program)
+        setIsRecording(false)
+        setIsMuted(false) // Reset mute state
+        setStatus('ready')
+      } catch (err: any) {
+        console.error('Failed to stop recording:', err)
+        setError(err.message)
+      }
     }
   }
 
@@ -214,31 +232,60 @@ export default function DJRoom() {
                 </div>
               </Show>
 
-              {/* Show streaming controls when live */}
-              <Show when={isStreaming()}>
+              {/* Show recording controls when connected */}
+              <Show when={isReadyToStream() && !isInitializing()}>
                 <div class="flex gap-2 justify-center mt-4">
-                <button
-                  class={`btn btn-circle btn-lg ${
-                    isMuted() ? 'btn-error' : 'btn-success'
-                  }`}
-                  onClick={toggleMute}
-                  disabled={status() === 'error' || status() === 'connecting'}
-                >
-                  {isMuted() ? (
-                    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width={2} d="M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z" clip-rule="evenodd" />
-                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width={2} d="M17 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2" />
-                    </svg>
-                  ) : (
-                    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width={2} d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z" />
-                    </svg>
-                  )}
-                </button>
+                  
+                  {/* Record/Stop Button */}
+                  <button
+                    class={`btn btn-circle btn-lg ${
+                      isRecording() ? 'btn-error' : 'btn-primary'
+                    }`}
+                    onClick={toggleRecording}
+                    disabled={status() === 'error' || status() === 'connecting'}
+                  >
+                    {isRecording() ? (
+                      // Stop icon
+                      <svg class="w-6 h-6" fill="currentColor" viewBox="0 0 24 24">
+                        <rect x="6" y="6" width="12" height="12" rx="2"/>
+                      </svg>
+                    ) : (
+                      // Record icon
+                      <svg class="w-6 h-6" fill="currentColor" viewBox="0 0 24 24">
+                        <circle cx="12" cy="12" r="6"/>
+                      </svg>
+                    )}
+                  </button>
 
-                <button class="btn btn-error btn-sm" onClick={endStream}>
-                  End
-                </button>
+                  {/* Mute Button - only visible when recording */}
+                  <Show when={isRecording()}>
+                    <button
+                      class={`btn btn-circle btn-md ${
+                        isMuted() ? 'btn-warning' : 'btn-success'
+                      }`}
+                      onClick={toggleMute}
+                      disabled={status() === 'error' || status() === 'connecting'}
+                    >
+                      {isMuted() ? (
+                        // Muted icon
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path stroke-linecap="round" stroke-linejoin="round" stroke-width={2} d="M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z" />
+                          <path stroke-linecap="round" stroke-linejoin="round" stroke-width={2} d="M17 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2" />
+                        </svg>
+                      ) : (
+                        // Unmuted icon
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path stroke-linecap="round" stroke-linejoin="round" stroke-width={2} d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z" />
+                        </svg>
+                      )}
+                    </button>
+                  </Show>
+
+                  {/* End Stream Button */}
+                  <button class="btn btn-error btn-sm" onClick={endStream}>
+                    End
+                  </button>
+                  
                 </div>
               </Show>
             </div>

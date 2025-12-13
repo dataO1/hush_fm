@@ -191,8 +191,11 @@ export interface WebRTCService {
   // Producer operations
   readonly produce: (track: MediaStreamTrack) => Effect.Effect<string, ProducerError>
   readonly getProducer: (producerId: string) => Effect.Effect<Option.Option<types.Producer>, never>
+  readonly getAllProducers: () => Effect.Effect<types.Producer[], never>
   readonly pauseProducer: (producerId: string) => Effect.Effect<void, ProducerError>
   readonly resumeProducer: (producerId: string) => Effect.Effect<void, ProducerError>
+  readonly pauseStream: () => Effect.Effect<void, ProducerError>
+  readonly resumeStream: () => Effect.Effect<void, ProducerError>
   readonly closeProducer: (producerId: string) => Effect.Effect<void, never>
   
   // Consumer operations (accept API wrapper types and convert internally)
@@ -381,6 +384,28 @@ class WebRTCServiceImpl implements WebRTCService {
     consumer.on('transportclose', () => {
       console.info(`Consumer transport closed: ${consumer.id}`)
       this.closeConsumer(consumer.id)
+    })
+
+    consumer.on('@pause', () => {
+      console.info(`Consumer paused: ${consumer.id}`)
+      // Update audio element if exists
+      const audioElement = this.audioElements.get(consumer.id)
+      if (audioElement) {
+        audioElement.pause()
+      }
+      this.notifyStateChange()
+    })
+
+    consumer.on('@resume', () => {
+      console.info(`Consumer resumed: ${consumer.id}`)
+      // Update audio element if exists
+      const audioElement = this.audioElements.get(consumer.id)
+      if (audioElement) {
+        audioElement.play().catch(error => {
+          console.warn('Failed to resume audio playback:', error)
+        })
+      }
+      this.notifyStateChange()
     })
   }
 
@@ -741,6 +766,19 @@ class WebRTCServiceImpl implements WebRTCService {
         console.info(`Producer created: ${event.producerId} in room ${event.roomId}`)
         // Update room ID if received
         this.roomId = Option.some(event.roomId)
+        
+        // Call the MediaSoup callback with the backend producer ID
+        // Since we only support one producer at a time, get the first available callback
+        const [firstKey, callback] = this.producerCallbacks.entries().next().value || [null, null]
+        if (callback) {
+          // Call the MediaSoup callback with backend producer ID
+          callback({ id: event.producerId })
+          this.producerCallbacks.delete(firstKey)
+          console.info(`MediaSoup callback called with backend producer ID: ${event.producerId}`)
+        } else {
+          console.warn('ProducerCreated event received but no callback found')
+        }
+        
         this.notifyStateChange()
         break
         
@@ -945,63 +983,39 @@ class WebRTCServiceImpl implements WebRTCService {
           })
 
           // CRITICAL: Set up produce event handler immediately
-          transport.on('produce', (parameters, callback, errback) => {
-            // Run Effect to handle produce event
-            const handleProduce = pipe(
-              Effect.logInfo('Produce event triggered, preparing to send command'),
-              Effect.andThen(() => Effect.sync(() => this.connectionType === 'dj' ? this.djWebSocket : this.listenerWebSocket)),
-              Effect.andThen(wsOption =>
-                Option.match(wsOption, {
-                  onNone: () => Effect.fail(new Error('WebSocket not connected')),
-                  onSome: (ws) => Effect.succeed(ws)
-                })
-              ),
-              // Create command
-              Effect.andThen(ws => {
-                const command: ClientCommand = {
-                  type: 'produce',
-                  rtpParameters: parameters.rtpParameters,
-                  _traceContext: getWebSocketTraceContext()
-                }
-                return Effect.succeed({ ws, command })
-              }),
-              // Send command via WebSocket
-              Effect.andThen(({ ws, command }) =>
-                Effect.sync(() => {
-                  if (ws.readyState === WebSocket.OPEN) {
-                    const message = JSON.stringify(command)
-                    ws.send(message)
-                    
-                    // Generate temporary producer ID
-                    const producerId = `producer-${parameters.kind}-${Date.now()}`
-                    return producerId
-                  } else {
-                    throw new Error(`WebSocket not ready: state=${ws.readyState}`)
-                  }
-                })
-              ),
-              // Handle success
-              Effect.tap(() => 
-                Effect.logInfo('Produce command sent successfully to backend')
-              ),
-              Effect.andThen(producerId => {
-                callback({ id: producerId })
-                return Effect.succeed(producerId)
-              }),
-              // Handle errors
-              Effect.tapError((error) =>
-                Effect.logError(`Failed to send produce command: ${error}`)
-              ),
-              Effect.catchAll(error => {
-                errback(error instanceof Error ? error : new Error(String(error)))
-                return Effect.fail(error)
-              })
-            )
-
-            // Run the effect without blocking
-            Effect.runPromise(handleProduce).catch(() => {
-              // Error already handled in catchAll
-            })
+          transport.on('produce', async (parameters, callback, errback) => {
+            try {
+              // Send produce command to backend via WebSocket
+              const wsOption = this.connectionType === 'dj' ? this.djWebSocket : this.listenerWebSocket
+              
+              if (Option.isNone(wsOption)) {
+                throw new Error('WebSocket not connected')
+              }
+              
+              const ws = wsOption.value
+              if (ws.readyState !== WebSocket.OPEN) {
+                throw new Error(`WebSocket not ready: state=${ws.readyState}`)
+              }
+              
+              const command: ClientCommand = {
+                type: 'produce',
+                rtpParameters: parameters.rtpParameters,
+                _traceContext: getWebSocketTraceContext()
+              }
+              
+              // Store the callback to be called when ProducerCreated event arrives
+              const requestKey = Date.now().toString()
+              this.producerCallbacks.set(requestKey, callback)
+              
+              const message = JSON.stringify(command)
+              ws.send(message)
+              
+              console.info('Produce command sent to backend, waiting for ProducerCreated event')
+              
+            } catch (error) {
+              console.error('Failed to send produce command:', error)
+              errback(error instanceof Error ? error : new Error(String(error)))
+            }
           })
           
           // Store transport and set up other events
@@ -1143,6 +1157,12 @@ class WebRTCServiceImpl implements WebRTCService {
       Effect.andThen(transport =>
         Effect.tryPromise({
           try: async () => {
+            // Call transport.produce() which will:
+            // 1. Trigger the 'produce' event
+            // 2. Send command to backend
+            // 3. Wait for backend to create producer
+            // 4. Receive backend producer ID via callback
+            // 5. Complete with producer that has backend ID
             const producer = await transport.produce({
               track,
               codecOptions: {
@@ -1151,12 +1171,15 @@ class WebRTCServiceImpl implements WebRTCService {
               },
             })
             
-            // Store producer and set up events
-            this.producers.set(producer.id, producer)
+            // The producer now has the backend's ID (set via callback)
+            const backendProducerId = producer.id
+            
+            // Store producer with backend ID
+            this.producers.set(backendProducerId, producer)
             this.setupProducerEvents(producer)
             this.notifyStateChange()
             
-            return producer.id
+            return backendProducerId
           },
           catch: (error) => new ProducerError(
             `Failed to create producer via MediaSoup transport`,
@@ -1165,7 +1188,7 @@ class WebRTCServiceImpl implements WebRTCService {
         })
       ),
       Effect.tap((producerId) => Effect.logInfo(
-        `Successfully created producer: ${producerId}`,
+        `Successfully created producer with backend ID: ${producerId}`,
         { 
           producer_id: producerId,
           track_kind: track.kind,
@@ -1224,6 +1247,104 @@ class WebRTCServiceImpl implements WebRTCService {
       Effect.tap(() => Effect.logInfo(`Resumed producer: ${producerId}`))
     )
 
+  pauseStream = (): Effect.Effect<void, ProducerError> =>
+    pipe(
+      Effect.logInfo('Pausing stream - both local producer and backend'),
+      Effect.andThen(() => this.getAllProducers()),
+      Effect.andThen(producers => {
+        if (producers.length === 0) {
+          return Effect.fail(new ProducerError('No producer found to pause'))
+        }
+        
+        // Pause local producer first
+        const localPauseEffect = this.pauseProducer(producers[0].id)
+        
+        // Send WebSocket command to backend
+        const sendCommandEffect = pipe(
+          Effect.succeed(this.djWebSocket),
+          Effect.andThen(ws =>
+            Option.match(ws, {
+              onNone: () => Effect.fail(new ProducerError('No WebSocket connection')),
+              onSome: (websocket) =>
+                Effect.tryPromise({
+                  try: async () => {
+                    if (websocket.readyState === WebSocket.OPEN) {
+                      const command = {
+                        type: 'pauseStream',
+                        _traceContext: {
+                          traceparent: 'dummy',
+                          tracestate: null,
+                          metadata: null
+                        }
+                      }
+                      websocket.send(JSON.stringify(command))
+                    } else {
+                      throw new Error('WebSocket not ready')
+                    }
+                  },
+                  catch: (error) => new ProducerError(`Failed to send pause command: ${error}`, error)
+                })
+            })
+          )
+        )
+        
+        // Run both operations
+        return pipe(
+          localPauseEffect,
+          Effect.andThen(() => sendCommandEffect)
+        )
+      })
+    )
+
+  resumeStream = (): Effect.Effect<void, ProducerError> =>
+    pipe(
+      Effect.logInfo('Resuming stream - both local producer and backend'),
+      Effect.andThen(() => this.getAllProducers()),
+      Effect.andThen(producers => {
+        if (producers.length === 0) {
+          return Effect.fail(new ProducerError('No producer found to resume'))
+        }
+        
+        // Resume local producer first
+        const localResumeEffect = this.resumeProducer(producers[0].id)
+        
+        // Send WebSocket command to backend
+        const sendCommandEffect = pipe(
+          Effect.succeed(this.djWebSocket),
+          Effect.andThen(ws =>
+            Option.match(ws, {
+              onNone: () => Effect.fail(new ProducerError('No WebSocket connection')),
+              onSome: (websocket) =>
+                Effect.tryPromise({
+                  try: async () => {
+                    if (websocket.readyState === WebSocket.OPEN) {
+                      const command = {
+                        type: 'resumeStream',
+                        _traceContext: {
+                          traceparent: 'dummy',
+                          tracestate: null,
+                          metadata: null
+                        }
+                      }
+                      websocket.send(JSON.stringify(command))
+                    } else {
+                      throw new Error('WebSocket not ready')
+                    }
+                  },
+                  catch: (error) => new ProducerError(`Failed to send resume command: ${error}`, error)
+                })
+            })
+          )
+        )
+        
+        // Run both operations
+        return pipe(
+          localResumeEffect,
+          Effect.andThen(() => sendCommandEffect)
+        )
+      })
+    )
+
   closeProducer = (producerId: string): Effect.Effect<void, never> =>
     pipe(
       Effect.sync(() => {
@@ -1239,6 +1360,9 @@ class WebRTCServiceImpl implements WebRTCService {
 
   getProducer = (producerId: string): Effect.Effect<Option.Option<types.Producer>, never> =>
     Effect.succeed(Option.fromNullable(this.producers.get(producerId)))
+
+  getAllProducers = (): Effect.Effect<types.Producer[], never> =>
+    Effect.succeed(Array.from(this.producers.values()))
 
   listProducers = (): Effect.Effect<types.Producer[], never> =>
     Effect.sync(() => Array.from(this.producers.values()))
@@ -1353,6 +1477,10 @@ class WebRTCServiceImpl implements WebRTCService {
 
   // Map to store pending consumer creation requests
   private consumerCreationPromises = new Map<string, Deferred.Deferred<string, ConsumerError>>()
+  
+  // Map to store MediaSoup produce callbacks (request key -> callback)
+  private producerCallbacks = new Map<string, (result: { id: string }) => void>()
+  
 
   createConsumerFromProducer = (producerId: string): Effect.Effect<string, ConsumerError> =>
     pipe(

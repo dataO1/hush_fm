@@ -329,18 +329,17 @@ export const joinRoomFlow = (
  * Pause/Resume producer flow using WebRTC service
  */
 export const toggleProducerFlow = (
-  producerId: string,
   pause: boolean
 ): Effect.Effect<void, PublishFlowError> =>
   pipe(
-    Effect.logInfo(`${pause ? 'Pausing' : 'Resuming'} producer: ${producerId}`),
+    Effect.logInfo(`${pause ? 'Pausing' : 'Resuming'} stream`),
     Effect.andThen(() =>
       pipe(
         WebRTCService,
         Effect.andThen(service =>
           pause
-            ? service.pauseProducer(producerId)
-            : service.resumeProducer(producerId)
+            ? service.pauseStream()
+            : service.resumeStream()
         ),
         Effect.mapError(error => new PublishFlowError(
           error.message,
@@ -349,7 +348,7 @@ export const toggleProducerFlow = (
         ))
       )
     ),
-    Effect.tap(() => Effect.logInfo(`Producer ${pause ? 'paused' : 'resumed'} successfully`)),
+    Effect.tap(() => Effect.logInfo(`Stream ${pause ? 'paused' : 'resumed'} successfully`)),
     Effect.provide(WebRTCServiceLive)
   )
 
