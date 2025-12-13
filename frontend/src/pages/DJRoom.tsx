@@ -234,57 +234,74 @@ export default function DJRoom() {
 
               {/* Show recording controls when streaming */}
               <Show when={isStreaming()}>
-                <div class="flex gap-2 justify-center mt-4">
+                <div class="flex flex-col gap-4 items-center mt-6">
                   
-                  {/* Record/Stop Button */}
+                  {/* Main Record/Stop Button */}
                   <button
-                    class={`btn btn-circle btn-lg ${
-                      isRecording() ? 'btn-error' : 'btn-primary'
+                    class={`btn btn-lg gap-3 min-w-32 ${
+                      isRecording() ? 'btn-error hover:btn-error' : 'btn-primary hover:btn-primary'
                     }`}
                     onClick={toggleRecording}
                     disabled={status() === 'error' || status() === 'connecting'}
                   >
                     {isRecording() ? (
-                      // Stop icon
-                      <svg class="w-6 h-6" fill="currentColor" viewBox="0 0 24 24">
-                        <rect x="6" y="6" width="12" height="12" rx="2"/>
-                      </svg>
+                      <>
+                        <svg class="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
+                          <rect x="6" y="6" width="12" height="12" rx="2"/>
+                        </svg>
+                        Stop
+                      </>
                     ) : (
-                      // Record icon
-                      <svg class="w-6 h-6" fill="currentColor" viewBox="0 0 24 24">
-                        <circle cx="12" cy="12" r="6"/>
-                      </svg>
+                      <>
+                        <svg class="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
+                          <circle cx="12" cy="12" r="6"/>
+                        </svg>
+                        Record
+                      </>
                     )}
                   </button>
 
-                  {/* Mute Button - only visible when recording */}
+                  {/* Secondary Controls - only visible when recording */}
                   <Show when={isRecording()}>
-                    <button
-                      class={`btn btn-circle btn-md ${
-                        isMuted() ? 'btn-warning' : 'btn-success'
-                      }`}
-                      onClick={toggleMute}
-                      disabled={status() === 'error' || status() === 'connecting'}
-                    >
-                      {isMuted() ? (
-                        // Muted icon
-                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path stroke-linecap="round" stroke-linejoin="round" stroke-width={2} d="M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z" />
-                          <path stroke-linecap="round" stroke-linejoin="round" stroke-width={2} d="M17 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2" />
-                        </svg>
-                      ) : (
-                        // Unmuted icon
-                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path stroke-linecap="round" stroke-linejoin="round" stroke-width={2} d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z" />
-                        </svg>
-                      )}
-                    </button>
-                  </Show>
+                    <div class="flex gap-3 items-center">
+                      {/* Mute Button */}
+                      <button
+                        class={`btn btn-sm gap-2 ${
+                          isMuted() ? 'btn-warning hover:btn-warning' : 'btn-success hover:btn-success'
+                        }`}
+                        onClick={toggleMute}
+                        disabled={status() === 'error' || status() === 'connecting'}
+                      >
+                        {isMuted() ? (
+                          <>
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path stroke-linecap="round" stroke-linejoin="round" stroke-width={2} d="M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z" />
+                              <path stroke-linecap="round" stroke-linejoin="round" stroke-width={2} d="M17 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2" />
+                            </svg>
+                            Muted
+                          </>
+                        ) : (
+                          <>
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path stroke-linecap="round" stroke-linejoin="round" stroke-width={2} d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z" />
+                            </svg>
+                            Live
+                          </>
+                        )}
+                      </button>
 
-                  {/* End Stream Button */}
-                  <button class="btn btn-error btn-sm" onClick={endStream}>
-                    End
-                  </button>
+                      {/* End Stream Button */}
+                      <button 
+                        class="btn btn-outline btn-error btn-sm gap-2" 
+                        onClick={endStream}
+                      >
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path stroke-linecap="round" stroke-linejoin="round" stroke-width={2} d="M6 18L18 6M6 6l12 12" />
+                        </svg>
+                        End Stream
+                      </button>
+                    </div>
+                  </Show>
                   
                 </div>
               </Show>
