@@ -1515,8 +1515,8 @@ class WebRTCServiceImpl implements WebRTCService {
             this.consumers.set(consumer.id, consumer)
             this.setupConsumerEvents(consumer)
             
-            // Resume consumer if producer is not paused but consumer started paused
-            if (!nativeOptions.producerPaused && consumer.paused) {
+            // Always resume consumer - MediaSoup handles producer pause state internally
+            if (consumer.paused) {
               await consumer.resume()
             }
             
