@@ -42,16 +42,51 @@ export const getUserMedia = (deviceId?: string): Effect.Effect<MediaStreamTrack,
     WebRTCService,
     Effect.andThen(service => {
         const constraints: MediaStreamConstraints = {
-            audio: {
-                deviceId: deviceId ? { exact: deviceId } : undefined,
-                channelCount: { ideal: 2, min: 1 },
-                echoCancellation: false, // CRITICAL: Disable for music
-                noiseSuppression: false, // CRITICAL: Disable for music
-                autoGainControl: false   // CRITICAL: Disable for music
-            },
-            video: false
-          }
+          audio: {
+            deviceId: deviceId ? { exact: deviceId } : undefined,
+            channelCount: { ideal: 2, min: 1 },
+            // Standard Audio Processing Constraints
+            echoCancellation: false,
+            noiseSuppression: false,
+            autoGainControl: false,
+            // Advanced/Chrome-specific (might need 'as any' if TS complains, but they work in Chrome)
+            // These help force "music mode"
+            googEchoCancellation: false,
+            googAutoGainControl: false,
+            googNoiseSuppression: false,
+            googHighpassFilter: false
+          } as MediaTrackConstraints, // Cast to allow Google-specific keys if strict typing blocks them
+          video: false
+        };
       return service.getUserMedia(constraints)
+    }),
+    Effect.tap((track) => {
+        // HACK: Force Audio Processing
+        try {
+            const ctx = new AudioContext();
+            const source = ctx.createMediaStreamSource(new MediaStream([track]));
+            const dest = ctx.createMediaStreamDestination();
+            source.connect(dest);
+
+            // CRITICAL: Check if context is suspended and resume it
+            if (ctx.state === 'suspended') {
+                ctx.resume().then(() => console.log("🔊 AudioContext resumed for hack"));
+            }
+
+            // EXTRA HACK: Play silence to force the audio engine to wake up
+            const oscillator = ctx.createOscillator();
+            oscillator.type = 'sine';
+            oscillator.frequency.value = 400; // 400Hz tone
+            const gain = ctx.createGain();
+            gain.gain.value = 0.0; // Mute it so we don't hear it
+            oscillator.connect(gain);
+            gain.connect(dest);
+            oscillator.start();
+
+            console.log("🎤 Audio Context Hack applied & Oscillator started");
+        } catch (e) {
+            console.error("Hack failed:", e);
+        }
     }),
     Effect.mapError(error => new PublishFlowError(
       error.message,
