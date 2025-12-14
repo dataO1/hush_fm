@@ -115,7 +115,7 @@ export const SignalingProvider: ParentComponent = (props) => {
   // Effect-based WebSocket references (migrated from SignalingManager)
   const [_lobbyWSRef] = createSignal<WebSocket | null>(null)
   const [_roomWSRef] = createSignal<WebSocket | null>(null)
-  
+
   // Effect Refs for WebSocket connections
   const [lobbyWSEffectRef, setLobbyWSEffectRef] = createSignal<Ref.Ref<WebSocket | null> | null>(null)
   const [roomWSEffectRef, setRoomWSEffectRef] = createSignal<Ref.Ref<WebSocket | null> | null>(null)
@@ -170,7 +170,7 @@ export const SignalingProvider: ParentComponent = (props) => {
       Effect.andThen((ws) => {
         const wsRef = isLobby ? lobbyWSEffectRef() : roomWSEffectRef()
         if (!wsRef) return Effect.fail(new Error('WebSocket ref not initialized'))
-        
+
         return pipe(
           Ref.set(wsRef, ws),
           Effect.andThen(() => setupWebSocketHandlers(ws, isLobby)),
@@ -203,7 +203,7 @@ export const SignalingProvider: ParentComponent = (props) => {
       return
     }
 
-    const program = connectWebSocketEffect('ws://localhost:3000/ws/lobby', true)
+    const program = connectWebSocketEffect('/ws/lobby', true)
     try {
       await Effect.runPromise(program)
     } catch (error) {
@@ -244,7 +244,7 @@ export const SignalingProvider: ParentComponent = (props) => {
             setState(isLobby ? 'lobbyConnectionState' : 'roomConnectionState', 'disconnected')
             setState(isLobby ? 'lobbyWS' : 'roomWS', null)
             if (!isLobby) setState('currentRoomId', null)
-            
+
             // Clear the Effect ref asynchronously
             const wsRef = isLobby ? lobbyWSEffectRef() : roomWSEffectRef()
             if (wsRef) {
@@ -375,7 +375,7 @@ export const SignalingProvider: ParentComponent = (props) => {
   const sendMessage = (message: SignalingMessage): Effect.Effect<void, Error> => {
     const wsRef = message.channel === 'lobby' ? lobbyWSEffectRef() : roomWSEffectRef()
     if (!wsRef) return Effect.fail(new Error('WebSocket ref not initialized'))
-    
+
     return pipe(
       Ref.get(wsRef),
       Effect.andThen((ws) => {
@@ -413,12 +413,12 @@ export const SignalingProvider: ParentComponent = (props) => {
    * Send client command to room WebSocket with queueing
    */
   const sendCommand = async (roomId: string, message: ClientCommand): Promise<void> => {
-    const span = createWebSocketSpan('send_command', { 
-      messageType: message.type, 
-      roomId, 
-      operation: 'send' 
+    const span = createWebSocketSpan('send_command', {
+      messageType: message.type,
+      roomId,
+      operation: 'send'
     })
-    
+
     try {
       // ClientCommand already has trace context from getWebSocketTraceContext()
       // No need for additional injection since it uses SerializedTraceContext format
@@ -483,14 +483,14 @@ export const SignalingProvider: ParentComponent = (props) => {
       Effect.andThen(() => {
         const queue = messageQueue()
         if (!queue) return Effect.void
-        
+
         return Effect.async<void, never>((resume) => {
           const processNext = () => {
             Queue.take(queue).pipe(
               Effect.andThen((message) => {
                 const effectRef = message.channel === 'lobby' ? lobbyWSEffectRef() : roomWSEffectRef()
                 if (!effectRef) return Effect.void
-                
+
                 return Ref.get(effectRef).pipe(
                   Effect.andThen((ws) => {
                     if (ws) {

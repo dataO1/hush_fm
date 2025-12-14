@@ -1211,7 +1211,7 @@ class WebRTCServiceImpl implements WebRTCService {
             const producer = await transport.produce({
               track,
               codecOptions: {
-                opusStereo: true,
+                opusStereo: false,
                 opusDtx: false, // Disable DTX - bad for music (cuts silence)
               },
               encodings: [

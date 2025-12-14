@@ -123,7 +123,7 @@ export default function ListenerRoom() {
 
       const program = Effect.gen(function* (_) {
           // 1. Connect to WebSocket
-          const ws = yield* _(connectWebSocket(`ws://localhost:3000/ws/listen/${roomId()}`))
+          const ws = yield* _(connectWebSocket(`/ws/listen/${roomId()}`))
           setListenerWebSocket(Option.some(ws))
 
           // 2. Run the join flow (now returns stream, not audioElement)

@@ -74,20 +74,48 @@ class WebSocketError extends Error {
   }
 }
 
-export const connectWebSocket = (url: string): Effect.Effect<WebSocket, WebSocketError> =>
+/**
+ * Helper to construct the backend WebSocket base URL dynamically
+ */
+const getBaseWebSocketUrl = (): string => {
+  if (typeof window !== 'undefined') {
+    const hostname = window.location.hostname
+    const port = '3000' // Your backend port
+    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
+    return `${protocol}//${hostname}:${port}`
+  }
+  return 'ws://localhost:3000'
+}
+
+export const connectWebSocket = (pathOrUrl: string): Effect.Effect<WebSocket, WebSocketError> =>
   Effect.async<WebSocket, WebSocketError>((resume) => {
-    const ws = new WebSocket(url)
-    
+
+    // Determine the full URL
+    let fullUrl: string
+    if (pathOrUrl.startsWith('ws://') || pathOrUrl.startsWith('wss://')) {
+       fullUrl = pathOrUrl
+    } else {
+       // Ensure path starts with /
+       const cleanPath = pathOrUrl.startsWith('/') ? pathOrUrl : `/${pathOrUrl}`
+       fullUrl = `${getBaseWebSocketUrl()}${cleanPath}`
+    }
+
+    console.log(`Connecting to WebSocket: ${fullUrl}`) // Debug log
+
+    const ws = new WebSocket(fullUrl)
+
     ws.onopen = () => {
       resume(Effect.succeed(ws))
     }
-    
+
     ws.onerror = () => {
-      resume(Effect.fail(new WebSocketError(`Failed to connect to ${url}`)))
+      resume(Effect.fail(new WebSocketError(`Failed to connect to ${fullUrl}`)))
     }
-    
+
     return Effect.sync(() => {
-      ws.close()
+      if (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING) {
+        ws.close()
+      }
     })
   })
 
@@ -118,7 +146,7 @@ export const subscribeToMessages = <T>(
         onError?.(error as Error)
       }
     }
-    
+
     ws.onerror = (_) => {
       onError?.(new Error('WebSocket error'))
     }

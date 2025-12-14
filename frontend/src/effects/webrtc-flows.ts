@@ -41,10 +41,16 @@ export const getUserMedia = (deviceId?: string): Effect.Effect<MediaStreamTrack,
   pipe(
     WebRTCService,
     Effect.andThen(service => {
-      const constraints: MediaStreamConstraints = {
-        audio: deviceId ? { deviceId: { exact: deviceId } } : true,
-        video: false
-      }
+        const constraints: MediaStreamConstraints = {
+            audio: {
+                deviceId: deviceId ? { exact: deviceId } : undefined,
+                channelCount: { ideal: 2, min: 1 },
+                echoCancellation: false, // CRITICAL: Disable for music
+                noiseSuppression: false, // CRITICAL: Disable for music
+                autoGainControl: false   // CRITICAL: Disable for music
+            },
+            video: false
+          }
       return service.getUserMedia(constraints)
     }),
     Effect.mapError(error => new PublishFlowError(
@@ -52,7 +58,11 @@ export const getUserMedia = (deviceId?: string): Effect.Effect<MediaStreamTrack,
       'getUserMedia',
       error
     )),
-    Effect.tap(() => Effect.logInfo('Successfully obtained user media')),
+    Effect.tap((track) => {
+        // VISUAL CHECK: Is the track actually alive?
+        console.log("🎤 Microphone Track Acquired:", track.label)
+        console.log("🎤 Settings:", JSON.stringify(track.getSettings(), null, 2))
+    }),
     Effect.provide(WebRTCServiceLive)
   )
 
