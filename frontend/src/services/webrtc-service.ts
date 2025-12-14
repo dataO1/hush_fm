@@ -330,7 +330,33 @@ class WebRTCServiceImpl implements WebRTCService {
     // Connection state changes
     transport.on('connectionstatechange', (state: string) => {
       console.debug(`Transport ${transport.id} connection state: ${state}`)
+      
+      // Enhanced logging and handling for failed connections
+      if (state === 'failed') {
+        console.error(`❌ ${direction} transport connection FAILED: ${transport.id}`)
+        if (direction === 'send') {
+          console.error('Producer transport failed - audio streaming will not work')
+          this.deviceError = Option.some('WebRTC connection failed - check network')
+        }
+      } else if (state === 'connected') {
+        console.info(`✅ ${direction} transport connected: ${transport.id}`)
+        this.deviceError = Option.none()
+      } else if (state === 'disconnected') {
+        console.warn(`⚠️ ${direction} transport disconnected: ${transport.id}`)
+      }
+      
       this.notifyStateChange()
+    })
+
+    // ICE gathering state changes (detailed ICE state monitoring)
+    transport.on('icegatheringstatechange', (state: string) => {
+      console.debug(`Transport ${transport.id} ICE gathering state: ${state}`)
+      
+      if (state === 'complete') {
+        console.info(`✅ ICE gathering complete for ${direction} transport: ${transport.id}`)
+      } else if (state === 'gathering') {
+        console.debug(`🔍 ICE gathering for ${direction} transport: ${transport.id}`)
+      }
     })
 
     // Handle the 'connect' event for send transports
@@ -396,15 +422,85 @@ class WebRTCServiceImpl implements WebRTCService {
    * Set up producer event handlers
    */
   private setupProducerEvents = (producer: types.Producer): void => {
+    // Track ended - most critical for audio streaming
     producer.on('trackended', () => {
-      console.info(`Producer track ended: ${producer.id}`)
+      console.error(`❌ Producer track ENDED: ${producer.id}`)
+      console.error('Audio source stopped - microphone may have been disconnected or permissions revoked')
+      this.deviceError = Option.some('Audio source stopped')
       this.closeProducer(producer.id)
+      this.notifyStateChange()
     })
 
+    // Transport closed
     producer.on('transportclose', () => {
-      console.info(`Producer transport closed: ${producer.id}`)
+      console.warn(`⚠️ Producer transport closed: ${producer.id}`)
       this.closeProducer(producer.id)
+      this.notifyStateChange()
     })
+
+    // Monitor the actual MediaStreamTrack for additional events
+    if (producer.track) {
+      const track = producer.track
+
+      // Track ended at the track level (different from producer trackended)
+      track.addEventListener('ended', () => {
+        console.error(`❌ MediaStreamTrack ended for producer: ${producer.id}`)
+        console.error('Track state:', {
+          readyState: track.readyState,
+          enabled: track.enabled,
+          kind: track.kind,
+          label: track.label
+        })
+        this.deviceError = Option.some('MediaStream track ended')
+        this.notifyStateChange()
+      })
+
+      // Track muted/unmuted
+      track.addEventListener('mute', () => {
+        console.warn(`🔇 MediaStreamTrack MUTED for producer: ${producer.id}`)
+        this.notifyStateChange()
+      })
+
+      track.addEventListener('unmute', () => {
+        console.info(`🔊 MediaStreamTrack UNMUTED for producer: ${producer.id}`)
+        this.notifyStateChange()
+      })
+
+      // Log initial track health
+      console.info(`🎤 Producer track health check:`, {
+        producer_id: producer.id,
+        track_id: track.id,
+        track_kind: track.kind,
+        track_label: track.label,
+        ready_state: track.readyState,
+        enabled: track.enabled,
+        muted: track.muted
+      })
+
+      // Periodic health check for track state
+      const healthCheckInterval = setInterval(() => {
+        if (track.readyState !== 'live' || !track.enabled) {
+          console.error(`🏥 Producer track health check FAILED:`, {
+            producer_id: producer.id,
+            track_ready_state: track.readyState,
+            track_enabled: track.enabled,
+            track_muted: track.muted
+          })
+          
+          if (track.readyState === 'ended') {
+            console.error('Track ended - clearing health check interval')
+            clearInterval(healthCheckInterval)
+          }
+        }
+      }, 5000) // Check every 5 seconds
+
+      // Clear interval when producer is closed
+      producer.on('@close', () => {
+        clearInterval(healthCheckInterval)
+      })
+    } else {
+      console.error(`❌ Producer ${producer.id} has no track!`)
+    }
   }
 
   /**
@@ -1173,17 +1269,38 @@ class WebRTCServiceImpl implements WebRTCService {
   produce = (track: MediaStreamTrack): Effect.Effect<string, ProducerError> =>
     pipe(
       Effect.logTrace(`Starting producer creation process`),
-      Effect.andThen(() => Effect.sync(() => ({
-        sendTransport: this.sendTransport,
-        roomId: this.roomId,
-        trackId: track.id,
-        trackKind: track.kind,
-        trackLabel: track.label
-      }))),
-      Effect.tap(({ trackId, trackKind, trackLabel }) =>
+      Effect.andThen(() => Effect.sync(() => {
+        // Validate track state before proceeding
+        if (track.readyState !== 'live') {
+          throw new ProducerError(`Track is not live: readyState=${track.readyState}`)
+        }
+        if (!track.enabled) {
+          throw new ProducerError(`Track is not enabled`)
+        }
+        if (track.kind !== 'audio') {
+          throw new ProducerError(`Expected audio track, got: ${track.kind}`)
+        }
+
+        return {
+          sendTransport: this.sendTransport,
+          roomId: this.roomId,
+          trackId: track.id,
+          trackKind: track.kind,
+          trackLabel: track.label,
+          trackReadyState: track.readyState,
+          trackEnabled: track.enabled
+        }
+      })),
+      Effect.tap(({ trackId, trackKind, trackLabel, trackReadyState, trackEnabled }) =>
         Effect.logInfo(
           `Producing track: ${trackKind} track with ID ${trackId}`,
-          { track_id: trackId, track_kind: trackKind, track_label: trackLabel }
+          { 
+            track_id: trackId, 
+            track_kind: trackKind, 
+            track_label: trackLabel,
+            track_ready_state: trackReadyState,
+            track_enabled: trackEnabled
+          }
         )
       ),
       Effect.andThen(({ sendTransport, roomId }) =>

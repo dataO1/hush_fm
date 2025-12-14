@@ -67,7 +67,7 @@ impl TransportManager {
                 protocol: Protocol::Udp,
                 ip: "0.0.0.0".parse().unwrap(),   // Listen on ALL interfaces
                 announced_address: Some(announced_ip), // Announce Real IP
-                expose_internal_ip: true,         // CRITICAL: Also send 127.0.0.1 as a backup candidate
+                expose_internal_ip: false,        // FIXED: Don't send 127.0.0.1 to avoid ICE confusion
                 port: None,
                 port_range: None,
                 flags: None,
