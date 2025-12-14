@@ -65,20 +65,24 @@ impl TransportManager {
         let mut transport_options = WebRtcTransportOptions::new(
             WebRtcTransportListenInfos::new(ListenInfo {
                 protocol: Protocol::Udp,
-                ip: "0.0.0.0".parse().unwrap(),   // Listen on ALL interfaces
-                announced_address: Some(announced_ip), // Announce Real IP
-                expose_internal_ip: false,        // FIXED: Don't send 127.0.0.1 to avoid ICE confusion
+                ip: announced_ip.parse().unwrap(),   // FIXED: Listen on SPECIFIC detected IP
+                announced_address: Some(announced_ip.clone()), // Same IP for announcing
+                expose_internal_ip: false,        // Don't send 127.0.0.1 to avoid ICE confusion
                 port: None,
-                port_range: None,
+                port_range: Some(40000..=49999), // ADDED: Explicit UDP port range
                 flags: None,
                 send_buffer_size: None,
                 recv_buffer_size: None,
             })
         );
 
-        transport_options.enable_udp = self.config.enable_udp;
-        transport_options.enable_tcp = self.config.enable_tcp;
+        // Optimize for local WiFi network
+        transport_options.enable_udp = true;                   // Always enable UDP for local network
+        transport_options.enable_tcp = false;                  // Disable TCP for local WiFi
+        transport_options.prefer_udp = true;                   // Prefer UDP over TCP
         transport_options.initial_available_outgoing_bitrate = 600000;
+        transport_options.ice_consent_timeout = 0;      // Disable ICE consent checks for local network
+        // Note: ice_servers field not available in this MediaSoup version - configured via WebRTC client
 
         let transport = router.create_webrtc_transport(transport_options).await?;
         let transport_id = transport.id().to_string();
@@ -105,20 +109,24 @@ impl TransportManager {
       let mut transport_options = WebRtcTransportOptions::new(
         WebRtcTransportListenInfos::new(ListenInfo {
           protocol: Protocol::Udp,
-          ip: "0.0.0.0".parse().unwrap(),
-          announced_address: Some(announced_ip.to_string()), // ✅ Critical!
+          ip: announced_ip,                                   // FIXED: Listen on SPECIFIC detected IP
+          announced_address: Some(announced_ip.to_string()), // Same IP for announcing
           expose_internal_ip: false,
           port: None,
-          port_range: None,
+          port_range: Some(40000..=49999),                  // ADDED: Explicit UDP port range
           flags: None,
           send_buffer_size: None,
           recv_buffer_size: None,
         })
       );
 
-      transport_options.enable_udp = self.config.enable_udp;
-      transport_options.enable_tcp = self.config.enable_tcp;
-      transport_options.initial_available_outgoing_bitrate = 0;
+      // Optimize for local WiFi network
+      transport_options.enable_udp = true;                   // Always enable UDP for local network
+      transport_options.enable_tcp = false;                  // Disable TCP for local WiFi
+      transport_options.prefer_udp = true;                   // Prefer UDP over TCP
+      transport_options.initial_available_outgoing_bitrate = 0; // Listener doesn't send
+      transport_options.ice_consent_timeout = 0;      // Disable ICE consent checks for local network
+      // Note: ice_servers field not available in this MediaSoup version - configured via WebRTC client
 
       let transport = router.create_webrtc_transport(transport_options).await?;
 

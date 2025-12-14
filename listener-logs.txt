@@ -1,116 +1,88 @@
 
-[vite] connecting... client.mjs:495:9
-[vite] connected. client.mjs:618:15
-GET
-http://192.168.10.159:5173/favicon.ico
-[HTTP/1.1 404 Not Found 1ms]
-
-Effect-TS OpenTelemetry configured for hushfm-frontend -> http://localhost:14268/api/traces telemetry.ts:311:11
-timestamp=2025-12-14T15:17:06.045Z level=INFO fiber=#5 message="Connecting to WebSocket: /ws/lobby" fiberRuntime.ts:1446:46
-Connecting to WebSocket: ws://192.168.10.159:3000/ws/lobby client.ts:103:13
-timestamp=2025-12-14T15:17:06.208Z level=INFO fiber=#5 message="Processing queued messages" fiberRuntime.ts:1446:46
-timestamp=2025-12-14T15:17:17.362Z level=INFO fiber=#13 message="Connecting to WebSocket: ws://localhost:3000/ws/room/91c57352-4d47-444f-b4a9-62ce8ec97528" fiberRuntime.ts:1446:46
-Connecting to WebSocket: ws://localhost:3000/ws/room/91c57352-4d47-444f-b4a9-62ce8ec97528 client.ts:103:13
-timestamp=2025-12-14T15:17:17.496Z level=INFO fiber=#13 message="Processing queued messages" fiberRuntime.ts:1446:46
-timestamp=2025-12-14T15:17:22.971Z level=INFO fiber=#15 message="Device initialized successfully" fiberRuntime.ts:1446:46
-timestamp=2025-12-14T15:17:22.975Z level=INFO fiber=#15 message="Created send transport: 798bad7e-fc48-4e8f-9d46-6d004f116604" fiberRuntime.ts:1446:46
-timestamp=2025-12-14T15:17:24.797Z level=INFO fiber=#15 message="Got user media stream" fiberRuntime.ts:1446:46
-🎤 Microphone Track Acquired: Family 17h/19h/1ah HD Audio Controller Digital Microphone webrtc-flows.ts:63:17
-🎤 Settings: {
-  "autoGainControl": false,
-  "channelCount": 2,
-  "deviceId": "sAlmWlOPFAggst3QLqejKNH4aVZOz4ZHidUgmE4YG0I=",
-  "echoCancellation": false,
-  "groupId": "ci44Rw1rLaeQ2S0LU/umk6xy5DobqfqXeqXRIFcEgwk=",
-  "noiseSuppression": false
-} webrtc-flows.ts:64:17
-timestamp=2025-12-14T15:17:24.800Z level=INFO fiber=#15 message="Producing track: audio track with ID {4f37d629-60ab-4d74-b144-5629b59c2cd6}" message="{
-  \"track_id\": \"{4f37d629-60ab-4d74-b144-5629b59c2cd6}\",
-  \"track_kind\": \"audio\",
-  \"track_label\": \"Family 17h/19h/1ah HD Audio Controller Digital Microphone\",
-  \"track_ready_state\": \"live\",
-  \"track_enabled\": true
-}" fiberRuntime.ts:1446:46
-DTLS params being sent:
-Object { role: "client", fingerprints: (1) […] }
-webrtc-service.ts:368:19
-Trace context being sent:
-Object { traceparent: "00-77d700d2def47afe-1b233d33-01", tracestate: null, metadata: null }
-webrtc-service.ts:369:19
-Full command being sent: {
-  "type": "connectDjTransport",
-  "dtlsParameters": {
-    "role": "client",
-    "fingerprints": [
-      {
-        "algorithm": "sha-256",
-        "value": "CB:19:8E:95:CC:CF:60:05:1F:DF:D0:5B:4B:52:40:9E:F2:79:E3:88:BB:A1:8F:7C:30:6B:42:F8:94:A1:F7:30"
-      }
-    ]
-  },
-  "_traceContext": {
-    "traceparent": "00-77d700d2def47afe-1b233d33-01",
-    "tracestate": null,
-    "metadata": null
-  }
-} webrtc-service.ts:377:19
-timestamp=2025-12-14T15:17:24.834Z level=INFO fiber=#17 message="Successfully sent WebSocket command: connectDjTransport" message="{
-  \"command_type\": \"connectDjTransport\",
-  \"room_id\": \"cc7bcc08-6a08-4306-9d38-583c6d5810e9\"
-}" fiberRuntime.ts:1446:46
-Transport 798bad7e-fc48-4e8f-9d46-6d004f116604 ICE gathering state: gathering webrtc-service.ts:353:15
-🔍 ICE gathering for send transport: 798bad7e-fc48-4e8f-9d46-6d004f116604 webrtc-service.ts:358:17
-Transport 798bad7e-fc48-4e8f-9d46-6d004f116604 ICE gathering state: complete webrtc-service.ts:353:15
-✅ ICE gathering complete for send transport: 798bad7e-fc48-4e8f-9d46-6d004f116604 webrtc-service.ts:356:17
-Produce command sent to backend, waiting for ProducerCreated event webrtc-service.ts:1154:23
-Received server event: transportConnected
-Object { type: "transportConnected", transportId: "c8eda488-72ea-4b88-930f-ad5f04c5e894", _traceContext: {…} }
-webrtc-service.ts:879:13
-Transport connected: c8eda488-72ea-4b88-930f-ad5f04c5e894 webrtc-service.ts:891:17
-Received server event: producerCreated
-Object { type: "producerCreated", producerId: "a61ea43e-8567-4d96-a1b1-6bcd84f1bac9", roomId: "91c57352-4d47-444f-b4a9-62ce8ec97528", _traceContext: {} }
-webrtc-service.ts:879:13
-Producer created: a61ea43e-8567-4d96-a1b1-6bcd84f1bac9 in room 91c57352-4d47-444f-b4a9-62ce8ec97528 webrtc-service.ts:897:17
-MediaSoup callback called with backend producer ID: a61ea43e-8567-4d96-a1b1-6bcd84f1bac9 webrtc-service.ts:908:19
-🎤 Producer track health check:
-Object { producer_id: "a61ea43e-8567-4d96-a1b1-6bcd84f1bac9", track_id: "{4f37d629-60ab-4d74-b144-5629b59c2cd6}", track_kind: "audio", track_label: "Family 17h/19h/1ah HD Audio Controller Digital Microphone", ready_state: "live", enabled: true, muted: false }
-webrtc-service.ts:470:15
-timestamp=2025-12-14T15:17:24.892Z level=INFO fiber=#15 message="Successfully created producer with backend ID: a61ea43e-8567-4d96-a1b1-6bcd84f1bac9" message="{
-  \"producer_id\": \"a61ea43e-8567-4d96-a1b1-6bcd84f1bac9\",
-  \"track_kind\": \"audio\",
-  \"room_id\": \"91c57352-4d47-444f-b4a9-62ce8ec97528\"
-}" fiberRuntime.ts:1446:46
-timestamp=2025-12-14T15:17:24.892Z level=INFO fiber=#15 message="Created producer: a61ea43e-8567-4d96-a1b1-6bcd84f1bac9" fiberRuntime.ts:1446:46
-timestamp=2025-12-14T15:17:24.893Z level=INFO fiber=#15 message="Publish room flow completed successfully" fiberRuntime.ts:1446:46
-timestamp=2025-12-14T15:17:28.323Z level=INFO fiber=#18 message="Resuming stream" fiberRuntime.ts:1446:46
-timestamp=2025-12-14T15:17:28.324Z level=INFO fiber=#18 message="Resuming stream - both local producer and backend" fiberRuntime.ts:1446:46
-timestamp=2025-12-14T15:17:28.327Z level=INFO fiber=#18 message="Resumed producer: a61ea43e-8567-4d96-a1b1-6bcd84f1bac9" fiberRuntime.ts:1446:46
-timestamp=2025-12-14T15:17:28.328Z level=INFO fiber=#18 message="Stream resumed successfully" fiberRuntime.ts:1446:46
-Received server event: streamResumed
-Object { type: "streamResumed", roomId: "91c57352-4d47-444f-b4a9-62ce8ec97528", _traceContext: {} }
-webrtc-service.ts:879:13
-Stream resumed in room: 91c57352-4d47-444f-b4a9-62ce8ec97528 webrtc-service.ts:967:17
-WebRTC: ICE failed, add a STUN server and see about:webrtc for more details
-Transport 798bad7e-fc48-4e8f-9d46-6d004f116604 connection state: failed webrtc-service.ts:332:15
-❌ send transport connection FAILED: 798bad7e-fc48-4e8f-9d46-6d004f116604 webrtc-service.ts:336:17
-Producer transport failed - audio streaming will not work webrtc-service.ts:338:19
-The connection to ws://192.168.10.159:3000/ws/lobby was interrupted while the page was loading. client.ts:105:16
-timestamp=2025-12-14T15:17:43.778Z level=INFO fiber=#20 message="Pausing stream" fiberRuntime.ts:1446:46
-timestamp=2025-12-14T15:17:43.779Z level=INFO fiber=#20 message="Pausing stream - both local producer and backend" fiberRuntime.ts:1446:46
-timestamp=2025-12-14T15:17:43.782Z level=INFO fiber=#20 message="Paused producer: a61ea43e-8567-4d96-a1b1-6bcd84f1bac9" fiberRuntime.ts:1446:46
-timestamp=2025-12-14T15:17:43.783Z level=INFO fiber=#20 message="Stream paused successfully" fiberRuntime.ts:1446:46
-Received server event: streamPaused
-Object { type: "streamPaused", roomId: "91c57352-4d47-444f-b4a9-62ce8ec97528", _traceContext: {} }
-webrtc-service.ts:879:13
-Stream paused in room: 91c57352-4d47-444f-b4a9-62ce8ec97528 webrtc-service.ts:951:17
-timestamp=2025-12-14T15:17:44.355Z level=INFO fiber=#21 message="Resuming stream" fiberRuntime.ts:1446:46
-timestamp=2025-12-14T15:17:44.355Z level=INFO fiber=#21 message="Resuming stream - both local producer and backend" fiberRuntime.ts:1446:46
-timestamp=2025-12-14T15:17:44.359Z level=INFO fiber=#21 message="Resumed producer: a61ea43e-8567-4d96-a1b1-6bcd84f1bac9" fiberRuntime.ts:1446:46
-timestamp=2025-12-14T15:17:44.360Z level=INFO fiber=#21 message="Stream resumed successfully" fiberRuntime.ts:1446:46
-Received server event: streamResumed
-Object { type: "streamResumed", roomId: "91c57352-4d47-444f-b4a9-62ce8ec97528", _traceContext: {} }
-webrtc-service.ts:879:13
-Stream resumed in room: 91c57352-4d47-444f-b4a9-62ce8ec97528 webrtc-service.ts:967:17
-timestamp=2025-12-14T15:17:44.768Z level=INFO fiber=#22 message="Pausing stream" fiberRuntime.ts:1446:46
-timestamp=2025-12-14T15:17:44.769Z level=INFO fiber=#22 message="Pausing stream - both local producer and backend" fiberRuntime.ts:1446:46
-timestamp=2025-12-14T15:17:44.773Z level=INFO fiber=#22 message="Paused producer: a61ea43e-8567-4d96-a1b1-6bcd84f1bac9" fiberRuntime.ts:1446:46
+Effect-TS OpenTelemetry configured for hushfm-frontend -> http://localhost:14268/api/traces
+client.ts:103 Connecting to WebSocket: ws://192.168.10.159:3000/ws/listen/60543f75-1953-44c5-905b-1b008bce8e3a
+chunk-WQVUTWCF.js?v=1a68c788:390 timestamp=2025-12-14T15:45:16.831Z level=INFO fiber=#4 message="Successfully sent WebSocket command: getRouterCapabilities" message="{
+  \"command_type\": \"getRouterCapabilities\",
+  \"room_id\": \"unknown\"
+}"
+webrtc-service.ts:879 Received server event: routerCapabilities {type: 'routerCapabilities', roomId: '60543f75-1953-44c5-905b-1b008bce8e3a', rtpCapabilities: {…}, _traceContext: {…}}
+webrtc-service.ts:984 Router capabilities received for room: 60543f75-1953-44c5-905b-1b008bce8e3a
+chunk-WQVUTWCF.js?v=1a68c788:390 timestamp=2025-12-14T15:45:16.882Z level=INFO fiber=#4 message="Device initialized successfully"
+chunk-WQVUTWCF.js?v=1a68c788:390 timestamp=2025-12-14T15:45:16.884Z level=INFO fiber=#4 message="Successfully sent WebSocket command: requestJoin" message="{
+  \"command_type\": \"requestJoin\",
+  \"room_id\": \"60543f75-1953-44c5-905b-1b008bce8e3a\"
+}"
+webrtc-service.ts:879 Received server event: joinReady {type: 'joinReady', room: {…}, transportOptions: {…}, producerId: 'aa033024-a1eb-4964-832a-13a684982eba', rtpCapabilities: {…}, …}
+webrtc-service.ts:998 Join ready for room: 60543f75-1953-44c5-905b-1b008bce8e3a
+chunk-WQVUTWCF.js?v=1a68c788:390 timestamp=2025-12-14T15:45:16.898Z level=INFO fiber=#4 message="Created receive transport: f982fff6-de4e-4bc5-a29c-24e68bc9fffe"
+chunk-WQVUTWCF.js?v=1a68c788:390 timestamp=2025-12-14T15:45:16.899Z level=INFO fiber=#4 message="Requesting consumer creation for producer: aa033024-a1eb-4964-832a-13a684982eba"
+chunk-WQVUTWCF.js?v=1a68c788:390 timestamp=2025-12-14T15:45:16.901Z level=INFO fiber=#13 message="Successfully sent WebSocket command: requestConsumer" message="{
+  \"command_type\": \"requestConsumer\",
+  \"room_id\": \"60543f75-1953-44c5-905b-1b008bce8e3a\"
+}"
+webrtc-service.ts:879 Received server event: consumerCreated {type: 'consumerCreated', consumerId: '96266e71-f93f-4705-b7f0-c07e78ec9eaf', producerId: 'aa033024-a1eb-4964-832a-13a684982eba', consumerParameters: {…}, _traceContext: {…}}
+webrtc-service.ts:918 Consumer created: 96266e71-f93f-4705-b7f0-c07e78ec9eaf for producer aa033024-a1eb-4964-832a-13a684982eba
+chunk-WQVUTWCF.js?v=1a68c788:390 timestamp=2025-12-14T15:45:16.925Z level=INFO fiber=#15 message="Successfully sent WebSocket command: connectListenerTransport" message="{
+  \"command_type\": \"connectListenerTransport\",
+  \"room_id\": \"60543f75-1953-44c5-905b-1b008bce8e3a\"
+}"
+chunk-WQVUTWCF.js?v=1a68c788:390 timestamp=2025-12-14T15:45:16.934Z level=INFO fiber=#14 message="Created consumer: 96266e71-f93f-4705-b7f0-c07e78ec9eaf"
+chunk-WQVUTWCF.js?v=1a68c788:390 timestamp=2025-12-14T15:45:16.935Z level=INFO fiber=#14 message="Successfully consumed: 96266e71-f93f-4705-b7f0-c07e78ec9eaf for producer aa033024-a1eb-4964-832a-13a684982eba"
+chunk-WQVUTWCF.js?v=1a68c788:390 timestamp=2025-12-14T15:45:16.936Z level=INFO fiber=#4 message="Consumer creation completed: 96266e71-f93f-4705-b7f0-c07e78ec9eaf for producer: aa033024-a1eb-4964-832a-13a684982eba"
+chunk-WQVUTWCF.js?v=1a68c788:390 timestamp=2025-12-14T15:45:16.937Z level=INFO fiber=#4 message="Successfully sent WebSocket command: resumeConsumer" message="{
+  \"command_type\": \"resumeConsumer\",
+  \"room_id\": \"60543f75-1953-44c5-905b-1b008bce8e3a\"
+}"
+chunk-WQVUTWCF.js?v=1a68c788:390 timestamp=2025-12-14T15:45:16.938Z level=INFO fiber=#4 message="Requested resume for consumer 96266e71-f93f-4705-b7f0-c07e78ec9eaf"
+chunk-WQVUTWCF.js?v=1a68c788:390 timestamp=2025-12-14T15:45:16.939Z level=INFO fiber=#4 message="Signaled server to resume consumer"
+chunk-WQVUTWCF.js?v=1a68c788:390 timestamp=2025-12-14T15:45:16.940Z level=INFO fiber=#4 message="Join room flow completed successfully"
+ListenerRoom.tsx:47 🌊 Stream detected, attaching to audio element... 965365a5-088c-4502-b841-89ba365e1238
+ListenerRoom.tsx:146 Join room success, stream set to state
+ListenerRoom.tsx:62 ⚠️ Autoplay blocked or failed: NotAllowedError: play() failed because the user didn't interact with the document first. https://goo.gl.qjz9zk/xX8pDD
+(anonymous) @ ListenerRoom.tsx:62
+Promise.catch
+ListenerRoom2.createEffect.name @ ListenerRoom.tsx:61
+runComputation @ chunk-VAO2QPLJ.js?v=1a68c788:741
+updateComputation @ chunk-VAO2QPLJ.js?v=1a68c788:723
+runTop @ chunk-VAO2QPLJ.js?v=1a68c788:832
+runUserEffects @ chunk-VAO2QPLJ.js?v=1a68c788:942
+(anonymous) @ chunk-VAO2QPLJ.js?v=1a68c788:899
+runUpdates @ chunk-VAO2QPLJ.js?v=1a68c788:848
+completeUpdates @ chunk-VAO2QPLJ.js?v=1a68c788:899
+runUpdates @ chunk-VAO2QPLJ.js?v=1a68c788:849
+writeSignal @ chunk-VAO2QPLJ.js?v=1a68c788:698
+setter @ chunk-VAO2QPLJ.js?v=1a68c788:229
+joinRoom @ ListenerRoom.tsx:143
+await in joinRoom
+(anonymous) @ ListenerRoom.tsx:74
+untrack @ chunk-VAO2QPLJ.js?v=1a68c788:474
+(anonymous) @ chunk-VAO2QPLJ.js?v=1a68c788:499
+runComputation @ chunk-VAO2QPLJ.js?v=1a68c788:741
+updateComputation @ chunk-VAO2QPLJ.js?v=1a68c788:723
+runTop @ chunk-VAO2QPLJ.js?v=1a68c788:832
+runUserEffects @ chunk-VAO2QPLJ.js?v=1a68c788:942
+(anonymous) @ chunk-VAO2QPLJ.js?v=1a68c788:899
+runUpdates @ chunk-VAO2QPLJ.js?v=1a68c788:848
+completeUpdates @ chunk-VAO2QPLJ.js?v=1a68c788:899
+runUpdates @ chunk-VAO2QPLJ.js?v=1a68c788:849
+createRoot @ chunk-VAO2QPLJ.js?v=1a68c788:202
+render @ chunk-RWLZPBVC.js?v=1a68c788:170
+(anonymous) @ index.tsx:21
+webrtc-service.ts:879 Received server event: transportConnected {type: 'transportConnected', transportId: 'f982fff6-de4e-4bc5-a29c-24e68bc9fffe', _traceContext: {…}}
+webrtc-service.ts:891 Transport connected: f982fff6-de4e-4bc5-a29c-24e68bc9fffe
+webrtc-service.ts:356 ✅ ICE gathering complete for receive transport: f982fff6-de4e-4bc5-a29c-24e68bc9fffe
+favicon.ico:1  GET http://192.168.10.159:5173/favicon.ico 404 (Not Found)
+ListenerRoom.tsx:47 🌊 Stream detected, attaching to audio element... 965365a5-088c-4502-b841-89ba365e1238
+ListenerRoom.tsx:58 ✅ Audio playback started successfully
+ListenerRoom.tsx:47 🌊 Stream detected, attaching to audio element... 965365a5-088c-4502-b841-89ba365e1238
+ListenerRoom.tsx:58 ✅ Audio playback started successfully
+ListenerRoom.tsx:47 🌊 Stream detected, attaching to audio element... 965365a5-088c-4502-b841-89ba365e1238
+ListenerRoom.tsx:58 ✅ Audio playback started successfully
+ListenerRoom.tsx:47 🌊 Stream detected, attaching to audio element... 965365a5-088c-4502-b841-89ba365e1238
+ListenerRoom.tsx:58 ✅ Audio playback started successfully
+ListenerRoom.tsx:47 🌊 Stream detected, attaching to audio element... 965365a5-088c-4502-b841-89ba365e1238
+ListenerRoom.tsx:58 ✅ Audio playback started successfully
+ListenerRoom.tsx:47 🌊 Stream detected, attaching to audio element... 965365a5-088c-4502-b841-89ba365e1238
+ListenerRoom.tsx:58 ✅ Audio playback started successfully
+ListenerRoom.tsx:47 🌊 Stream detected, attaching to audio element... 965365a5-088c-4502-b841-89ba365e1238
+ListenerRoom.tsx:58 ✅ Audio playback started successfully

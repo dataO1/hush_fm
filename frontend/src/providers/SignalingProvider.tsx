@@ -220,7 +220,7 @@ export const SignalingProvider: ParentComponent = (props) => {
     }
 
     setState('currentRoomId', roomId)
-    const program = connectWebSocketEffect(`ws://localhost:3000/ws/room/${roomId}`, false)
+    const program = connectWebSocketEffect(`/ws/room/${roomId}`, false)
     try {
       await Effect.runPromise(program)
     } catch (error) {

@@ -1,0 +1,107 @@
+
+GET
+http://192.168.10.159:5173/favicon.ico
+[HTTP/1.1 404 Not Found 0ms]
+
+[vite] connecting... client.mjs:495:9
+[vite] connected. client.mjs:618:15
+Effect-TS OpenTelemetry configured for hushfm-frontend -> http://localhost:14268/api/traces telemetry.ts:311:11
+timestamp=2025-12-14T15:55:50.118Z level=INFO fiber=#5 message="Connecting to WebSocket: /ws/lobby" fiberRuntime.ts:1446:46
+Connecting to WebSocket: ws://192.168.10.159:3000/ws/lobby client.ts:103:13
+timestamp=2025-12-14T15:55:50.262Z level=INFO fiber=#5 message="Processing queued messages" fiberRuntime.ts:1446:46
+timestamp=2025-12-14T15:55:56.527Z level=INFO fiber=#13 message="Connecting to WebSocket: /ws/room/22253c0e-97f5-4f90-a49e-06cd45a9846c" fiberRuntime.ts:1446:46
+Connecting to WebSocket: ws://192.168.10.159:3000/ws/room/22253c0e-97f5-4f90-a49e-06cd45a9846c client.ts:103:13
+timestamp=2025-12-14T15:55:56.630Z level=INFO fiber=#13 message="Processing queued messages" fiberRuntime.ts:1446:46
+timestamp=2025-12-14T15:55:59.394Z level=INFO fiber=#15 message="Device initialized successfully" fiberRuntime.ts:1446:46
+timestamp=2025-12-14T15:55:59.397Z level=INFO fiber=#15 message="Created send transport: bc6f2ac6-4e76-44dc-8d60-98c884783017" fiberRuntime.ts:1446:46
+timestamp=2025-12-14T15:56:00.474Z level=INFO fiber=#15 message="Got user media stream" fiberRuntime.ts:1446:46
+🎤 Microphone Track Acquired: Family 17h/19h/1ah HD Audio Controller Digital Microphone webrtc-flows.ts:63:17
+🎤 Settings: {
+  "autoGainControl": false,
+  "channelCount": 2,
+  "deviceId": "sAlmWlOPFAggst3QLqejKNH4aVZOz4ZHidUgmE4YG0I=",
+  "echoCancellation": false,
+  "groupId": "gxFm4q1BetE91kgOy2lIN80A/ciwduiKBexLLG2ORY8=",
+  "noiseSuppression": false
+} webrtc-flows.ts:64:17
+timestamp=2025-12-14T15:56:00.477Z level=INFO fiber=#15 message="Producing track: audio track with ID {bd080ce0-389d-4b29-89d5-659b12ed9601}" message="{
+  \"track_id\": \"{bd080ce0-389d-4b29-89d5-659b12ed9601}\",
+  \"track_kind\": \"audio\",
+  \"track_label\": \"Family 17h/19h/1ah HD Audio Controller Digital Microphone\",
+  \"track_ready_state\": \"live\",
+  \"track_enabled\": true
+}" fiberRuntime.ts:1446:46
+DTLS params being sent:
+Object { role: "client", fingerprints: (1) […] }
+webrtc-service.ts:578:19
+Trace context being sent:
+Object { traceparent: "00-2a4ab4da12dc0da2-e233a3aa-01", tracestate: null, metadata: null }
+webrtc-service.ts:579:19
+Full command being sent: {
+  "type": "connectDjTransport",
+  "dtlsParameters": {
+    "role": "client",
+    "fingerprints": [
+      {
+        "algorithm": "sha-256",
+        "value": "98:EB:C7:25:41:77:27:1D:D5:A4:84:B2:03:58:32:4B:7A:B3:F0:35:AC:7E:9D:F7:FF:17:D7:9B:8E:C3:BF:06"
+      }
+    ]
+  },
+  "_traceContext": {
+    "traceparent": "00-2a4ab4da12dc0da2-e233a3aa-01",
+    "tracestate": null,
+    "metadata": null
+  }
+} webrtc-service.ts:587:19
+timestamp=2025-12-14T15:56:00.505Z level=INFO fiber=#17 message="Successfully sent WebSocket command: connectDjTransport" message="{
+  \"command_type\": \"connectDjTransport\",
+  \"room_id\": \"c45abd11-e864-4826-b31b-f906269a7eca\"
+}" fiberRuntime.ts:1446:46
+Transport bc6f2ac6-4e76-44dc-8d60-98c884783017 ICE gathering state: gathering webrtc-service.ts:559:15
+🔍 ICE gathering for send transport: bc6f2ac6-4e76-44dc-8d60-98c884783017 webrtc-service.ts:565:17
+Transport bc6f2ac6-4e76-44dc-8d60-98c884783017 ICE gathering state: complete webrtc-service.ts:559:15
+✅ ICE gathering complete for send transport: bc6f2ac6-4e76-44dc-8d60-98c884783017 webrtc-service.ts:562:17
+Produce command sent to backend, waiting for ProducerCreated event webrtc-service.ts:1367:23
+Received server event: transportConnected
+Object { type: "transportConnected", transportId: "4f021994-7dcb-4972-a9c5-3f5d7b6e98fb", _traceContext: {…} }
+webrtc-service.ts:1089:13
+Transport connected: 4f021994-7dcb-4972-a9c5-3f5d7b6e98fb webrtc-service.ts:1101:17
+Received server event: producerCreated
+Object { type: "producerCreated", producerId: "bae9e060-e6b9-42e1-a0b5-84ff333704a9", roomId: "22253c0e-97f5-4f90-a49e-06cd45a9846c", _traceContext: {} }
+webrtc-service.ts:1089:13
+Producer created: bae9e060-e6b9-42e1-a0b5-84ff333704a9 in room 22253c0e-97f5-4f90-a49e-06cd45a9846c webrtc-service.ts:1107:17
+MediaSoup callback called with backend producer ID: bae9e060-e6b9-42e1-a0b5-84ff333704a9 webrtc-service.ts:1118:19
+🎤 Producer track health check:
+Object { producer_id: "bae9e060-e6b9-42e1-a0b5-84ff333704a9", track_id: "{bd080ce0-389d-4b29-89d5-659b12ed9601}", track_kind: "audio", track_label: "Family 17h/19h/1ah HD Audio Controller Digital Microphone", ready_state: "live", enabled: true, muted: false }
+webrtc-service.ts:680:15
+timestamp=2025-12-14T15:56:00.565Z level=INFO fiber=#15 message="Successfully created producer with backend ID: bae9e060-e6b9-42e1-a0b5-84ff333704a9" message="{
+  \"producer_id\": \"bae9e060-e6b9-42e1-a0b5-84ff333704a9\",
+  \"track_kind\": \"audio\",
+  \"room_id\": \"22253c0e-97f5-4f90-a49e-06cd45a9846c\"
+}" fiberRuntime.ts:1446:46
+timestamp=2025-12-14T15:56:00.565Z level=INFO fiber=#15 message="Created producer: bae9e060-e6b9-42e1-a0b5-84ff333704a9" fiberRuntime.ts:1446:46
+timestamp=2025-12-14T15:56:00.566Z level=INFO fiber=#15 message="Publish room flow completed successfully" fiberRuntime.ts:1446:46
+timestamp=2025-12-14T15:56:04.273Z level=INFO fiber=#18 message="Resuming stream" fiberRuntime.ts:1446:46
+timestamp=2025-12-14T15:56:04.273Z level=INFO fiber=#18 message="Resuming stream - both local producer and backend" fiberRuntime.ts:1446:46
+timestamp=2025-12-14T15:56:04.276Z level=INFO fiber=#18 message="Resumed producer: bae9e060-e6b9-42e1-a0b5-84ff333704a9" fiberRuntime.ts:1446:46
+timestamp=2025-12-14T15:56:04.277Z level=INFO fiber=#18 message="Stream resumed successfully" fiberRuntime.ts:1446:46
+Received server event: streamResumed
+Object { type: "streamResumed", roomId: "22253c0e-97f5-4f90-a49e-06cd45a9846c", _traceContext: {} }
+webrtc-service.ts:1089:13
+Stream resumed in room: 22253c0e-97f5-4f90-a49e-06cd45a9846c webrtc-service.ts:1177:17
+WebRTC: ICE failed, add a STUN server and see about:webrtc for more details
+Transport bc6f2ac6-4e76-44dc-8d60-98c884783017 connection state: failed webrtc-service.ts:528:15
+❌ send transport connection FAILED: bc6f2ac6-4e76-44dc-8d60-98c884783017 webrtc-service.ts:532:17
+🔍 Diagnosing ICE failure for send transport bc6f2ac6-4e76-44dc-8d60-98c884783017 webrtc-service.ts:478:13
+Network diagnosis:
+Object { userAgent: "Mozilla/5.0 (X11; Linux x86_64; rv:109.0) Gecko/20100101 Firefox/128.0", onLine: true, connection: "unknown" }
+webrtc-service.ts:482:15
+Expected local IP: 192.168.10.159 webrtc-service.ts:490:15
+Producer transport failed - attempting automatic recovery webrtc-service.ts:535:19
+Transport bc6f2ac6-4e76-44dc-8d60-98c884783017 failed 1 times webrtc-service.ts:342:13
+Attempting automatic recovery for send transport bc6f2ac6-4e76-44dc-8d60-98c884783017 (attempt 1/3) webrtc-service.ts:345:15
+🔄 Attempting to recover send transport bc6f2ac6-4e76-44dc-8d60-98c884783017 webrtc-service.ts:362:15
+Transport bc6f2ac6-4e76-44dc-8d60-98c884783017 failed - MediaSoup version doesn't support ICE restart webrtc-service.ts:370:17
+Will rely on connection recovery mechanisms if available webrtc-service.ts:371:17
+The connection to ws://192.168.10.159:3000/ws/lobby was interrupted while the page was loading.
