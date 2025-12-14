@@ -91,7 +91,6 @@ impl RoomState {
         let was_public = self.is_public();
         
         self.audio_producer = Some(producer);
-        self.room.dj_streaming = true;
         
         // Transition to live if all resources are ready
         if self.router.is_some() && self.dj_transport.is_some() {
@@ -99,32 +98,49 @@ impl RoomState {
         }
         
         let is_public_now = self.is_public();
+        let is_streaming = self.is_streaming();
         
         tracing::info!(
             status_after = ?self.status,
             was_public = was_public,
             is_public_now = is_public_now,
-            dj_streaming = self.room.dj_streaming,
+            is_streaming = is_streaming,
+            producer_paused = self.is_producer_paused(),
             "Set audio producer on room"
         );
         
         self.update_activity();
     }
 
+    /// Check if producer is currently paused (MediaSoup state as single source of truth)
+    pub fn is_producer_paused(&self) -> bool {
+        self.audio_producer.as_ref().map_or(true, |p| p.paused())
+    }
+    
+    /// Check if room is currently streaming (has producer and not paused)
+    pub fn is_streaming(&self) -> bool {
+        self.audio_producer.is_some() && !self.is_producer_paused()
+    }
+    
+    /// Sync the room's dj_streaming field with the actual producer state
+    pub fn sync_streaming_state(&mut self) {
+        self.room.dj_streaming = self.is_streaming();
+    }
+
     /// Pause the room (keep connections, stop streaming)
+    /// Note: This only updates room status, actual producer pause happens in WebRTC layer
     pub fn pause(&mut self) {
         if matches!(self.status, RoomStatus::Live) {
             self.status = RoomStatus::Paused;
-            self.room.dj_streaming = false;
             self.update_activity();
         }
     }
 
     /// Resume the room
+    /// Note: This only updates room status, actual producer resume happens in WebRTC layer  
     pub fn resume(&mut self) {
         if matches!(self.status, RoomStatus::Paused) && self.audio_producer.is_some() {
             self.status = RoomStatus::Live;
-            self.room.dj_streaming = true;
             self.update_activity();
         }
     }
@@ -132,7 +148,6 @@ impl RoomState {
     /// Start closing the room
     pub fn start_closing(&mut self) {
         self.status = RoomStatus::Closing;
-        self.room.dj_streaming = false;
         self.update_activity();
     }
 
@@ -235,7 +250,8 @@ impl RoomStateManager {
                 has_router = room_state.router.is_some(),
                 has_dj_transport = room_state.dj_transport.is_some(),
                 has_audio_producer = room_state.audio_producer.is_some(),
-                dj_streaming = room_state.room.dj_streaming,
+                is_streaming = room_state.is_streaming(),
+                producer_paused = room_state.is_producer_paused(),
                 is_public = is_public,
                 "Checking room visibility"
             );

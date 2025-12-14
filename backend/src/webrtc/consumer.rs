@@ -40,7 +40,7 @@ impl ConsumerManager {
         let actual_consumer_id = consumer.id().to_string();
 
         // Generate consumer parameters for client
-        let consumer_parameters = Self::generate_consumer_parameters(&consumer).await?;
+        let consumer_parameters = Self::generate_consumer_parameters(&consumer, producer).await?;
 
         tracing::info!(
             "Created audio consumer {} for listener {} in room {}",
@@ -53,7 +53,7 @@ impl ConsumerManager {
     }
 
     /// Generate consumer parameters for client
-    async fn generate_consumer_parameters(consumer: &Consumer) -> anyhow::Result<Value> {
+    async fn generate_consumer_parameters(consumer: &Consumer, producer: &Producer) -> anyhow::Result<Value> {
         // Get RTP parameters and convert to wrapper
         let rtp_parameters = consumer.rtp_parameters().clone();
         let rtp_wrapper = crate::models::schemas::RtpParametersWrapper::from(rtp_parameters);
@@ -90,7 +90,7 @@ impl ConsumerManager {
             kind: "audio".to_string(),
             rtp_parameters: rtp_wrapper,
             r#type: "simple".to_string(), // Simple consumer type for local network
-            producer_paused: consumer.paused(),
+            producer_paused: producer.paused(),
         };
 
         // Serialize the struct to Value - serde will handle the field naming correctly
@@ -173,7 +173,6 @@ pub struct ListenerState {
     pub consumer_id: Option<String>,
     pub producer_id: Option<String>,
     pub connected_at: chrono::DateTime<chrono::Utc>,
-    pub is_paused: bool,
 }
 
 impl ListenerState {
@@ -192,7 +191,6 @@ impl ListenerState {
             consumer_id: None,
             producer_id: None,
             connected_at: chrono::Utc::now(),
-            is_paused: false,
         }
     }
 
@@ -205,6 +203,11 @@ impl ListenerState {
     pub fn has_consumer(&self) -> bool {
         self.consumer.is_some()
     }
+    
+    /// Check if consumer is currently paused (MediaSoup state as single source of truth)
+    pub fn is_consumer_paused(&self) -> bool {
+        self.consumer.as_ref().map_or(true, |c| c.paused())
+    }
 }
 
 /// Consumer state for listener management (legacy - use ListenerState instead)
@@ -216,7 +219,6 @@ pub struct ConsumerState {
     pub listener_id: String,
     pub producer_id: String,
     pub created_at: chrono::DateTime<chrono::Utc>,
-    pub is_paused: bool,
 }
 
 impl ConsumerState {
@@ -234,19 +236,21 @@ impl ConsumerState {
             listener_id,
             producer_id,
             created_at: chrono::Utc::now(),
-            is_paused: false,
         }
+    }
+
+    /// Check if consumer is currently paused (MediaSoup state as single source of truth)
+    pub fn is_paused(&self) -> bool {
+        self.consumer.paused()
     }
 
     pub async fn pause(&mut self) -> anyhow::Result<()> {
         ConsumerManager::pause_consumer(&self.consumer).await?;
-        self.is_paused = true;
         Ok(())
     }
 
     pub async fn resume(&mut self) -> anyhow::Result<()> {
         ConsumerManager::resume_consumer(&self.consumer).await?;
-        self.is_paused = false;
         Ok(())
     }
 

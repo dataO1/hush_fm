@@ -15,7 +15,7 @@ export default function DJRoom() {
   const navigate = useNavigate()
 
   // Use new providers instead of local state
-  const { connectionState, isStreaming, selectedDeviceId } = useWebRTC()
+  const { connectionState, isStreaming, selectedDeviceId, isProducerPaused } = useWebRTC()
   const { connectToRoom, sendCommand, getRoomWebSocket } = useSignaling()
 
   const [roomId] = createSignal(params.roomId)
@@ -24,7 +24,6 @@ export default function DJRoom() {
   const [isInitializing, setIsInitializing] = createSignal(true)
 
   // Simple state - streaming state managed by flows
-  const [isMuted, setIsMuted] = createSignal(false)
   const [isRecording, setIsRecording] = createSignal(false)
   
   // Device selection state
@@ -60,11 +59,11 @@ export default function DJRoom() {
   createEffect(() => {
     const connState = connectionState()
     const streaming = isStreaming()
-    const muted = isMuted()
+    const producerPaused = isProducerPaused()
 
     // Only update status when actually streaming
     if (streaming) {
-      setStatus(muted ? 'muted' : 'live')
+      setStatus(producerPaused ? 'muted' : 'live')
       setIsInitializing(false)
       setError(null) // Clear any previous errors on success
     } else if (connState === 'failed') {
@@ -122,10 +121,10 @@ export default function DJRoom() {
     if (!isRecording()) return // Only allow mute when recording
 
     try {
-      const currentMuted = isMuted()
-      const program = toggleProducerFlow(!currentMuted) // pause = !currentMuted (if not muted, pause)
+      const currentlyPaused = isProducerPaused()
+      const program = toggleProducerFlow(!currentlyPaused) // pause = !currentlyPaused (if not paused, pause)
       await Effect.runPromise(program)
-      setIsMuted(!currentMuted)
+      // Producer pause state will be updated automatically via WebRTC service subscription
     } catch (err: any) {
       console.error('Failed to toggle mute:', err)
       setError(err.message)
@@ -142,7 +141,6 @@ export default function DJRoom() {
         const program = toggleProducerFlow(true) // pause the stream
         await Effect.runPromise(program)
         setIsRecording(false)
-        setIsMuted(false) // Reset mute state
         setStatus('ready')
       } catch (err: any) {
         console.error('Failed to stop recording:', err)
@@ -267,12 +265,12 @@ export default function DJRoom() {
                       {/* Mute Button */}
                       <button
                         class={`btn btn-sm gap-2 ${
-                          isMuted() ? 'btn-warning hover:btn-warning' : 'btn-success hover:btn-success'
+                          isProducerPaused() ? 'btn-warning hover:btn-warning' : 'btn-success hover:btn-success'
                         }`}
                         onClick={toggleMute}
                         disabled={status() === 'error' || status() === 'connecting'}
                       >
-                        {isMuted() ? (
+                        {isProducerPaused() ? (
                           <>
                             <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                               <path stroke-linecap="round" stroke-linejoin="round" stroke-width={2} d="M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z" />

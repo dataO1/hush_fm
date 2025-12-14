@@ -168,7 +168,6 @@ pub struct ProducerState {
     pub producer_id: String,
     pub room_id: Uuid,
     pub created_at: chrono::DateTime<chrono::Utc>,
-    pub is_paused: bool,
 }
 
 impl ProducerState {
@@ -178,19 +177,21 @@ impl ProducerState {
             producer_id,
             room_id,
             created_at: chrono::Utc::now(),
-            is_paused: false,
         }
+    }
+
+    /// Check if producer is currently paused (MediaSoup state as single source of truth)
+    pub fn is_paused(&self) -> bool {
+        self.producer.paused()
     }
 
     pub async fn pause(&mut self) -> anyhow::Result<()> {
         ProducerManager::pause_producer(&self.producer).await?;
-        self.is_paused = true;
         Ok(())
     }
 
     pub async fn resume(&mut self) -> anyhow::Result<()> {
         ProducerManager::resume_producer(&self.producer).await?;
-        self.is_paused = false;
         Ok(())
     }
 

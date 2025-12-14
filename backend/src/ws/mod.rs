@@ -686,7 +686,8 @@ async fn handle_produce(
         span.record("producer_id", &producer_id);
         span.record("room_is_public_now", room_state_guard.is_public());
         span.record("room_status_after", format!("{:?}", room_state_guard.status));
-        span.record("room_dj_streaming", room_state_guard.room.dj_streaming);
+        room_state_guard.sync_streaming_state();
+        span.record("room_is_streaming", room_state_guard.is_streaming());
 
         tracing::info!(
             producer_id = %producer_id,
@@ -715,7 +716,13 @@ async fn handle_stop_producing(
     if let Some(producer) = &room_state_guard.audio_producer {
         ProducerManager::pause_producer(producer).await?;
         room_state_guard.pause();
+        room_state_guard.sync_streaming_state(); // Sync dj_streaming with producer state
         tracing::info!("Producer paused for room {}", room_id);
+        
+        // Broadcast room update to all listeners
+        let room = room_state_guard.room.clone();
+        drop(room_state_guard); // Release lock before broadcasting
+        state.broadcast_manager.broadcast_room_updated(room);
     }
 
     Ok(())
@@ -760,7 +767,13 @@ async fn handle_resume_producing(
     if let Some(producer) = &room_state_guard.audio_producer {
         ProducerManager::resume_producer(producer).await?;
         room_state_guard.resume();
+        room_state_guard.sync_streaming_state(); // Sync dj_streaming with producer state
         tracing::info!("Producer resumed for room {}", room_id);
+        
+        // Broadcast room update to all listeners
+        let room = room_state_guard.room.clone();
+        drop(room_state_guard); // Release lock before broadcasting
+        state.broadcast_manager.broadcast_room_updated(room);
     }
 
     Ok(())

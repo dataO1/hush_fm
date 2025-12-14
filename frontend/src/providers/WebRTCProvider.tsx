@@ -103,6 +103,9 @@ export type WebRTCContextType = {
   isStreaming: () => boolean
   setIsStreaming: (streaming: boolean) => void
   
+  isProducerPaused: () => boolean
+  setIsProducerPaused: (paused: boolean) => void
+  
   audioLevel: () => number
   setAudioLevel: (level: number) => void
   
@@ -146,6 +149,7 @@ export const WebRTCProvider: ParentComponent = (props) => {
   const [isStreaming, setIsStreaming] = createSignal(false)
   const [audioLevel, setAudioLevel] = createSignal(0)
   const [selectedDeviceId, setSelectedDeviceId] = createSignal<Option.Option<string>>(Option.none())
+  const [isProducerPaused, setIsProducerPaused] = createSignal(true) // Producer starts paused
 
   // WebRTC Service integration
   const webrtcServiceLayer = WebRTCServiceLive
@@ -186,7 +190,7 @@ export const WebRTCProvider: ParentComponent = (props) => {
         serviceRuntime = Option.some(runtime)
         
         // Subscribe to service state changes
-        const subscribeEffect = pipe(
+        const subscribeStateEffect = pipe(
           WebRTCService,
           Effect.andThen(service => 
             service.subscribeToStateChanges((serviceState: WebRTCState) => {
@@ -196,10 +200,28 @@ export const WebRTCProvider: ParentComponent = (props) => {
           )
         )
         
-        const unsub = await Effect.runPromise(
-          Effect.provide(subscribeEffect, runtime)
+        // Subscribe to producer pause state changes
+        const subscribeProducerPauseEffect = pipe(
+          WebRTCService,
+          Effect.andThen(service => 
+            service.subscribeToProducerPauseState((isPaused: boolean) => {
+              setIsProducerPaused(isPaused)
+            })
+          )
         )
-        unsubscribe = Option.some(unsub)
+        
+        const unsubState = await Effect.runPromise(
+          Effect.provide(subscribeStateEffect, runtime)
+        )
+        
+        const unsubProducerPause = await Effect.runPromise(
+          Effect.provide(subscribeProducerPauseEffect, runtime)
+        )
+        
+        unsubscribe = Option.some(() => {
+          unsubState()
+          unsubProducerPause()
+        })
         
       } catch (error) {
         console.error('Failed to initialize WebRTC service:', error)
@@ -295,6 +317,8 @@ export const WebRTCProvider: ParentComponent = (props) => {
     setConnectionState,
     isStreaming,
     setIsStreaming,
+    isProducerPaused,
+    setIsProducerPaused,
     audioLevel,
     setAudioLevel,
     selectedDeviceId,

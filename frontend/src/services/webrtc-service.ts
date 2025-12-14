@@ -217,6 +217,10 @@ export interface WebRTCService {
   readonly getState: () => Effect.Effect<WebRTCState, never>
   readonly subscribeToStateChanges: (callback: (state: WebRTCState) => void) => Effect.Effect<() => void, never>
   
+  // Producer pause state (MediaSoup state as single source of truth)
+  readonly subscribeToProducerPauseState: (callback: (isPaused: boolean) => void) => Effect.Effect<() => void, never>
+  readonly getProducerPausedState: () => Effect.Effect<boolean, never>
+  
   // Cleanup operations
   readonly cleanup: () => Effect.Effect<void, never>
 }
@@ -252,6 +256,9 @@ class WebRTCServiceImpl implements WebRTCService {
   private deviceLoaded = false
   private rtpCapabilities: Option.Option<types.RtpCapabilities> = Option.none()
   private deviceError: Option.Option<string> = Option.none()
+  
+  // Producer pause state (MediaSoup state as single source of truth)
+  private producerPauseSubscribers = new Set<(isPaused: boolean) => void>()
 
   /**
    * Get current state snapshot
@@ -286,6 +293,22 @@ class WebRTCServiceImpl implements WebRTCService {
   private notifyStateChange(): void {
     const state = this.getStateSnapshot()
     this.stateSubscribers.forEach(callback => callback(state))
+  }
+  
+  /**
+   * Get current producer pause state
+   */
+  private getProducerPauseState(): boolean {
+    const producer = Array.from(this.producers.values())[0] // Assuming one producer for DJ
+    return producer ? producer.paused : true
+  }
+  
+  /**
+   * Notify producer pause state subscribers
+   */
+  private notifyProducerPauseChange(): void {
+    const isPaused = this.getProducerPauseState()
+    this.producerPauseSubscribers.forEach(callback => callback(isPaused))
   }
 
   /**
@@ -1167,8 +1190,11 @@ class WebRTCServiceImpl implements WebRTCService {
               track,
               codecOptions: {
                 opusStereo: true,
-                opusDtx: true,
+                opusDtx: false, // Disable DTX - bad for music (cuts silence)
               },
+              encodings: [
+                { maxBitrate: 128000 } // 128 kbps for stereo music quality
+              ],
             })
             
             // The producer now has the backend's ID (set via callback)
@@ -1219,6 +1245,7 @@ class WebRTCServiceImpl implements WebRTCService {
           try: async () => {
             await producer.pause()
             this.notifyStateChange()
+            this.notifyProducerPauseChange() // Notify producer pause state change
           },
           catch: (error) => new ProducerError(`Failed to pause producer: ${error}`, error)
         })
@@ -1240,6 +1267,7 @@ class WebRTCServiceImpl implements WebRTCService {
           try: async () => {
             await producer.resume()
             this.notifyStateChange()
+            this.notifyProducerPauseChange() // Notify producer pause state change
           },
           catch: (error) => new ProducerError(`Failed to resume producer: ${error}`, error)
         })
@@ -1465,6 +1493,12 @@ class WebRTCServiceImpl implements WebRTCService {
             // Store consumer and set up events
             this.consumers.set(consumer.id, consumer)
             this.setupConsumerEvents(consumer)
+            
+            // Resume consumer if producer is not paused but consumer started paused
+            if (!nativeOptions.producerPaused && consumer.paused) {
+              await consumer.resume()
+            }
+            
             this.notifyStateChange()
             
             return consumer.id
@@ -1790,6 +1824,23 @@ class WebRTCServiceImpl implements WebRTCService {
       // Return cleanup function
       return () => {
         this.stateSubscribers.delete(callback)
+      }
+    })
+
+  // Producer pause state operations (MediaSoup state as single source of truth)
+  getProducerPausedState = (): Effect.Effect<boolean, never> =>
+    Effect.succeed(this.getProducerPauseState())
+
+  subscribeToProducerPauseState = (callback: (isPaused: boolean) => void): Effect.Effect<() => void, never> =>
+    Effect.sync(() => {
+      this.producerPauseSubscribers.add(callback)
+      
+      // Send initial state
+      callback(this.getProducerPauseState())
+      
+      // Return cleanup function
+      return () => {
+        this.producerPauseSubscribers.delete(callback)
       }
     })
 

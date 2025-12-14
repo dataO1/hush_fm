@@ -88,7 +88,7 @@ impl AppState {
     pub async fn start_stream(&self, room_id: Uuid, producer_id: String) {
         if let Some(room_state) = self.room_manager.get_room(&room_id) {
             let mut state = room_state.write().await;
-            state.room.dj_streaming = true;
+            state.sync_streaming_state(); // Sync dj_streaming with actual producer state
             if state.status == RoomStatus::Setup {
                 state.status = RoomStatus::Live;
             } else if state.status == RoomStatus::Paused {

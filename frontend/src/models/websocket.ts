@@ -398,7 +398,8 @@ export const ConsumerOptionsFromApi = {
     id: api.id,
     producerId: api.producerId,
     kind: api.kind as 'audio' | 'video',
-    rtpParameters: api.rtpParameters as any
+    rtpParameters: api.rtpParameters as any,
+    producerPaused: api.producerPaused ?? false
   }),
   encode: (native: InternalConsumerOptions): ApiConsumerParameters => ({
     id: native.id,
@@ -406,7 +407,7 @@ export const ConsumerOptionsFromApi = {
     kind: native.kind,
     rtpParameters: native.rtpParameters as any,
     type: 'simple',
-    producerPaused: false
+    producerPaused: native.producerPaused ?? false
   })
 }
 
@@ -445,4 +446,5 @@ export interface InternalConsumerOptions {
   producerId: string
   kind: 'audio' | 'video'
   rtpParameters: types.RtpParameters
+  producerPaused?: boolean
 }
