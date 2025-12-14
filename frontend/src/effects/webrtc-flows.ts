@@ -207,7 +207,7 @@ export const joinRoomFlow = (
   roomId: string,
   listenerWebSocket: WebSocket
 ): Effect.Effect<
-  { consumerId: string, audioElement: HTMLAudioElement },
+  { consumerId: string, stream: MediaStream },
   JoinFlowError
 > =>
   pipe(
@@ -305,17 +305,26 @@ export const joinRoomFlow = (
           Effect.mapError(error => new JoinFlowError(error.message, 'createConsumer', error))
         )
       )
+    // ✅ NEW STEP: Signal Server to Resume
+    yield* _(
+      pipe(
+        WebRTCService,
+        Effect.andThen(service => service.resumeConsumer(consumerId)),
+        Effect.mapError(error => new JoinFlowError(error.message, 'resumeConsumer', error)),
+        Effect.tap(() => Effect.logInfo("Signaled server to resume consumer"))
+      )
+    )
 
       // ✅ Step 10: Create audio element
-      const audioElement = yield* _(
+      const stream = yield* _(
         pipe(
           WebRTCService,
-          Effect.andThen(service => service.createAudioElement(consumerId)),
+          Effect.andThen(service => service.getConsumerStream(consumerId)),
           Effect.mapError(error => new JoinFlowError(error.message, 'createAudioElement', error))
         )
       )
 
-      return { consumerId, audioElement }
+      return { consumerId, stream }
     }),
     Effect.tap(() => Effect.logInfo('Join room flow completed successfully')),
     Effect.tapError(error => {

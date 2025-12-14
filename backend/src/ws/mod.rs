@@ -113,7 +113,7 @@ async fn handle_lobby_socket(socket: WebSocket, state: AppState) {
 async fn handle_listener_socket(socket: WebSocket, room_id: Uuid, state: AppState) {
     let (mut sender, mut receiver) = socket.split();
     let connection_id = Uuid::new_v4();
-    
+
     tracing::info!(
         room_id = %room_id,
         connection_id = %connection_id,
@@ -127,14 +127,14 @@ async fn handle_listener_socket(socket: WebSocket, room_id: Uuid, state: AppStat
     if let Some(room_state) = state.get_room_state(&room_id) {
         let mut room_state_guard = room_state.write().await;
         room_state_guard.room.listener_count += 1;
-        
+
         tracing::info!(
             room_id = %room_id,
             connection_id = %connection_id,
             new_listener_count = room_state_guard.room.listener_count,
             "Listener count incremented"
         );
-        
+
         // Broadcast listener count update
         let lobby_event = crate::models::events::LobbyEvent::RoomUpdated {
             room: room_state_guard.room.clone().into(),
@@ -146,7 +146,7 @@ async fn handle_listener_socket(socket: WebSocket, room_id: Uuid, state: AppStat
     // Handle both incoming messages and outgoing events concurrently
     let state_clone = state.clone();
     let event_tx_clone = event_tx.clone();
-    
+
     loop {
         tokio::select! {
             // Handle incoming WebSocket messages
@@ -192,7 +192,7 @@ async fn handle_listener_socket(socket: WebSocket, room_id: Uuid, state: AppStat
                     if let Ok(msg) = serde_json::to_string(&event) {
                         if sender.send(Message::Text(msg)).await.is_err() {
                             tracing::debug!(
-                                room_id = %room_id, 
+                                room_id = %room_id,
                                 connection_id = %connection_id,
                                 "Failed to send event to listener, connection likely closed"
                             );
@@ -206,14 +206,14 @@ async fn handle_listener_socket(socket: WebSocket, room_id: Uuid, state: AppStat
             }
         }
     }
-    
+
     // Connection closed - perform cleanup
     tracing::info!(
         room_id = %room_id,
         connection_id = %connection_id,
         "Listener WebSocket connection closed, performing cleanup"
     );
-    
+
     // Automatic cleanup on disconnect
     if let Err(e) = handle_listener_leave(room_id, &state).await {
         tracing::error!(
@@ -223,7 +223,7 @@ async fn handle_listener_socket(socket: WebSocket, room_id: Uuid, state: AppStat
             "Failed to clean up listener resources on disconnect"
         );
     }
-    
+
     tracing::info!(
         room_id = %room_id,
         connection_id = %connection_id,
@@ -251,7 +251,7 @@ async fn handle_client_command(
                     return;
                 }
             };
-            
+
             // Connect DJ's WebRTC transport
             match handle_connect_transport(room_id, native_dtls_parameters, state).await {
                 Ok(transport_id) => {
@@ -392,6 +392,7 @@ async fn handle_client_command(
         ClientCommand::ConnectListenerTransport { .. } |
         ClientCommand::GetRouterCapabilities { .. } |
         ClientCommand::LeaveRoom { .. } |
+        ClientCommand::ResumeConsumer { .. } |
         ClientCommand::RequestConsumer { .. } => {
             tracing::warn!("Received listener command on DJ handler: {:?}", cmd.command_type());
             let response = ServerEvent::CommandFailed {
@@ -419,6 +420,80 @@ async fn handle_listener_command(
     let _parent_context = extract_trace_context_from_command(&cmd);
 
     match cmd {
+        ClientCommand::ResumeConsumer { consumer_id, .. } => {
+            tracing::info!(
+                room_id = %room_id,
+                consumer_id = %consumer_id,
+                "Received request to resume consumer"
+            );
+
+            let mut success = false;
+            let mut error_msg = String::new();
+
+            if let Some(room_state) = state.get_room_state(&room_id) {
+                // RoomState uses DashMap for listeners, so we don't need a write lock on the whole room
+                // We just need to access the listeners map
+
+                // Your listeners map is keyed by listener_id (which is connection_id in string form)
+                let listener_id = connection_id.to_string();
+
+                if let Some(mut listener_entry) = room_state.read().await.listeners.get_mut(&listener_id) {
+                    let listener_state = listener_entry.value_mut();
+
+                    // Verify this listener actually owns the requested consumer
+                    if let Some(current_consumer_id) = &listener_state.consumer_id {
+                        if current_consumer_id == &consumer_id {
+                            if let Some(consumer) = &listener_state.consumer {
+                                 match consumer.resume().await {
+                                    Ok(_) => {
+                                        tracing::info!("Successfully resumed mediasoup consumer {}", consumer_id);
+                                        success = true;
+                                    },
+                                    Err(e) => {
+                                        error_msg = format!("Mediasoup error: {}", e);
+                                        tracing::error!("Failed to resume consumer {}: {}", consumer_id, e);
+                                    }
+                                }
+                            } else {
+                                error_msg = "Consumer object missing in listener state".to_string();
+                            }
+                        } else {
+                            error_msg = format!("Listener owns different consumer: {:?}", current_consumer_id);
+                        }
+                    } else {
+                        error_msg = "Listener has no active consumer".to_string();
+                    }
+                } else {
+                    error_msg = format!("Listener {} not found in room", listener_id);
+                }
+            } else {
+                error_msg = "Room not found".to_string();
+            }
+
+            // Send response back to client
+            // if success {
+            //      let mut response = ServerEvent::ConsumerResumed {
+            //         consumer_id: consumer_id.clone(),
+            //         trace_context: None,
+            //     };
+            //     inject_trace_context_into_event(&mut response, &tracing::Span::current());
+            //
+            //     if let Ok(msg) = serde_json::to_string(&response) {
+            //         sender.send(Message::Text(msg)).await.ok();
+            //     }
+            // } else {
+            //      let mut response = ServerEvent::CommandFailed {
+            //         command: "resumeConsumer".to_string(),
+            //         error: format!("Failed to resume consumer {}: {}", consumer_id, error_msg),
+            //         trace_context: None,
+            //     };
+            //     inject_trace_context_into_event(&mut response, &tracing::Span::current());
+            //
+            //     if let Ok(msg) = serde_json::to_string(&response) {
+            //         sender.send(Message::Text(msg)).await.ok();
+            //     }
+            // }
+        }
         ClientCommand::GetRouterCapabilities { room_id: requested_room_id, .. } => {
             // Validate that the requested room ID matches the WebSocket path
             if requested_room_id != room_id.to_string() {
@@ -475,7 +550,7 @@ async fn handle_listener_command(
                     trace_context: None,
                 };
                 inject_trace_context_into_event(&mut response, &tracing::Span::current());
-                
+
                 if let Ok(msg) = serde_json::to_string(&response) {
                     sender.send(Message::Text(msg)).await.ok();
                 }
@@ -523,7 +598,7 @@ async fn handle_listener_command(
                     return;
                 }
             };
-            
+
             // Connect listener's WebRTC transport
             let listener_id = connection_id.to_string(); // Use consistent connection_id as listener_id
             match handle_connect_listener_transport(room_id, listener_id, native_dtls_parameters, state).await {
@@ -538,7 +613,7 @@ async fn handle_listener_command(
                     if let Ok(msg) = serde_json::to_string(&response) {
                         sender.send(Message::Text(msg)).await.ok();
                     }
-                    
+
                     // Consumer creation is handled separately via requestConsumer command
                 }
                 Err(e) => {
@@ -740,14 +815,14 @@ async fn handle_stop_producing(
         room_state_guard.pause();
         room_state_guard.sync_streaming_state(); // Sync dj_streaming with producer state
         tracing::info!("Producer paused for room {}", room_id);
-        
+
         // Broadcast pause event to all listeners in this room
         let pause_event = crate::models::ServerEvent::StreamPaused {
             room_id: room_id.to_string(),
             trace_context: None,
         };
         room_state_guard.broadcast_to_listeners(pause_event);
-        
+
         // Also broadcast room update to lobby
         let room = room_state_guard.room.clone();
         drop(room_state_guard); // Release lock before broadcasting
@@ -798,14 +873,14 @@ async fn handle_resume_producing(
         room_state_guard.resume();
         room_state_guard.sync_streaming_state(); // Sync dj_streaming with producer state
         tracing::info!("Producer resumed for room {}", room_id);
-        
+
         // Broadcast resume event to all listeners in this room
         let resume_event = crate::models::ServerEvent::StreamResumed {
             room_id: room_id.to_string(),
             trace_context: None,
         };
         room_state_guard.broadcast_to_listeners(resume_event);
-        
+
         // Also broadcast room update to lobby
         let room = room_state_guard.room.clone();
         drop(room_state_guard); // Release lock before broadcasting
@@ -880,7 +955,7 @@ async fn handle_request_join(
     let transport_manager = crate::webrtc::transport::TransportManager::default();
     let router = room_state_guard.router.as_ref()
         .ok_or_else(|| anyhow::anyhow!("No router found for room"))?;
-    
+
     let (listener_transport, transport_options_json) = transport_manager
         .create_listener_transport(router, room_id, "temp")
         .await
@@ -901,7 +976,7 @@ async fn handle_request_join(
     room_state_guard.add_listener(listener_state);
 
     span.record("listener_count", room.listener_count);
-    
+
     tracing::info!(
         room_id = %room_id,
         producer_id = %producer_id,
@@ -928,22 +1003,22 @@ async fn handle_connect_listener_transport(
 ) -> anyhow::Result<String> {
     let span = tracing::Span::current();
     tracing::debug!("DTLS parameters received for listener: {}", serde_json::to_string_pretty(&dtls_parameters).unwrap_or_else(|_| "Invalid JSON".to_string()));
-    
+
     let room_state = state.get_room_state(&room_id)
         .ok_or_else(|| anyhow::anyhow!("Room not found"))?;
 
     let room_state_guard = room_state.read().await;
-    
+
     // Get existing ListenerState (created during requestJoin)
     let listener_state = room_state_guard.get_listener(&listener_id)
         .ok_or_else(|| anyhow::anyhow!("No ListenerState found for listener_id: {}", listener_id))?;
-    
+
     let transport_id = listener_state.transport.id().to_string();
     span.record("transport_id", &transport_id);
 
     // Connect the existing transport with provided DTLS parameters
-    listener_state.transport.connect(mediasoup::prelude::WebRtcTransportRemoteParameters { 
-        dtls_parameters 
+    listener_state.transport.connect(mediasoup::prelude::WebRtcTransportRemoteParameters {
+        dtls_parameters
     }).await.map_err(|e| anyhow::anyhow!("Failed to connect listener transport: {}", e))?;
 
     tracing::info!(
@@ -952,7 +1027,7 @@ async fn handle_connect_listener_transport(
         room_id = %room_id,
         "Listener transport connected successfully"
     );
-    
+
     // Transport connection is complete - consumer creation handled separately via requestConsumer
     Ok(transport_id)
 }
@@ -964,18 +1039,18 @@ async fn handle_listener_leave(
     state: &AppState,
 ) -> anyhow::Result<()> {
     let span = tracing::Span::current();
-    
+
     let room_state = state.get_room_state(&room_id)
         .ok_or_else(|| anyhow::anyhow!("Room not found"))?;
 
     let mut room_state_guard = room_state.write().await;
-    
+
     // Get all listener IDs to clean up
     let listener_ids: Vec<String> = room_state_guard.listeners.iter().map(|entry| entry.key().clone()).collect();
-    
+
     let mut transports_cleaned = 0;
     let mut consumers_cleaned = 0;
-    
+
     // Clean up all listener resources
     for listener_id in &listener_ids {
         // Remove listener state (includes transport and consumer)
@@ -989,21 +1064,21 @@ async fn handle_listener_leave(
                     tracing::debug!("Closed consumer for listener {}", listener_id);
                 }
             }
-            
+
             // Transport will be automatically closed when dropped (it's in the listener_state.transport)
             transports_cleaned += 1;
             tracing::debug!("Cleaned up transport for listener {}", listener_id);
         }
     }
-    
+
     // Update listener count
     let previous_count = room_state_guard.room.listener_count;
     room_state_guard.room.listener_count = room_state_guard.room.listener_count.saturating_sub(listener_ids.len() as u32);
-    
+
     span.record("listeners_cleaned", listener_ids.len());
     span.record("transports_cleaned", transports_cleaned);
     span.record("consumers_cleaned", consumers_cleaned);
-    
+
     tracing::info!(
         room_id = %room_id,
         listeners_cleaned = listener_ids.len(),
@@ -1013,7 +1088,7 @@ async fn handle_listener_leave(
         new_listener_count = room_state_guard.room.listener_count,
         "Completed listener cleanup for room"
     );
-    
+
     // Broadcast listener count update
     if previous_count != room_state_guard.room.listener_count {
         let listener_update = crate::models::events::ServerEvent::ListenerCountUpdated {
@@ -1021,7 +1096,7 @@ async fn handle_listener_leave(
             count: room_state_guard.room.listener_count,
             trace_context: None,
         };
-        
+
         if let Ok(msg) = serde_json::to_string(&listener_update) {
             // Broadcast to lobby
             let lobby_event = crate::models::events::LobbyEvent::RoomUpdated {
@@ -1031,7 +1106,7 @@ async fn handle_listener_leave(
             state.broadcast_tx.send(lobby_event).ok();
         }
     }
-    
+
     Ok(())
 }
 
@@ -1045,32 +1120,32 @@ async fn handle_request_consumer(
 ) -> anyhow::Result<crate::models::schemas::ConsumerParameters> {
     let span = tracing::Span::current();
     let listener_id = connection_id.to_string();
-    
+
     let room_state = state.get_room_state(&room_id)
         .ok_or_else(|| anyhow::anyhow!("Room not found"))?;
 
-    let mut room_state_guard = room_state.write().await;
-    
+    let room_state_guard = room_state.write().await;
+
     // Get the producer
     let producer = room_state_guard.audio_producer.as_ref()
         .ok_or_else(|| anyhow::anyhow!("No audio producer found in room"))?;
-    
+
     // Validate producer ID matches
     if producer.id().to_string() != producer_id {
         return Err(anyhow::anyhow!("Producer ID mismatch: expected {}, got {}", producer.id(), producer_id));
     }
-    
+
     // Get listener's state which includes transport and RTP capabilities
     let listener_state = room_state_guard.get_listener(&listener_id)
         .ok_or_else(|| anyhow::anyhow!("Listener state not found"))?;
-    
+
     // Clone the necessary fields while holding the Ref guard
     let listener_transport = listener_state.transport.clone();
     let rtp_capabilities = listener_state.device_rtp_capabilities.clone();
-    
+
     // Drop the Ref guard explicitly before using the cloned values
     drop(listener_state);
-    
+
     // Create the consumer
     let (consumer, consumer_id, consumer_params) = crate::webrtc::ConsumerManager::create_audio_consumer(
         &listener_transport,
@@ -1079,17 +1154,17 @@ async fn handle_request_consumer(
         &listener_id,
         rtp_capabilities,
     ).await?;
-    
+
     span.record("consumer_id", &consumer_id);
-    
+
     // Update ListenerState with consumer information
     room_state_guard.update_listener(&listener_id, |state| {
         state.set_consumer(consumer.clone(), consumer_id.clone(), producer.id().to_string());
     });
-    
+
     // Convert Value to ConsumerParameters struct
     let consumer_parameters = serde_json::from_value::<crate::models::schemas::ConsumerParameters>(consumer_params)?;
-    
+
     tracing::info!(
         room_id = %room_id,
         listener_id = %listener_id,
@@ -1097,6 +1172,6 @@ async fn handle_request_consumer(
         producer_id = %producer_id,
         "Consumer created successfully for listener"
     );
-    
+
     Ok(consumer_parameters)
 }

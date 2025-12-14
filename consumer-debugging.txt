@@ -1,0 +1,75 @@
+In mediasoup, a Consumer will only stream media if three distinct layers of "pause" states are all cleared. It is a common pitfall to unpause one layer while another remains active.
+
+Since you mentioned the Producer is streaming, the issue is likely in the Server-Side Consumer lifecycle or the Client-Side signaling handling.
+The Checklist: Conditions for Media Flow
+
+For a Consumer to receive media, ALL of the following must be true:
+
+    Producer is Active: The associated Server-Side producer.paused must be false.
+
+    Server Consumer is Active: The Server-Side consumer.paused must be false.
+
+    Client Consumer is Active: The Client-Side (mediasoup-client) consumer.paused must be false.
+
+    Transport is Connected: The underlying WebRTC Transport (DTLS/ICE) must be in a connected state.
+
+Common Causes for "Stuck" Paused State
+1. The "Create Paused" Trap (Most Likely)
+
+It is a recommended best practice to create the Server-Side Consumer with { paused: true }. This ensures no media flows until the client is ready. However, you must explicitly call consumer.resume() on the server after the client successfully connects.
+
+​
+
+    Symptom: The client creates the consumer, but receives no media. The server-side consumer object shows paused: true.
+
+    Fix: Ensure your signaling flow includes a specific resumeConsumer event sent from Client $\rightarrow$ Server after transport.consume() completes on the client.
+
+2. Implicit "Producer Pause"
+
+If the Producer is paused, the Consumer effectively pauses, but its internal paused property might behave differently depending on where you check it.
+
+    Server-Side: If you call producer.pause(), the server-side Consumer emits a producerpause event. The Consumer is now effectively paused, but strict state checks might be confusing if you only look at consumer.paused (which tracks the consumer's own manual pause state).
+
+    ​
+
+    Client-Side: The mediasoup-client does not automatically know if the server-side producer paused. You must listen for the producerpause event on the server and manually send a signal to the client to update the UI or local state.
+
+3. Client-Side Local Pause
+
+The mediasoup-client consumer has its own pause() method.
+
+    Condition: If you called consumer.pause() in your frontend code (e.g., to mute incoming audio locally), the server might still be sending RTP (wasting bandwidth) or the client might just be ignoring it.
+
+    Note: mediasoup-client usually handles this efficiently, but ensure consumer.paused is false in your browser console.
+
+4. Browser Auto-Play Policy
+
+If this is an audio consumer, browsers (especially Chrome/Safari) will "pause" (block) the AudioContext or HTMLMediaElement if the user hasn't interacted with the page.
+
+    Symptom: Mediasoup shows everything is "resumed" and "streaming," but the client hears nothing.
+
+    Check: document.querySelector('video').paused or check if the AudioContext state is suspended.
+
+Debugging Steps
+
+Run these checks in order:
+
+    Check Server State:
+    Log the consumer state on your server:
+
+javascript
+console.log("Consumer paused:", consumer.paused);
+console.log("Producer paused:", consumer.producerPaused); // Special property checking the associated producer
+console.log("Consumer score:", consumer.score);
+
+If consumer.score is 0, data is not flowing.
+
+​
+
+Verify Signaling for Resume:
+If you used the pattern:
+server.createConsumer({ paused: true }) $\rightarrow$ client.consume()
+Did the client send a request back to the server to call await serverConsumer.resume()?
+
+Check Transport:
+On the client, check consumer.transport.connectionState. If it is new or checking and never moves to connected, it's an ICE/DTLS issue (firewall/ports), not a pause state issue.

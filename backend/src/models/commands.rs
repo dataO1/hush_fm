@@ -26,21 +26,21 @@ pub struct DtlsFingerprintJson {
 /// Convert JSON DTLS parameters to native MediaSoup types
 impl TryFrom<DtlsParametersJson> for DtlsParameters {
     type Error = anyhow::Error;
-    
+
     fn try_from(json: DtlsParametersJson) -> Result<Self> {
         // Parse role string to DtlsRole enum
         let role = match json.role.as_str() {
             "auto" => DtlsRole::Auto,
-            "client" => DtlsRole::Client, 
+            "client" => DtlsRole::Client,
             "server" => DtlsRole::Server,
             _ => bail!("Invalid DTLS role: {}", json.role),
         };
-        
+
         // Convert fingerprints
         let fingerprints = json.fingerprints.into_iter()
             .map(DtlsFingerprint::try_from)
             .collect::<Result<Vec<_>>>()?;
-        
+
         Ok(DtlsParameters { role, fingerprints })
     }
 }
@@ -48,17 +48,17 @@ impl TryFrom<DtlsParametersJson> for DtlsParameters {
 /// Convert JSON DTLS fingerprint to native MediaSoup type
 impl TryFrom<DtlsFingerprintJson> for DtlsFingerprint {
     type Error = anyhow::Error;
-    
+
     fn try_from(json: DtlsFingerprintJson) -> Result<Self> {
         // Parse hex string to bytes
         let value_bytes: Result<Vec<u8>, _> = json.value
             .split(':')
             .map(|hex| u8::from_str_radix(hex, 16))
             .collect();
-        
+
         let value_bytes = value_bytes
             .map_err(|e| anyhow::anyhow!("Invalid hex string in fingerprint: {}", e))?;
-        
+
         // Match algorithm and create appropriate variant
         match json.algorithm.as_str() {
             "sha-1" => {
@@ -203,6 +203,14 @@ pub enum ClientCommand {
         #[serde(rename = "_traceContext")]
         trace_context: Option<TraceContext>,
     },
+
+    #[serde(rename_all = "camelCase")]
+    ResumeConsumer {
+        consumer_id: String,
+        /// Optional trace context for request tracing
+        #[serde(rename = "_traceContext")]
+        trace_context: Option<TraceContext>,
+    },
 }
 
 impl ClientCommand {
@@ -219,6 +227,7 @@ impl ClientCommand {
             Self::GetRouterCapabilities { trace_context, .. } => trace_context.as_ref(),
             Self::LeaveRoom { trace_context } => trace_context.as_ref(),
             Self::RequestConsumer { trace_context, .. } => trace_context.as_ref(),
+            Self::ResumeConsumer { trace_context, .. } => trace_context.as_ref(),
         }
     }
 
@@ -235,6 +244,7 @@ impl ClientCommand {
             Self::GetRouterCapabilities { .. } => "getRouterCapabilities",
             Self::LeaveRoom { .. } => "leaveRoom",
             Self::RequestConsumer { .. } => "requestConsumer",
+            Self::ResumeConsumer {  .. } => "resumeConsumer",
         }
     }
 }

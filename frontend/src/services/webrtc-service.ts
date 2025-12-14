@@ -18,28 +18,28 @@ export interface WebRTCState {
   // WebSocket connection
   ws: Option.Option<WebSocket>
   roomId: Option.Option<string>
-  
+
   // Device state
   device: Option.Option<Device>
   deviceLoaded: boolean
   rtpCapabilities: Option.Option<types.RtpCapabilities>
   deviceError: Option.Option<string>
-  
+
   // Transports
   sendTransport: Option.Option<types.Transport>
   receiveTransport: Option.Option<types.Transport>
-  
+
   // Producers/Consumers by ID
   producers: Map<string, types.Producer>
   consumers: Map<string, types.Consumer>
-  
+
   // Audio elements for consumers
   audioElements: Map<string, HTMLAudioElement>
-  
+
   // Stream state
   localStream: Option.Option<MediaStream>
   remoteStreams: Map<string, MediaStream>
-  
+
   // Connection quality
   connectionQuality: {
     rtt: number
@@ -92,7 +92,7 @@ export class ConsumerError extends WebRTCError {
  */
 export type SignalingCallback = (roomId: string, command: ClientCommand) => Promise<void>
 
-// Use the consumer options from the websocket models  
+// Use the consumer options from the websocket models
 export type ConsumerOptions = InternalConsumerOptions
 
 /**
@@ -102,9 +102,9 @@ export type ConsumerOptions = InternalConsumerOptions
 /**
  * Connection states for WebRTC components
  */
-export type ConnectionState = 
+export type ConnectionState =
   | 'disconnected'
-  | 'connecting' 
+  | 'connecting'
   | 'connected'
   | 'failed'
   | 'reconnecting'
@@ -162,18 +162,18 @@ export interface WebRTCService {
   readonly sendCommand: (command: ClientCommand) => Effect.Effect<void, WebRTCError>
   readonly sendWebSocketMessage: (message: ClientCommand) => Effect.Effect<void, WebRTCError>
   readonly setRoomId: (roomId: string) => Effect.Effect<void, never>
-  
+
   // Router capabilities for device initialization
   readonly getRouterCapabilities: (roomId: string) => Effect.Effect<types.RtpCapabilities, WebRTCError>
   readonly waitForRouterCapabilities: (roomId: string) => Effect.Effect<types.RtpCapabilities, WebRTCError>
-  
+
   readonly waitForJoinReady: (roomId: string) => Effect.Effect<{
     room: any,
     transportOptions: ApiTransportOptions,
     producerId: string,
     rtpCapabilities: types.RtpCapabilities
   }, WebRTCError>
-  
+
   // Device operations (use native MediaSoup types)
   readonly initializeDevice: (rtpCapabilities: types.RtpCapabilities) => Effect.Effect<void, DeviceError>
   readonly getDevice: () => Effect.Effect<Option.Option<Device>, never>
@@ -181,13 +181,13 @@ export interface WebRTCService {
   readonly canProduceAudio: () => Effect.Effect<boolean, DeviceError>
   readonly canProduceVideo: () => Effect.Effect<boolean, DeviceError>
   readonly resetDevice: () => Effect.Effect<void, never>
-  
+
   // Transport operations (accept API wrapper types and convert internally)
   readonly createSendTransport: (options: ApiTransportOptions) => Effect.Effect<void, TransportError>
   readonly createReceiveTransport: (options: ApiTransportOptions) => Effect.Effect<void, TransportError>
   readonly getSendTransport: () => Effect.Effect<Option.Option<types.Transport>, never>
   readonly getReceiveTransport: () => Effect.Effect<Option.Option<types.Transport>, never>
-  
+
   // Producer operations
   readonly produce: (track: MediaStreamTrack) => Effect.Effect<string, ProducerError>
   readonly getProducer: (producerId: string) => Effect.Effect<Option.Option<types.Producer>, never>
@@ -197,7 +197,7 @@ export interface WebRTCService {
   readonly pauseStream: () => Effect.Effect<void, ProducerError>
   readonly resumeStream: () => Effect.Effect<void, ProducerError>
   readonly closeProducer: (producerId: string) => Effect.Effect<void, never>
-  
+
   // Consumer operations (accept API wrapper types and convert internally)
   readonly consume: (options: ApiConsumerParameters) => Effect.Effect<string, ConsumerError>
   readonly createConsumerFromProducer: (producerId: string) => Effect.Effect<string, ConsumerError>
@@ -205,22 +205,23 @@ export interface WebRTCService {
   readonly pauseConsumer: (consumerId: string) => Effect.Effect<void, ConsumerError>
   readonly resumeConsumer: (consumerId: string) => Effect.Effect<void, ConsumerError>
   readonly closeConsumer: (consumerId: string) => Effect.Effect<void, never>
-  readonly createAudioElement: (consumerId: string, autoplay?: boolean) => Effect.Effect<HTMLAudioElement, ConsumerError>
+  // readonly createAudioElement: (consumerId: string, autoplay?: boolean) => Effect.Effect<HTMLAudioElement, ConsumerError>
+  readonly getConsumerStream: (consumerId: string)=> Effect.Effect<MediaStream, ConsumerError>
   readonly setVolume: (consumerId: string, volume: number) => Effect.Effect<void, ConsumerError>
   readonly setMuted: (consumerId: string, muted: boolean) => Effect.Effect<void, ConsumerError>
-  
+
   // Utility operations
   readonly getUserMedia: (constraints?: MediaStreamConstraints) => Effect.Effect<MediaStreamTrack, WebRTCError>
   readonly checkBrowserSupport: () => Effect.Effect<boolean, never>
-  
+
   // State operations
   readonly getState: () => Effect.Effect<WebRTCState, never>
   readonly subscribeToStateChanges: (callback: (state: WebRTCState) => void) => Effect.Effect<() => void, never>
-  
+
   // Producer pause state (MediaSoup state as single source of truth)
   readonly subscribeToProducerPauseState: (callback: (isPaused: boolean) => void) => Effect.Effect<() => void, never>
   readonly getProducerPausedState: () => Effect.Effect<boolean, never>
-  
+
   // Cleanup operations
   readonly cleanup: () => Effect.Effect<void, never>
 }
@@ -242,24 +243,24 @@ class WebRTCServiceImpl implements WebRTCService {
   private producers = new Map<string, types.Producer>()
   private consumers = new Map<string, types.Consumer>()
   private audioElements = new Map<string, HTMLAudioElement>()
-  
+
   // WebSocket connections - separate endpoints for DJ and listener
   private djWebSocket: Option.Option<WebSocket> = Option.none()
   private listenerWebSocket: Option.Option<WebSocket> = Option.none()
   private roomId: Option.Option<string> = Option.none()
   private connectionType: 'dj' | 'listener' | null = null
-  
+
   // State management
   private stateSubscribers = new Set<(state: WebRTCState) => void>()
-  
+
   // Device state
   private deviceLoaded = false
   private rtpCapabilities: Option.Option<types.RtpCapabilities> = Option.none()
   private deviceError: Option.Option<string> = Option.none()
-  
+
   // Producer pause state (MediaSoup state as single source of truth)
   private producerPauseSubscribers = new Set<(isPaused: boolean) => void>()
-  
+
   // For listeners: track remote DJ producer pause state (since listeners don't have local producers)
   private remoteDJPauseState = true // Assume paused initially until we get room state
 
@@ -297,7 +298,7 @@ class WebRTCServiceImpl implements WebRTCService {
     const state = this.getStateSnapshot()
     this.stateSubscribers.forEach(callback => callback(state))
   }
-  
+
   /**
    * Get current producer pause state
    * For DJs: check local producer state
@@ -309,11 +310,11 @@ class WebRTCServiceImpl implements WebRTCService {
       const producer = Array.from(this.producers.values())[0] // Assuming one producer for DJ
       return producer.paused
     }
-    
+
     // For listeners or when no local producers: use remote DJ state
     return this.remoteDJPauseState
   }
-  
+
   /**
    * Notify producer pause state subscribers
    */
@@ -340,15 +341,15 @@ class WebRTCServiceImpl implements WebRTCService {
           const traceContext = getWebSocketTraceContext()
           console.debug('DTLS params being sent:', dtlsParameters)
           console.debug('Trace context being sent:', traceContext)
-          
+
           const command: ClientCommand = {
             type: 'connectDjTransport',
             dtlsParameters: dtlsParameters,
             _traceContext: traceContext
           }
-          
+
           console.debug('Full command being sent:', JSON.stringify(command, null, 2))
-          
+
           // Use WebSocket client to send command
           await Effect.runPromise(this.sendCommand(command))
           callback()
@@ -366,7 +367,7 @@ class WebRTCServiceImpl implements WebRTCService {
       transport.on('connect', async ({ dtlsParameters }: { dtlsParameters: any }, callback: () => void, errback: (error: Error) => void) => {
         try {
           console.debug('Receive transport connect event - sending DTLS parameters to backend', dtlsParameters)
-          
+
           // MediaSoup provides complete DTLS parameters with fingerprints - send them to backend
           const traceContext = getWebSocketTraceContext()
           const command: ClientCommand = {
@@ -374,13 +375,13 @@ class WebRTCServiceImpl implements WebRTCService {
             dtlsParameters: dtlsParameters,
             _traceContext: traceContext
           }
-          
+
           // Send via WebSocket to backend
           const result = this.sendWebSocketMessage(command)
-          
+
           // Execute the Effect to actually send the message
           await Effect.runPromise(result)
-          
+
           // Acknowledge the connection is ready
           callback()
         } catch (error) {
@@ -457,14 +458,14 @@ class WebRTCServiceImpl implements WebRTCService {
             }
             throw error
           }
-          
+
           // Convert API RTP capabilities to native format
           const nativeRtpCapabilities = rtpCapabilities
           await device.load({ routerRtpCapabilities: nativeRtpCapabilities })
-          
+
           // Store device's own RTP capabilities (intersection of router + browser capabilities)
           const deviceRtpCapabilities = device.rtpCapabilities
-          
+
           this.device = Option.some(device)
           this.deviceLoaded = true
           this.rtpCapabilities = Option.some(deviceRtpCapabilities)
@@ -492,7 +493,7 @@ class WebRTCServiceImpl implements WebRTCService {
         onNone: () => Effect.fail(new DeviceError('Device not initialized')),
         onSome: (device) => Effect.succeed(device.canProduce('audio'))
       }),
-      Effect.tap(canProduce => 
+      Effect.tap(canProduce =>
         Effect.logDebug(`Device can produce audio: ${canProduce}`)
       )
     )
@@ -504,7 +505,7 @@ class WebRTCServiceImpl implements WebRTCService {
         onNone: () => Effect.fail(new DeviceError('Device not initialized')),
         onSome: (device) => Effect.succeed(device.canProduce('video'))
       }),
-      Effect.tap(canProduce => 
+      Effect.tap(canProduce =>
         Effect.logDebug(`Device can produce video: ${canProduce}`)
       )
     )
@@ -634,14 +635,14 @@ class WebRTCServiceImpl implements WebRTCService {
       case 'resumeStream':
       case 'closeRoom':
         return this.djWebSocket
-      
-      // Listener commands use Listener WebSocket  
+
+      // Listener commands use Listener WebSocket
       case 'requestJoin':
       case 'connectListenerTransport':
       case 'leaveRoom':
       case 'requestConsumer':
         return this.listenerWebSocket
-      
+
       default:
         // Fallback to current connection type
         return this.connectionType === 'dj' ? this.djWebSocket : this.listenerWebSocket
@@ -674,7 +675,7 @@ class WebRTCServiceImpl implements WebRTCService {
     resolve: (value: any) => void,
     reject: (error: Error) => void
   }>()
-  
+
   private routerCapabilitiesDeferred = new Map<string, Deferred.Deferred<types.RtpCapabilities, WebRTCError>>()
 
   waitForJoinReady = (roomId: string): Effect.Effect<{
@@ -687,7 +688,7 @@ class WebRTCServiceImpl implements WebRTCService {
       try: () => new Promise((resolve, reject) => {
         // Store the promise resolvers
         this.joinReadyPromises.set(roomId, { resolve, reject })
-        
+
         // Clean up after timeout
         setTimeout(() => {
           const pending = this.joinReadyPromises.get(roomId)
@@ -717,12 +718,12 @@ class WebRTCServiceImpl implements WebRTCService {
             metadata: null
           }
         }
-        
+
         yield* _(self.sendWebSocketMessage(command))
-        
+
         // Wait for routerCapabilities response
         const capabilities = yield* _(self.waitForRouterCapabilities(roomId))
-        
+
         return capabilities
       })
     )
@@ -734,10 +735,10 @@ class WebRTCServiceImpl implements WebRTCService {
       Effect.gen(function* (_) {
         // Create a new deferred for this room
         const deferred = yield* _(Deferred.make<types.RtpCapabilities, WebRTCError>())
-        
+
         // Store the deferred
         self.routerCapabilitiesDeferred.set(roomId, deferred)
-        
+
         // Set up timeout cleanup
         const timeoutFiber = yield* _(
           pipe(
@@ -749,13 +750,13 @@ class WebRTCServiceImpl implements WebRTCService {
             Effect.fork
           )
         )
-        
+
         // Wait for the deferred to be resolved
         const result = yield* _(Deferred.await(deferred))
-        
+
         // Cancel timeout fiber
         yield* _(Fiber.interrupt(timeoutFiber))
-        
+
         return result
       })
     )
@@ -780,7 +781,7 @@ class WebRTCServiceImpl implements WebRTCService {
    */
   private handleServerEvent = (event: ServerEvent): void => {
     console.log('Received server event:', event.type, event)
-    
+
     // Handle each event type using discriminated union
     switch (event.type) {
       case 'transportReady':
@@ -788,19 +789,19 @@ class WebRTCServiceImpl implements WebRTCService {
         console.info(`Transport ready: ${event.transportId}`)
         this.notifyStateChange()
         break
-        
+
       case 'transportConnected':
         // Transport successfully connected (DTLS handshake complete)
         console.info(`Transport connected: ${event.transportId}`)
         this.notifyStateChange()
         break
-        
+
       case 'producerCreated':
         // Producer was successfully created on server
         console.info(`Producer created: ${event.producerId} in room ${event.roomId}`)
         // Update room ID if received
         this.roomId = Option.some(event.roomId)
-        
+
         // Call the MediaSoup callback with the backend producer ID
         // Since we only support one producer at a time, get the first available callback
         const [firstKey, callback] = this.producerCallbacks.entries().next().value || [null, null]
@@ -812,14 +813,14 @@ class WebRTCServiceImpl implements WebRTCService {
         } else {
           console.warn('ProducerCreated event received but no callback found')
         }
-        
+
         this.notifyStateChange()
         break
-        
+
       case 'consumerCreated':
         // Consumer was created, we can start consuming
         console.info(`Consumer created: ${event.consumerId} for producer ${event.producerId}`)
-        
+
         // Get the waiting deferred for this producer
         const consumerDeferred = this.consumerCreationPromises.get(event.producerId)
         if (consumerDeferred) {
@@ -837,19 +838,19 @@ class WebRTCServiceImpl implements WebRTCService {
               return Deferred.fail(consumerDeferred, error instanceof ConsumerError ? error : new ConsumerError('Consumer creation failed', error))
             })
           )
-          
+
           // Run the effect to complete consumer creation
           Effect.runFork(consumeEffect)
-          
+
           // Clean up the promise map
           this.consumerCreationPromises.delete(event.producerId)
         } else {
           console.warn(`Received ConsumerCreated event for producer ${event.producerId} but no pending request found`)
         }
-        
+
         this.notifyStateChange()
         break
-        
+
       case 'streamPaused':
         console.info(`Stream paused in room: ${event.roomId}`)
         // For listeners: update remote DJ pause state
@@ -865,7 +866,7 @@ class WebRTCServiceImpl implements WebRTCService {
           }
         })
         break
-        
+
       case 'streamResumed':
         console.info(`Stream resumed in room: ${event.roomId}`)
         // For listeners: update remote DJ pause state
@@ -881,7 +882,7 @@ class WebRTCServiceImpl implements WebRTCService {
           }
         })
         break
-        
+
       case 'routerCapabilities':
         // Router capabilities received for device initialization
         console.info(`Router capabilities received for room: ${event.roomId}`)
@@ -895,18 +896,18 @@ class WebRTCServiceImpl implements WebRTCService {
         }
         this.notifyStateChange()
         break
-        
+
       case 'joinReady':
         // Room is ready for joining (listener flow)
         console.info(`Join ready for room: ${event.room.id}`)
         this.roomId = Option.some(event.room.id)
         // Store RTP capabilities for device initialization
         this.rtpCapabilities = Option.some(event.rtpCapabilities)
-        
+
         // Initialize remote DJ pause state from room info (for listeners)
         // is_streaming = true means DJ is actively streaming (not paused)
         this.remoteDJPauseState = !event.room.isStreaming
-        
+
         // Resolve waiting promise
         const pending = this.joinReadyPromises.get(event.room.id)
         if (pending) {
@@ -921,7 +922,7 @@ class WebRTCServiceImpl implements WebRTCService {
         this.notifyStateChange()
         this.notifyProducerPauseChange() // Notify initial pause state
         break
-        
+
       case 'roomJoined':
         // Successfully joined a room as listener
         console.info(`Joined room: ${event.room.id}`)
@@ -930,7 +931,7 @@ class WebRTCServiceImpl implements WebRTCService {
         this.rtpCapabilities = Option.some(event.rtpCapabilities)
         this.notifyStateChange()
         break
-        
+
       case 'roomClosed':
         console.info(`Room closed: ${event.roomId}, reason: ${event.reason}`)
         // Clean up if this was our room
@@ -950,25 +951,25 @@ class WebRTCServiceImpl implements WebRTCService {
           }
         })
         break
-        
+
       case 'listenerCountUpdated':
         console.info(`Listener count updated for room ${event.roomId}: ${event.count}`)
         // This is informational, just log it
         break
-        
+
       case 'commandFailed':
         console.error(`Command failed: ${event.command} - ${event.error}`)
         // Could set error state here
         this.deviceError = Option.some(`Command failed: ${event.error}`)
         this.notifyStateChange()
         break
-        
+
       case 'authenticationError':
         console.error(`Authentication error: ${event.message}`)
         this.deviceError = Option.some(`Auth error: ${event.message}`)
         this.notifyStateChange()
         break
-        
+
       case 'roomNotFound':
         console.error(`Room not found: ${event.roomId}`)
         this.deviceError = Option.some(`Room not found: ${event.roomId}`)
@@ -976,7 +977,7 @@ class WebRTCServiceImpl implements WebRTCService {
         this.roomId = Option.none()
         this.notifyStateChange()
         break
-        
+
       default:
         // TypeScript will ensure this is never reached if all cases are handled
         console.warn('Unknown server event type:', (event as any).type)
@@ -996,8 +997,8 @@ class WebRTCServiceImpl implements WebRTCService {
             onSome: (device) => Effect.succeed(device)
           }))
         ),
-        onSome: (device) => this.deviceLoaded 
-          ? Effect.succeed(device) 
+        onSome: (device) => this.deviceLoaded
+          ? Effect.succeed(device)
           : pipe(
             this.initializeDevice(rtpCapabilities),
             Effect.andThen(() => this.getDevice()),
@@ -1031,37 +1032,37 @@ class WebRTCServiceImpl implements WebRTCService {
             try {
               // Send produce command to backend via WebSocket
               const wsOption = this.connectionType === 'dj' ? this.djWebSocket : this.listenerWebSocket
-              
+
               if (Option.isNone(wsOption)) {
                 throw new Error('WebSocket not connected')
               }
-              
+
               const ws = wsOption.value
               if (ws.readyState !== WebSocket.OPEN) {
                 throw new Error(`WebSocket not ready: state=${ws.readyState}`)
               }
-              
+
               const command: ClientCommand = {
                 type: 'produce',
                 rtpParameters: parameters.rtpParameters,
                 _traceContext: getWebSocketTraceContext()
               }
-              
+
               // Store the callback to be called when ProducerCreated event arrives
               const requestKey = Date.now().toString()
               this.producerCallbacks.set(requestKey, callback)
-              
+
               const message = JSON.stringify(command)
               ws.send(message)
-              
+
               console.info('Produce command sent to backend, waiting for ProducerCreated event')
-              
+
             } catch (error) {
               console.error('Failed to send produce command:', error)
               errback(error instanceof Error ? error : new Error(String(error)))
             }
           })
-          
+
           // Store transport and set up other events
           this.transports.set(transport.id, transport)
           this.sendTransport = Option.some(transport)
@@ -1087,7 +1088,7 @@ class WebRTCServiceImpl implements WebRTCService {
             dtlsParameters: nativeOptions.dtlsParameters,
             sctpParameters: nativeOptions.sctpParameters,
           })
-          
+
           // Store transport and set up events
           this.transports.set(transport.id, transport)
           this.receiveTransport = Option.some(transport)
@@ -1154,9 +1155,9 @@ class WebRTCServiceImpl implements WebRTCService {
       Effect.andThen(transport =>
         Effect.tryPromise({
           try: () => transport.restartIce({
-            iceParameters: { 
-              usernameFragment: 'local', 
-              password: 'localpass' 
+            iceParameters: {
+              usernameFragment: 'local',
+              password: 'localpass'
             }
           }),
           catch: (error) => new TransportError(
@@ -1168,7 +1169,7 @@ class WebRTCServiceImpl implements WebRTCService {
       Effect.tap(() => Effect.logInfo(`Restarted ICE for transport: ${transportId}`))
     )
 
-  // Producer operations  
+  // Producer operations
   produce = (track: MediaStreamTrack): Effect.Effect<string, ProducerError> =>
     pipe(
       Effect.logTrace(`Starting producer creation process`),
@@ -1179,7 +1180,7 @@ class WebRTCServiceImpl implements WebRTCService {
         trackKind: track.kind,
         trackLabel: track.label
       }))),
-      Effect.tap(({ trackId, trackKind, trackLabel }) => 
+      Effect.tap(({ trackId, trackKind, trackLabel }) =>
         Effect.logInfo(
           `Producing track: ${trackKind} track with ID ${trackId}`,
           { track_id: trackId, track_kind: trackKind, track_label: trackLabel }
@@ -1217,15 +1218,15 @@ class WebRTCServiceImpl implements WebRTCService {
                 { maxBitrate: 128000 } // 128 kbps for stereo music quality
               ],
             })
-            
+
             // The producer now has the backend's ID (set via callback)
             const backendProducerId = producer.id
-            
+
             // Store producer with backend ID
             this.producers.set(backendProducerId, producer)
             this.setupProducerEvents(producer)
             this.notifyStateChange()
-            
+
             return backendProducerId
           },
           catch: (error) => new ProducerError(
@@ -1236,7 +1237,7 @@ class WebRTCServiceImpl implements WebRTCService {
       ),
       Effect.tap((producerId) => Effect.logInfo(
         `Successfully created producer with backend ID: ${producerId}`,
-        { 
+        {
           producer_id: producerId,
           track_kind: track.kind,
           room_id: Option.getOrElse(this.roomId, () => 'unknown')
@@ -1244,7 +1245,7 @@ class WebRTCServiceImpl implements WebRTCService {
       )),
       Effect.tapError((error) => Effect.logError(
         `Producer creation failed: ${error.message}`,
-        { 
+        {
           error_message: error.message,
           track_kind: track.kind,
           room_id: Option.getOrElse(this.roomId, () => 'unknown')
@@ -1304,10 +1305,10 @@ class WebRTCServiceImpl implements WebRTCService {
         if (producers.length === 0) {
           return Effect.fail(new ProducerError('No producer found to pause'))
         }
-        
+
         // Pause local producer first
         const localPauseEffect = this.pauseProducer(producers[0].id)
-        
+
         // Send WebSocket command to backend
         const sendCommandEffect = pipe(
           Effect.succeed(this.djWebSocket),
@@ -1336,7 +1337,7 @@ class WebRTCServiceImpl implements WebRTCService {
             })
           )
         )
-        
+
         // Run both operations
         return pipe(
           localPauseEffect,
@@ -1353,10 +1354,10 @@ class WebRTCServiceImpl implements WebRTCService {
         if (producers.length === 0) {
           return Effect.fail(new ProducerError('No producer found to resume'))
         }
-        
+
         // Resume local producer first
         const localResumeEffect = this.resumeProducer(producers[0].id)
-        
+
         // Send WebSocket command to backend
         const sendCommandEffect = pipe(
           Effect.succeed(this.djWebSocket),
@@ -1385,7 +1386,7 @@ class WebRTCServiceImpl implements WebRTCService {
             })
           )
         )
-        
+
         // Run both operations
         return pipe(
           localResumeEffect,
@@ -1421,7 +1422,7 @@ class WebRTCServiceImpl implements WebRTCService {
       this.listProducers(),
       Effect.andThen(producers =>
         Effect.all(
-          producers.map(producer => 
+          producers.map(producer =>
             pipe(
               this.closeProducer(producer.id),
               Effect.catchAll(() => Effect.void)
@@ -1510,18 +1511,18 @@ class WebRTCServiceImpl implements WebRTCService {
             // Convert API consumer options to native format
             const nativeOptions = ConsumerOptionsFromApi.decode(options)
             const consumer = await transport.consume(nativeOptions)
-            
+
             // Store consumer and set up events
             this.consumers.set(consumer.id, consumer)
             this.setupConsumerEvents(consumer)
-            
+
             // Always resume consumer - MediaSoup handles producer pause state internally
             if (consumer.paused) {
               await consumer.resume()
             }
-            
+
             this.notifyStateChange()
-            
+
             return consumer.id
           },
           catch: (error) => new ConsumerError(`Failed to create consumer: ${error}`, error)
@@ -1532,10 +1533,10 @@ class WebRTCServiceImpl implements WebRTCService {
 
   // Map to store pending consumer creation requests
   private consumerCreationPromises = new Map<string, Deferred.Deferred<string, ConsumerError>>()
-  
+
   // Map to store MediaSoup produce callbacks (request key -> callback)
   private producerCallbacks = new Map<string, (result: { id: string }) => void>()
-  
+
 
   createConsumerFromProducer = (producerId: string): Effect.Effect<string, ConsumerError> =>
     pipe(
@@ -1554,20 +1555,20 @@ class WebRTCServiceImpl implements WebRTCService {
           Effect.andThen(deferred => {
             // Store the deferred for this producer
             this.consumerCreationPromises.set(producerId, deferred)
-            
+
             // Set up timeout cleanup
             const timeoutId = setTimeout(() => {
               this.consumerCreationPromises.delete(producerId)
               Effect.runFork(Deferred.fail(deferred, new ConsumerError('Timeout waiting for consumer creation')))
             }, 30000)
-            
+
             // Send requestConsumer command to backend to trigger consumer creation
             const requestConsumerEffect = this.sendWebSocketMessage({
               type: 'requestConsumer',
               producerId: producerId,
               _traceContext: { traceparent: 'dummy', tracestate: null, metadata: null }
             })
-            
+
             Effect.runFork(requestConsumerEffect.pipe(
               Effect.tapError(error => {
                 console.error('Failed to send requestConsumer command:', error)
@@ -1575,10 +1576,10 @@ class WebRTCServiceImpl implements WebRTCService {
                 return Deferred.fail(deferred, new ConsumerError('Failed to request consumer creation'))
               })
             ))
-            
+
             // The consumer creation will be completed when we receive the ConsumerCreated event
             // The transport 'connect' event will fire when we actually call transport.consume() with real parameters
-            
+
             return pipe(
               // Wait for the backend to send ConsumerCreated event with actual consumer parameters
               Deferred.await(deferred),
@@ -1611,26 +1612,21 @@ class WebRTCServiceImpl implements WebRTCService {
       Effect.tap(() => Effect.logInfo(`Paused consumer: ${consumerId}`))
     )
 
-  resumeConsumer = (consumerId: string): Effect.Effect<void, ConsumerError> =>
-    pipe(
-      Effect.sync(() => {
-        const consumer = this.consumers.get(consumerId)
-        if (!consumer) {
-          throw new ConsumerError(`Consumer not found: ${consumerId}`)
-        }
-        return consumer
-      }),
-      Effect.andThen(consumer =>
-        Effect.tryPromise({
-          try: async () => {
-            await consumer.resume()
-            this.notifyStateChange()
-          },
-          catch: (error) => new ConsumerError(`Failed to resume consumer: ${error}`, error)
-        })
-      ),
-      Effect.tap(() => Effect.logInfo(`Resumed consumer: ${consumerId}`))
-    )
+    // webrtc-service.ts (Inside WebRTCServiceImpl)
+
+    resumeConsumer = (consumerId: string): Effect.Effect<void, WebRTCError> => {
+      return pipe(
+        // 1. Send signal to backend
+        this.sendWebSocketMessage({
+          type: 'resumeConsumer', // You need to handle this on the server!
+          consumerId: consumerId,
+          _traceContext: getWebSocketTraceContext()
+        }),
+        // 2. Update local state (optional, usually automatic via events)
+        Effect.tap(() => Effect.logInfo(`Requested resume for consumer ${consumerId}`)),
+        Effect.mapError(err => new ConsumerError("Failed to resume", err))
+      );
+    }
 
   closeConsumer = (consumerId: string): Effect.Effect<void, never> =>
     pipe(
@@ -1639,53 +1635,65 @@ class WebRTCServiceImpl implements WebRTCService {
         if (consumer) {
           consumer.close()
           this.consumers.delete(consumerId)
-          
+
           // Clean up associated audio element
           const audioElement = this.audioElements.get(consumerId)
           if (audioElement) {
             audioElement.srcObject = null
             this.audioElements.delete(consumerId)
           }
-          
+
           this.notifyStateChange()
         }
       }),
       Effect.tap(() => Effect.logInfo(`Closed consumer: ${consumerId}`))
     )
 
-  createAudioElement = (consumerId: string, autoplay: boolean = true): Effect.Effect<HTMLAudioElement, ConsumerError> =>
-    pipe(
-      Effect.sync(() => {
-        const consumer = this.consumers.get(consumerId)
-        if (!consumer) {
-          throw new ConsumerError(`Consumer not found: ${consumerId}`)
-        }
-        if (!consumer.track) {
-          throw new ConsumerError(`Consumer has no track: ${consumerId}`)
-        }
-        
-        const audioElement = new Audio()
-        const stream = new MediaStream([consumer.track])
-        
-        audioElement.srcObject = stream
-        audioElement.autoplay = autoplay
-        audioElement.controls = false
-        
-        this.audioElements.set(consumerId, audioElement)
-        
-        // Try to play immediately, handle autoplay restrictions
-        if (autoplay) {
-          audioElement.play().catch((error) => {
-            console.warn('Autoplay blocked by browser, user interaction required:', error)
-            // Mark that manual play is needed
-            audioElement.setAttribute('data-autoplay-blocked', 'true')
-          })
-        }
-        
-        return audioElement
-      }),
-      Effect.tap(() => Effect.logInfo(`Created audio element for consumer: ${consumerId}`))
-    )
+  // createAudioElement = (consumerId: string, autoplay: boolean = true): Effect.Effect<HTMLAudioElement, ConsumerError> =>
+  //   pipe(
+  //     Effect.sync(() => {
+  //       const consumer = this.consumers.get(consumerId)
+  //       if (!consumer) {
+  //         throw new ConsumerError(`Consumer not found: ${consumerId}`)
+  //       }
+  //       if (!consumer.track) {
+  //         throw new ConsumerError(`Consumer has no track: ${consumerId}`)
+  //       }
+  //
+  //       const audioElement = new Audio()
+  //       const stream = new MediaStream([consumer.track])
+  //
+  //       audioElement.srcObject = stream
+  //       audioElement.autoplay = autoplay
+  //       audioElement.controls = false
+  //
+  //       this.audioElements.set(consumerId, audioElement)
+  //
+  //       // Try to play immediately, handle autoplay restrictions
+  //       if (autoplay) {
+  //         audioElement.play().catch((error) => {
+  //           console.warn('Autoplay blocked by browser, user interaction required:', error)
+  //           // Mark that manual play is needed
+  //           audioElement.setAttribute('data-autoplay-blocked', 'true')
+  //         })
+  //       }
+  //
+  //       return audioElement
+  //     }),
+  //     Effect.tap(() => Effect.logInfo(`Created audio element for consumer: ${consumerId}`))
+  //   )
+    //
+  getConsumerStream = (consumerId: string): Effect.Effect<MediaStream, ConsumerError> =>
+      pipe(
+        Effect.sync(() => {
+          const consumer = this.consumers.get(consumerId)
+          if (!consumer) throw new ConsumerError(`Consumer not found: ${consumerId}`)
+          if (!consumer.track) throw new ConsumerError(`Consumer has no track: ${consumerId}`)
+
+          return new MediaStream([consumer.track])
+        }),
+        Effect.tap(() => Effect.logDebug(`Created MediaStream for consumer: ${consumerId}`))
+      )
 
   getConsumer = (consumerId: string): Effect.Effect<Option.Option<types.Consumer>, never> =>
     Effect.succeed(Option.fromNullable(this.consumers.get(consumerId)))
@@ -1698,7 +1706,7 @@ class WebRTCServiceImpl implements WebRTCService {
       this.listConsumers(),
       Effect.andThen(consumers =>
         Effect.all(
-          consumers.map(consumer => 
+          consumers.map(consumer =>
             pipe(
               this.closeConsumer(consumer.id),
               Effect.catchAll(() => Effect.void)
@@ -1838,10 +1846,10 @@ class WebRTCServiceImpl implements WebRTCService {
   subscribeToStateChanges = (callback: (state: WebRTCState) => void): Effect.Effect<() => void, never> =>
     Effect.sync(() => {
       this.stateSubscribers.add(callback)
-      
+
       // Send initial state
       callback(this.getStateSnapshot())
-      
+
       // Return cleanup function
       return () => {
         this.stateSubscribers.delete(callback)
@@ -1855,10 +1863,10 @@ class WebRTCServiceImpl implements WebRTCService {
   subscribeToProducerPauseState = (callback: (isPaused: boolean) => void): Effect.Effect<() => void, never> =>
     Effect.sync(() => {
       this.producerPauseSubscribers.add(callback)
-      
+
       // Send initial state
       callback(this.getProducerPauseState())
-      
+
       // Return cleanup function
       return () => {
         this.producerPauseSubscribers.delete(callback)

@@ -1,18 +1,18 @@
 /**
  * WebSocket Models - Single Source of Truth
- * 
+ *
  * These types match the backend Rust models exactly.
  * All message types use camelCase with type tags for discriminated unions.
  * Uses Effect-TS Option types instead of null/undefined for better type safety.
- * 
+ *
  * @see /home/data01/Projects/hushfm/backend/src/models/
  */
 
 import { Option } from 'effect'
 import { types } from 'mediasoup-client'
-import type { 
-  RoomInfo, 
-  DtlsParametersWrapper, 
+import type {
+  RoomInfo,
+  DtlsParametersWrapper,
   DtlsFingerprintWrapper,
   TransportOptions as ApiTransportOptions,
   RtpCapabilitiesWrapper,
@@ -59,7 +59,7 @@ export type Room = RoomInfo
 
 /**
  * Client-to-Server Commands
- * 
+ *
  * Commands that clients can send to the server for WebRTC signaling and stream control.
  * Replaces the old DJMessage interface with proper typing for all command types.
  */
@@ -130,10 +130,17 @@ export type ClientCommand =
       /** Trace context for request tracing */
       _traceContext: SerializedTraceContext
     }
+  | {
+      type: 'resumeConsumer'
+      /** ID of the producer to consume from */
+      consumerId: string
+      /** Trace context for request tracing */
+      _traceContext: SerializedTraceContext
+    }
 
 /**
  * Server-to-Client Events
- * 
+ *
  * Events that the server sends to clients in response to commands or state changes.
  * Replaces the old ServerMessage interface with comprehensive event coverage.
  */
@@ -271,7 +278,7 @@ export type ServerEvent =
 
 /**
  * Lobby Events
- * 
+ *
  * Events broadcast to all lobby clients about room changes.
  * Replaces the old BroadcastMessage interface.
  */
@@ -307,7 +314,7 @@ export type WebSocketMessage = ClientCommand | ServerEvent | LobbyEvent
  * Type guards for message discrimination
  */
 export const isClientCommand = (message: WebSocketMessage): message is ClientCommand => {
-  return ['connectDjTransport', 'produce', 'pauseStream', 'resumeStream', 'closeRoom', 'getRouterCapabilities', 'requestJoin', 'connectListenerTransport', 'leaveRoom', 'requestConsumer'].includes(message.type)
+  return ['connectDjTransport', 'produce', 'pauseStream', 'resumeStream', 'closeRoom', 'getRouterCapabilities', 'requestJoin', 'connectListenerTransport', 'leaveRoom', 'requestConsumer', 'resumeConsumer'].includes(message.type)
 }
 
 export const isServerEvent = (message: WebSocketMessage): message is ServerEvent => {
@@ -324,18 +331,18 @@ export const isLobbyEvent = (message: WebSocketMessage): message is LobbyEvent =
 export const LEGACY_MESSAGE_MAPPING = {
   // Old DJMessage -> New ClientCommand
   'ConnectTransport': 'connectTransport',
-  'Produce': 'produce', 
+  'Produce': 'produce',
   'StopProducing': 'pauseStream',
   'DeleteRoom': 'closeRoom',
-  
+
   // Old ServerMessage -> New ServerEvent
   'ProducerCreated': 'producerCreated',
   'RoomDeleted': 'roomClosed',
   'ListenerJoined': 'listenerCountUpdated',
   'ListenerLeft': 'listenerCountUpdated',
   'Error': 'commandFailed',
-  
-  // Old BroadcastMessage -> New LobbyEvent  
+
+  // Old BroadcastMessage -> New LobbyEvent
   'RoomAdded': 'roomAdded',
   'RoomUpdated': 'roomUpdated',
   'RoomRemoved': 'roomRemoved',
@@ -343,7 +350,7 @@ export const LEGACY_MESSAGE_MAPPING = {
 
 /**
  * Room Conversion Utilities
- * 
+ *
  * Convert between API Room types and WebSocket Room types with proper Option handling
  */
 
@@ -355,7 +362,7 @@ export const LEGACY_MESSAGE_MAPPING = {
 /**
  * Type conversion schemas using Effect's Brand system
  * Similar to Rust's From/Into traits
- * 
+ *
  * These convert between API wrapper types (used for WebSocket/HTTP communication)
  * and native MediaSoup client types (used internally)
  */
@@ -365,7 +372,7 @@ export const TransportOptionsFromApi = {
   decode: (api: ApiTransportOptions): InternalTransportOptions => ({
     id: api.id,
     dtlsParameters: api.dtlsParameters,
-    iceParameters: api.iceParameters, 
+    iceParameters: api.iceParameters,
     iceCandidates: api.iceCandidates,
     sctpParameters: api.sctpParameters
   }),
@@ -436,7 +443,7 @@ export const RtpParametersFromApi = {
 export interface InternalTransportOptions {
   id: string
   dtlsParameters: any  // Native MediaSoup client type
-  iceParameters: any   // Native MediaSoup client type  
+  iceParameters: any   // Native MediaSoup client type
   iceCandidates: any[] // Native MediaSoup client type
   sctpParameters?: any // Native MediaSoup client type
 }

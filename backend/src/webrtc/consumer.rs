@@ -41,8 +41,8 @@ impl ConsumerManager {
         let actual_consumer_id = consumer.id().to_string();
 
         // Resume consumer immediately after creation (consumers start paused by default)
-        consumer.resume().await?;
-        tracing::info!("Consumer {} resumed after creation", actual_consumer_id);
+        // consumer.resume().await?;
+        // tracing::info!("Consumer {} resumed after creation", actual_consumer_id);
 
         // Generate consumer parameters for client
         let consumer_parameters = Self::generate_consumer_parameters(&consumer, producer).await?;
@@ -211,7 +211,7 @@ impl ListenerState {
     pub fn has_consumer(&self) -> bool {
         self.consumer.is_some()
     }
-    
+
     /// Check if consumer is currently paused (MediaSoup state as single source of truth)
     pub fn is_consumer_paused(&self) -> bool {
         self.consumer.as_ref().map_or(true, |c| c.paused())

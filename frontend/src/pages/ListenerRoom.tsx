@@ -12,7 +12,7 @@ export default function ListenerRoom() {
   const navigate = useNavigate()
 
   // Use new providers instead of local state
-  const { connectionState, isStreaming, isProducerPaused } = useWebRTC()
+  const { connectionState, isProducerPaused } = useWebRTC()
   // Listeners only need lobby updates, not room WebSocket
   const { } = useSignaling()
 
@@ -25,14 +25,48 @@ export default function ListenerRoom() {
 
   // Simple state - managed by flows
   const [currentConsumerId, setCurrentConsumerId] = createSignal<Option.Option<string>>(Option.none())
-  const [currentStream] = createSignal<Option.Option<MediaStream>>(Option.none())
-  
+  const [_currentStream] = createSignal<Option.Option<MediaStream>>(Option.none())
+
   // For listeners: connected = has consumer AND DJ is actively streaming (not paused)
   const isConnected = () => connectionState() === 'connected' && Option.isSome(currentConsumerId())
-  const isDJLive = () => isConnected() && isStreaming() && !isProducerPaused()
+  const isDJLive = () => isConnected() && !isProducerPaused()
 
-  const [audioElement, setAudioElement] = createSignal<Option.Option<HTMLAudioElement>>(Option.none())
   const [listenerWebSocket, setListenerWebSocket] = createSignal<Option.Option<WebSocket>>(Option.none())
+  const [mediaStream, setMediaStream] = createSignal<Option.Option<MediaStream>>(Option.none())
+
+  // 1. Ensure audioRef is typed correctly
+  let audioRef: HTMLAudioElement | undefined
+
+  // 2. Updated Effect with logging
+  createEffect(() => {
+    const streamOption = mediaStream()
+
+    // Check both stream and ref presence
+    if (Option.isSome(streamOption)) {
+      if (audioRef) {
+        console.log("🌊 Stream detected, attaching to audio element...", streamOption.value.id)
+
+        // A. Set source
+        audioRef.srcObject = streamOption.value
+
+        // B. Update volume immediately
+        audioRef.volume = isMuted() ? 0 : volume()
+
+        // C. Explicit Play Attempt
+        audioRef.play()
+          .then(() => {
+             console.log("✅ Audio playback started successfully")
+             setNeedsUserPlay(false)
+          })
+          .catch(e => {
+             console.warn("⚠️ Autoplay blocked or failed:", e)
+             setNeedsUserPlay(true)
+          })
+      } else {
+        console.error("❌ Stream is ready but audioRef is undefined!")
+      }
+    }
+  })
 
   // Start join room flow on mount (create WebSocket connection for listeners)
   onMount(async () => {
@@ -54,25 +88,16 @@ export default function ListenerRoom() {
       },
       onNone: () => {}
     })
-    
-    Option.match(audioElement(), {
-      onSome: (audio) => {
-        audio.pause()
-        audio.srcObject = null
-        setAudioElement(Option.none())
-      },
-      onNone: () => {}
-    })
   })
 
   // Effect to set up audio playback when stream changes
-  createEffect(() => {
-    const stream = currentStream()
-    Option.match(stream, {
-      onSome: (s) => setupAudioPlayback(s),
-      onNone: () => {}
-    })
-  })
+  // createEffect(() => {
+  //   const stream = currentStream()
+  //   Option.match(stream, {
+  //     onSome: (s) => setupAudioPlayback(s),
+  //     onNone: () => {}
+  //   })
+  // })
 
   // Effect to sync initialization state with provider state
   createEffect(() => {
@@ -93,224 +118,180 @@ export default function ListenerRoom() {
   })
 
   const joinRoom = async () => {
-    setIsInitializing(true)
-    setError(Option.none())
+      setIsInitializing(true)
+      setError(Option.none())
 
-    const program = Effect.gen(function* (_) {
-      // Connect to WebSocket and wait for connection to be established
-      const ws = yield* _(connectWebSocket(`ws://localhost:3000/ws/listen/${roomId()}`))
-      setListenerWebSocket(Option.some(ws))
-      
-      // Now proceed with join flow using connected WebSocket
-      const result = yield* _(joinRoomFlow(roomId(), ws))
-      return result
-    })
+      const program = Effect.gen(function* (_) {
+          // 1. Connect to WebSocket
+          const ws = yield* _(connectWebSocket(`ws://localhost:3000/ws/listen/${roomId()}`))
+          setListenerWebSocket(Option.some(ws))
 
-    try {
-      const result = await Effect.runPromise(program)
-      setCurrentConsumerId(Option.some(result.consumerId))
-      
-      // Set up audio playbook with the received audio element
-      const audio = result.audioElement
-      audio.volume = volume()
-      audio.muted = isMuted()
-      setAudioElement(Option.some(audio))
-      
-      // Check if autoplay was blocked
-      if (audio.getAttribute('data-autoplay-blocked') === 'true') {
-        setNeedsUserPlay(true)
-      }
-      
-      setIsInitializing(false)
+          // 2. Run the join flow (now returns stream, not audioElement)
+          const result = yield* _(joinRoomFlow(roomId(), ws))
 
-    } catch (err: any) {
-      console.error('Failed to join room:', err)
-      
-      // Provide more specific error messages
-      let errorMessage = err.message || 'Unknown error occurred'
-      if (err.message?.includes('Failed to connect')) {
-        errorMessage = 'Could not connect to the room. Please check your network connection and try again.'
-      } else if (err.message?.includes('WebSocket')) {
-        errorMessage = 'Connection lost to the room. Please try again.'
-      } else if (err.message?.includes('Room not found') || err.message?.includes('producer')) {
-        errorMessage = 'This room is no longer available or the DJ has stopped streaming.'
-      }
-      
-      setError(Option.some(errorMessage))
-      setIsInitializing(false)
-    }
-  }
+          return result
+      })
 
-  const setupAudioPlayback = async (stream: MediaStream) => {
-    try {
-      const audio = new Audio()
-      audio.srcObject = stream
-      audio.volume = isMuted() ? 0 : volume()
-      // Required for iOS - set as attribute
-      audio.setAttribute('playsinline', 'true')
-      setAudioElement(Option.some(audio))
-
-      // Try to auto-play, handle autoplay policy blocking
       try {
-        await audio.play()
-        console.log("Audio auto-playing successfully")
-      } catch (autoplayError) {
-        console.warn("Autoplay blocked, waiting for user interaction", autoplayError)
-        // Mark that autoplay was blocked so UI can show play button
-        audio.setAttribute('data-autoplay-blocked', 'true')
-        setNeedsUserPlay(true)
-      }
+          const result = await Effect.runPromise(program)
 
-    } catch (err) {
-      console.error('Failed to set up audio playback:', err)
+          // 3. Update State
+          setCurrentConsumerId(Option.some(result.consumerId))
+
+          // 4. Set the stream to the signal (triggers the createEffect for audio)
+          // Ensure you have: const [currentStream, setCurrentStream] = createSignal<Option.Option<MediaStream>>(Option.none())
+          setMediaStream(Option.some(result.stream))
+
+          setIsInitializing(false)
+          console.log("Join room success, stream set to state")
+
+      } catch (err: any) {
+          console.error('Failed to join room:', err)
+
+          // Error handling logic
+          let errorMessage = err.message || 'Unknown error occurred'
+          if (err.message?.includes('Failed to connect')) {
+              errorMessage = 'Could not connect to the room. Please check your network connection and try again.'
+          } else if (err.message?.includes('WebSocket')) {
+              errorMessage = 'Connection lost to the room. Please try again.'
+          } else if (err.message?.includes('Room not found') || err.message?.includes('producer')) {
+              errorMessage = 'This room is no longer available or the DJ has stopped streaming.'
+          }
+
+          setError(Option.some(errorMessage))
+          setIsInitializing(false)
+      }
+  }
+
+const handleManualPlay = () => {
+    if (audioRef) {
+      audioRef.play().then(() => setNeedsUserPlay(false))
     }
   }
 
+  // Handle Volume Change
   const handleVolumeChange = (event: Event) => {
     const target = event.target as HTMLInputElement
     const newVolume = parseFloat(target.value)
     setVolume(newVolume)
-
-    Option.match(audioElement(), {
-      onSome: (audio) => {
-        if (!isMuted()) {
-          audio.volume = newVolume
-        }
-      },
-      onNone: () => {}
-    })
+    if (audioRef && !isMuted()) {
+      audioRef.volume = newVolume
+    }
   }
 
+  // Handle Mute Toggle
   const toggleMute = () => {
     const newMuted = !isMuted()
     setIsMuted(newMuted)
-
-    Option.match(audioElement(), {
-      onSome: (audio) => {
-        audio.volume = newMuted ? 0 : volume()
-      },
-      onNone: () => {}
-    })
-  }
-
-  const handleManualPlay = async () => {
-    Option.match(audioElement(), {
-      onSome: async (audio) => {
-        try {
-          await audio.play()
-          setNeedsUserPlay(false)
-          audio.removeAttribute('data-autoplay-blocked')
-        } catch (error) {
-          console.error('Failed to start playback:', error)
-          setError(Option.some('Failed to start audio playback'))
-        }
-      },
-      onNone: () => {}
-    })
+    if (audioRef) {
+      audioRef.volume = newMuted ? 0 : volume()
+    }
   }
 
   const leaveRoom = () => {
-    // Cleanup audio element
-    Option.match(audioElement(), {
-      onSome: (audio) => {
-        audio.pause()
-        audio.srcObject = null
-        setAudioElement(Option.none())
+    // 1. Cleanup Audio
+    if (audioRef) {
+      audioRef.pause()
+      audioRef.srcObject = null
+    }
+
+    // 2. Cleanup WebSocket
+    Option.match(listenerWebSocket(), {
+      onSome: (ws) => {
+        // Optional: Send leave command if your backend supports it explicitely
+        // ws.send(JSON.stringify({ type: 'leaveRoom' }))
+        ws.close()
+        setListenerWebSocket(Option.none())
       },
       onNone: () => {}
     })
+
+    // 3. Reset State
+    setCurrentConsumerId(Option.none())
+    setMediaStream(Option.none())
+
+    // 4. Navigate Away
     navigate('/')
   }
 
-  const goBack = () => {
-    navigate('/')
-  }
-
+  // Ensure this return block replaces your current broken return
   return (
-    <div class="min-h-screen bg-base-100 p-4">
-      <div class="max-w-md mx-auto">
-        <Show when={isInitializing()}>
-          <div class="card bg-base-200">
-            <div class="card-body text-center">
-              <div class="loading loading-spinner loading-lg mx-auto"></div>
-              <h2>Connecting...</h2>
-            </div>
-          </div>
-        </Show>
+    <div class="h-screen w-full bg-neutral-900 text-white flex flex-col items-center justify-center p-4">
 
-        <Show when={Option.isSome(error())}>
-          <div class="alert alert-error mb-4">
+      {/* 1. The Audio Element (Essential!) */}
+      <audio
+        ref={audioRef}
+        autoplay
+        // playsinline
+        controls={false} // Hidden controls, managed by UI below
+      />
+
+      <Show when={isInitializing()}>
+        <div class="text-2xl font-bold animate-pulse">Connecting...</div>
+      </Show>
+
+      <Show when={Option.isSome(error())}>
+         <div class="fixed top-4 right-4 bg-red-500 text-white px-4 py-2 rounded shadow-lg flex items-center gap-2">
             <span>{Option.getOrElse(error(), () => '')}</span>
-            <button class="btn btn-sm btn-circle" onClick={() => setError(Option.none())}>✕</button>
-          </div>
-        </Show>
+            <button onClick={() => setError(Option.none())} class="hover:bg-red-600 rounded p-1">✕</button>
+         </div>
+      </Show>
 
-        <Show when={!isInitializing()}>
-          <div class="card bg-base-200">
-            <div class="card-body">
-              <div class="flex justify-between items-center mb-4">
-                <button class="btn btn-sm btn-ghost" onClick={goBack}>←</button>
-                <div class={`badge ${isDJLive() ? 'badge-success' : isConnected() ? 'badge-warning' : 'badge-error'}`}>
-                  {isDJLive() ? 'LIVE' : isConnected() ? 'PAUSED' : 'DISCONNECTED'}
+      <Show when={!isInitializing() && Option.isNone(error())}>
+        <div class="flex flex-col items-center gap-8 max-w-md w-full">
+
+            {/* Status Indicator */}
+            <div class="flex flex-col items-center gap-2">
+                <div class={`w-4 h-4 rounded-full ${isDJLive() ? 'bg-green-500 animate-pulse' : 'bg-yellow-500'}`}></div>
+                <div class="text-sm uppercase tracking-widest font-semibold">
+                    {isDJLive() ? 'LIVE' : isConnected() ? 'PAUSED' : 'DISCONNECTED'}
                 </div>
-              </div>
+            </div>
 
-              <Show when={needsUserPlay()}>
-                <div class="alert alert-info mb-4">
-                  <svg class="stroke-current shrink-0 h-6 w-6" fill="none" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L3.732 19c-.77.833.192 2.5 1.732 2.5z" />
-                  </svg>
-                  <span>Click to start audio playback</span>
-                  <button class="btn btn-sm btn-success" onClick={handleManualPlay}>
-                    ▶ Play
-                  </button>
+            {/* Manual Play Button (Only if autoplay blocked) */}
+            <Show when={needsUserPlay()}>
+                <div class="bg-yellow-900/50 p-4 rounded-lg border border-yellow-700 text-center">
+                    <p class="mb-4 text-yellow-200">Click to start audio playback</p>
+                    <button
+                        onClick={handleManualPlay}
+                        class="bg-yellow-500 hover:bg-yellow-400 text-black font-bold py-3 px-8 rounded-full transition-all transform hover:scale-105"
+                    >
+                        ▶ Play Audio
+                    </button>
                 </div>
-              </Show>
+            </Show>
 
-              {/*
-              <WaveformVisualizer stream={currentStream() || undefined} />
-                */}
-
-              <div class="space-y-4 mt-4">
-                {/* Volume Control */}
-                <div class="flex items-center gap-3">
-                  <button
-                    class="btn btn-sm btn-circle"
-                    onClick={toggleMute}
-                  >
+            {/* Volume Controls */}
+            <div class="flex items-center gap-4 w-full bg-neutral-800 p-4 rounded-xl">
+                <button onClick={toggleMute} class="p-2 hover:bg-neutral-700 rounded-full transition-colors">
                     {isMuted() ? (
-                      <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width={2} d="M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z" />
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width={2} d="M17 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2" />
-                      </svg>
+                        <span>🔇</span> // Replace with Icon if you have one
                     ) : (
-                      <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width={2} d="M15.536 8.464a5 5 0 010 7.072m2.828-9.9a9 9 0 010 12.728" />
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width={2} d="M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z" />
-                      </svg>
+                        <span>🔊</span> // Replace with Icon if you have one
                     )}
-                  </button>
-                  <input
+                </button>
+
+                <input
                     type="range"
                     min="0"
                     max="1"
-                    step="0.05"
+                    step="0.01"
                     value={volume()}
-                    class="range range-sm flex-1"
                     onInput={handleVolumeChange}
-                  />
-                  <span class="text-sm">{Math.round(volume() * 100)}%</span>
-                </div>
-
-                {/* Leave Button */}
-                <button class="btn btn-sm btn-block" onClick={leaveRoom}>
-                  Leave
-                </button>
-              </div>
+                    class="w-full accent-green-500 h-2 bg-neutral-600 rounded-lg appearance-none cursor-pointer"
+                />
+                <span class="w-12 text-right font-mono text-sm">{Math.round(volume() * 100)}%</span>
             </div>
-          </div>
-        </Show>
-      </div>
+
+            {/* Leave Button */}
+            <button
+                onClick={leaveRoom}
+                class="mt-8 text-neutral-400 hover:text-white underline decoration-dotted underline-offset-4 transition-colors"
+            >
+                Leave Room
+            </button>
+        </div>
+      </Show>
     </div>
   )
 }
