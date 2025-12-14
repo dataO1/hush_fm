@@ -8,6 +8,7 @@ use std::num::NonZero;
 use serde_json::Value;
 use std::sync::Arc;
 use uuid::Uuid;
+use tokio::sync::mpsc;
 
 /// Consumer manager for listener connections
 pub struct ConsumerManager;
@@ -38,6 +39,10 @@ impl ConsumerManager {
         let consumer = transport.consume(consumer_options).await?;
 
         let actual_consumer_id = consumer.id().to_string();
+
+        // Resume consumer immediately after creation (consumers start paused by default)
+        consumer.resume().await?;
+        tracing::info!("Consumer {} resumed after creation", actual_consumer_id);
 
         // Generate consumer parameters for client
         let consumer_parameters = Self::generate_consumer_parameters(&consumer, producer).await?;
@@ -163,7 +168,7 @@ impl ConsumerManager {
 }
 
 /// Complete listener state containing all WebRTC resources and metadata
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct ListenerState {
     pub listener_id: String,
     pub room_id: Uuid,
@@ -173,6 +178,7 @@ pub struct ListenerState {
     pub consumer_id: Option<String>,
     pub producer_id: Option<String>,
     pub connected_at: chrono::DateTime<chrono::Utc>,
+    pub event_tx: mpsc::UnboundedSender<crate::models::ServerEvent>,
 }
 
 impl ListenerState {
@@ -181,6 +187,7 @@ impl ListenerState {
         room_id: Uuid,
         transport: Arc<WebRtcTransport>,
         device_rtp_capabilities: serde_json::Value,
+        event_tx: mpsc::UnboundedSender<crate::models::ServerEvent>,
     ) -> Self {
         Self {
             listener_id,
@@ -191,6 +198,7 @@ impl ListenerState {
             consumer_id: None,
             producer_id: None,
             connected_at: chrono::Utc::now(),
+            event_tx,
         }
     }
 

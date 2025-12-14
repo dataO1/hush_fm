@@ -259,6 +259,9 @@ class WebRTCServiceImpl implements WebRTCService {
   
   // Producer pause state (MediaSoup state as single source of truth)
   private producerPauseSubscribers = new Set<(isPaused: boolean) => void>()
+  
+  // For listeners: track remote DJ producer pause state (since listeners don't have local producers)
+  private remoteDJPauseState = true // Assume paused initially until we get room state
 
   /**
    * Get current state snapshot
@@ -297,10 +300,18 @@ class WebRTCServiceImpl implements WebRTCService {
   
   /**
    * Get current producer pause state
+   * For DJs: check local producer state
+   * For listeners: use remote DJ pause state from events
    */
   private getProducerPauseState(): boolean {
-    const producer = Array.from(this.producers.values())[0] // Assuming one producer for DJ
-    return producer ? producer.paused : true
+    // If we're a DJ and have local producers, use local producer state
+    if (this.connectionType === 'dj' && this.producers.size > 0) {
+      const producer = Array.from(this.producers.values())[0] // Assuming one producer for DJ
+      return producer.paused
+    }
+    
+    // For listeners or when no local producers: use remote DJ state
+    return this.remoteDJPauseState
   }
   
   /**
@@ -841,12 +852,14 @@ class WebRTCServiceImpl implements WebRTCService {
         
       case 'streamPaused':
         console.info(`Stream paused in room: ${event.roomId}`)
-        // Update local state if this affects our producers
+        // For listeners: update remote DJ pause state
         Option.match(this.roomId, {
           onNone: () => {},
           onSome: (currentRoomId) => {
             if (currentRoomId === event.roomId) {
-              // Could pause local producers here if needed
+              // Update remote DJ pause state (for listeners)
+              this.remoteDJPauseState = true
+              this.notifyProducerPauseChange()
               this.notifyStateChange()
             }
           }
@@ -855,12 +868,14 @@ class WebRTCServiceImpl implements WebRTCService {
         
       case 'streamResumed':
         console.info(`Stream resumed in room: ${event.roomId}`)
-        // Update local state if this affects our producers
+        // For listeners: update remote DJ pause state
         Option.match(this.roomId, {
           onNone: () => {},
           onSome: (currentRoomId) => {
             if (currentRoomId === event.roomId) {
-              // Could resume local producers here if needed
+              // Update remote DJ pause state (for listeners)
+              this.remoteDJPauseState = false
+              this.notifyProducerPauseChange()
               this.notifyStateChange()
             }
           }
@@ -887,6 +902,11 @@ class WebRTCServiceImpl implements WebRTCService {
         this.roomId = Option.some(event.room.id)
         // Store RTP capabilities for device initialization
         this.rtpCapabilities = Option.some(event.rtpCapabilities)
+        
+        // Initialize remote DJ pause state from room info (for listeners)
+        // is_streaming = true means DJ is actively streaming (not paused)
+        this.remoteDJPauseState = !event.room.isStreaming
+        
         // Resolve waiting promise
         const pending = this.joinReadyPromises.get(event.room.id)
         if (pending) {
@@ -899,6 +919,7 @@ class WebRTCServiceImpl implements WebRTCService {
           this.joinReadyPromises.delete(event.room.id)
         }
         this.notifyStateChange()
+        this.notifyProducerPauseChange() // Notify initial pause state
         break
         
       case 'roomJoined':

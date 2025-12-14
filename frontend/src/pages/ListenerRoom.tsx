@@ -12,7 +12,7 @@ export default function ListenerRoom() {
   const navigate = useNavigate()
 
   // Use new providers instead of local state
-  const { connectionState } = useWebRTC()
+  const { connectionState, isStreaming, isProducerPaused } = useWebRTC()
   // Listeners only need lobby updates, not room WebSocket
   const { } = useSignaling()
 
@@ -26,7 +26,10 @@ export default function ListenerRoom() {
   // Simple state - managed by flows
   const [currentConsumerId, setCurrentConsumerId] = createSignal<Option.Option<string>>(Option.none())
   const [currentStream] = createSignal<Option.Option<MediaStream>>(Option.none())
+  
+  // For listeners: connected = has consumer AND DJ is actively streaming (not paused)
   const isConnected = () => connectionState() === 'connected' && Option.isSome(currentConsumerId())
+  const isDJLive = () => isConnected() && isStreaming() && !isProducerPaused()
 
   const [audioElement, setAudioElement] = createSignal<Option.Option<HTMLAudioElement>>(Option.none())
   const [listenerWebSocket, setListenerWebSocket] = createSignal<Option.Option<WebSocket>>(Option.none())
@@ -138,13 +141,25 @@ export default function ListenerRoom() {
     }
   }
 
-  const setupAudioPlayback = (stream: MediaStream) => {
+  const setupAudioPlayback = async (stream: MediaStream) => {
     try {
       const audio = new Audio()
       audio.srcObject = stream
-      audio.autoplay = true
       audio.volume = isMuted() ? 0 : volume()
+      // Required for iOS - set as attribute
+      audio.setAttribute('playsinline', 'true')
       setAudioElement(Option.some(audio))
+
+      // Try to auto-play, handle autoplay policy blocking
+      try {
+        await audio.play()
+        console.log("Audio auto-playing successfully")
+      } catch (autoplayError) {
+        console.warn("Autoplay blocked, waiting for user interaction", autoplayError)
+        // Mark that autoplay was blocked so UI can show play button
+        audio.setAttribute('data-autoplay-blocked', 'true')
+        setNeedsUserPlay(true)
+      }
 
     } catch (err) {
       console.error('Failed to set up audio playback:', err)
@@ -235,8 +250,8 @@ export default function ListenerRoom() {
             <div class="card-body">
               <div class="flex justify-between items-center mb-4">
                 <button class="btn btn-sm btn-ghost" onClick={goBack}>←</button>
-                <div class={`badge ${isConnected() ? 'badge-success' : 'badge-error'}`}>
-                  {isConnected() ? 'LIVE' : 'DISCONNECTED'}
+                <div class={`badge ${isDJLive() ? 'badge-success' : isConnected() ? 'badge-warning' : 'badge-error'}`}>
+                  {isDJLive() ? 'LIVE' : isConnected() ? 'PAUSED' : 'DISCONNECTED'}
                 </div>
               </div>
 

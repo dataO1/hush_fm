@@ -159,9 +159,9 @@ impl RoomState {
         self.update_activity();
     }
 
-    /// Get listener state
-    pub fn get_listener(&self, listener_id: &str) -> Option<crate::webrtc::consumer::ListenerState> {
-        self.listeners.get(listener_id).map(|entry| entry.value().clone())
+    /// Get listener state (returns reference since ListenerState can't be cloned)
+    pub fn get_listener(&self, listener_id: &str) -> Option<dashmap::mapref::one::Ref<String, crate::webrtc::consumer::ListenerState>> {
+        self.listeners.get(listener_id)
     }
 
     /// Update listener state (for setting consumer)
@@ -206,6 +206,36 @@ impl RoomState {
     pub fn idle_duration(&self) -> chrono::Duration {
         let last_activity = **self.last_activity.load();
         chrono::Utc::now() - last_activity
+    }
+
+    /// Broadcast event to all listeners in this room
+    pub fn broadcast_to_listeners(&self, event: crate::models::ServerEvent) {
+        let mut successful_sends = 0;
+        let mut failed_sends = 0;
+        
+        for listener_entry in self.listeners.iter() {
+            let listener_state = listener_entry.value();
+            match listener_state.event_tx.send(event.clone()) {
+                Ok(()) => successful_sends += 1,
+                Err(_) => {
+                    failed_sends += 1;
+                    tracing::warn!(
+                        listener_id = %listener_state.listener_id,
+                        room_id = %self.room.id,
+                        "Failed to send event to listener, channel may be closed"
+                    );
+                }
+            }
+        }
+        
+        tracing::debug!(
+            room_id = %self.room.id,
+            event_type = event.event_type(),
+            successful_sends = successful_sends,
+            failed_sends = failed_sends,
+            total_listeners = self.listeners.len(),
+            "Broadcasted event to room listeners"
+        );
     }
 }
 

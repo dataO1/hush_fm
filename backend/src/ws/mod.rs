@@ -120,6 +120,9 @@ async fn handle_listener_socket(socket: WebSocket, room_id: Uuid, state: AppStat
         "New listener WebSocket connection established"
     );
 
+    // Create event channel for this listener
+    let (event_tx, mut event_rx) = tokio::sync::mpsc::unbounded_channel();
+
     // Increment listener count when connection is established
     if let Some(room_state) = state.get_room_state(&room_id) {
         let mut room_state_guard = room_state.write().await;
@@ -140,12 +143,15 @@ async fn handle_listener_socket(socket: WebSocket, room_id: Uuid, state: AppStat
         state.broadcast_tx.send(lobby_event).ok();
     }
 
-    // Spawn task to handle incoming messages
+    // Handle both incoming messages and outgoing events concurrently
     let state_clone = state.clone();
-    let send_task = tokio::spawn(async move {
-        while let Some(msg) = receiver.next().await {
-            if let Ok(msg) = msg {
-                if let Message::Text(text) = msg {
+    let event_tx_clone = event_tx.clone();
+    
+    loop {
+        tokio::select! {
+            // Handle incoming WebSocket messages
+            msg = receiver.next() => {
+                if let Some(Ok(Message::Text(text))) = msg {
                     let message_span = tracing::debug_span!(
                         "listener_websocket_message_received",
                         room_id = %room_id,
@@ -161,7 +167,7 @@ async fn handle_listener_socket(socket: WebSocket, room_id: Uuid, state: AppStat
                         Ok(client_cmd) => {
                             message_span.record("command_type", client_cmd.command_type());
                             tracing::info!("Successfully parsed listener WebSocket command: {}", client_cmd.command_type());
-                            handle_listener_command(client_cmd, room_id, connection_id, &state_clone, &mut sender).await;
+                            handle_listener_command(client_cmd, room_id, connection_id, &state_clone, &mut sender, event_tx_clone.clone()).await;
                         }
                         Err(e) => {
                             tracing::error!(
@@ -171,20 +177,35 @@ async fn handle_listener_socket(socket: WebSocket, room_id: Uuid, state: AppStat
                             );
                         }
                     }
+                } else {
+                    tracing::debug!(
+                        room_id = %room_id,
+                        connection_id = %connection_id,
+                        "Listener WebSocket connection closed by client"
+                    );
+                    break;
                 }
-            } else {
-                tracing::debug!(
-                    room_id = %room_id,
-                    connection_id = %connection_id,
-                    "Listener WebSocket connection closed by client"
-                );
-                break;
+            },
+            // Handle outgoing events
+            event = event_rx.recv() => {
+                if let Some(event) = event {
+                    if let Ok(msg) = serde_json::to_string(&event) {
+                        if sender.send(Message::Text(msg)).await.is_err() {
+                            tracing::debug!(
+                                room_id = %room_id, 
+                                connection_id = %connection_id,
+                                "Failed to send event to listener, connection likely closed"
+                            );
+                            break;
+                        }
+                    }
+                } else {
+                    // Event channel closed
+                    break;
+                }
             }
         }
-    });
-
-    // Wait for the sending task to finish
-    send_task.await.ok();
+    }
     
     // Connection closed - perform cleanup
     tracing::info!(
@@ -385,13 +406,14 @@ async fn handle_client_command(
     }
 }
 
-#[tracing::instrument(skip(cmd, state, sender), fields(room_id = %room_id, connection_id = %connection_id, command_type = cmd.command_type()))]
+#[tracing::instrument(skip(cmd, state, sender, event_tx), fields(room_id = %room_id, connection_id = %connection_id, command_type = cmd.command_type()))]
 async fn handle_listener_command(
     cmd: ClientCommand,
     room_id: Uuid,
     connection_id: Uuid,
     state: &AppState,
     sender: &mut futures_util::stream::SplitSink<WebSocket, Message>,
+    event_tx: tokio::sync::mpsc::UnboundedSender<crate::models::ServerEvent>,
 ) {
     // Extract trace context from the message and set up parent span
     let _parent_context = extract_trace_context_from_command(&cmd);
@@ -462,7 +484,7 @@ async fn handle_listener_command(
 
             // Handle join request with producer validation and Jaeger spans
             let listener_id = connection_id.to_string(); // Use consistent connection_id as listener_id
-            match handle_request_join(room_id, rtp_capabilities, listener_id, state).await {
+            match handle_request_join(room_id, rtp_capabilities, listener_id, state, event_tx.clone()).await {
                 Ok((room_info, transport_options, producer_id, rtp_capabilities)) => {
                     let mut response = ServerEvent::JoinReady {
                         room: room_info,
@@ -719,7 +741,14 @@ async fn handle_stop_producing(
         room_state_guard.sync_streaming_state(); // Sync dj_streaming with producer state
         tracing::info!("Producer paused for room {}", room_id);
         
-        // Broadcast room update to all listeners
+        // Broadcast pause event to all listeners in this room
+        let pause_event = crate::models::ServerEvent::StreamPaused {
+            room_id: room_id.to_string(),
+            trace_context: None,
+        };
+        room_state_guard.broadcast_to_listeners(pause_event);
+        
+        // Also broadcast room update to lobby
         let room = room_state_guard.room.clone();
         drop(room_state_guard); // Release lock before broadcasting
         state.broadcast_manager.broadcast_room_updated(room);
@@ -770,7 +799,14 @@ async fn handle_resume_producing(
         room_state_guard.sync_streaming_state(); // Sync dj_streaming with producer state
         tracing::info!("Producer resumed for room {}", room_id);
         
-        // Broadcast room update to all listeners
+        // Broadcast resume event to all listeners in this room
+        let resume_event = crate::models::ServerEvent::StreamResumed {
+            room_id: room_id.to_string(),
+            trace_context: None,
+        };
+        room_state_guard.broadcast_to_listeners(resume_event);
+        
+        // Also broadcast room update to lobby
         let room = room_state_guard.room.clone();
         drop(room_state_guard); // Release lock before broadcasting
         state.broadcast_manager.broadcast_room_updated(room);
@@ -804,12 +840,13 @@ async fn handle_get_router_capabilities(
 }
 
 /// Handle join request with producer validation and Jaeger spans
-#[tracing::instrument(skip(state, device_rtp_capabilities), fields(room_id = %room_id, producer_exists = tracing::field::Empty, listener_count = tracing::field::Empty))]
+#[tracing::instrument(skip(state, device_rtp_capabilities, event_tx), fields(room_id = %room_id, producer_exists = tracing::field::Empty, listener_count = tracing::field::Empty))]
 async fn handle_request_join(
     room_id: Uuid,
     device_rtp_capabilities: serde_json::Value,
     listener_id: String,
     state: &AppState,
+    event_tx: tokio::sync::mpsc::UnboundedSender<crate::models::ServerEvent>,
 ) -> anyhow::Result<(crate::models::events::RoomInfo, crate::models::schemas::TransportOptions, String, crate::models::schemas::RtpCapabilitiesWrapper)> {
     let span = tracing::Span::current();
 
@@ -859,6 +896,7 @@ async fn handle_request_join(
         room_id,
         listener_transport,
         device_rtp_capabilities,
+        event_tx,
     );
     room_state_guard.add_listener(listener_state);
 
@@ -897,7 +935,7 @@ async fn handle_connect_listener_transport(
     let room_state_guard = room_state.read().await;
     
     // Get existing ListenerState (created during requestJoin)
-    let mut listener_state = room_state_guard.get_listener(&listener_id)
+    let listener_state = room_state_guard.get_listener(&listener_id)
         .ok_or_else(|| anyhow::anyhow!("No ListenerState found for listener_id: {}", listener_id))?;
     
     let transport_id = listener_state.transport.id().to_string();
@@ -1026,12 +1064,16 @@ async fn handle_request_consumer(
     let listener_state = room_state_guard.get_listener(&listener_id)
         .ok_or_else(|| anyhow::anyhow!("Listener state not found"))?;
     
-    let listener_transport = &listener_state.transport;
+    // Clone the necessary fields while holding the Ref guard
+    let listener_transport = listener_state.transport.clone();
     let rtp_capabilities = listener_state.device_rtp_capabilities.clone();
+    
+    // Drop the Ref guard explicitly before using the cloned values
+    drop(listener_state);
     
     // Create the consumer
     let (consumer, consumer_id, consumer_params) = crate::webrtc::ConsumerManager::create_audio_consumer(
-        listener_transport,
+        &listener_transport,
         producer,
         room_id,
         &listener_id,
