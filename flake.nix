@@ -21,11 +21,11 @@
               extensions = [ "rust-src" "rust-analyzer" ];
             })
             cargo-watch
-            
+
             # Node.js environment (required for mediasoup build)
             nodejs_20
             pnpm
-            
+
             # System dependencies for mediasoup C++ build
             pkg-config
             openssl
@@ -37,17 +37,19 @@
             cmake
             gnumake
             gcc
-            
+
             # Additional tools
             git
+
+            serve # static file serving for release build testing
           ];
-          
+
           # Environment variables
           RUST_SRC_PATH = "${pkgs.rust-bin.stable.latest.rust-src}/lib/rustlib/src/rust/library";
           PYTHON = "${pkgs.python311}/bin/python3";
           # Let mediasoup-sys build its own meson/ninja with Python 3.11 (compatible)
           MEDIASOUP_SKIP_WORKER_PREBUILT_DOWNLOAD = "false";
-          
+
           shellHook = ''
             echo "🎵 HushFM Development Environment"
             echo ""

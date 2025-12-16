@@ -302,20 +302,8 @@ export const subscribeToRouterCapabilities = (ws: WebSocket): Effect.Effect<any,
       ws.addEventListener('message', onMessage)
       console.log('🔧 subscribeToRouterCapabilities: Message listener added to WebSocket')
       
-      // Cleanup timeout
-      const timeoutId = setTimeout(() => {
-        console.error('❌ subscribeToRouterCapabilities: Timeout after 10 seconds')
-        ws.removeEventListener('message', onMessage)
-        resume(Effect.fail(new WebSocketMessageError({
-          cause: 'Router capabilities request timeout after 10 seconds',
-          direction: 'receive',
-          context: { timestamp: new Date(), operation: 'subscribe_router_capabilities' }
-        })))
-      }, 10000) // 10 second timeout
-      
       return Effect.sync(() => {
         console.log('🔧 subscribeToRouterCapabilities: Cleanup called')
-        clearTimeout(timeoutId)
         ws.removeEventListener('message', onMessage)
       })
     })

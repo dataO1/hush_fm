@@ -9,13 +9,14 @@
  * Uses: domain schemas for type safety and validation
  */
 
-import { createSignal, createEffect, onCleanup } from 'solid-js'
+import { createEffect, onCleanup } from 'solid-js'
 import { createStore } from 'solid-js/store'
 import { Effect, Option, Runtime, Layer } from 'effect'
 import {
   type RoomState,
   type RoomMetadata,
   type StreamingStatus,
+  ConnectionState,
   createInitialRoomState
 } from '../domain/schemas/room.schema'
 import {
@@ -28,20 +29,22 @@ import {
   type ListenerFlowStep
 } from '../domain/schemas/listener.schema'
 import {
-  type WSConnectionState
-} from '../domain/schemas/lobby.schema'
-import {
   RoomConnectionError
 } from '../domain/errors'
+
 
 /**
  * Room store actions - manages current room with DJ + listeners
  */
 export interface RoomStoreActions {
+  // Unified connection state management
+  setConnectionState: (state: ConnectionState) => void
+  getConnectionState: () => ConnectionState
+  
   // Room connection management
   setRoomWebSocket: (ws: WebSocket, roomId: string, connectionType: 'dj' | 'listener') => Effect.Effect<void, RoomConnectionError>
   disconnectFromRoom: () => void
-  updateConnectionState: (state: WSConnectionState) => void
+  updateConnectionState: (state: ConnectionState) => void
   
   // Room metadata management
   setRoomMetadata: (metadata: RoomMetadata) => void
@@ -53,6 +56,7 @@ export interface RoomStoreActions {
   setDJFlowStep: (step: DJFlowStep) => void
   setDJError: (error: string, step?: DJFlowStep) => void
   clearDJError: () => void
+  setSelectedDeviceId: (deviceId: string) => void
   
   // Listener state management (embedded MediaSoup state)
   addListener: (listener: ListenerState) => void
@@ -82,15 +86,65 @@ export interface RoomStoreActions {
 /**
  * Create enhanced room store with DJ + listeners
  */
+/**
+ * Helper function to map DJ flow steps to unified connection state
+ */
+const mapDJFlowStepToConnectionState = (step: DJFlowStep): ConnectionState => {
+  switch (step) {
+    case 'idle':
+      return ConnectionState.IDLE
+    case 'announcing':
+    case 'connecting':
+    case 'initializing':
+    case 'device_loading':
+    case 'requesting_media':
+    case 'requesting_transport':
+    case 'creating_transport':
+    case 'connecting_transport':
+    case 'creating_producer':
+    case 'publishing':
+      return ConnectionState.CONNECTING
+    case 'streaming':
+      return ConnectionState.STREAMING
+    case 'error':
+    case 'cleanup':
+      return ConnectionState.ERROR
+    default:
+      return ConnectionState.IDLE
+  }
+}
+
+/**
+ * Helper function to map Listener flow steps to unified connection state
+ */
+const mapListenerFlowStepToConnectionState = (step: ListenerFlowStep): ConnectionState => {
+  switch (step) {
+    case 'idle':
+      return ConnectionState.IDLE
+    case 'requesting_join':
+    case 'connecting':
+    case 'requesting_capabilities':
+    case 'waiting_transport':
+    case 'creating_transport':
+    case 'device_loading':
+    case 'sending_capabilities':
+    case 'waiting_consumer':
+    case 'creating_consumer':
+    case 'connecting_transport':
+      return ConnectionState.CONNECTING
+    case 'streaming':
+      return ConnectionState.STREAMING
+    case 'error':
+    case 'cleanup':
+      return ConnectionState.ERROR
+    default:
+      return ConnectionState.IDLE
+  }
+}
+
 export const createRoomStore = () => {
   // Main reactive state - starts with initial room state
   const [state, setState] = createStore(createInitialRoomState() as any)
-  
-  // Additional UI signals
-  const [isConnecting, setIsConnecting] = createSignal(false)
-  const [isDJFlowActive, setIsDJFlowActive] = createSignal(false)
-  const [hasGlobalError, setHasGlobalError] = createSignal(false)
-  const [globalErrorMessage, setGlobalErrorMessage] = createSignal<string>('')
   
   // Effect runtime for service calls
   let effectRuntime: Option.Option<Runtime.Runtime<never>> = Option.none()
@@ -123,6 +177,19 @@ export const createRoomStore = () => {
   // Actions implementation with domain schema integration
   const actions: RoomStoreActions = {
     /**
+     * Set unified connection state
+     */
+    setConnectionState: (newState: ConnectionState) => {
+      setState('connection', 'state', newState)
+    },
+
+    /**
+     * Get current connection state
+     */
+    getConnectionState: (): ConnectionState => {
+      return state.connection.state as ConnectionState
+    },
+    /**
      * Set room WebSocket connection
      */
     setRoomWebSocket: (ws: WebSocket, roomId: string, connType: 'dj' | 'listener') => {
@@ -131,7 +198,7 @@ export const createRoomStore = () => {
         
         setState('connection', {
           websocket: Option.some(ws),
-          state: 'connected',
+          state: ConnectionState.CONNECTED,
           roomId: Option.some(roomId),
           connectionType: Option.some(connType),
           lastConnectedAt: Option.some(new Date()),
@@ -152,7 +219,7 @@ export const createRoomStore = () => {
       
       setState('connection', {
         websocket: Option.none(),
-        state: 'disconnected',
+        state: ConnectionState.DISCONNECTED,
         roomId: Option.none(),
         connectionType: Option.none(),
         connectionAttempts: 0,
@@ -171,9 +238,8 @@ export const createRoomStore = () => {
     /**
      * Update connection state
      */
-    updateConnectionState: (newState: WSConnectionState) => {
+    updateConnectionState: (newState: ConnectionState) => {
       setState('connection', 'state', newState)
-      setIsConnecting(newState === 'connecting')
     },
 
     /**
@@ -199,7 +265,6 @@ export const createRoomStore = () => {
      */
     setDJState: (djState: DJState) => {
       setState('participants', 'dj', Option.some(djState))
-      setIsDJFlowActive(djState.currentStep !== 'idle' && djState.currentStep !== 'error')
     },
 
     updateDJState: (updates: Partial<DJState>) => {
@@ -207,13 +272,11 @@ export const createRoomStore = () => {
         onSome: (currentDJ) => {
           const updatedDJ = { ...currentDJ as any, ...updates }
           setState('participants', 'dj', Option.some(updatedDJ))
-          setIsDJFlowActive(updatedDJ.currentStep !== 'idle' && updatedDJ.currentStep !== 'error')
         },
         onNone: () => {
           // Initialize DJ state with updates
           const newDJ = { ...createInitialDJState(), ...updates }
           setState('participants', 'dj', Option.some(newDJ))
-          setIsDJFlowActive(newDJ.currentStep !== 'idle' && newDJ.currentStep !== 'error')
         }
       })
     },
@@ -224,6 +287,10 @@ export const createRoomStore = () => {
         stepStartedAt: Option.some(new Date()),
         stepError: Option.none()
       })
+      
+      // Automatically update unified connection state based on DJ flow step
+      const connectionState = mapDJFlowStepToConnectionState(step)
+      actions.setConnectionState(connectionState)
     },
 
     setDJError: (error: string, step?: DJFlowStep) => {
@@ -242,6 +309,15 @@ export const createRoomStore = () => {
       actions.updateDJState({
         stepError: Option.none(),
         lastError: Option.none()
+      })
+    },
+
+    setSelectedDeviceId: (deviceId: string) => {
+      actions.updateDJState({
+        audioTrack: {
+          ...((state.participants.dj as any)?.audioTrack || createInitialDJState().audioTrack),
+          deviceId: Option.some(deviceId)
+        }
       })
     },
 
@@ -279,6 +355,10 @@ export const createRoomStore = () => {
         stepStartedAt: Option.some(new Date()),
         stepError: Option.none()
       })
+      
+      // Automatically update unified connection state based on Listener flow step
+      const connectionState = mapListenerFlowStepToConnectionState(step)
+      actions.setConnectionState(connectionState)
     },
 
     setListenerError: (listenerId: string, error: string, step?: ListenerFlowStep) => {
@@ -318,6 +398,7 @@ export const createRoomStore = () => {
         pausedAt: Option.none(),
         lastError: Option.none()
       })
+      actions.setConnectionState(ConnectionState.STREAMING)
     },
 
     pauseStreaming: () => {
@@ -326,6 +407,7 @@ export const createRoomStore = () => {
         pausedAt: Option.some(new Date()),
         lastError: Option.none()
       })
+      actions.setConnectionState(ConnectionState.PAUSED)
     },
 
     resumeStreaming: () => {
@@ -334,6 +416,7 @@ export const createRoomStore = () => {
         pausedAt: Option.none(),
         lastError: Option.none()
       })
+      actions.setConnectionState(ConnectionState.STREAMING)
     },
 
     stopStreaming: () => {
@@ -343,6 +426,7 @@ export const createRoomStore = () => {
         pausedAt: Option.none(),
         lastError: Option.none()
       })
+      actions.setConnectionState(ConnectionState.IDLE)
     },
 
     setStreamingError: (error: string) => {
@@ -350,6 +434,7 @@ export const createRoomStore = () => {
         status: 'error',
         lastError: Option.some(error)
       })
+      actions.setConnectionState(ConnectionState.ERROR)
     },
 
     /**
@@ -377,17 +462,13 @@ export const createRoomStore = () => {
      * Global room error management (replacing webrtc-error-store)
      */
     setGlobalRoomError: (error: string, recoverable: boolean = true) => {
-      setHasGlobalError(true)
-      setGlobalErrorMessage(error)
       setState('connection', 'lastError', Option.some(error))
       if (!recoverable) {
-        setState('connection', 'state', 'error')
+        setState('connection', 'state', ConnectionState.ERROR)
       }
     },
 
     clearGlobalRoomError: () => {
-      setHasGlobalError(false)
-      setGlobalErrorMessage('')
       setState('connection', 'lastError', Option.none())
     }
   }
@@ -412,18 +493,31 @@ export const createRoomStore = () => {
     // Reactive state (read-only)
     state: state as Readonly<RoomState>,
     
-    // UI signals  
-    isConnecting,
-    isDJFlowActive,
-    hasGlobalError,
-    globalErrorMessage,
-    
     // Actions
     actions,
     
     // Computed values
+    get connectionState() {
+      return state.connection.state as ConnectionState
+    },
+    
     get isConnected() {
-      return state.connection.state === 'connected'
+      return state.connection.state === ConnectionState.CONNECTED || state.connection.state === ConnectionState.STREAMING
+    },
+    
+    get isConnecting() {
+      return state.connection.state === ConnectionState.CONNECTING
+    },
+    
+    get isDJFlowActive() {
+      const djState = this.djState
+      if (!djState) return false
+      const step = (djState as any).currentStep
+      return step !== 'idle' && step !== 'error' && step !== 'cleanup'
+    },
+    
+    get hasConnectionError() {
+      return state.connection.state === ConnectionState.ERROR
     },
     
     get roomId() {
@@ -491,6 +585,13 @@ export const createRoomStore = () => {
     get djError() {
       return Option.match(state.participants.dj, {
         onSome: (dj) => Option.getOrNull((dj as any).stepError),
+        onNone: () => null
+      })
+    },
+    
+    get selectedDeviceId() {
+      return Option.match(state.participants.dj, {
+        onSome: (dj) => Option.getOrNull((dj as any).audioTrack?.deviceId),
         onNone: () => null
       })
     },

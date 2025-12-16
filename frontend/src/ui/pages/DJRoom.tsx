@@ -1,157 +1,107 @@
-import { createSignal, onMount, onCleanup, Show, createEffect } from 'solid-js'
+import { onMount, onCleanup, Show } from 'solid-js'
 import { useParams, useNavigate } from '@solidjs/router'
-import { Effect } from 'effect'
+import { Effect, Option } from 'effect'
 import { DeviceSelector } from '../components/controls/DeviceSelector'
 import { createRoomStore } from '../../stores/room.store'
 import { publishDJRoom } from '../../services/flows/dj-flows.service'
-
-type StreamStatus = 'idle' | 'ready' | 'connecting' | 'live' | 'muted' | 'error'
-
+import { Oscilloscope } from '../components/shared/Oscilloscope'
+import { ConnectionState } from '../../domain/schemas/room.schema'
 
 export default function DJRoom() {
   const params = useParams()
   const navigate = useNavigate()
 
-  // Use room store for DJ state management
+  // Use room store for DJ state management - all state comes from here
   const roomStore = createRoomStore()
 
   // Get room data from route params
   const roomId = () => params.roomId
-  const [status, setStatus] = createSignal<StreamStatus>('idle')
-  const [error, setError] = createSignal<string | null>(null)
-  const [isInitializing, setIsInitializing] = createSignal(true)
-  const [selectedDeviceId, setSelectedDeviceId] = createSignal<string | undefined>()
 
-  // Simple state - streaming state managed by flows
-  const [isRecording, setIsRecording] = createSignal(false)
-  
-  // Device selection state
-  const [deviceSelected, setDeviceSelected] = createSignal(false)
-  const [isReadyToStream, setIsReadyToStream] = createSignal(false)
-
-  // Connect to room WebSocket on mount (but don't start streaming automatically)
+  // Initialize room as ready on mount
   onMount(async () => {
     try {
-      setIsInitializing(false)
-      setIsReadyToStream(true)
-      setStatus('ready') // Set to ready when WebSocket connected
-      
+      // Room is ready for streaming setup
+      roomStore.actions.setConnectionState(ConnectionState.IDLE)
     } catch (err: any) {
-      console.error('Failed to connect to room:', err)
-      setError(err.message)
-      setStatus('error')
-      setIsInitializing(false)
-      
+      console.error('Failed to initialize DJ room:', err)
+      roomStore.actions.setConnectionState(ConnectionState.ERROR)
     }
   })
 
   onCleanup(() => {
-    // Cleanup handled by providers
+    // Cleanup handled by store
   })
 
-  // Effect to monitor room store DJ state and sync UI
-  createEffect(() => {
-    const djFlowStep = roomStore.djFlowStep
-    
-    // Update status based on DJ flow step
-    switch (djFlowStep) {
-      case 'idle':
-        setStatus('idle')
-        setIsInitializing(false)
-        break
-      case 'initializing':
-      case 'connecting':
-      case 'requesting_media':
-      case 'creating_transport':
-        setStatus('connecting')
-        setIsInitializing(true)
-        break
-      case 'streaming':
-        setStatus(roomStore.isPaused ? 'muted' : 'live')
-        setIsInitializing(false)
-        setIsReadyToStream(true)
-        setError(null)
-        break
-      case 'error':
-        setStatus('error')
-        setIsInitializing(false)
-        const errorMsg = roomStore.djError
-        setError(typeof errorMsg === 'string' ? errorMsg : 'An error occurred')
-        break
-      default:
-        setStatus('ready')
-        setIsInitializing(false)
-    }
-    
-    // Update device selection status
-    setDeviceSelected(!!selectedDeviceId())
-  })
-
-  // Computed signal for streaming status
+  // Computed values from store
+  const connectionState = () => roomStore.connectionState
   const isStreaming = () => roomStore.isDJStreaming
+  const djError = () => roomStore.djError
+  const isConnecting = () => roomStore.isConnecting
+  const isPaused = () => roomStore.isPaused
+  const selectedDeviceId = () => roomStore.selectedDeviceId
+
+  // Get DJ source audio stream from room store
+  const djSourceStream = () => {
+    const dj = roomStore.djState as any
+    if (!dj?.streams) return undefined
+    
+    const streams = Option.getOrUndefined(dj.streams) as any
+    if (!streams?.localStream) return undefined
+    
+    return Option.getOrUndefined(streams.localStream) as MediaStream | undefined
+  }
 
   const startStreaming = async () => {
     const deviceId = selectedDeviceId()
     if (!deviceId) {
-      setError('Please select an audio device first')
+      console.error('Please select an audio device first')
       return
     }
 
     const currentRoomId = roomId()
     if (!currentRoomId) {
-      setError('Room ID is required')
+      console.error('Room ID is required')
       return
     }
 
-    setIsInitializing(true)
-    setStatus('connecting')
-    setError(null)
-
     try {
-      // Start DJ publishing flow - service will handle WebSocket connection
+      // Start DJ publishing flow - service will handle WebSocket connection and state
       const result = await Effect.runPromise(
-        publishDJRoom(roomStore, currentRoomId, deviceId)
+        publishDJRoom(roomStore, currentRoomId, String(deviceId))
       )
       
-      setIsRecording(true)
       console.log('DJ room published successfully:', result)
 
     } catch (err: any) {
       console.error('Failed to start streaming:', err)
-      setError(err.message)
-      setStatus('error')
-      setIsInitializing(false)
+      // Error state is handled by the store via the service
     }
   }
 
   const toggleMute = async () => {
-    if (!isRecording()) return // Only allow mute when recording
+    if (!isStreaming()) return // Only allow mute when streaming
 
     try {
-      if (roomStore.isPaused) {
+      if (isPaused()) {
         roomStore.actions.resumeStreaming()
       } else {
         roomStore.actions.pauseStreaming()
       }
     } catch (err: any) {
       console.error('Failed to toggle mute:', err)
-      setError(err.message)
     }
   }
 
   const toggleRecording = async () => {
-    if (!isRecording()) {
+    if (!isStreaming()) {
       // Start recording (same as current startStreaming)
       await startStreaming()
     } else {
       // Stop recording but keep connection
       try {
         roomStore.actions.pauseStreaming()
-        setIsRecording(false)
-        setStatus('ready')
       } catch (err: any) {
         console.error('Failed to stop recording:', err)
-        setError(err.message)
       }
     }
   }
@@ -159,10 +109,10 @@ export default function DJRoom() {
   const endStream = async () => {
     try {
       // Stop streaming and disconnect from room
-      roomStore.actions.disconnectFromRoom()
       roomStore.actions.stopStreaming()
+      roomStore.actions.disconnectFromRoom()
     } catch (error) {
-      console.error('Failed to notify backend of room deletion:', error)
+      console.error('Failed to end stream:', error)
     }
 
     navigate('/')
@@ -172,11 +122,15 @@ export default function DJRoom() {
     navigate('/')
   }
 
+  const onDeviceSelected = (deviceId: string) => {
+    roomStore.actions.setSelectedDeviceId(deviceId)
+  }
+
   return (
     <div class="min-h-screen bg-base-100 p-4">
       
       <div class="max-w-md mx-auto">
-        <Show when={isInitializing()}>
+        <Show when={isConnecting()}>
           <div class="card bg-base-200">
             <div class="card-body text-center">
               <div class="loading loading-spinner loading-lg mx-auto"></div>
@@ -185,37 +139,46 @@ export default function DJRoom() {
           </div>
         </Show>
 
-        <Show when={error()}>
+        <Show when={djError()}>
           <div class="alert alert-error mb-4">
-            <span>{error()}</span>
-            <button class="btn btn-sm btn-circle" onClick={() => setError(null)}>✕</button>
+            <span>{String(djError() || 'An error occurred')}</span>
+            <button class="btn btn-sm btn-circle" onClick={() => roomStore.actions.clearDJError()}>✕</button>
           </div>
         </Show>
 
-        <Show when={!isInitializing()}>
+        <Show when={!isConnecting()}>
           <div class="card bg-base-200">
             <div class="card-body">
               <div class="flex justify-between items-center mb-4">
                 <button class="btn btn-sm btn-ghost" onClick={goBack}>←</button>
                 <div class={`badge ${
-                  status() === 'live' ? 'badge-success' :
-                  status() === 'muted' ? 'badge-warning' :
-                  status() === 'error' ? 'badge-error' :
-                  status() === 'ready' ? 'badge-info' :
+                  connectionState() === ConnectionState.STREAMING && !isPaused() ? 'badge-success' :
+                  connectionState() === ConnectionState.PAUSED ? 'badge-warning' :
+                  connectionState() === ConnectionState.ERROR ? 'badge-error' :
+                  connectionState() === ConnectionState.CONNECTED || connectionState() === ConnectionState.IDLE ? 'badge-info' :
                   'badge-ghost'
                 }`}>
-                  {status() === 'idle' ? 'SETUP' : status().toUpperCase()}
+                  {connectionState() === ConnectionState.IDLE ? 'SETUP' : 
+                   connectionState() === ConnectionState.STREAMING && isPaused() ? 'MUTED' :
+                   connectionState() === ConnectionState.STREAMING ? 'LIVE' :
+                   connectionState()}
                 </div>
               </div>
 
               <DeviceSelector 
                 disabled={isStreaming()} 
                 roomStore={roomStore} 
-                onDeviceSelected={setSelectedDeviceId}
+                onDeviceSelected={onDeviceSelected}
               />
-              {/*
-              <WaveformVisualizer stream={currentStream() || undefined} />
-                */}
+              
+              {/* Audio Oscilloscope - show when streaming with source */}
+              <Show when={isStreaming() && djSourceStream()}>
+                <Oscilloscope 
+                  stream={djSourceStream()} 
+                  height={80}
+                  class="w-full"
+                />
+              </Show>
               
               {/* Show Go Live button when not streaming */}
               <Show when={!isStreaming()}>
@@ -223,9 +186,9 @@ export default function DJRoom() {
                   <button
                     class="btn btn-primary btn-lg"
                     onClick={startStreaming}
-                    disabled={!deviceSelected() || !isReadyToStream() || status() === 'connecting'}
+                    disabled={!selectedDeviceId() || isConnecting()}
                   >
-                    {status() === 'connecting' ? (
+                    {isConnecting() ? (
                       <>
                         <span class="loading loading-spinner loading-sm"></span>
                         Connecting...
@@ -247,12 +210,12 @@ export default function DJRoom() {
                   {/* Main Record/Stop Button */}
                   <button
                     class={`btn btn-lg gap-3 min-w-32 ${
-                      isRecording() ? 'btn-error hover:btn-error' : 'btn-primary hover:btn-primary'
+                      isStreaming() ? 'btn-error hover:btn-error' : 'btn-primary hover:btn-primary'
                     }`}
                     onClick={toggleRecording}
-                    disabled={status() === 'error' || status() === 'connecting'}
+                    disabled={connectionState() === ConnectionState.ERROR || isConnecting()}
                   >
-                    {isRecording() ? (
+                    {isStreaming() ? (
                       <>
                         <svg class="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
                           <rect x="6" y="6" width="12" height="12" rx="2"/>
@@ -269,18 +232,18 @@ export default function DJRoom() {
                     )}
                   </button>
 
-                  {/* Secondary Controls - only visible when recording */}
-                  <Show when={isRecording()}>
+                  {/* Secondary Controls - only visible when streaming */}
+                  <Show when={isStreaming()}>
                     <div class="flex gap-3 items-center">
                       {/* Mute Button */}
                       <button
                         class={`btn btn-sm gap-2 ${
-                          roomStore.isPaused ? 'btn-warning hover:btn-warning' : 'btn-success hover:btn-success'
+                          isPaused() ? 'btn-warning hover:btn-warning' : 'btn-success hover:btn-success'
                         }`}
                         onClick={toggleMute}
-                        disabled={status() === 'error' || status() === 'connecting'}
+                        disabled={connectionState() === ConnectionState.ERROR || isConnecting()}
                       >
-                        {roomStore.isPaused ? (
+                        {isPaused() ? (
                           <>
                             <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                               <path stroke-linecap="round" stroke-linejoin="round" stroke-width={2} d="M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z" />

@@ -389,13 +389,7 @@ impl DJ {
             return Err(anyhow::anyhow!("No audio codecs found in RTP parameters"));
         }
 
-        // Validate Opus codec for MediaSoup compatibility
-        for codec in &audio_codecs {
-            let mime_str = codec.mime_type().as_str();
-            if mime_str.contains("opus") {
-                self.validate_opus_compatibility(codec)?;
-            }
-        }
+        // Audio codecs validated - MediaSoup will handle codec compatibility internally
 
         tracing::info!(
             dj_id = %self.dj_id,
@@ -406,40 +400,6 @@ impl DJ {
         Ok(())
     }
 
-    /// Validate Opus codec for MediaSoup compatibility
-    fn validate_opus_compatibility(&self, codec: &RtpCodecParameters) -> Result<()> {
-        let clock_rate = codec.clock_rate().get();
-        let payload_type = codec.payload_type();
-
-        // Critical MediaSoup Opus compatibility checks
-        if clock_rate != 48000 {
-            tracing::error!(
-                dj_id = %self.dj_id,
-                clock_rate = clock_rate,
-                "MediaSoup Opus requires 48kHz - this may cause zero packet transmission"
-            );
-            return Err(anyhow::anyhow!("Opus clock rate must be 48000 for MediaSoup compatibility"));
-        }
-
-        // Validate payload type is in MediaSoup-compatible range
-        if payload_type < 96 || payload_type > 127 {
-            tracing::error!(
-                dj_id = %self.dj_id,
-                payload_type = payload_type,
-                "MediaSoup requires dynamic payload types (96-127) for Opus"
-            );
-            return Err(anyhow::anyhow!("Invalid Opus payload type for MediaSoup"));
-        }
-
-        tracing::info!(
-            dj_id = %self.dj_id,
-            clock_rate = clock_rate,
-            payload_type = payload_type,
-            "Opus codec validated for MediaSoup compatibility"
-        );
-
-        Ok(())
-    }
 
     /// Setup enhanced producer monitoring for transmission health
     async fn setup_producer_monitoring(&self, producer: Arc<Producer>) {

@@ -10,9 +10,37 @@
 
 import { Schema as S } from 'effect'
 import { Option } from 'effect'
-import { WSConnectionState } from './lobby.schema'
 import { DJState } from './dj.schema'
 import { ListenerState } from './listener.schema'
+
+/**
+ * Unified Connection State for Room
+ * 
+ * Replaces complex state derivation from DJ/Listener flow steps.
+ * Single source of truth for all connection status display.
+ */
+export enum ConnectionState {
+  IDLE = 'IDLE',
+  CONNECTING = 'CONNECTING', 
+  CONNECTED = 'CONNECTED',
+  STREAMING = 'STREAMING',
+  PAUSED = 'PAUSED',
+  DISCONNECTED = 'DISCONNECTED',
+  ERROR = 'ERROR'
+}
+
+/**
+ * Connection State schema for Effect validation
+ */
+export const ConnectionStateSchema = S.Literal(
+  'IDLE',
+  'CONNECTING', 
+  'CONNECTED',
+  'STREAMING',
+  'PAUSED',
+  'DISCONNECTED',
+  'ERROR'
+)
 
 /**
  * Room streaming status
@@ -43,7 +71,7 @@ export type RoomParticipant = S.Schema.Type<typeof RoomParticipant>
  * Room WebSocket connection state
  */
 export const RoomConnectionState = S.Struct({
-  state: WSConnectionState,
+  state: ConnectionStateSchema, // Use unified connection state schema
   websocket: S.Option(S.Unknown), // WebSocket instance
   roomId: S.Option(S.String),
   connectionType: S.Option(S.Literal('dj', 'listener')),
@@ -90,14 +118,14 @@ export type RoomParticipants = S.Schema.Type<typeof RoomParticipants>
  * Complete Room Domain State
  * 
  * Contains all state related to room functionality:
- * - WebSocket connection to room
+ * - WebSocket connection to room (includes unified connection state)
  * - Room metadata and status
  * - Participants tracking
  * - Streaming status
  * - Message history for debugging
  */
 export const RoomState = S.Struct({
-  // Connection state
+  // Connection state (includes unified ConnectionState in connection.state)
   connection: RoomConnectionState,
   
   // Room information
@@ -131,7 +159,7 @@ export type RoomState = S.Schema.Type<typeof RoomState>
  */
 export const createInitialRoomState = (): RoomState => ({
   connection: {
-    state: 'disconnected',
+    state: ConnectionState.IDLE,
     websocket: Option.none(),
     roomId: Option.none(),
     connectionType: Option.none(),

@@ -167,6 +167,11 @@ export const publishDJRoom = (
     Effect.gen(function* (_) {
       console.info('🎤 Starting DJ Room Publishing Flow (18 steps)')
       
+      // Set selected device ID in store first
+      if (deviceId) {
+        roomStore.actions.setSelectedDeviceId(deviceId)
+      }
+      
       // Step 1: Already done - room announced in lobby, returns DJ WebSocket URL
       console.info('✅ Step 1: Room announced (prerequisites met)')
       

@@ -4,6 +4,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "prod": "serve dist -p 5173",
     "build": "vite build",
     "preview": "vite preview",
     "type-check": "tsc --noEmit",
@@ -31,8 +32,7 @@
     "daisyui": "^5.5.8",
     "effect": "^3.11.0",
     "mediasoup-client": "^3.7.16",
-    "solid-js": "^1.8.22",
-    "webaudio-oscilloscope": "^3.2.1"
+    "solid-js": "^1.8.22"
   },
   "devDependencies": {
     "@types/node": "^22.10.1",
