@@ -40,17 +40,25 @@ export interface DtlsParametersJson {
 /**
  * Lobby Commands - sent from lobby clients to server
  */
-export type LobbyCommand = {
-  type: 'announceRoom'
-  /** Name of the room to create */
-  name: string
-  /** DJ name for the room */
-  djName: string
-  /** Optional room description */
-  description?: string
-  /** Optional room tags */
-  tags?: string[]
-}
+export type LobbyCommand = 
+  | {
+      type: 'announceRoom'
+      /** Name of the room to create */
+      name: string
+      /** DJ name for the room */
+      djName: string
+      /** Optional room description */
+      description?: string
+      /** Optional room tags */
+      tags?: string[]
+    }
+  | {
+      type: 'requestJoin'
+      /** Stable session ID from browser fingerprint */
+      sessionId: string
+      /** ID of the room to join */
+      roomId: string
+    }
 
 /**
  * DJ Commands - sent from DJ clients to server
@@ -91,11 +99,7 @@ export type DjCommand =
  */
 export type ListenerCommand =
   | {
-      type: 'requestJoin'
-      /** ID of the room to join */
-      roomId: string
-      /** RTP capabilities for media consumption */
-      rtpCapabilities: any // Will be RtpCapabilities from MediaSoup
+      type: 'initListener'
     }
   | {
       type: 'connectListenerTransport'
@@ -141,6 +145,21 @@ export type LobbyEvent =
       type: 'roomRemoved'
       /** ID of the removed room */
       roomId: string
+    }
+  | {
+      type: 'joinRoomResponse'
+      /** Session ID that requested the join */
+      sessionId: string
+      /** ID of the room being joined */
+      roomId: string
+      /** Whether the join request was successful */
+      success: boolean
+      /** Error message if join failed */
+      error?: string
+      /** Unique WebSocket URL for listener connection (if successful) */
+      listenerWebSocketUrl?: string
+      /** Room information (if successful) */
+      room?: RoomInfo
     }
 
 /**
@@ -295,7 +314,7 @@ export type WebSocketMessage = LobbyCommand | DjCommand | ListenerCommand | Lobb
  * Type guards for message discrimination
  */
 export const isLobbyCommand = (message: WebSocketMessage): message is LobbyCommand => {
-  return ['announceRoom'].includes(message.type)
+  return ['announceRoom', 'requestJoin'].includes(message.type)
 }
 
 export const isDjCommand = (message: WebSocketMessage): message is DjCommand => {
@@ -303,11 +322,11 @@ export const isDjCommand = (message: WebSocketMessage): message is DjCommand => 
 }
 
 export const isListenerCommand = (message: WebSocketMessage): message is ListenerCommand => {
-  return ['requestJoin', 'connectListenerTransport', 'getRouterCapabilities', 'leaveRoom', 'requestConsumer', 'resumeConsumer'].includes(message.type)
+  return ['initListener', 'connectListenerTransport', 'getRouterCapabilities', 'leaveRoom', 'requestConsumer', 'resumeConsumer'].includes(message.type)
 }
 
 export const isLobbyEvent = (message: WebSocketMessage): message is LobbyEvent => {
-  return ['roomAdded', 'roomUpdated', 'roomRemoved'].includes(message.type)
+  return ['roomAdded', 'roomUpdated', 'roomRemoved', 'joinRoomResponse'].includes(message.type)
 }
 
 export const isDjEvent = (message: WebSocketMessage): message is DjEvent => {

@@ -11,7 +11,7 @@ use uuid::Uuid;
 use mediasoup::prelude::{DtlsParameters, Transport};
 
 use crate::{
-    lib::{models::{LobbyCommand, DjCommand, ListenerCommand, DjEvent, ListenerEvent, LobbyEvent}, domain::Lobby},
+    lib::{models::{LobbyCommand, DjCommand, ListenerCommand, DjEvent, ListenerEvent, LobbyEvent}, domain::{Lobby, Listener}},
 };
 
 /// WebSocket handler for room-specific connections (DJ control)
@@ -34,10 +34,10 @@ pub async fn lobby_handler(
 /// WebSocket handler for listener connections
 pub async fn listener_handler(
     ws: WebSocketUpgrade,
-    Path(room_id): Path<Uuid>,
+    Path(session_id): Path<String>,
     State(lobby): State<Lobby>,
 ) -> Response {
-    ws.on_upgrade(move |socket| handle_listener_socket(socket, room_id, lobby))
+    ws.on_upgrade(move |socket| handle_listener_socket(socket, session_id, lobby))
 }
 
 async fn handle_room_socket(socket: WebSocket, room_id: Uuid, lobby: Lobby) {
@@ -236,108 +236,234 @@ async fn handle_lobby_command(
                 "Room announced successfully in lobby"
             );
         }
+
+        // Step 1 of Listener flow: Request joining a room
+        LobbyCommand::RequestJoin { session_id, room_id } => {
+            // Create listener flow span
+            let listener_flow_span = tracing::info_span!(
+                "listener_join_request",
+                flow.type = "listener_join",
+                flow.step = 1,
+                flow.phase = "initiated",
+                room.id = %room_id,
+                listener.session_id = %session_id
+            );
+            let _listener_flow_guard = listener_flow_span.enter();
+
+            tracing::info!(
+                session_id = %session_id,
+                room_id = %room_id,
+                "Step 1: Listener requesting to join room via lobby"
+            );
+
+            // Parse room_id
+            let room_uuid = match uuid::Uuid::parse_str(&room_id) {
+                Ok(uuid) => uuid,
+                Err(_) => {
+                    listener_flow_span.record("flow.phase", "failed");
+                    tracing::error!(
+                        session_id = %session_id,
+                        room_id = %room_id,
+                        "Step 1: FAILED - Invalid room ID format"
+                    );
+                    let response = LobbyEvent::JoinRoomResponse {
+                        session_id: session_id.clone(),
+                        room_id: room_id.clone(),
+                        success: false,
+                        error: Some("Invalid room ID format".to_string()),
+                        listener_websocket_url: None,
+                        room: None,
+                    };
+                    if let Ok(msg) = serde_json::to_string(&response) {
+                        sender.send(Message::Text(msg)).await.ok();
+                    }
+                    return Ok(());
+                }
+            };
+
+            // Check if room exists and is public
+            let room_result = lobby.get_room(&room_uuid);
+            match room_result {
+                Some(room_state) => {
+                    let room_guard = room_state.read().await;
+                    
+                    // Verify room is public and has a producer
+                    if !room_guard.is_public() {
+                        listener_flow_span.record("flow.phase", "failed");
+                        tracing::error!(
+                            session_id = %session_id,
+                            room_id = %room_id,
+                            room_status = ?room_guard.status,
+                            "Step 1: FAILED - Room is not public or has no producer"
+                        );
+                        let response = LobbyEvent::JoinRoomResponse {
+                            session_id: session_id.clone(),
+                            room_id: room_id.clone(),
+                            success: false,
+                            error: Some("Room is not available for listeners".to_string()),
+                            listener_websocket_url: None,
+                            room: None,
+                        };
+                        if let Ok(msg) = serde_json::to_string(&response) {
+                            sender.send(Message::Text(msg)).await.ok();
+                        }
+                        return Ok(());
+                    }
+
+                    tracing::info!(
+                        session_id = %session_id,
+                        room_id = %room_id,
+                        room_status = ?room_guard.status,
+                        "Step 1: Room validated - creating listener and unique WebSocket URL"
+                    );
+
+                    // Create event channel for this listener
+                    let (event_tx, _event_rx) = tokio::sync::mpsc::unbounded_channel();
+
+                    // Create Listener struct (will be stored in room)
+                    let listener = Listener::new(
+                        session_id.clone(),
+                        room_uuid,
+                        serde_json::json!({}), // Placeholder device capabilities, will be updated later
+                        event_tx,
+                    );
+
+                    // Store listener in room
+                    room_guard.add_listener(listener);
+
+                    // Generate unique WebSocket URL for this session
+                    let listener_websocket_url = format!("/ws/listener/{}", session_id);
+
+                    // Get room info for response
+                    let room_info = room_guard.clone().into();
+
+                    listener_flow_span.record("listener.websocket_url", &listener_websocket_url);
+                    listener_flow_span.record("flow.phase", "completed");
+
+                    tracing::info!(
+                        session_id = %session_id,
+                        room_id = %room_id,
+                        websocket_url = %listener_websocket_url,
+                        "Step 1: COMPLETED - Listener created and stored in room, unique WebSocket URL generated"
+                    );
+
+                    // Send successful response
+                    let response = LobbyEvent::JoinRoomResponse {
+                        session_id: session_id.clone(),
+                        room_id: room_id.clone(),
+                        success: true,
+                        error: None,
+                        listener_websocket_url: Some(listener_websocket_url),
+                        room: Some(room_info),
+                    };
+
+                    if let Ok(msg) = serde_json::to_string(&response) {
+                        match sender.send(Message::Text(msg)).await {
+                            Ok(_) => {
+                                tracing::info!(
+                                    session_id = %session_id,
+                                    room_id = %room_id,
+                                    "Step 1: JoinRoomResponse sent successfully - frontend should now connect to unique listener WebSocket"
+                                );
+                            }
+                            Err(e) => {
+                                tracing::error!(
+                                    session_id = %session_id,
+                                    room_id = %room_id,
+                                    error = %e,
+                                    "Step 1: Failed to send JoinRoomResponse"
+                                );
+                            }
+                        }
+                    }
+                }
+                None => {
+                    listener_flow_span.record("flow.phase", "failed");
+                    tracing::error!(
+                        session_id = %session_id,
+                        room_id = %room_id,
+                        "Step 1: FAILED - Room not found"
+                    );
+                    let response = LobbyEvent::JoinRoomResponse {
+                        session_id: session_id.clone(),
+                        room_id: room_id.clone(),
+                        success: false,
+                        error: Some("Room not found".to_string()),
+                        listener_websocket_url: None,
+                        room: None,
+                    };
+                    if let Ok(msg) = serde_json::to_string(&response) {
+                        sender.send(Message::Text(msg)).await.ok();
+                    }
+                }
+            }
+        }
     }
     
     Ok(())
 }
 
-async fn handle_listener_socket(socket: WebSocket, room_id: Uuid, lobby: Lobby) {
+async fn handle_listener_socket(socket: WebSocket, session_id: String, lobby: Lobby) {
     let (mut sender, mut receiver) = socket.split();
-    let connection_id = Uuid::new_v4();
 
     tracing::info!(
-        room_id = %room_id,
-        connection_id = %connection_id,
+        session_id = %session_id,
         "New listener WebSocket connection established"
     );
 
-    // Create event channel for this listener
-    let (event_tx, mut event_rx) = tokio::sync::mpsc::unbounded_channel();
-
-    // Increment listener count and create transport when connection is established
-    if let Some(room_state) = lobby.get_room(&room_id) {
-        let transport_result = {
-            let mut room_state_guard = room_state.write().await;
-            room_state_guard.listener_count += 1;
-
+    // Find the room that contains the listener with this session_id
+    let (room_id, room_state) = match lobby.find_room_by_listener_session(&session_id).await {
+        Some((room_id, room_state)) => {
             tracing::info!(
+                session_id = %session_id,
                 room_id = %room_id,
-                connection_id = %connection_id,
-                new_listener_count = room_state_guard.listener_count,
-                "Listener count incremented"
+                "Found existing listener in room"
             );
-
-            // Step 2 of listener flow: Create transport automatically
-            let listener_id = connection_id.to_string();
-            let device_capabilities = serde_json::json!({}); // Placeholder, will be updated when device sends capabilities
-            
-            // Create listener and transport (Step 2 of reference)
-            room_state_guard.add_listener_to_room(
-                listener_id.clone(),
-                device_capabilities,
-                event_tx.clone()
-            ).await
-        };
-
-        // Send transport ready event to listener (Step 2 of reference)
-        match transport_result {
-            Ok((listener, transport_options)) => {
-                // Add listener to room state
-                if let Some(room_state) = lobby.get_room(&room_id) {
-                    let room_state_guard = room_state.read().await;
-                    room_state_guard.add_listener(listener);
-                }
-
-                // Send ListenerTransportReady event
-                let response = ListenerEvent::ListenerTransportReady {
-                    transport_options,
-                };
-                
-                if let Err(e) = event_tx.send(response) {
-                    tracing::error!(
-                        room_id = %room_id,
-                        connection_id = %connection_id,
-                        error = %e,
-                        "Failed to send ListenerTransportReady event"
-                    );
-                }
-
-                tracing::info!(
-                    room_id = %room_id,
-                    connection_id = %connection_id,
-                    "Listener transport created automatically"
-                );
-            }
-            Err(e) => {
-                tracing::error!(
-                    room_id = %room_id,
-                    connection_id = %connection_id,
-                    error = %e,
-                    "Failed to create listener transport"
-                );
-
-                // Send error event
-                let error_response = ListenerEvent::CommandFailed {
-                    command: "autoCreateTransport".to_string(),
-                    error: format!("Failed to create transport: {}", e),
-                };
-                event_tx.send(error_response).ok();
-            }
+            (room_id, room_state)
         }
-
-        // Broadcast listener count update
-        if let Some(room_state) = lobby.get_room(&room_id) {
-            let room_state_guard = room_state.read().await;
-            let lobby_event = crate::lib::models::events::LobbyEvent::RoomUpdated {
-                room: room_state_guard.clone().into(),
-            };
-            lobby.send_lobby_event(lobby_event).ok();
+        None => {
+            tracing::error!(
+                session_id = %session_id,
+                "Listener not found in any room - WebSocket connection rejected"
+            );
+            return;
         }
-    }
+    };
+
+    // Update the listener's event_tx with a new channel for this WebSocket connection
+    let mut event_rx = {
+        let (event_tx, event_rx) = tokio::sync::mpsc::unbounded_channel();
+        
+        // Update the listener's event_tx to use the new channel for this WebSocket connection
+        let update_success = room_state.read().await.update_listener(&session_id, |listener| {
+            listener.event_tx = event_tx;
+        });
+
+        if update_success {
+            tracing::info!(
+                session_id = %session_id,
+                room_id = %room_id,
+                "Updated listener's event channel for WebSocket connection"
+            );
+            event_rx
+        } else {
+            tracing::error!(
+                session_id = %session_id,
+                room_id = %room_id,
+                "Failed to update listener's event channel"
+            );
+            return;
+        }
+    };
+
+    tracing::info!(
+        session_id = %session_id,
+        room_id = %room_id,
+        "Listener WebSocket connection established - waiting for InitListener command"
+    );
 
     // Handle both incoming messages and outgoing events concurrently
     let lobby_clone = lobby.clone();
-    let event_tx_clone = event_tx.clone();
 
     loop {
         tokio::select! {
@@ -347,7 +473,7 @@ async fn handle_listener_socket(socket: WebSocket, room_id: Uuid, lobby: Lobby) 
                     let message_span = tracing::debug_span!(
                         "listener_websocket_message_received",
                         room_id = %room_id,
-                        connection_id = %connection_id,
+                        session_id = %session_id,
                         message_length = text.len(),
                         command_type = tracing::field::Empty
                     );
@@ -359,7 +485,7 @@ async fn handle_listener_socket(socket: WebSocket, room_id: Uuid, lobby: Lobby) 
                         Ok(listener_cmd) => {
                             message_span.record("command_type", listener_cmd.command_type());
                             tracing::info!("Successfully parsed listener WebSocket command: {}", listener_cmd.command_type());
-                            handle_listener_command(listener_cmd, room_id, connection_id, &lobby_clone, &mut sender, event_tx_clone.clone()).await;
+                            handle_listener_command(listener_cmd, room_id, session_id.clone(), &lobby_clone, &mut sender).await;
                         }
                         Err(e) => {
                             tracing::error!(
@@ -372,7 +498,7 @@ async fn handle_listener_socket(socket: WebSocket, room_id: Uuid, lobby: Lobby) 
                 } else {
                     tracing::debug!(
                         room_id = %room_id,
-                        connection_id = %connection_id,
+                        session_id = %session_id,
                         "Listener WebSocket connection closed by client"
                     );
                     break;
@@ -385,7 +511,7 @@ async fn handle_listener_socket(socket: WebSocket, room_id: Uuid, lobby: Lobby) 
                         if sender.send(Message::Text(msg)).await.is_err() {
                             tracing::debug!(
                                 room_id = %room_id,
-                                connection_id = %connection_id,
+                                session_id = %session_id,
                                 "Failed to send event to listener, connection likely closed"
                             );
                             break;
@@ -402,23 +528,35 @@ async fn handle_listener_socket(socket: WebSocket, room_id: Uuid, lobby: Lobby) 
     // Connection closed - perform cleanup
     tracing::info!(
         room_id = %room_id,
-        connection_id = %connection_id,
+        session_id = %session_id,
         "Listener WebSocket connection closed, performing cleanup"
     );
 
-    // Automatic cleanup on disconnect
-    if let Err(e) = handle_listener_leave(room_id, &lobby).await {
-        tracing::error!(
-            room_id = %room_id,
-            connection_id = %connection_id,
-            error = %e,
-            "Failed to clean up listener resources on disconnect"
-        );
+    // Remove the specific listener by session_id
+    if let Some(room_state) = lobby.get_room(&room_id) {
+        let mut room_guard = room_state.write().await;
+        if let Some(mut listener) = room_guard.remove_listener(&session_id) {
+            // Clean up listener resources
+            if let Err(e) = listener.stop_consuming().await {
+                tracing::error!(
+                    session_id = %session_id,
+                    room_id = %room_id,
+                    error = %e,
+                    "Failed to stop consuming during cleanup"
+                );
+            }
+            room_guard.update_listener_count();
+            tracing::info!(
+                session_id = %session_id,
+                room_id = %room_id,
+                "Listener removed and cleaned up successfully"
+            );
+        }
     }
 
     tracing::info!(
         room_id = %room_id,
-        connection_id = %connection_id,
+        session_id = %session_id,
         "Listener cleanup completed"
     );
 }
@@ -928,21 +1066,161 @@ async fn handle_dj_command(
     }
 }
 
-#[tracing::instrument(skip(cmd, lobby, sender, event_tx), fields(room_id = %room_id, connection_id = %connection_id, command_type = cmd.command_type()))]
+#[tracing::instrument(skip(cmd, lobby, sender), fields(room_id = %room_id, session_id = %session_id, command_type = cmd.command_type()))]
 async fn handle_listener_command(
     cmd: ListenerCommand,
     room_id: Uuid,
-    connection_id: Uuid,
+    session_id: String,
     lobby: &Lobby,
     sender: &mut futures_util::stream::SplitSink<WebSocket, Message>,
-    event_tx: tokio::sync::mpsc::UnboundedSender<ListenerEvent>,
 ) {
     // Extract trace context from the message and set up parent span
 
     match cmd {
+        // Step 2 of listener flow: Request router RTP capabilities
+        ListenerCommand::GetRouterCapabilities { room_id: requested_room_id } => {
+            tracing::info!(
+                session_id = %session_id,
+                room_id = %room_id,
+                requested_room_id = %requested_room_id,
+                "Step 2: Listener requesting router RTP capabilities"
+            );
+
+            // Get the room and extract router RTP capabilities using domain method
+            if let Some(room_state) = lobby.get_room(&room_id) {
+                let room_guard = room_state.read().await;
+                
+                // Use domain method to get native MediaSoup RTP capabilities
+                match room_guard.get_router_rtp_capabilities() {
+                    Ok(router_rtp_capabilities) => {
+                        tracing::info!(
+                            session_id = %session_id,
+                            room_id = %room_id,
+                            codec_count = router_rtp_capabilities.codecs.len(),
+                            "Step 2: COMPLETED - Router RTP capabilities retrieved successfully"
+                        );
+
+                        // Convert native MediaSoup type to API wrapper type in WebSocket layer
+                        let response = ListenerEvent::RouterCapabilities {
+                            room_id: room_id.to_string(),
+                            rtp_capabilities: router_rtp_capabilities.into(), // Convert to RtpCapabilitiesWrapper
+                        };
+
+                        if let Ok(msg) = serde_json::to_string(&response) {
+                            if let Err(e) = sender.send(Message::Text(msg)).await {
+                                tracing::error!(
+                                    session_id = %session_id,
+                                    room_id = %room_id,
+                                    error = %e,
+                                    "Step 2: Failed to send RouterCapabilities event"
+                                );
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        tracing::error!(
+                            session_id = %session_id,
+                            room_id = %room_id,
+                            error = %e,
+                            "Step 2: FAILED - Could not get router RTP capabilities from domain"
+                        );
+                        
+                        let response = ListenerEvent::CommandFailed {
+                            command: "getRouterCapabilities".to_string(),
+                            error: format!("Router capabilities not available: {}", e),
+                        };
+                        if let Ok(msg) = serde_json::to_string(&response) {
+                            sender.send(Message::Text(msg)).await.ok();
+                        }
+                    }
+                }
+            } else {
+                tracing::error!(
+                    session_id = %session_id,
+                    room_id = %room_id,
+                    "Step 2: FAILED - Room not found"
+                );
+                
+                let response = ListenerEvent::RoomNotFound {
+                    room_id: room_id.to_string(),
+                };
+                if let Ok(msg) = serde_json::to_string(&response) {
+                    sender.send(Message::Text(msg)).await.ok();
+                }
+            }
+        }
+
+        // Step 4 of listener flow: Initialize listener transport
+        ListenerCommand::InitListener => {
+            tracing::info!(
+                session_id = %session_id,
+                room_id = %room_id,
+                "Step 2: Listener requesting transport initialization"
+            );
+
+            // Delegate to room domain logic
+            if let Some(room_state) = lobby.get_room(&room_id) {
+                let mut room_guard = room_state.write().await;
+                match room_guard.init_listener_transport(&session_id).await {
+                    Ok(transport_options) => {
+                        tracing::info!(
+                            session_id = %session_id,
+                            room_id = %room_id,
+                            transport_id = %transport_options.id,
+                            "Step 2: COMPLETED - Listener transport created successfully"
+                        );
+
+                        let response = ListenerEvent::ListenerTransportReady {
+                            transport_options,
+                        };
+
+                        if let Ok(msg) = serde_json::to_string(&response) {
+                            if let Err(e) = sender.send(Message::Text(msg)).await {
+                                tracing::error!(
+                                    session_id = %session_id,
+                                    room_id = %room_id,
+                                    error = %e,
+                                    "Step 2: Failed to send ListenerTransportReady event"
+                                );
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        tracing::error!(
+                            session_id = %session_id,
+                            room_id = %room_id,
+                            error = %e,
+                            "Step 2: FAILED - Listener transport creation failed"
+                        );
+                        let response = ListenerEvent::CommandFailed {
+                            command: "initListener".to_string(),
+                            error: format!("Failed to create transport: {}", e),
+                        };
+                        if let Ok(msg) = serde_json::to_string(&response) {
+                            sender.send(Message::Text(msg)).await.ok();
+                        }
+                    }
+                }
+            } else {
+                tracing::error!(
+                    session_id = %session_id,
+                    room_id = %room_id,
+                    "Step 2: FAILED - Room not found"
+                );
+                let response = ListenerEvent::CommandFailed {
+                    command: "initListener".to_string(),
+                    error: "Room not found".to_string(),
+                };
+                if let Ok(msg) = serde_json::to_string(&response) {
+                    sender.send(Message::Text(msg)).await.ok();
+                }
+            }
+        }
+        
         ListenerCommand::ResumeConsumer { consumer_id, .. } => {
             tracing::info!(
                 room_id = %room_id,
+                session_id = %session_id,
                 consumer_id = %consumer_id,
                 "Received request to resume consumer"
             );
@@ -954,10 +1232,9 @@ async fn handle_listener_command(
                 // Room uses DashMap for listeners, so we don't need a write lock on the whole room
                 // We just need to access the listeners map
 
-                // Your listeners map is keyed by listener_id (which is connection_id in string form)
-                let listener_id = connection_id.to_string();
+                // Listeners map is keyed by session_id
 
-                if let Some(mut listener_entry) = room_state.read().await.listeners.get_mut(&listener_id) {
+                if let Some(mut listener_entry) = room_state.read().await.listeners.get_mut(&session_id) {
                     let listener_state = listener_entry.value_mut();
 
                     // Verify this listener actually owns the requested consumer
@@ -984,7 +1261,7 @@ async fn handle_listener_command(
                         error_msg = "Listener has no active consumer".to_string();
                     }
                 } else {
-                    error_msg = format!("Listener {} not found in room", listener_id);
+                    error_msg = format!("Listener {} not found in room", session_id);
                 }
             } else {
                 error_msg = "Room not found".to_string();
@@ -1050,128 +1327,6 @@ async fn handle_listener_command(
                 }
             }
         }
-        ListenerCommand::RequestJoin { room_id: requested_room_id, rtp_capabilities, .. } => {
-            // Step 1 of listener flow span
-            let listener_flow_span = tracing::info_span!(
-                "listener_connection_flow",
-                flow.type = "listener_join",
-                flow.step = 1,
-                flow.phase = "initiated",
-                room.id = %room_id,
-                listener.id = %connection_id,
-                has_device_rtp_capabilities = rtp_capabilities.get("codecs").is_some()
-            );
-            let _listener_flow_guard = listener_flow_span.enter();
-
-            tracing::info!(
-                room_id = %room_id,
-                requested_room_id = %requested_room_id,
-                listener_id = %connection_id,
-                "Step 1: Listener requesting to join room"
-            );
-
-            // Validate that the requested room ID matches the WebSocket path
-            if requested_room_id != room_id.to_string() {
-                listener_flow_span.record("flow.phase", "failed");
-                tracing::error!(
-                    room_id = %room_id,
-                    requested_room_id = %requested_room_id,
-                    listener_id = %connection_id,
-                    "Step 1: FAILED - Room ID mismatch between request and WebSocket path"
-                );
-                let response = ListenerEvent::CommandFailed {
-                    command: "requestJoin".to_string(),
-                    error: "Room ID mismatch".to_string(),
-                };
-
-                if let Ok(msg) = serde_json::to_string(&response) {
-                    sender.send(Message::Text(msg)).await.ok();
-                }
-                return;
-            }
-
-            tracing::info!(
-                room_id = %room_id,
-                listener_id = %connection_id,
-                "Step 1: Room ID validated, processing join request with device capabilities"
-            );
-
-            // Handle join request with producer validation and Jaeger spans
-            let listener_id = connection_id.to_string(); // Use consistent connection_id as listener_id
-            match handle_request_join(room_id, rtp_capabilities, listener_id, &lobby, event_tx.clone()).await {
-                Ok((room_info, transport_options, producer_id, rtp_capabilities)) => {
-                    listener_flow_span.record("webrtc.transport_id", transport_options.id.as_str());
-                    listener_flow_span.record("webrtc.producer_id", producer_id.as_str());
-                    listener_flow_span.record("flow.phase", "step1_completed");
-
-                    tracing::info!(
-                        room_id = %room_id,
-                        listener_id = %connection_id,
-                        transport_id = %transport_options.id,
-                        producer_id = %producer_id,
-                        ice_candidates_count = transport_options.ice_candidates.len(),
-                        "Step 1-2: Join approved - room found, producer available, receiver transport created"
-                    );
-
-                    let response = ListenerEvent::JoinReady {
-                        room: room_info,
-                        transport_options,
-                        producer_id: producer_id.clone(),
-                        rtp_capabilities,
-                    };
-
-                    match serde_json::to_string(&response) {
-                        Ok(msg) => {
-                            match sender.send(Message::Text(msg)).await {
-                                Ok(_) => {
-                                    tracing::info!(
-                                        room_id = %room_id,
-                                        listener_id = %connection_id,
-                                        producer_id = %producer_id,
-                                        "Step 2: COMPLETED - JoinReady event sent with transport params. Frontend should now create receive transport."
-                                    );
-                                }
-                                Err(e) => {
-                                    listener_flow_span.record("flow.phase", "failed");
-                                    tracing::error!(
-                                        room_id = %room_id,
-                                        listener_id = %connection_id,
-                                        error = %e,
-                                        "Step 2: Transport created but failed to send JoinReady event"
-                                    );
-                                }
-                            }
-                        }
-                        Err(e) => {
-                            listener_flow_span.record("flow.phase", "failed");
-                            tracing::error!(
-                                room_id = %room_id,
-                                listener_id = %connection_id,
-                                error = %e,
-                                "Step 2: Transport created but failed to serialize JoinReady event"
-                            );
-                        }
-                    }
-                }
-                Err(e) => {
-                    listener_flow_span.record("flow.phase", "failed");
-                    tracing::error!(
-                        room_id = %room_id,
-                        listener_id = %connection_id,
-                        error = %e,
-                        "Step 1-2: FAILED - Join request processing failed (room may not exist or have producer)"
-                    );
-                    let response = ListenerEvent::CommandFailed {
-                        command: "requestJoin".to_string(),
-                        error: format!("Join request failed: {}", e),
-                    };
-
-                    if let Ok(msg) = serde_json::to_string(&response) {
-                        sender.send(Message::Text(msg)).await.ok();
-                    }
-                }
-            }
-        }
         ListenerCommand::ConnectListenerTransport { transport_id, dtls_parameters, .. } => {
             // Log transport ID for connection validation (follows MediaSoup standard pattern)
             if let Some(ref transport_id) = transport_id {
@@ -1192,8 +1347,7 @@ async fn handle_listener_command(
             };
 
             // Connect listener's WebRTC transport
-            let listener_id = connection_id.to_string(); // Use consistent connection_id as listener_id
-            match handle_connect_listener_transport(room_id, listener_id, transport_id, native_dtls_parameters, &lobby).await {
+            match handle_connect_listener_transport(room_id, session_id.clone(), transport_id, native_dtls_parameters, &lobby).await {
                 Ok(transport_id) => {
                     // Send TransportConnected event
                     let response = ListenerEvent::TransportConnected {
@@ -1241,7 +1395,7 @@ async fn handle_listener_command(
         }
         ListenerCommand::RequestConsumer { rtp_capabilities, .. } => {
             // Handle listener requesting consumer creation for room's current producer
-            match handle_request_consumer(room_id, connection_id, rtp_capabilities.clone(), &lobby).await {
+            match handle_request_consumer(room_id, &session_id, rtp_capabilities.clone(), &lobby).await {
                 Ok(consumer_params) => {
                     // Send ConsumerCreated event with consumer parameters
                     let response = ListenerEvent::ConsumerCreated {
@@ -1792,15 +1946,15 @@ async fn handle_listener_leave(
 }
 
 /// Handle listener requesting consumer creation for room's current producer
-#[tracing::instrument(skip(lobby, device_rtp_capabilities), fields(room_id = %room_id, connection_id = %connection_id, producer_id = tracing::field::Empty, consumer_id = tracing::field::Empty))]
+#[tracing::instrument(skip(lobby, device_rtp_capabilities), fields(room_id = %room_id, session_id = %session_id, producer_id = tracing::field::Empty, consumer_id = tracing::field::Empty))]
 async fn handle_request_consumer(
     room_id: Uuid,
-    connection_id: Uuid,
+    session_id: &str,
     device_rtp_capabilities: serde_json::Value,
     lobby: &Lobby,
 ) -> anyhow::Result<crate::lib::models::schemas::ConsumerParameters> {
     let span = tracing::Span::current();
-    let listener_id = connection_id.to_string();
+    let listener_id = session_id;
 
     let room_state = lobby.get_room(&room_id)
         .ok_or_else(|| anyhow::anyhow!("Room not found"))?;

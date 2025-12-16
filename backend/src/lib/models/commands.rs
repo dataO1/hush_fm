@@ -128,6 +128,18 @@ pub enum LobbyCommand {
         /// Optional room tags
         tags: Option<Vec<String>>,
     },
+
+    /// Request to join a room for listening (Step 1 of listener flow)
+    /// Creates unique listener WebSocket URL and returns it via lobby response
+    #[serde(rename_all = "camelCase")]
+    RequestJoin {
+        /// Stable session ID from browser fingerprint (used for both DJ and listener)
+        #[serde(rename = "sessionId")]
+        session_id: String,
+        /// ID of the room to join
+        #[serde(rename = "roomId")]
+        room_id: String,
+    },
 }
 
 /// Commands sent from DJ clients to server
@@ -180,14 +192,10 @@ pub enum DjCommand {
 #[derive(Debug, Clone, Deserialize, JsonSchema)]
 #[serde(tag = "type", rename_all = "camelCase")]
 pub enum ListenerCommand {
-    /// Request to join a room for listening
+    /// Initialize listener transport receiver (Step 2 of listener flow)
+    /// Sent after connecting to unique listener WebSocket URL
     #[serde(rename_all = "camelCase")]
-    RequestJoin {
-        /// ID of the room to join
-        room_id: String,
-        /// RTP capabilities for media consumption
-        rtp_capabilities: serde_json::Value,
-    },
+    InitListener,
 
     /// Connect listener transport with DTLS parameters
     #[serde(rename_all = "camelCase")]
@@ -231,6 +239,7 @@ impl LobbyCommand {
     pub fn command_type(&self) -> &'static str {
         match self {
             Self::AnnounceRoom { .. } => "announceRoom",
+            Self::RequestJoin { .. } => "requestJoin",
         }
     }
 }
@@ -254,7 +263,7 @@ impl ListenerCommand {
     /// Get the command type as a string for logging
     pub fn command_type(&self) -> &'static str {
         match self {
-            Self::RequestJoin { .. } => "requestJoin",
+            Self::InitListener => "initListener",
             Self::ConnectListenerTransport { .. } => "connectListenerTransport",
             Self::GetRouterCapabilities { .. } => "getRouterCapabilities",
             Self::LeaveRoom => "leaveRoom",

@@ -31,14 +31,19 @@ directly
 
 # Listener room connection flow
 
-1. Frontend: Request joining a room (via message) from lobby, which creates a
-   websocket for the listener for this room
-2. Backend: uses router of the room to create a webrtc transport receiver and
+1. Frontend: Request joining a room (via lobby message) from lobby, which creates a
+   unique websocket for the listener for this room and returns this websocket
+   url (via lobby message) -> ui goes into listener view and connects to this
+   websocket.
+2. Frontend: request rtpcapabilities from backend (via listener websocket)
+3. Backend: returns rtpcapbailities to frontend (via listener websocket)
+4. Frontend: initialise transport receiver (via listener message)
+5. Backend: uses router of the room to create a webrtc transport receiver and
    send transport params back to frontend (via message over listener websocket,
    not lobby)
-3. frontend: use device to create receive transport locally from params
-4. frontend: extract and send device rtpcapabilities (via message) to backend.
-5. backend: checks if router can consume (canConsume() method), if so call consume({rtp,producer id
+6. frontend: use device to create receive transport locally from params
+7. frontend: extract and send device rtpcapabilities (via message) to backend.
+8. backend: checks if router can consume (canConsume() method), if so call consume({rtp,producer id
    stored in room}) of the listeners transport, which creates a consumer
 6a. backend sends consumerparams (consumerid, kind, rtp params) to frontend (via message)
 7a. frontend: use receive transport .consume({}) method, which creates clietn side consumer andfires of connect event

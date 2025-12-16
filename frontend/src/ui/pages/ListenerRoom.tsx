@@ -1,18 +1,26 @@
 import { createSignal, onMount, onCleanup, Show, createEffect } from 'solid-js'
-import { useParams, useNavigate } from '@solidjs/router'
+import { useParams, useNavigate, useLocation } from '@solidjs/router'
 import { Effect, Option } from 'effect'
 import { createRoomStore } from '../../stores/room.store'
 import { createLobbyStore } from '../../stores/lobby.store'
 import { joinRoomAsListener } from '../../services/flows/listener-flows.service'
-import { connectToLobbyWebSocket, leaveLobby } from '../../services/flows/lobby-flows.service'
+import { leaveLobby } from '../../services/flows/lobby-flows.service'
 
 export default function ListenerRoom() {
   const params = useParams()
   const navigate = useNavigate()
+  const location = useLocation()
 
   // Use room store and lobby store
   const roomStore = createRoomStore()
   const lobbyStore = createLobbyStore()
+
+  // Get data from navigation state (from Landing.tsx RequestJoin response)
+  const navigationState = location.state as {
+    listenerWebSocketUrl?: string
+    roomInfo?: any
+    sessionId?: string
+  } || {}
 
   const [roomId] = createSignal(params.roomId)
   const [volume, setVolume] = createSignal(0.8)
@@ -158,24 +166,26 @@ export default function ListenerRoom() {
       setError(Option.none())
 
       try {
-          // First, we need to connect to lobby to get the room info
-          lobbyStore.actions.setConnecting(true)
-          const lobbyWs = await Effect.runPromise(connectToLobbyWebSocket())
-          lobbyStore.actions.setConnected(lobbyWs)
-          
-          // Find the room info from lobby
-          const roomInfo = lobbyStore.availableRooms.find(room => room.id === roomId())
-          if (!roomInfo) {
-              throw new Error('Room not found in lobby')
+          // Check if we have the required navigation state
+          if (!navigationState.listenerWebSocketUrl || !navigationState.sessionId) {
+              throw new Error('Missing listener WebSocket URL or session ID from navigation state')
           }
-          // Use the connected lobby WebSocket as WebSocket
           
-          // Start listener join flow
-          const result = await Effect.runPromise(
-            joinRoomAsListener(roomStore, lobbyWs, {
+          console.info('🎧 Starting listener join flow with navigation state:', {
               roomId: roomId(),
-              listenerName: `Listener_${Math.random().toString(36).substr(2, 5)}`,
-              roomInfo
+              sessionId: navigationState.sessionId,
+              listenerWebSocketUrl: navigationState.listenerWebSocketUrl,
+              hasRoomInfo: !!navigationState.roomInfo
+          })
+          
+          // Start listener join flow with proper parameters
+          const result = await Effect.runPromise(
+            joinRoomAsListener(roomStore, {
+              roomId: roomId(),
+              sessionId: navigationState.sessionId,
+              listenerWebSocketUrl: navigationState.listenerWebSocketUrl,
+              roomInfo: navigationState.roomInfo,
+              listenerName: `Listener_${Math.random().toString(36).substr(2, 5)}`
             })
           )
 

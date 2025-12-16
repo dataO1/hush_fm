@@ -1,33 +1,66 @@
 /**
  * Listener Flows Service
- * 
+ *
  * Implements the complete 10-step listener room connection flow as specified
  * in DJ_ROOM_CREATION_FLOW_HOW_ITS_SUPPOSED_TO_BE.md (steps 1-10a + 6b-7b error handling).
- * 
+ *
  * Uses room store for state management and domain schemas for type safety.
  */
 
 import { Effect, pipe, Option } from 'effect'
 import type { RoomStore } from '../../stores/room.store'
-import { 
+import {
   type ListenerState,
-  createInitialListenerState 
+  createInitialListenerState
 } from '../../domain/schemas/listener.schema'
-import { 
+import {
   type RoomMetadata,
 } from '../../domain/schemas/room.schema'
-import type { 
-  ListenerEvent, 
+import type {
+  ListenerEvent,
   ListenerCommand
 } from '../websocket/schemas/websocket'
 import type { RoomInfo } from '../generated/hushFMAPI.schemas'
-import { 
+import {
   ListenerFlowError,
-  AudioPlaybackError 
+  AudioPlaybackError
 } from '../../domain/errors'
 import { createAndLoadDevice } from '../mediasoup/device.service'
 import { createReceiveTransportWithEvents } from '../mediasoup/transport.service'
 import { createAudioConsumer } from '../mediasoup/consumer.service'
+import {
+  connectToListenerSession,
+  requestRouterCapabilities,
+  subscribeToRouterCapabilities
+} from '../websocket/websocket.service'
+
+/**
+ * WebSocket connection error for listener
+ */
+export class ListenerWebSocketError {
+  readonly _tag = 'ListenerWebSocketError'
+  constructor(
+    public readonly cause: string,
+    public readonly recoverable: boolean = true,
+    public readonly context?: Record<string, unknown>
+  ) {}
+}
+
+/**
+ * Request to join room as listener
+ */
+export interface JoinRoomRequest {
+  /** ID of the room to join */
+  roomId: string
+  /** Session ID from browser fingerprint */
+  sessionId: string
+  /** Unique listener WebSocket URL from RequestJoin response */
+  listenerWebSocketUrl: string
+  /** Room information from RequestJoin response */
+  roomInfo?: RoomInfo
+  /** Optional listener name */
+  listenerName?: string
+}
 
 /**
  * Listener join result
@@ -38,22 +71,81 @@ export interface ListenerJoinResult {
   audioStream: MediaStream
 }
 
-/**
- * Request to join a room as a listener
- */
-export interface JoinRoomRequest {
-  roomId: string
-  listenerName: string
-  roomInfo: RoomInfo // From lobby store
-}
 
 /**
- * Join room as listener - implements complete 10-step flow
- * 
- * Flow steps:
- * 1. Request joining room from lobby → creates listener websocket
- * 2. Backend creates webrtc receiver transport → sends params
- * 3. Frontend creates receive transport from params  
+ * Get or create listener WebSocket connection for session
+ */
+export const getOrCreateListenerWebSocket = (
+  roomStore: RoomStore,
+  sessionId: string,
+  listenerWebSocketUrl: string,
+  roomId: string
+): Effect.Effect<WebSocket, ListenerWebSocketError> =>
+  pipe(
+    Effect.gen(function* (_) {
+      // Check if listener already exists in store with active WebSocket
+      const existingListener = roomStore.listeners.find((l: any) => l.id === sessionId)
+
+      if (existingListener) {
+        const existingWebSocket = Option.getOrNull(existingListener.websocket?.websocket)
+
+        if (existingWebSocket && existingWebSocket.readyState === WebSocket.OPEN) {
+          console.info('🔄 Reusing existing listener WebSocket connection for session:', sessionId)
+          return existingWebSocket
+        } else {
+          console.info('🔄 Existing listener found but WebSocket is closed, creating new connection')
+          // Clean up old listener state
+          roomStore.actions.removeListener(sessionId)
+        }
+      }
+
+      console.info('🔗 Creating new listener WebSocket connection:', { sessionId, listenerWebSocketUrl })
+
+      // Initialize listener state in room store
+      const initialListenerState = createInitialListenerState()
+      const listenerState: ListenerState = {
+        ...initialListenerState,
+        currentStep: 'connecting',
+        flowStartedAt: Option.some(new Date())
+      }
+
+      roomStore.actions.addListener(listenerState)
+
+      // Create WebSocket connection using websocket service
+      const listenerWebSocket = yield* _(pipe(
+        connectToListenerSession(sessionId),
+        Effect.mapError(error => new ListenerWebSocketError(
+          'Failed to connect to listener WebSocket via service',
+          true,
+          { sessionId, roomId, originalError: error.message }
+        ))
+      ))
+
+      console.info('✅ Listener WebSocket connected successfully via service')
+
+      // Update listener state with connected WebSocket
+      roomStore.actions.updateListener(sessionId, {
+        websocket: {
+          ...initialListenerState.websocket,
+          websocket: Option.some(listenerWebSocket),
+          connectionState: 'connected',
+          roomId: Option.some(roomId),
+          url: Option.some(`wss://${window.location.hostname}:3443/ws/listener/${sessionId}`),
+          connectedAt: Option.some(new Date())
+        }
+      })
+
+      return listenerWebSocket
+    })
+  )
+
+/**
+ * Join room as listener - implements complete 10-step flow with unique WebSocket
+ *
+ * Updated flow steps:
+ * 1. Connect to unique listener WebSocket URL (from lobby response)
+ * 2. Send initListener command → Backend creates webrtc receiver transport → sends params
+ * 3. Frontend creates receive transport from params
  * 4. Frontend sends device RTP capabilities to backend
  * 5. Backend checks canConsume() → creates consumer if compatible
  * 6a. Backend sends consumer params (id, kind, rtp) → continue to 7a
@@ -66,84 +158,103 @@ export interface JoinRoomRequest {
  */
 export const joinRoomAsListener = (
   roomStore: RoomStore,
-  lobbyWebSocket: WebSocket,
   request: JoinRoomRequest
-): Effect.Effect<ListenerJoinResult, ListenerFlowError> =>
+): Effect.Effect<ListenerJoinResult, ListenerFlowError | ListenerWebSocketError> =>
   pipe(
     Effect.gen(function* (_) {
       console.info('🎧 Starting listener join flow for room:', request.roomId)
-      
-      // Generate listener ID
-      const listenerId = `listener_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`
-      
-      // Initialize listener state in room store
-      const initialListenerState = createInitialListenerState()
-      const listenerState: ListenerState = {
-        ...initialListenerState,
-        currentStep: 'requesting_join',
-        flowStartedAt: Option.some(new Date())
-      }
-      
-      roomStore.actions.addListener(listenerState)
-      
-      // The actual listener ID is generated by the store
-      const actualListenerId = (roomStore.listeners[roomStore.listeners.length - 1] as any)?.id || listenerId
-      
+      console.info('🔗 Unique listener WebSocket URL:', request.listenerWebSocketUrl)
+
+      // Use session ID as listener ID (stable identity)
+      const listenerId = request.sessionId
+
       try {
-        // Step 1: Request joining room from lobby → creates listener websocket
-        console.info('✅ Step 1: Requesting to join room via lobby websocket')
-        roomStore.actions.setListenerFlowStep(listenerId, 'requesting_join')
-        
-        const joinCommand: ListenerCommand = {
-          type: 'requestJoin',
-          roomId: request.roomId,
-          rtpCapabilities: {} // Will be updated after device load
-        }
-        
-        // Send join request and wait for listener websocket creation
-        lobbyWebSocket.send(JSON.stringify(joinCommand))
-        
-        // Wait for joinRoomResponse with listener websocket URL
-        const joinResponse = yield* _(waitForJoinRoomResponse(lobbyWebSocket, request.roomId))
-        
-        // Connect to listener websocket
-        const listenerWebSocket = new WebSocket(joinResponse.listenerWebSocketUrl)
-        yield* _(waitForWebSocketOpen(listenerWebSocket))
-        
-        // Update listener state with websocket
-        roomStore.actions.updateListener(actualListenerId, {
-          websocket: {
-            ...initialListenerState.websocket,
-            websocket: Option.some(listenerWebSocket),
-            connectionState: 'connected',
-            roomId: Option.some(request.roomId),
-            url: Option.some(joinResponse.listenerWebSocketUrl),
-            connectedAt: Option.some(new Date())
-          }
-        })
-        
-        // Step 2: Backend creates webrtc receiver transport → sends params
-        console.info('✅ Step 2: Waiting for transport params from backend')
-        roomStore.actions.setListenerFlowStep(listenerId, 'waiting_transport')
-        
-        const transportParams = yield* _(waitForTransportParams(listenerWebSocket))
-        
-        // Step 3: Frontend creates receive transport from params
-        console.info('✅ Step 3: Creating receive transport from params')
-        roomStore.actions.setListenerFlowStep(listenerId, 'creating_transport')
-        
-        // Create and load device with RTP capabilities
-        const device = yield* _(createAndLoadDevice(transportParams.rtpCapabilities).pipe(
+        // Step 1: Get or create listener WebSocket connection
+        console.info('✅ Step 1: Getting or creating listener WebSocket connection')
+
+        const listenerWebSocket = yield* _(getOrCreateListenerWebSocket(
+          roomStore,
+          request.sessionId,
+          request.listenerWebSocketUrl,
+          request.roomId
+        ))
+
+        // Step 2: Request router RTP capabilities for device initialization
+        console.info('✅ Step 2: Requesting router RTP capabilities from backend')
+        roomStore.actions.setListenerFlowStep(listenerId, 'requesting_capabilities')
+
+        // Request router capabilities
+        yield* _(requestRouterCapabilities(listenerWebSocket, request.roomId).pipe(
+          Effect.mapError(error => new ListenerFlowError({
+            cause: `Failed to request router capabilities: ${String(error)}`,
+            step: 'requesting_capabilities',
+            stepNumber: 2,
+            recoverable: true,
+            context: { timestamp: new Date(), operation: 'request_router_capabilities' }
+          }))
+        ))
+
+        // Wait for router capabilities response
+        console.info('✅ Step 3: Waiting for router RTP capabilities from backend')
+        console.log('🔧 Step 3: Starting router capabilities subscription...')
+
+        const routerRtpCapabilities = yield* _(subscribeToRouterCapabilities(listenerWebSocket).pipe(
+          Effect.mapError(error => {
+            console.error('❌ Step 3: Router capabilities subscription failed:', error)
+            console.error('❌ Step 3: Error details:', {
+              errorType: typeof error,
+              errorMessage: String(error),
+              errorCause: (error as any)?.cause,
+              errorContext: (error as any)?.context
+            })
+
+            return new ListenerFlowError({
+              cause: `Failed to receive router capabilities: ${String(error)} | Cause: ${(error as any)?.cause || 'Unknown'}`,
+              step: 'requesting_capabilities',
+              stepNumber: 3,
+              recoverable: true,
+              context: {
+                timestamp: new Date(),
+                operation: 'request_router_capabilities'
+              }
+            })
+          })
+        ))
+
+        console.log('✅ Step 3: Router capabilities received successfully:', routerRtpCapabilities)
+        // Create and load device with router RTP capabilities (now available!)
+        const device = yield* _(createAndLoadDevice(routerRtpCapabilities).pipe(
           Effect.mapError(error => new ListenerFlowError({
             cause: `Failed to create device: ${String(error)}`,
             step: 'creating_transport',
-            stepNumber: 3,
+            stepNumber: 6,
             recoverable: false,
             context: { timestamp: new Date(), operation: 'create_device', details: { listenerId, error } }
           }))
         ))
-        
-        // Create receive transport  
+
+        // Step 4: Send initListener command to initialize transport receiver
+        console.info('✅ Step 4: Sending initListener command to initialize transport receiver')
+        roomStore.actions.setListenerFlowStep(listenerId, 'waiting_transport')
+
+        const initCommand: ListenerCommand = {
+          type: 'initListener'
+        }
+
+        listenerWebSocket.send(JSON.stringify(initCommand))
+
+        // Wait for transport params from backend
+        console.info('✅ Step 5: Waiting for transport params from backend')
+        roomStore.actions.setListenerFlowStep(listenerId, 'waiting_transport')
+
+        const transportParams = yield* _(waitForTransportParams(listenerWebSocket))
+
+        // Step 6: Frontend creates receive transport from params
+        console.info('✅ Step 6: Creating receive transport from params')
+        roomStore.actions.setListenerFlowStep(listenerId, 'creating_transport')
+
+
+        // Create receive transport
         const receiveTransport = yield* _(createReceiveTransportWithEvents(device, transportParams, {
           onConnect: async (dtlsParameters) => {
             console.info('✅ Step 8a: Transport connect event - sending DTLS params')
@@ -163,9 +274,9 @@ export const joinRoomAsListener = (
             context: { timestamp: new Date(), operation: 'create_transport', details: { listenerId, error } }
           }))
         ))
-        
+
         // Update listener state with device and transport
-        roomStore.actions.updateListener(actualListenerId, {
+        roomStore.actions.updateListener(listenerId, {
           device: {
             device: Option.some(device),
             loaded: true,
@@ -177,7 +288,7 @@ export const joinRoomAsListener = (
             canConsume: true
           },
           receiveTransport: {
-            ...initialListenerState.receiveTransport,
+            ...createInitialListenerState().receiveTransport,
             transport: Option.some(receiveTransport),
             id: Option.some(transportParams.id),
             connectionState: 'new',
@@ -185,34 +296,34 @@ export const joinRoomAsListener = (
             connected: false
           }
         })
-        
+
         console.info('Device and transport created successfully')
-        
+
         // Step 4: Frontend sends device RTP capabilities to backend
         console.info('✅ Step 4: Sending device RTP capabilities to backend')
         roomStore.actions.setListenerFlowStep(listenerId, 'sending_capabilities')
-        
+
         const rtpCapabilitiesCommand: ListenerCommand = {
           type: 'requestConsumer',
           rtpCapabilities: device.rtpCapabilities
         }
         listenerWebSocket.send(JSON.stringify(rtpCapabilitiesCommand))
-        
+
         // Step 5: Backend checks canConsume() → creates consumer if compatible
         console.info('✅ Step 5: Waiting for backend consumer compatibility check')
         roomStore.actions.setListenerFlowStep(listenerId, 'waiting_consumer')
-        
+
         // Wait for either consumer params (6a) or error (6b)
         const consumerResult = yield* _(waitForConsumerResult(listenerWebSocket))
-        
+
         if (consumerResult.type === 'error') {
           // Step 6b + 7b: Backend returns error → show error, cancel joining, return to lobby
           console.error('❌ Step 6b/7b: Router incompatible, canceling join')
           roomStore.actions.setListenerError(listenerId, consumerResult.error, 'error')
-          
+
           // Cleanup and return to lobby - store action is now synchronous
           roomStore.actions.disconnectFromRoom()
-          
+
           yield* _(Effect.fail(new ListenerFlowError({
             cause: `Room join failed: ${consumerResult.error}`,
             step: 'error',
@@ -221,18 +332,18 @@ export const joinRoomAsListener = (
             context: { timestamp: new Date(), operation: 'consumer_check', details: { listenerId, roomIncompatible: true } }
           })))
         }
-        
+
         // Step 6a: Backend sends consumer params (id, kind, rtp) → continue to 7a
         if (consumerResult.type !== 'success') {
           throw new Error('Unexpected consumer result type')
         }
         const consumerParams = consumerResult.params
         console.info('✅ Step 6a: Received consumer params from backend')
-        
+
         // Step 7a: Frontend creates client consumer → fires connect event
         console.info('✅ Step 7a: Creating client-side consumer')
         roomStore.actions.setListenerFlowStep(listenerId, 'creating_consumer')
-        
+
         // Create consumer using the audio consumer service
         const { consumer } = yield* _(createAudioConsumer(
           receiveTransport,
@@ -253,17 +364,17 @@ export const joinRoomAsListener = (
             context: { timestamp: new Date(), operation: 'create_consumer', details: { listenerId, error } }
           }))
         ))
-        
+
         // Step 10a: Media streaming starts
         console.info('✅ Step 10a: Media streaming should start now')
         roomStore.actions.setListenerFlowStep(listenerId, 'streaming')
-        
+
         const audioStream = new MediaStream([consumer.track])
-        
+
         // Update listener state with consumer and audio stream
-        roomStore.actions.updateListener(actualListenerId, {
+        roomStore.actions.updateListener(listenerId, {
           consumer: {
-            ...initialListenerState.consumer,
+            ...createInitialListenerState().consumer,
             consumer: Option.some(consumer),
             id: Option.some(consumerParams.id),
             producerId: Option.some(consumerParams.producerId),
@@ -274,7 +385,7 @@ export const joinRoomAsListener = (
             createdAt: Option.some(new Date())
           },
           audioPlayback: {
-            ...initialListenerState.audioPlayback,
+            ...createInitialListenerState().audioPlayback,
             mediaStream: Option.some(audioStream),
             volume: 0.8,
             muted: false,
@@ -282,35 +393,35 @@ export const joinRoomAsListener = (
           },
           flowCompletedAt: Option.some(new Date())
         })
-        
+
         console.info('✅ Consumer and audio stream created successfully')
-        
-        // Set room metadata from join response
+
+        // Set room metadata from request room info
         const roomMetadata: RoomMetadata = {
           id: request.roomId,
-          name: joinResponse.roomName,
-          djName: joinResponse.djName,
-          description: Option.fromNullable(joinResponse.description),
+          name: request.roomInfo?.name || 'Unknown Room',
+          djName: request.roomInfo?.djName || 'Unknown DJ',
+          description: Option.fromNullable(request.roomInfo?.description),
           isPublic: true,
-          createdAt: new Date(joinResponse.createdAt),
-          tags: []
+          createdAt: new Date(request.roomInfo?.createdAt || new Date()),
+          tags: request.roomInfo?.tags || []
         }
-        
+
         roomStore.actions.setRoomMetadata(roomMetadata)
-        
+
         console.info('🎉 Listener join flow completed successfully!')
-        
+
         return {
-          listenerId: actualListenerId,
+          listenerId,
           roomMetadata,
           audioStream
         }
-        
+
       } catch (error) {
         console.error('❌ Listener join flow failed:', error)
         roomStore.actions.setListenerError(
-          actualListenerId, 
-          String(error), 
+          listenerId,
+          String(error),
           'error'
         )
         throw error
@@ -328,11 +439,11 @@ export const leaveRoomAsListener = (
   pipe(
     Effect.gen(function* (_) {
       console.info('👋 Leaving room as listener:', listenerId)
-      
+
       // Get current listener state
       const listeners = roomStore.listeners
       const listener = listeners.find(l => (l as any).id === listenerId)
-      
+
       if (listener) {
         // Cleanup MediaSoup resources
         Option.match(listener.consumer.consumer, {
@@ -342,7 +453,7 @@ export const leaveRoomAsListener = (
           },
           onNone: () => {}
         })
-        
+
         Option.match(listener.receiveTransport.transport, {
           onSome: (transport: any) => {
             console.info('Closing receive transport')
@@ -350,7 +461,7 @@ export const leaveRoomAsListener = (
           },
           onNone: () => {}
         })
-        
+
         Option.match(listener.websocket.websocket, {
           onSome: (ws: WebSocket) => {
             console.info('Closing listener websocket')
@@ -358,12 +469,12 @@ export const leaveRoomAsListener = (
           },
           onNone: () => {}
         })
-        
+
         // Remove listener from store
         roomStore.actions.removeListener(listenerId)
         console.info('Cleaned up listener resources and removed from store')
       }
-      
+
       // If this was the last listener, disconnect from room
       if (roomStore.listenerCount === 0 && !roomStore.isDJStreaming) {
         // Close WebSocket before updating store state
@@ -396,7 +507,7 @@ export const controlListenerAudio = (
     Effect.gen(function* (_) {
       const listeners = roomStore.listeners
       const listener = listeners.find(l => (l as any).id === listenerId)
-      
+
       if (!listener) {
         yield* _(Effect.fail(new AudioPlaybackError({
           cause: `Listener ${listenerId} not found`,
@@ -405,7 +516,7 @@ export const controlListenerAudio = (
           context: { timestamp: new Date(), operation: 'control_error', details: { listenerId, action } }
         })))
       }
-      
+
       // Check if audio stream is available
       if (listener) {
         const hasAudioStream = Option.isSome(listener.audioPlayback.mediaStream)
@@ -418,7 +529,7 @@ export const controlListenerAudio = (
           })))
         }
       }
-      
+
       switch (action) {
         case 'play':
           roomStore.actions.setListenerMuted(listenerId, false)
@@ -437,90 +548,6 @@ export const controlListenerAudio = (
 
 // Helper functions for WebSocket event handling
 
-/**
- * Wait for join room response
- */
-function waitForJoinRoomResponse(
-  lobbyWebSocket: WebSocket,
-  roomId: string
-): Effect.Effect<any, ListenerFlowError> {
-  return Effect.async<any, ListenerFlowError>((resolve) => {
-    const handleMessage = (event: MessageEvent) => {
-      try {
-        const message = JSON.parse(event.data)
-        if (message.type === 'joinRoomResponse' && message.roomId === roomId) {
-          lobbyWebSocket.removeEventListener('message', handleMessage)
-          if (message.success) {
-            resolve(Effect.succeed(message))
-          } else {
-            resolve(Effect.fail(new ListenerFlowError({
-              cause: message.error || 'Failed to join room',
-              step: 'requesting_join',
-              stepNumber: 1,
-              recoverable: false,
-              context: { timestamp: new Date(), operation: 'join_room', details: { roomId } }
-            })))
-          }
-        }
-      } catch (error) {
-        resolve(Effect.fail(new ListenerFlowError({
-          cause: `Failed to parse join response: ${String(error)}`,
-          step: 'requesting_join',
-          stepNumber: 1,
-          recoverable: false,
-          context: { timestamp: new Date(), operation: 'parse_response', details: { roomId, error } }
-        })))
-      }
-    }
-    
-    lobbyWebSocket.addEventListener('message', handleMessage)
-    
-    // Timeout after 10 seconds
-    setTimeout(() => {
-      lobbyWebSocket.removeEventListener('message', handleMessage)
-      resolve(Effect.fail(new ListenerFlowError({
-        cause: 'Timeout waiting for join room response',
-        step: 'requesting_join', 
-        stepNumber: 1,
-        recoverable: true,
-        context: { timestamp: new Date(), operation: 'wait_response', details: { roomId } }
-      })))
-    }, 10000)
-  })
-}
-
-/**
- * Wait for WebSocket to open
- */
-function waitForWebSocketOpen(ws: WebSocket): Effect.Effect<void, ListenerFlowError> {
-  return Effect.async<void, ListenerFlowError>((resolve) => {
-    if (ws.readyState === WebSocket.OPEN) {
-      resolve(Effect.succeed(undefined))
-      return
-    }
-    
-    const handleOpen = () => {
-      ws.removeEventListener('open', handleOpen)
-      ws.removeEventListener('error', handleError)
-      resolve(Effect.succeed(undefined))
-    }
-    
-    const handleError = () => {
-      ws.removeEventListener('open', handleOpen)
-      ws.removeEventListener('error', handleError)
-      resolve(Effect.fail(new ListenerFlowError({
-        cause: 'WebSocket connection failed',
-        step: 'requesting_join',
-        stepNumber: 1,
-        recoverable: false,
-        context: { timestamp: new Date(), operation: 'websocket_connect', details: {} }
-      })))
-    }
-    
-    ws.addEventListener('open', handleOpen)
-    ws.addEventListener('error', handleError)
-  })
-}
 
 /**
  * Wait for transport parameters
@@ -538,9 +565,9 @@ function waitForTransportParams(listenerWebSocket: WebSocket): Effect.Effect<any
         // Continue listening for other messages
       }
     }
-    
+
     listenerWebSocket.addEventListener('message', handleMessage)
-    
+
     // Timeout after 10 seconds
     setTimeout(() => {
       listenerWebSocket.removeEventListener('message', handleMessage)
@@ -576,9 +603,9 @@ function waitForConsumerResult(
         // Continue listening for other messages
       }
     }
-    
+
     listenerWebSocket.addEventListener('message', handleMessage)
-    
+
     // Timeout after 10 seconds
     setTimeout(() => {
       listenerWebSocket.removeEventListener('message', handleMessage)

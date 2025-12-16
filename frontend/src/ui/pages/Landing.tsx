@@ -2,6 +2,8 @@ import { createSignal, For, Show, onMount, onCleanup } from 'solid-js'
 import { useNavigate } from '@solidjs/router'
 import { Effect } from 'effect'
 import { createLobbyStore } from '../../stores/lobby.store'
+import { getUserStore } from '../../stores/user.store'
+import { getSessionId } from '../../services/user.service'
 import {
   connectToLobbyWebSocket,
   discoverRooms,
@@ -18,8 +20,9 @@ export default function Landing() {
   const [roomName, setRoomName] = createSignal('')
   const [error, setError] = createSignal<string | null>(null)
 
-  // Create lobby store instance
+  // Create store instances
   const lobbyStore = createLobbyStore()
+  const userStore = getUserStore()
   
   // Track WebSocket for cleanup
   let currentWebSocket: WebSocket | null = null
@@ -123,8 +126,87 @@ export default function Landing() {
   }
 
   // Join room as listener
-  const handleJoinRoom = (roomId: string) => {
-    navigate(`/listen/${roomId}`)
+  const handleJoinRoom = async (roomId: string) => {
+    try {
+      setError(null)
+      
+      // Ensure we have a session ID
+      const sessionId = await Effect.runPromise(getSessionId(userStore))
+      
+      if (!currentWebSocket) {
+        setError('Not connected to lobby')
+        return
+      }
+      
+      console.info('🎧 Requesting to join room:', { roomId, sessionId })
+      
+      // Send requestJoin command to lobby WebSocket
+      const requestJoinCommand = {
+        type: 'requestJoin' as const,
+        sessionId,
+        roomId
+      }
+      
+      currentWebSocket.send(JSON.stringify(requestJoinCommand))
+      
+      // Wait for joinRoomResponse
+      const joinResponse = await waitForJoinResponse(currentWebSocket, sessionId, roomId)
+      
+      if (joinResponse.success && joinResponse.listenerWebSocketUrl) {
+        console.info('✅ Join request successful, navigating to listener room')
+        
+        // Navigate to listener room with unique WebSocket URL
+        navigate(`/listen/${roomId}`, {
+          state: { 
+            listenerWebSocketUrl: joinResponse.listenerWebSocketUrl,
+            roomInfo: joinResponse.room,
+            sessionId
+          }
+        })
+      } else {
+        throw new Error(joinResponse.error || 'Join request failed')
+      }
+      
+    } catch (error) {
+      console.error('❌ Failed to join room:', error)
+      setError(error instanceof Error ? error.message : 'Failed to join room')
+    }
+  }
+
+  // Wait for join room response from lobby WebSocket
+  const waitForJoinResponse = (
+    websocket: WebSocket, 
+    sessionId: string, 
+    roomId: string
+  ): Promise<any> => {
+    return new Promise((resolve, reject) => {
+      const handleMessage = (event: MessageEvent) => {
+        try {
+          const message = JSON.parse(event.data)
+          
+          // Check if this is our joinRoomResponse
+          if (
+            message.type === 'joinRoomResponse' && 
+            message.sessionId === sessionId && 
+            message.roomId === roomId
+          ) {
+            websocket.removeEventListener('message', handleMessage)
+            clearTimeout(timeoutId)
+            resolve(message)
+          }
+        } catch (error) {
+          // Continue listening for other messages
+        }
+      }
+      
+      // Set up timeout
+      const timeoutId = setTimeout(() => {
+        websocket.removeEventListener('message', handleMessage)
+        reject(new Error('Timeout waiting for join room response'))
+      }, 10000) // 10 second timeout
+      
+      websocket.addEventListener('message', handleMessage)
+    })
   }
 
   // Refresh room listings

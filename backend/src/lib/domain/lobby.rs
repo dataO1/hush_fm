@@ -113,6 +113,20 @@ impl Lobby {
         self.rooms.get(room_id).map(|entry| entry.value().clone())
     }
 
+    /// Find room containing a listener with the given session_id
+    pub async fn find_room_by_listener_session(&self, session_id: &str) -> Option<(Uuid, Arc<RwLock<Room>>)> {
+        for entry in self.rooms.iter() {
+            let room_id = *entry.key();
+            let room_arc = entry.value().clone();
+            let room_guard = room_arc.read().await;
+            if room_guard.get_listener(session_id).is_some() {
+                drop(room_guard); // Release the read lock
+                return Some((room_id, room_arc));
+            }
+        }
+        None
+    }
+
     /// Get all public rooms (live or paused with producers)
     pub async fn get_public_rooms(&self) -> Vec<Room> {
         let mut public_rooms = Vec::new();

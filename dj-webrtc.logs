@@ -1,21 +1,29 @@
-http://192.168.178.119:5173/dj/a8967ad6-e1cf-4507-995f-b2e9d47eeb43, {"bundlePolicy":"max-bundle"},
+https://192.168.178.119:5173/dj/137a16da-14b9-4e1b-996a-b1daebc5b3d6, {"bundlePolicy":"max-bundle"},
 
-ICE connection state: new
-Connection state: new
+ICE connection state: new => "checking" => "connected"
+Connection state: new => "connecting" => "connected"
 Signaling state: new => "have-local-offer" => "stable"
-ICE Candidate pair:
+ICE Candidate pair: 127.0.0.1:42200 <=>127.0.0.1:38635
 ICE candidate grid
 Candidate (pair) id	State / Candidate type	Network type / address	Port	Protocol / candidate type	(Pair) Priority	Bytes sent / received	STUN requests sent / responses received	STUN requests received / responses sent	RTT	Last data sent / received	Last update
+CPzauXWr64_LtQp1zhM	succeeded	unknown		tcp active	0x4	10378848 / 122315	96 / 96	0 / 0	0s	3:05:44 PM / 3:05:44 PM	3:05:44 PM
+IzauXWr64	local-candidate	127.0.0.1	42200	prflx	0x50001eff
+80 | 30 | 255						
+ILtQp1zhM	remote-candidate	127.0.0.1	38635	host	0x4026acff						
+CPCiejISnw_lRZFSuw9	waiting	unknown		active	0x4	0 / 0	0 / 0	0 / 0			3:01:49 PM
+ICiejISnw	local-candidate	0.0.0.0	9	host	0x5a001eff
+90 | 30 | 255						
+IlRZFSuw9	remote-candidate	192.168.178.119	32360	host	0x4025e4ff						
 Time	Event
-12/16/2025, 2:03:25 PM	
+12/16/2025, 3:01:39 PM	
 transceiverAdded(index=0, kind=audio)
 {
  "mid": null,
  "kind": "audio",
  "sender": {
-  "track": "901796a9-6dde-4258-b936-0831368da97f",
+  "track": "5048fde0-98b5-41c2-a5b2-751fe7aaa1bc",
   "streams": [
-   "9fc5a079-dca4-49e9-8fd4-848d303dd571"
+   "ef133bf4-a720-4098-8738-3a9deb7f8dbc"
   ],
   "encodings": [
    {
@@ -24,7 +32,7 @@ transceiverAdded(index=0, kind=audio)
   ]
  },
  "receiver": {
-  "track": "4a305282-fa9a-4d9a-ba60-b918e0b29430",
+  "track": "10a81b28-1188-41b5-b7f4-ee2b9b903160",
   "streams": []
  },
  "direction": "sendonly",
@@ -32,27 +40,27 @@ transceiverAdded(index=0, kind=audio)
  "reason": "addTransceiver",
  "transceiverIndex": 0
 }
-12/16/2025, 2:03:25 PM	
+12/16/2025, 3:01:39 PM	
 createOffer
 {"offerToReceiveAudio":true,"offerToReceiveVideo":true,"voiceActivityDetection":true}
-12/16/2025, 2:03:25 PM	negotiationneeded
-12/16/2025, 2:03:25 PM	
+12/16/2025, 3:01:39 PM	negotiationneeded
+12/16/2025, 3:01:39 PM	
 createOfferOnSuccess (type: "offer", 2 sections)
 Copy description to clipboard
 v=0 (6 more lines)
-o=- 3648536142422934832 2 IN IP4 127.0.0.1
+o=- 4320654178678217246 2 IN IP4 127.0.0.1
 s=-
 t=0 0
 a=group:BUNDLE 0
 a=extmap-allow-mixed
-a=msid-semantic: WMS 9fc5a079-dca4-49e9-8fd4-848d303dd571
+a=msid-semantic: WMS ef133bf4-a720-4098-8738-3a9deb7f8dbc
 m=audio 9 UDP/TLS/RTP/SAVPF 111 63 9 0 8 13 110 126 (29 more lines) direction=sendonly mid=0
 c=IN IP4 0.0.0.0
 a=rtcp:9 IN IP4 0.0.0.0
-a=ice-ufrag:xH93
-a=ice-pwd:nasLuqFm98gd6eandRk+C0qg
+a=ice-ufrag:btQG
+a=ice-pwd:KkLY5/4OZW1UywvSRgfCUoak
 a=ice-options:trickle
-a=fingerprint:sha-256 B6:5F:C9:72:61:CC:1B:0A:B7:00:AC:31:9A:49:E2:41:47:86:7D:DC:9A:0F:E3:8E:5F:70:E8:2C:2D:CC:9C:FB
+a=fingerprint:sha-256 63:00:4E:AC:19:D5:AD:44:5E:DA:48:24:28:80:EC:60:96:9C:47:8F:EE:84:5E:88:56:FE:3C:56:9B:7E:2B:1C
 a=setup:actpass
 a=mid:0
 a=extmap:1 urn:ietf:params:rtp-hdrext:ssrc-audio-level
@@ -60,7 +68,7 @@ a=extmap:2 http://www.webrtc.org/experiments/rtp-hdrext/abs-send-time
 a=extmap:3 http://www.ietf.org/id/draft-holmer-rmcat-transport-wide-cc-extensions-01
 a=extmap:4 urn:ietf:params:rtp-hdrext:sdes:mid
 a=sendonly
-a=msid:9fc5a079-dca4-49e9-8fd4-848d303dd571 901796a9-6dde-4258-b936-0831368da97f
+a=msid:ef133bf4-a720-4098-8738-3a9deb7f8dbc 5048fde0-98b5-41c2-a5b2-751fe7aaa1bc
 a=rtcp-mux
 a=rtcp-rsize
 a=rtpmap:111 opus/48000/2
@@ -74,25 +82,25 @@ a=rtpmap:8 PCMA/8000
 a=rtpmap:13 CN/8000
 a=rtpmap:110 telephone-event/48000
 a=rtpmap:126 telephone-event/8000
-a=ssrc:3280928653 cname:G8VA0Oq3xsL652nr
-a=ssrc:3280928653 msid:9fc5a079-dca4-49e9-8fd4-848d303dd571 901796a9-6dde-4258-b936-0831368da97f
-12/16/2025, 2:03:25 PM	
+a=ssrc:4036962656 cname:M23SHkMD2mRRW/1B
+a=ssrc:4036962656 msid:ef133bf4-a720-4098-8738-3a9deb7f8dbc 5048fde0-98b5-41c2-a5b2-751fe7aaa1bc
+12/16/2025, 3:01:39 PM	
 setLocalDescription (type: "offer", 2 sections)
 Copy description to clipboard
 v=0 (6 more lines)
-o=- 3648536142422934832 2 IN IP4 127.0.0.1
+o=- 4320654178678217246 2 IN IP4 127.0.0.1
 s=-
 t=0 0
 a=group:BUNDLE 0
 a=extmap-allow-mixed
-a=msid-semantic: WMS 9fc5a079-dca4-49e9-8fd4-848d303dd571
+a=msid-semantic: WMS ef133bf4-a720-4098-8738-3a9deb7f8dbc
 m=audio 9 UDP/TLS/RTP/SAVPF 111 63 9 0 8 13 110 126 (29 more lines) direction=sendonly mid=0
 c=IN IP4 0.0.0.0
 a=rtcp:9 IN IP4 0.0.0.0
-a=ice-ufrag:xH93
-a=ice-pwd:nasLuqFm98gd6eandRk+C0qg
+a=ice-ufrag:btQG
+a=ice-pwd:KkLY5/4OZW1UywvSRgfCUoak
 a=ice-options:trickle
-a=fingerprint:sha-256 B6:5F:C9:72:61:CC:1B:0A:B7:00:AC:31:9A:49:E2:41:47:86:7D:DC:9A:0F:E3:8E:5F:70:E8:2C:2D:CC:9C:FB
+a=fingerprint:sha-256 63:00:4E:AC:19:D5:AD:44:5E:DA:48:24:28:80:EC:60:96:9C:47:8F:EE:84:5E:88:56:FE:3C:56:9B:7E:2B:1C
 a=setup:actpass
 a=mid:0
 a=extmap:1 urn:ietf:params:rtp-hdrext:ssrc-audio-level
@@ -100,7 +108,7 @@ a=extmap:2 http://www.webrtc.org/experiments/rtp-hdrext/abs-send-time
 a=extmap:3 http://www.ietf.org/id/draft-holmer-rmcat-transport-wide-cc-extensions-01
 a=extmap:4 urn:ietf:params:rtp-hdrext:sdes:mid
 a=sendonly
-a=msid:9fc5a079-dca4-49e9-8fd4-848d303dd571 901796a9-6dde-4258-b936-0831368da97f
+a=msid:ef133bf4-a720-4098-8738-3a9deb7f8dbc 5048fde0-98b5-41c2-a5b2-751fe7aaa1bc
 a=rtcp-mux
 a=rtcp-rsize
 a=rtpmap:111 opus/48000/2
@@ -114,15 +122,38 @@ a=rtpmap:8 PCMA/8000
 a=rtpmap:13 CN/8000
 a=rtpmap:110 telephone-event/48000
 a=rtpmap:126 telephone-event/8000
-a=ssrc:3280928653 cname:G8VA0Oq3xsL652nr
-a=ssrc:3280928653 msid:9fc5a079-dca4-49e9-8fd4-848d303dd571 901796a9-6dde-4258-b936-0831368da97f
-12/16/2025, 2:03:25 PM	setLocalDescriptionOnSuccess
-12/16/2025, 2:03:25 PM	
+a=ssrc:4036962656 cname:M23SHkMD2mRRW/1B
+a=ssrc:4036962656 msid:ef133bf4-a720-4098-8738-3a9deb7f8dbc 5048fde0-98b5-41c2-a5b2-751fe7aaa1bc
+12/16/2025, 3:01:39 PM	setLocalDescriptionOnSuccess
+12/16/2025, 3:01:39 PM	
 signalingstatechange
 "have-local-offer"
-12/16/2025, 2:03:25 PM	
+12/16/2025, 3:01:39 PM	
 transceiverModified(index=0, kind=audio)
-12/16/2025, 2:03:25 PM	
+{
+ "mid": "0",
+ "kind": "audio",
+ "sender": {
+  "track": "5048fde0-98b5-41c2-a5b2-751fe7aaa1bc",
+  "streams": [
+   "ef133bf4-a720-4098-8738-3a9deb7f8dbc"
+  ],
+  "encodings": [
+   {
+    "active": true
+   }
+  ]
+ },
+ "receiver": {
+  "track": "10a81b28-1188-41b5-b7f4-ee2b9b903160",
+  "streams": []
+ },
+ "direction": "sendonly",
+ "currentDirection": null,
+ "reason": "setLocalDescription",
+ "transceiverIndex": 0
+}
+12/16/2025, 3:01:39 PM	
 setRemoteDescription (type: "answer", 2 sections)
 Copy description to clipboard
 v=0 (9 more lines)
@@ -131,11 +162,11 @@ s=-
 t=0 0
 a=extmap-allow-mixed
 a=ice-lite
-a=fingerprint:sha-384 91:56:1A:F8:46:88:01:46:FD:F2:92:AF:0F:33:CE:87:57:97:C8:27:A5:D6:97:26:00:8A:9E:DD:B2:30:3B:1A:0C:83:30:A1:41:77:CB:C6:99:88:38:21:50:0B:A1:0F
+a=fingerprint:sha-1 CA:E8:99:21:F9:C3:E1:35:42:9E:43:9B:4D:4E:11:64:F6:B6:8F:53
 a=ice-options:ice2
 a=msid-semantic: WMS *
 a=group:BUNDLE 0
-m=audio 7 UDP/TLS/RTP/SAVPF 111 (19 more lines) direction=recvonly mid=0
+m=audio 7 UDP/TLS/RTP/SAVPF 111 (22 more lines) direction=recvonly mid=0
 c=IN IP4 127.0.0.1
 a=rtpmap:111 opus/48000/2
 a=fmtp:111 maxaveragebitrate=320000;maxplaybackrate=48000;maxptime=60;minptime=3;ptime=20;sprop-stereo=1;stereo=1;useinbandfec=1
@@ -148,29 +179,32 @@ a=extmap:1 urn:ietf:params:rtp-hdrext:ssrc-audio-level
 a=setup:passive
 a=mid:0
 a=recvonly
-a=ice-ufrag:9ry5z4m0ytmzsz376wjmw53hb2n0hs80
-a=ice-pwd:rp8rpegy8jwpe1ddc6pge3ln5spyfeiy
-a=candidate:udpcandidate 1 udp 1076302079 192.168.178.119 48909 typ host
+a=ice-ufrag:o2zl3hsl2vimex36xfw20udifs7jba87
+a=ice-pwd:e45b9v6b81ck87pcb1eouk78le919k2t
+a=candidate:udpcandidate 1 udp 1076302079 127.0.0.1 12908 typ host
+a=candidate:tcpcandidate 1 tcp 1076276479 127.0.0.1 38635 typ host
+a=candidate:udpcandidate 1 udp 1076250879 192.168.178.119 15661 typ host
+a=candidate:tcpcandidate 1 tcp 1076225279 192.168.178.119 32360 typ host
 a=end-of-candidates
 a=ice-options:renomination
 a=rtcp-mux
 a=rtcp-rsize
-12/16/2025, 2:03:25 PM	
+12/16/2025, 3:01:39 PM	
 icegatheringstatechange
 "gathering"
-12/16/2025, 2:03:25 PM	setRemoteDescriptionOnSuccess
-12/16/2025, 2:03:25 PM	
+12/16/2025, 3:01:39 PM	setRemoteDescriptionOnSuccess
+12/16/2025, 3:01:39 PM	
 signalingstatechange
 "stable"
-12/16/2025, 2:03:25 PM	
+12/16/2025, 3:01:39 PM	
 transceiverModified(index=0, kind=audio)
 {
  "mid": "0",
  "kind": "audio",
  "sender": {
-  "track": "901796a9-6dde-4258-b936-0831368da97f",
+  "track": "5048fde0-98b5-41c2-a5b2-751fe7aaa1bc",
   "streams": [
-   "9fc5a079-dca4-49e9-8fd4-848d303dd571"
+   "ef133bf4-a720-4098-8738-3a9deb7f8dbc"
   ],
   "encodings": [
    {
@@ -179,7 +213,7 @@ transceiverModified(index=0, kind=audio)
   ]
  },
  "receiver": {
-  "track": "4a305282-fa9a-4d9a-ba60-b918e0b29430",
+  "track": "10a81b28-1188-41b5-b7f4-ee2b9b903160",
   "streams": []
  },
  "direction": "sendonly",
@@ -187,24 +221,78 @@ transceiverModified(index=0, kind=audio)
  "reason": "setRemoteDescription",
  "transceiverIndex": 0
 }
-12/16/2025, 2:03:25 PM	
+12/16/2025, 3:01:39 PM	
+iceconnectionstatechange
+"checking"
+12/16/2025, 3:01:39 PM	
+connectionstatechange
+"connecting"
+12/16/2025, 3:01:39 PM	
 icegatheringstatechange
 "complete"
+12/16/2025, 3:01:39 PM	
+iceconnectionstatechange
+"connected"
+12/16/2025, 3:01:39 PM	
+connectionstatechange
+"connected"
 Stats Tables
 Filter statistics by type including 
 separate multiple values by `,`
-outbound-rtp (kind=audio, mid=0, ssrc=3280928653, active=true, id=OT01A3280928653)
+outbound-rtp (kind=audio, mid=0, ssrc=4036962656, active=true, id=OT01A4036962656)
+Statistics OT01A4036962656
+timestamp	12/16/2025, 3:05:44 PM	
+active	true	
+bytesSent	9788220	
+codecId	COT01_111_maxaveragebitrate=320000;maxplaybackrate=48000;minptime=3;sprop-stereo=1;stereo=1;useinbandfec=1	🔗
+headerBytesSent	385594	
+kind	audio	
+mediaSourceId	SA1	🔗
+mid	0	
+nackCount	0	
+packetsSent	12464	
+packetsSentWithEct1	0	
+remoteId	RIA4036962656	🔗
+retransmittedBytesSent	0	
+retransmittedPacketsSent	0	
+ssrc	4036962656	
+targetBitrate	320000	
+totalPacketSendDelay	0.000024999999999999998	
+transportId	T01	🔗
+type	outbound-rtp	
+[bytesSent_in_bits/s]	320290.13485364517	
+[headerBytesSent_in_bits/s]	14954.870216637115	
+[retransmittedBytesSent_in_bits/s]	0	
+[packetsSent/s]	52.98182630225716	
+[retransmittedPacketsSent/s]	0	
+[totalPacketSendDelay/packetsSent_in_ms]	0	
 media-playout (kind=audio, id=AP)
-certificate (id=CFB6:5F:C9:72:61:CC:1B:0A:B7:00:AC:31:9A:49:E2:41:47:86:7D:DC:9A:0F:E3:8E:5F:70:E8:2C:2D:CC:9C:FB)
-Statistics CFB6:5F:C9:72:61:CC:1B:0A:B7:00:AC:31:9A:49:E2:41:47:86:7D:DC:9A:0F:E3:8E:5F:70:E8:2C:2D:CC:9C:FB
-timestamp	12/16/2025, 2:05:07 PM	
-base64Certificate	MIIBFDCBvKADAgECAggCnDfZZTaXETAKBggqhkjOPQQDAjARMQ8wDQYDVQQDDAZXZWJSVEMwHhcNMjUxMjE1MTMwMzI1WhcNMjYwMTE1MTMwMzI1WjARMQ8wDQYDVQQDDAZXZWJSVEMwWTATBgcqhkjOPQIBBggqhkjOPQMBBwNCAAQMGOhxhKRSCTvdhCCATW5L3Nqd44MVvaPe3JJqAMpduct00MYMljfr6vU7K3Nw+sB89xBTO/JAH0YB+8OsWSUSMAoGCCqGSM49BAMCA0cAMEQCICqmjk4eMY+S882QHPo6FuDpk2046bpmYKO6L2gq/KQRAiBJXkNDaKtNtXSBK6YdT1KMfpW4rNVev1g2Q7c2DJnKAg==	
-fingerprint	B6:5F:C9:72:61:CC:1B:0A:B7:00:AC:31:9A:49:E2:41:47:86:7D:DC:9A:0F:E3:8E:5F:70:E8:2C:2D:CC:9C:FB	
+Statistics AP
+timestamp	12/16/2025, 3:05:44 PM	
+kind	audio	
+synthesizedSamplesDuration	0	
+synthesizedSamplesEvents	0	
+totalPlayoutDelay	0	
+totalSamplesCount	0	
+totalSamplesDuration	0	
+type	media-playout	
+certificate (id=CF63:00:4E:AC:19:D5:AD:44:5E:DA:48:24:28:80:EC:60:96:9C:47:8F:EE:84:5E:88:56:FE:3C:56:9B:7E:2B:1C)
+Statistics CF63:00:4E:AC:19:D5:AD:44:5E:DA:48:24:28:80:EC:60:96:9C:47:8F:EE:84:5E:88:56:FE:3C:56:9B:7E:2B:1C
+timestamp	12/16/2025, 3:05:44 PM	
+base64Certificate	MIIBFjCBvKADAgECAgg8GSRFMgNrVzAKBggqhkjOPQQDAjARMQ8wDQYDVQQDDAZXZWJSVEMwHhcNMjUxMjE1MTQwMTM5WhcNMjYwMTE1MTQwMTM5WjARMQ8wDQYDVQQDDAZXZWJSVEMwWTATBgcqhkjOPQIBBggqhkjOPQMBBwNCAASCwpFkl9/ZkDBEb1HRkpXr4JvzDjdffWtlQOterVSEgRy2ozdKw9o13XxFQriwLNdsMi9Yp+gkzvfGN0w/vBopMAoGCCqGSM49BAMCA0kAMEYCIQDPEoRIqxpui53um9Tp/HYflxCqXN80j+Crg4AM3FNekwIhAKGSSpxlgO6dgB8ebgOLKmzEk8pIgv88evmMP7Z0sS8g	
+fingerprint	63:00:4E:AC:19:D5:AD:44:5E:DA:48:24:28:80:EC:60:96:9C:47:8F:EE:84:5E:88:56:FE:3C:56:9B:7E:2B:1C	
+fingerprintAlgorithm	sha-256	
+type	certificate	
+certificate (id=CFFF:A7:CC:1B:DC:BA:1B:5D:91:56:8E:9D:40:92:70:B6:71:24:92:7C:BE:4C:8E:A0:C8:05:8D:76:09:FF:9E:A0)
+Statistics CFFF:A7:CC:1B:DC:BA:1B:5D:91:56:8E:9D:40:92:70:B6:71:24:92:7C:BE:4C:8E:A0:C8:05:8D:76:09:FF:9E:A0
+timestamp	12/16/2025, 3:05:44 PM	
+base64Certificate	MIIDFzCCAf+gAwIBAgIUXsnTSqDiG24qlDJUidW0vWJwOfgwDQYJKoZIhvcNAQELBQAwGzEZMBcGA1UEAwwQbWVkaWFzb3VwLWh1c2hmbTAeFw0yNTEyMTYxMDI5MjBaFw0zNTEyMTQxMDI5MjBaMBsxGTAXBgNVBAMMEG1lZGlhc291cC1odXNoZm0wggEiMA0GCSqGSIb3DQEBAQUAA4IBDwAwggEKAoIBAQDT5WoVMrhkK7r7f80Cv9libK6Yl2pwGhMUbgbD1ZeCVqC65v1Pp0HrMECI0yQ7guwwVZgr6ST2+YhT4qs1JKr/Z6XabHo3928KDB/OMgg+AKWV6xer/YlTN2ioFE6SvlxPOaF2XBoxVOxKF1MEBwZHV+TKO8EgrWHXO7AxtixQdtdYrYHD7Je35vn0lQsYj3UHlUI6/df6V0k3ffu8kOOltGo5GPQu7zZxv+57H+uVtQQutTLiVvsM2o9YBNXzo8iNqchkHbp7a/85NrjbwP3wXcgcNLu1/aYI41L5L04yMD1MZYiAR3hSD0SaduxXh5CRwGwEsH9mB+hIc9fiN0RJAgMBAAGjUzBRMB0GA1UdDgQWBBRAyd+muUzFc3waBIHexzD4kT+luzAfBgNVHSMEGDAWgBRAyd+muUzFc3waBIHexzD4kT+luzAPBgNVHRMBAf8EBTADAQH/MA0GCSqGSIb3DQEBCwUAA4IBAQAvczRkTRjR/D9hIHAI0WU8l1lFk8503ACM1rjWas70pDSP9j9Vca/lLV+uJacHJqoIKcp6dCq5ZWBtJ2UsMS9FagPCYlhbyc5oYPH0fG/OmGEcvm6mmuKhtIPWBbZzWsYzu7VyAuYYVUqIAbQ7VCPs7OJENl61I2dVPbYGxNYMkahVAHx5/6QzGXEQ+zlnAX56wXao04vYoeMX7/jdAA3//eqnhAZCgZQZ24jOaSeONXIzu2lPnSwOls4b9njICaGLBEJq+i3zb3JL8gQxkg4bhjeCXA0XdCZGCIOSgd/15MIIMHlWpcrVAF2KWIbzTSVQxjAqvslFUnH8UiQP/gVW	
+fingerprint	FF:A7:CC:1B:DC:BA:1B:5D:91:56:8E:9D:40:92:70:B6:71:24:92:7C:BE:4C:8E:A0:C8:05:8D:76:09:FF:9E:A0	
 fingerprintAlgorithm	sha-256	
 type	certificate	
 codec (mimeType=audio/opus, payloadType=111, id=COT01_111_maxaveragebitrate=320000;maxplaybackrate=48000;minptime=3;sprop-stereo=1;stereo=1;useinbandfec=1)
 Statistics COT01_111_maxaveragebitrate=320000;maxplaybackrate=48000;minptime=3;sprop-stereo=1;stereo=1;useinbandfec=1
-timestamp	12/16/2025, 2:05:07 PM	
+timestamp	12/16/2025, 3:05:44 PM	
 channels	2	
 clockRate	48000	
 mimeType	audio/opus	
@@ -212,30 +300,71 @@ payloadType	111
 sdpFmtpLine	maxaveragebitrate=320000;maxplaybackrate=48000;minptime=3;sprop-stereo=1;stereo=1;useinbandfec=1	
 transportId	T01	🔗
 type	codec	
-local-candidate (candidateType=host, tcpType=active, id=INoc8V8k0)
-Statistics INoc8V8k0
-timestamp	12/16/2025, 2:05:07 PM	
-address	::	
-candidateType	host	
-foundation	773551145	
-ip	::	
-isRemote	false	
-networkAdapterType	any	
-networkType	unknown	
-port	9	
-priority	1509949951	
-protocol	tcp	
-tcpType	active	
+candidate-pair (state=waiting, id=CPCiejISnw_lRZFSuw9)
+Statistics CPCiejISnw_lRZFSuw9
+timestamp	12/16/2025, 3:01:49 PM	
+bytesDiscardedOnSend	0	
+bytesReceived	0	
+bytesSent	0	
+consentRequestsSent	0	
+localCandidateId	ICiejISnw	🔗
+nominated	false	
+packetsDiscardedOnSend	0	
+packetsReceived	0	
+packetsSent	0	
+priority	4.62235237945339e+18	
+remoteCandidateId	IlRZFSuw9	🔗
+requestsReceived	0	
+requestsSent	0	
+responsesReceived	0	
+responsesSent	0	
+state	waiting	
+totalRoundTripTime	0	
 transportId	T01	🔗
-type	local-candidate	
-usernameFragment	xH93	
-vpn	false	
-local-candidate (candidateType=host, tcpType=active, id=IikuN/Vx2)
-Statistics IikuN/Vx2
-timestamp	12/16/2025, 2:05:07 PM	
+type	candidate-pair	
+writable	false	
+[bytesSent_in_bits/s]	0	
+[bytesReceived_in_bits/s]	0	
+[packetsSent/s]	0	
+[packetsReceived/s]	0	
+candidate-pair (state=succeeded, id=CPzauXWr64_LtQp1zhM)
+Statistics CPzauXWr64_LtQp1zhM
+timestamp	12/16/2025, 3:05:44 PM	
+availableOutgoingBitrate	751225	
+bytesDiscardedOnSend	0	
+bytesReceived	122315	
+bytesSent	10378848	
+consentRequestsSent	95	
+currentRoundTripTime	0	
+lastPacketReceivedTimestamp	1765893944045	
+lastPacketSentTimestamp	1765893944073	
+localCandidateId	IzauXWr64	🔗
+nominated	true	
+packetsDiscardedOnSend	0	
+packetsReceived	2491	
+packetsSent	12516	
+priority	4.622572281443401e+18	
+remoteCandidateId	ILtQp1zhM	🔗
+requestsReceived	0	
+requestsSent	96	
+responsesReceived	96	
+responsesSent	0	
+state	succeeded	
+totalRoundTripTime	0.063	
+transportId	T01	🔗
+type	candidate-pair	
+writable	true	
+[bytesSent_in_bits/s]	342026.67883697123	
+[bytesReceived_in_bits/s]	3870.6722913649005	
+[packetsSent/s]	52.98182630225716	
+[packetsReceived/s]	9.99657100042588	
+[totalRoundTripTime/responsesReceived]	0.0010000000000000009	
+local-candidate (candidateType=host, tcpType=active, id=ICiejISnw)
+Statistics ICiejISnw
+timestamp	12/16/2025, 3:05:44 PM	
 address	0.0.0.0	
 candidateType	host	
-foundation	724865234	
+foundation	824634819	
 ip	0.0.0.0	
 isRemote	false	
 networkAdapterType	any	
@@ -246,40 +375,129 @@ protocol	tcp
 tcpType	active	
 transportId	T01	🔗
 type	local-candidate	
-usernameFragment	xH93	
+usernameFragment	btQG	
+vpn	false	
+remote-candidate (candidateType=host, tcpType=passive, id=ILtQp1zhM)
+Statistics ILtQp1zhM
+timestamp	12/16/2025, 3:05:44 PM	
+address	127.0.0.1	
+candidateType	host	
+foundation	tcpcandidate	
+ip	127.0.0.1	
+isRemote	true	
+port	38635	
+priority	1076276479	
+protocol	tcp	
+tcpType	passive	
+transportId	T01	🔗
+type	remote-candidate	
+usernameFragment	o2zl3hsl2vimex36xfw20udifs7jba87	
+local-candidate (candidateType=host, tcpType=active, id=IPqry0hyl)
+Statistics IPqry0hyl
+timestamp	12/16/2025, 3:05:44 PM	
+address	::	
+candidateType	host	
+foundation	513082628	
+ip	::	
+isRemote	false	
+networkAdapterType	any	
+networkType	unknown	
+port	9	
+priority	1509949951	
+protocol	tcp	
+tcpType	active	
+transportId	T01	🔗
+type	local-candidate	
+usernameFragment	btQG	
+vpn	false	
+remote-candidate (candidateType=host, tcpType=passive, id=IlRZFSuw9)
+Statistics IlRZFSuw9
+timestamp	12/16/2025, 3:01:49 PM	
+address	192.168.178.119	
+candidateType	host	
+foundation	tcpcandidate	
+ip	192.168.178.119	
+isRemote	true	
+port	32360	
+priority	1076225279	
+protocol	tcp	
+tcpType	passive	
+transportId	T01	🔗
+type	remote-candidate	
+usernameFragment	o2zl3hsl2vimex36xfw20udifs7jba87	
+local-candidate (candidateType=prflx, tcpType=active, id=IzauXWr64)
+Statistics IzauXWr64
+timestamp	12/16/2025, 3:05:44 PM	
+address	127.0.0.1	
+candidateType	prflx	
+foundation	1076864752	
+ip	127.0.0.1	
+isRemote	false	
+networkAdapterType	any	
+networkType	unknown	
+port	42200	
+priority	1342185215	
+protocol	tcp	
+relatedAddress	0.0.0.0	
+relatedPort	9	
+tcpType	active	
+transportId	T01	🔗
+type	local-candidate	
+usernameFragment	btQG	
 vpn	false	
 peer-connection (id=P)
 Statistics P
-timestamp	12/16/2025, 2:05:07 PM	
+timestamp	12/16/2025, 3:05:44 PM	
 dataChannelsClosed	0	
 dataChannelsOpened	0	
 type	peer-connection	
-media-source (kind=audio, id=SA7)
-Statistics SA7
-timestamp	12/16/2025, 2:05:07 PM	
-audioLevel	0.004486220892971587	
+remote-inbound-rtp (kind=audio, ssrc=4036962656, id=RIA4036962656)
+Statistics RIA4036962656
+timestamp	12/16/2025, 3:05:39 PM	
+codecId	COT01_111_maxaveragebitrate=320000;maxplaybackrate=48000;minptime=3;sprop-stereo=1;stereo=1;useinbandfec=1	🔗
+fractionLost	0	
+jitter	0.003104	
 kind	audio	
-totalAudioEnergy	0.2525534950879455	
-totalSamplesDuration	101.61000000001508	
-trackIdentifier	901796a9-6dde-4258-b936-0831368da97f	
+localId	OT01A4036962656	🔗
+packetsLost	0	
+roundTripTimeMeasurements	48	
+ssrc	4036962656	
+totalRoundTripTime	0.059598	
+transportId	T01	🔗
+type	remote-inbound-rtp	
+roundTripTime	0.001114	
+[totalRoundTripTime/roundTripTimeMeasurements]	(removed)	
+media-source (kind=audio, id=SA1)
+Statistics SA1
+timestamp	12/16/2025, 3:05:44 PM	
+audioLevel	0.0073854792931913205	
+kind	audio	
+totalAudioEnergy	0.9762625224836319	
+totalSamplesDuration	244.5199999999226	
+trackIdentifier	5048fde0-98b5-41c2-a5b2-751fe7aaa1bc	
 type	media-source	
-[Audio_Level_in_RMS]	0.004797181505824715	
-transport (iceState=new, dtlsState=new, id=T01)
+[Audio_Level_in_RMS]	0.010892968812710766	
+transport (iceState=connected, dtlsState=connected, id=T01)
 Statistics T01
-timestamp	12/16/2025, 2:05:07 PM	
-bytesReceived	0	
-bytesSent	0	
+timestamp	12/16/2025, 3:05:44 PM	
+bytesReceived	122315	
+bytesSent	10378848	
+dtlsCipher	TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256	
 dtlsRole	client	
-dtlsState	new	
-iceLocalUsernameFragment	xH93	
+dtlsState	connected	
+iceLocalUsernameFragment	btQG	
 iceRole	controlling	
-iceState	new	
-localCertificateId	CFB6:5F:C9:72:61:CC:1B:0A:B7:00:AC:31:9A:49:E2:41:47:86:7D:DC:9A:0F:E3:8E:5F:70:E8:2C:2D:CC:9C:FB	🔗
-packetsReceived	0	
-packetsSent	0	
-selectedCandidatePairChanges	0	
+iceState	connected	
+localCertificateId	CF63:00:4E:AC:19:D5:AD:44:5E:DA:48:24:28:80:EC:60:96:9C:47:8F:EE:84:5E:88:56:FE:3C:56:9B:7E:2B:1C	🔗
+packetsReceived	2491	
+packetsSent	12516	
+remoteCertificateId	CFFF:A7:CC:1B:DC:BA:1B:5D:91:56:8E:9D:40:92:70:B6:71:24:92:7C:BE:4C:8E:A0:C8:05:8D:76:09:FF:9E:A0	🔗
+selectedCandidatePairChanges	1	
+selectedCandidatePairId	CPzauXWr64_LtQp1zhM	🔗
+srtpCipher	AEAD_AES_256_GCM	
+tlsVersion	FEFD	
 type	transport	
-[bytesSent_in_bits/s]	0	
-[bytesReceived_in_bits/s]	0	
-[packetsSent/s]	0	
+[bytesSent_in_bits/s]	342026.67883697123	
+[bytesReceived_in_bits/s]	3870.6722913649005	
+[packetsSent/s]	52.98182630225716	
 [packetsReceived/s]	

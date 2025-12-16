@@ -260,6 +260,25 @@ pub enum LobbyEvent {
         #[serde(rename = "roomId")]
         room_id: String,
     },
+
+    /// Response to requestJoin command with unique listener WebSocket URL
+    JoinRoomResponse {
+        /// Session ID that requested the join
+        #[serde(rename = "sessionId")]
+        session_id: String,
+        /// ID of the room being joined
+        #[serde(rename = "roomId")]
+        room_id: String,
+        /// Whether the join request was successful
+        success: bool,
+        /// Error message if join failed
+        error: Option<String>,
+        /// Unique WebSocket URL for listener connection (if successful)
+        #[serde(rename = "listenerWebSocketUrl")]
+        listener_websocket_url: Option<String>,
+        /// Room information (if successful)
+        room: Option<RoomInfo>,
+    },
 }
 
 impl DjEvent {
@@ -295,6 +314,18 @@ impl ListenerEvent {
             Self::RoomClosed { .. } => "roomClosed",
             Self::CommandFailed { .. } => "commandFailed",
             Self::RoomNotFound { .. } => "roomNotFound",
+        }
+    }
+}
+
+impl LobbyEvent {
+    /// Get the event type as a string for logging
+    pub fn event_type(&self) -> &'static str {
+        match self {
+            Self::RoomAdded { .. } => "roomAdded",
+            Self::RoomUpdated { .. } => "roomUpdated", 
+            Self::RoomRemoved { .. } => "roomRemoved",
+            Self::JoinRoomResponse { .. } => "joinRoomResponse",
         }
     }
 }

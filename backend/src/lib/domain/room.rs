@@ -330,6 +330,39 @@ impl Room {
         Ok((listener, transport_options))
     }
 
+    /// Abstract coordination: Initialize transport for existing listener (Step 2 of new flow)
+    pub async fn init_listener_transport(&mut self, session_id: &str) -> Result<TransportOptions> {
+        let router = self.router.as_ref()
+            .ok_or_else(|| anyhow::anyhow!("No router available for room"))?;
+
+        // Find and remove the listener temporarily to get ownership
+        if let Some(mut listener) = self.remove_listener(session_id) {
+            // Check if listener already has transport
+            if listener.has_transport() {
+                // Put the listener back and return error
+                self.add_listener(listener);
+                return Err(anyhow::anyhow!("Listener already has transport"));
+            }
+
+            // Create transport for the listener
+            match listener.create_receiver_transport(router).await {
+                Ok(transport_options) => {
+                    // Success - put the updated listener back in the room
+                    self.add_listener(listener);
+                    tracing::info!("Transport initialized for existing listener {} in room {}", session_id, self.id);
+                    Ok(transport_options)
+                }
+                Err(e) => {
+                    // Failed - put the listener back without transport and return error
+                    self.add_listener(listener);
+                    Err(e)
+                }
+            }
+        } else {
+            Err(anyhow::anyhow!("Listener {} not found in room", session_id))
+        }
+    }
+
     /// Abstract coordination: Connect listener transport (Step 9)
     pub async fn connect_listener(&self, listener_id: &str, dtls_parameters: DtlsParameters) -> Result<String> {
         let listener_ref = self.get_listener(listener_id)
@@ -409,11 +442,11 @@ impl Room {
         }
     }
 
-    /// Get router capabilities for client device initialization
-    pub fn get_router_capabilities(&self) -> Result<serde_json::Value> {
+    /// Get router RTP capabilities for client device initialization (native MediaSoup type)
+    pub fn get_router_rtp_capabilities(&self) -> Result<RtpCapabilitiesFinalized> {
         let router = self.router.as_ref()
             .ok_or_else(|| anyhow::anyhow!("No router available for room"))?;
         
-        Ok(serde_json::to_value(router.rtp_capabilities())?)
+        Ok(router.rtp_capabilities())
     }
 }

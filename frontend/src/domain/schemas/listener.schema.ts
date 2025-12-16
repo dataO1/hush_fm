@@ -20,14 +20,15 @@ export const ListenerFlowStep = S.Literal(
   'idle',                // Not started
   'requesting_join',     // Step 1: Request joining room from lobby
   'connecting',          // Step 1: Connecting to listener WebSocket
-  'waiting_transport',   // Step 2: Waiting for transport params from backend
-  'creating_transport',  // Step 3: Create receive transport locally
-  'device_loading',      // Step 3: Loading MediaSoup device with RTP capabilities
-  'sending_capabilities', // Step 4: Send device RTP capabilities to backend
-  'waiting_consumer',    // Step 5: Backend checking canConsume
-  'creating_consumer',   // Step 7a: Create consumer from params
-  'connecting_transport', // Step 8a: Transport connect flow with DTLS
-  'streaming',           // Step 10a: Media streaming successfully
+  'requesting_capabilities', // Step 2: Request router RTP capabilities from backend
+  'waiting_transport',   // Step 4: Waiting for transport params from backend
+  'creating_transport',  // Step 6: Create receive transport locally
+  'device_loading',      // Step 6: Loading MediaSoup device with RTP capabilities
+  'sending_capabilities', // Step 7: Send device RTP capabilities to backend
+  'waiting_consumer',    // Step 8: Backend checking canConsume
+  'creating_consumer',   // Step 9a: Create consumer from params
+  'connecting_transport', // Step 10a: Transport connect flow with DTLS
+  'streaming',           // Step 11a: Media streaming successfully
   'error',               // Step 6b-7b: Router compatibility or other error
   'cleanup'              // Cleaning up after error or leave
 )

@@ -13,7 +13,7 @@
  * - No trace context (removed as per backend refactoring)
  */
 
-import { Effect } from 'effect'
+import { Effect, pipe } from 'effect'
 import type { 
   LobbyCommand,
   LobbyEvent,
@@ -225,6 +225,103 @@ export const sendListenerCommand = (ws: WebSocket, command: ListenerCommand): Ef
   })
 
 /**
+ * Request router RTP capabilities for device initialization
+ */
+export const requestRouterCapabilities = (ws: WebSocket, roomId: string): Effect.Effect<void, WebSocketMessageError> => {
+  console.log('🔧 requestRouterCapabilities: Sending getRouterCapabilities command for room:', roomId)
+  console.log('🔧 requestRouterCapabilities: WebSocket state:', ws.readyState)
+  
+  return pipe(
+    sendListenerCommand(ws, { type: 'getRouterCapabilities', roomId }),
+    Effect.tap(() => Effect.sync(() => {
+      console.log('✅ requestRouterCapabilities: Command sent successfully')
+    })),
+    Effect.mapError(error => {
+      console.error('❌ requestRouterCapabilities: Failed to send command:', error)
+      return new WebSocketMessageError({
+        cause: `Failed to request router capabilities: ${(error as any)?.cause || String(error)}`,
+        direction: 'send',
+        context: { timestamp: new Date(), operation: 'request_router_capabilities' }
+      })
+    })
+  )
+}
+
+/**
+ * Subscribe to router capabilities events
+ */
+export const subscribeToRouterCapabilities = (ws: WebSocket): Effect.Effect<any, WebSocketMessageError> =>
+  pipe(
+    Effect.async<any, WebSocketMessageError>((resume) => {
+      console.log('🔧 subscribeToRouterCapabilities: Setting up message listener')
+      
+      const onMessage = (event: MessageEvent) => {
+        console.log('🔧 subscribeToRouterCapabilities: Received raw message:', event.data)
+        
+        try {
+          console.log('🔧 subscribeToRouterCapabilities: Attempting to parse JSON first...')
+          const parsedData = JSON.parse(event.data)
+          console.log('🔧 subscribeToRouterCapabilities: Parsed JSON data:', parsedData)
+          
+          console.log('🔧 subscribeToRouterCapabilities: Attempting to deserialize message...')
+          const message = MessageCodec.deserializeListenerEvent(parsedData)
+          console.log('🔧 subscribeToRouterCapabilities: Deserialized message:', message)
+          console.log('🔧 subscribeToRouterCapabilities: Message type:', message.type)
+          
+          if (message.type === 'routerCapabilities') {
+            console.log('✅ subscribeToRouterCapabilities: Found routerCapabilities message!')
+            console.log('🔧 subscribeToRouterCapabilities: RTP capabilities:', message.rtpCapabilities)
+            
+            ws.removeEventListener('message', onMessage)
+            console.log('✅ subscribeToRouterCapabilities: Successfully extracted RTP capabilities, resolving...')
+            resume(Effect.succeed(message.rtpCapabilities))
+          } else {
+            console.log('🔧 subscribeToRouterCapabilities: Message type not routerCapabilities, ignoring:', message.type)
+          }
+        } catch (error) {
+          console.error('❌ subscribeToRouterCapabilities: Error in onMessage handler:', error)
+          console.error('❌ subscribeToRouterCapabilities: Raw message data that failed:', event.data)
+          console.error('❌ subscribeToRouterCapabilities: Error details:', {
+            name: error instanceof Error ? error.name : 'Unknown',
+            message: error instanceof Error ? error.message : String(error),
+            stack: error instanceof Error ? error.stack : undefined
+          })
+          
+          ws.removeEventListener('message', onMessage)
+          resume(Effect.fail(new WebSocketMessageError({
+            cause: `Failed to parse router capabilities response: ${error instanceof Error ? error.message : String(error)}`,
+            direction: 'receive',
+            context: { 
+              timestamp: new Date(), 
+              operation: 'subscribe_router_capabilities'
+            }
+          })))
+        }
+      }
+      
+      ws.addEventListener('message', onMessage)
+      console.log('🔧 subscribeToRouterCapabilities: Message listener added to WebSocket')
+      
+      // Cleanup timeout
+      const timeoutId = setTimeout(() => {
+        console.error('❌ subscribeToRouterCapabilities: Timeout after 10 seconds')
+        ws.removeEventListener('message', onMessage)
+        resume(Effect.fail(new WebSocketMessageError({
+          cause: 'Router capabilities request timeout after 10 seconds',
+          direction: 'receive',
+          context: { timestamp: new Date(), operation: 'subscribe_router_capabilities' }
+        })))
+      }, 10000) // 10 second timeout
+      
+      return Effect.sync(() => {
+        console.log('🔧 subscribeToRouterCapabilities: Cleanup called')
+        clearTimeout(timeoutId)
+        ws.removeEventListener('message', onMessage)
+      })
+    })
+  )
+
+/**
  * Subscribe to lobby events
  */
 export const subscribeToLobbyEvents = (ws: WebSocket): Effect.Effect<(handler: (event: LobbyEvent) => void) => void, never> =>
@@ -324,5 +421,8 @@ export const connectToDjRoom = (roomId: string): Effect.Effect<WebSocket, WebSoc
 
 export const connectToListenerRoom = (roomId: string): Effect.Effect<WebSocket, WebSocketConnectionError> =>
   connectWebSocket({ url: `wss://${window.location.hostname}:3443/ws/listen/${roomId}` })
+
+export const connectToListenerSession = (sessionId: string): Effect.Effect<WebSocket, WebSocketConnectionError> =>
+  connectWebSocket({ url: `wss://${window.location.hostname}:3443/ws/listener/${sessionId}` })
 
 // Managed connection removed for simplicity - use individual connection functions above
