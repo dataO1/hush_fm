@@ -310,11 +310,50 @@ impl Listener {
     /// Stop consuming and clean up consumer
     pub async fn stop_consuming(&mut self) -> Result<()> {
         if let Some(_consumer) = self.consumer.take() {
-            // MediaSoup automatically handles cleanup when dropped
+            // MediaSoup consumer automatically cleans up when dropped (Arc is dropped)
+            // Clear consumer state
             self.consumer_id = None;
             self.producer_id = None;
-            tracing::info!(listener_id = %self.listener_id, "Listener consumption stopped and cleaned up");
+            tracing::info!(listener_id = %self.listener_id, "Listener consumption stopped and consumer cleaned up");
         }
+        Ok(())
+    }
+
+    /// Complete cleanup of listener resources including transport and consumer
+    #[tracing::instrument(skip(self), fields(listener_id = %self.listener_id, consumer_cleaned = tracing::field::Empty, transport_cleaned = tracing::field::Empty))]
+    pub async fn cleanup(&mut self) -> Result<()> {
+        let span = tracing::Span::current();
+        tracing::info!(listener_id = %self.listener_id, "Starting complete listener cleanup");
+
+        let mut consumer_cleaned = false;
+        let mut transport_cleaned = false;
+
+        // Step 1: Clean up consumer (MediaSoup auto-cleans when dropped)
+        if let Some(_consumer) = self.consumer.take() {
+            consumer_cleaned = true;
+            // Clear consumer state
+            self.consumer_id = None;
+            self.producer_id = None;
+            tracing::info!(listener_id = %self.listener_id, "Consumer cleaned up");
+        }
+
+        // Step 2: Clean up transport (MediaSoup auto-cleans when dropped)
+        if let Some(_transport) = self.transport.take() {
+            transport_cleaned = true;
+            tracing::info!(listener_id = %self.listener_id, "Transport cleaned up");
+        }
+
+        // Record cleanup results in tracing span
+        span.record("consumer_cleaned", consumer_cleaned);
+        span.record("transport_cleaned", transport_cleaned);
+
+        tracing::info!(
+            listener_id = %self.listener_id,
+            consumer_cleaned = consumer_cleaned,
+            transport_cleaned = transport_cleaned,
+            "Complete listener cleanup finished"
+        );
+        
         Ok(())
     }
 

@@ -39,7 +39,7 @@ export type LobbyConnectionState = S.Schema.Type<typeof LobbyConnectionState>
  * Room discovery and listings state
  */
 export const RoomDiscoveryState = S.Struct({
-  availableRooms: S.Array(S.Unknown), // RoomInfo[] - using unknown to avoid circular import
+  availableRooms: S.Record({ key: S.String, value: S.Unknown }), // Record<string, RoomInfo> keyed by room ID - using unknown to avoid circular import
   loading: S.Boolean,
   lastRefreshAt: S.Option(S.Date),
   refreshError: S.Option(S.String)
@@ -99,7 +99,7 @@ export const createInitialLobbyState = (): LobbyState => ({
     lastError: Option.none()
   },
   discovery: {
-    availableRooms: [],
+    availableRooms: {},
     loading: false,
     lastRefreshAt: Option.none(),
     refreshError: Option.none()

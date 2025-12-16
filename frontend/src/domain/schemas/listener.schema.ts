@@ -12,6 +12,18 @@
 
 import { Schema as S } from 'effect'
 import { Option } from 'effect'
+import { Device, types } from 'mediasoup-client'
+
+/**
+ * Custom schemas for MediaSoup types
+ */
+const MediaSoupDevice = S.instanceOf(Device)
+const MediaSoupTransport = S.Unknown.pipe(S.filter((value): value is types.Transport => 
+  value != null && typeof value === 'object' && 'id' in value && 'connectionState' in value
+))
+const MediaSoupConsumer = S.Unknown.pipe(S.filter((value): value is types.Consumer => 
+  value != null && typeof value === 'object' && 'id' in value && 'kind' in value && 'paused' in value
+))
 
 /**
  * Listener Flow Steps (tracking progress through 10-step flow)
@@ -38,7 +50,7 @@ export type ListenerFlowStep = S.Schema.Type<typeof ListenerFlowStep>
  * MediaSoup Device State for Listener (Step 3: Create and load device with router capabilities)
  */
 export const ListenerMediaSoupDeviceState = S.Struct({
-  device: S.Option(S.Unknown), // mediasoup-client Device instance
+  device: S.Option(MediaSoupDevice), // mediasoup-client Device instance
   loaded: S.Boolean,
   rtpCapabilities: S.Option(S.Unknown), // Device RTP capabilities (Step 4)
   routerRtpCapabilities: S.Option(S.Unknown), // Router capabilities for loading device
@@ -53,7 +65,7 @@ export type ListenerMediaSoupDeviceState = S.Schema.Type<typeof ListenerMediaSou
  * Receive Transport State (Steps 2-3: Receive transport params and create transport)
  */
 export const ReceiveTransportState = S.Struct({
-  transport: S.Option(S.Unknown), // mediasoup-client Transport instance
+  transport: S.Option(MediaSoupTransport), // mediasoup-client Transport instance
   id: S.Option(S.String),
   connectionState: S.Literal('new', 'connecting', 'connected', 'disconnecting', 'disconnected', 'failed'),
   iceGatheringState: S.Option(S.String),
@@ -70,7 +82,7 @@ export type ReceiveTransportState = S.Schema.Type<typeof ReceiveTransportState>
  * Consumer State (Steps 5-7a: Consumer creation and management)
  */
 export const ConsumerState = S.Struct({
-  consumer: S.Option(S.Unknown), // mediasoup-client Consumer instance
+  consumer: S.Option(MediaSoupConsumer), // mediasoup-client Consumer instance
   id: S.Option(S.String),
   producerId: S.Option(S.String), // Producer ID from room
   kind: S.Literal('audio', 'video'),

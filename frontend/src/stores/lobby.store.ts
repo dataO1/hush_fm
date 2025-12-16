@@ -102,8 +102,13 @@ export const createLobbyStore = () => {
     
     setRooms: (rooms: RoomInfo[]) => {
       setIsRefreshing(false)
+      // Convert array to Map for efficient lookups and inherent uniqueness
+      const roomsMap = rooms.reduce((map: Record<string, RoomInfo>, room: RoomInfo) => {
+        map[room.id] = room
+        return map
+      }, {})
       setState('discovery', {
-        availableRooms: rooms,
+        availableRooms: roomsMap,
         loading: false,
         lastRefreshAt: Option.some(new Date()),
         refreshError: Option.none()
@@ -141,21 +146,27 @@ export const createLobbyStore = () => {
       })
     },
     
-    // Room management
+    // Room management - efficient Set-like operations with Map structure
     addRoom: (room: RoomInfo) => {
-      setState('discovery', 'availableRooms', (rooms: RoomInfo[]) => [...rooms, room])
+      setState('discovery', 'availableRooms', (roomsMap: Record<string, RoomInfo>) => ({
+        ...roomsMap,
+        [room.id]: room  // Automatically overwrites if exists, adds if new - O(1) operation
+      }))
     },
     
     updateRoom: (updatedRoom: RoomInfo) => {
-      setState('discovery', 'availableRooms', (rooms: RoomInfo[]) =>
-        rooms.map((room: RoomInfo) => room.id === updatedRoom.id ? updatedRoom : room)
-      )
+      setState('discovery', 'availableRooms', (roomsMap: Record<string, RoomInfo>) => ({
+        ...roomsMap,
+        [updatedRoom.id]: updatedRoom  // O(1) update operation
+      }))
     },
     
     removeRoom: (roomId: string) => {
-      setState('discovery', 'availableRooms', (rooms: RoomInfo[]) =>
-        rooms.filter((room: RoomInfo) => room.id !== roomId)
-      )
+      setState('discovery', 'availableRooms', (roomsMap: Record<string, RoomInfo>) => {
+        const newMap = { ...roomsMap }
+        delete newMap[roomId]  // O(1) deletion
+        return newMap
+      })
     },
     
     // General error management
@@ -184,7 +195,7 @@ export const createLobbyStore = () => {
     },
     
     get availableRooms() {
-      return state.discovery.availableRooms as RoomInfo[]
+      return Object.values(state.discovery.availableRooms as Record<string, RoomInfo>) as RoomInfo[]
     },
     
     get connectionError() {

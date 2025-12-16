@@ -128,19 +128,12 @@ impl Room {
         }
     }
 
-    /// Remove listener completely
-    pub fn remove_listener(&self, listener_id: &str) -> Option<Listener> {
-        let listener = self.listeners.remove(listener_id).map(|(_, state)| state);
-        if listener.is_some() {
-            self.update_activity();
-        }
-        listener
-    }
 
     /// Get all listener IDs
     pub fn get_listener_ids(&self) -> Vec<String> {
         self.listeners.iter().map(|entry| entry.key().clone()).collect()
     }
+
 
     /// Get number of active listeners
     pub fn get_listener_count(&self) -> usize {
@@ -186,6 +179,56 @@ impl Room {
             total_listeners = self.listeners.len(),
             "Broadcasted event to room listeners"
         );
+    }
+
+    /// Remove a specific listener from the room with proper MediaSoup cleanup
+    #[tracing::instrument(skip(self), fields(room_id = %self.id, listener_id = %listener_id))]
+    pub async fn remove_listener(&mut self, listener_id: &str) -> anyhow::Result<()> {
+        tracing::info!(
+            room_id = %self.id,
+            listener_id = %listener_id,
+            "Removing listener from room"
+        );
+
+        // Remove listener from the room and get mutable reference for cleanup
+        if let Some((_, mut listener_state)) = self.listeners.remove(listener_id) {
+            // Perform proper MediaSoup cleanup on the listener
+            if let Err(e) = listener_state.cleanup().await {
+                tracing::warn!(
+                    room_id = %self.id,
+                    listener_id = %listener_id,
+                    error = %e,
+                    "Failed to clean up listener resources, continuing with removal"
+                );
+            }
+
+            // Update listener count
+            self.listener_count = self.listener_count.saturating_sub(1);
+            self.update_activity();
+
+            tracing::info!(
+                room_id = %self.id,
+                listener_id = %listener_id,
+                new_listener_count = self.listener_count,
+                "Listener removed from room successfully"
+            );
+
+            // Broadcast listener count update to remaining listeners
+            let listener_update = crate::lib::models::ListenerEvent::ListenerCountUpdated {
+                room_id: self.id.to_string(),
+                count: self.listener_count,
+            };
+            self.broadcast_to_listeners(listener_update);
+
+            Ok(())
+        } else {
+            tracing::warn!(
+                room_id = %self.id,
+                listener_id = %listener_id,
+                "Attempted to remove listener that doesn't exist in room"
+            );
+            Err(anyhow::anyhow!("Listener {} not found in room {}", listener_id, self.id))
+        }
     }
     
     /// Get the transport ID if DJ transport exists
@@ -335,31 +378,30 @@ impl Room {
         let router = self.router.as_ref()
             .ok_or_else(|| anyhow::anyhow!("No router available for room"))?;
 
-        // Find and remove the listener temporarily to get ownership
-        if let Some(mut listener) = self.remove_listener(session_id) {
-            // Check if listener already has transport
-            if listener.has_transport() {
-                // Put the listener back and return error
-                self.add_listener(listener);
-                return Err(anyhow::anyhow!("Listener already has transport"));
-            }
+        // Modify listener in place without temporary extraction
+        match self.listeners.get_mut(session_id) {
+            Some(mut listener_ref) => {
+                let listener = listener_ref.value_mut();
+                
+                // Check if listener already has transport
+                if listener.has_transport() {
+                    return Err(anyhow::anyhow!("Listener already has transport"));
+                }
 
-            // Create transport for the listener
-            match listener.create_receiver_transport(router).await {
-                Ok(transport_options) => {
-                    // Success - put the updated listener back in the room
-                    self.add_listener(listener);
-                    tracing::info!("Transport initialized for existing listener {} in room {}", session_id, self.id);
-                    Ok(transport_options)
-                }
-                Err(e) => {
-                    // Failed - put the listener back without transport and return error
-                    self.add_listener(listener);
-                    Err(e)
+                // Create transport for the listener
+                match listener.create_receiver_transport(router).await {
+                    Ok(transport_options) => {
+                        tracing::info!("Transport initialized for existing listener {} in room {}", session_id, self.id);
+                        Ok(transport_options)
+                    }
+                    Err(e) => {
+                        Err(e)
+                    }
                 }
             }
-        } else {
-            Err(anyhow::anyhow!("Listener {} not found in room", session_id))
+            None => {
+                Err(anyhow::anyhow!("Listener {} not found in room", session_id))
+            }
         }
     }
 
@@ -431,15 +473,10 @@ impl Room {
 
     /// Abstract coordination: Handle listener leaving room
     pub async fn handle_listener_leave(&mut self, listener_id: &str) -> Result<()> {
-        if let Some(mut listener) = self.remove_listener(listener_id) {
-            // Delegate cleanup to Listener
-            listener.stop_consuming().await?;
-            self.update_listener_count();
-            tracing::info!("Listener {} left room {}", listener_id, self.id);
-            Ok(())
-        } else {
-            Err(anyhow::anyhow!("Listener {} not found in room", listener_id))
-        }
+        // Use the proper cleanup method that handles MediaSoup resources
+        self.remove_listener(listener_id).await?;
+        tracing::info!("Listener {} left room {}", listener_id, self.id);
+        Ok(())
     }
 
     /// Get router RTP capabilities for client device initialization (native MediaSoup type)

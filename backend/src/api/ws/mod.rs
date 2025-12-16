@@ -532,25 +532,25 @@ async fn handle_listener_socket(socket: WebSocket, session_id: String, lobby: Lo
         "Listener WebSocket connection closed, performing cleanup"
     );
 
-    // Remove the specific listener by session_id
+    // Remove the specific listener by session_id using proper domain cleanup
     if let Some(room_state) = lobby.get_room(&room_id) {
         let mut room_guard = room_state.write().await;
-        if let Some(mut listener) = room_guard.remove_listener(&session_id) {
-            // Clean up listener resources
-            if let Err(e) = listener.stop_consuming().await {
+        match room_guard.remove_listener(&session_id).await {
+            Ok(()) => {
+                tracing::info!(
+                    session_id = %session_id,
+                    room_id = %room_id,
+                    "Listener removed and cleaned up successfully"
+                );
+            }
+            Err(e) => {
                 tracing::error!(
                     session_id = %session_id,
                     room_id = %room_id,
                     error = %e,
-                    "Failed to stop consuming during cleanup"
+                    "Failed to remove listener during cleanup"
                 );
             }
-            room_guard.update_listener_count();
-            tracing::info!(
-                session_id = %session_id,
-                room_id = %room_id,
-                "Listener removed and cleaned up successfully"
-            );
         }
     }
 
@@ -1374,14 +1374,23 @@ async fn handle_listener_command(
             }
         }
         ListenerCommand::LeaveRoom => {
-            // Handle listener leaving the room
-            match handle_listener_leave(room_id, &lobby).await {
+            // Handle listener leaving the room using domain method
+            match handle_listener_leave(room_id, &session_id, &lobby).await {
                 Ok(_) => {
-                    tracing::info!("Listener left room {}", room_id);
+                    tracing::info!(
+                        room_id = %room_id,
+                        listener_id = %session_id,
+                        "Listener left room successfully"
+                    );
                     // Connection will be closed by the client
                 }
                 Err(e) => {
-                    tracing::error!("Failed to handle listener leave for room {}: {}", room_id, e);
+                    tracing::error!(
+                        room_id = %room_id,
+                        listener_id = %session_id,
+                        error = %e,
+                        "Failed to handle listener leave"
+                    );
                     let response = ListenerEvent::CommandFailed {
                         command: "leaveRoom".to_string(),
                         error: format!("Leave room failed: {}", e),
@@ -1869,78 +1878,27 @@ async fn handle_connect_listener_transport(
     Ok(actual_transport_id)
 }
 
-/// Handle listener leaving the room with full cleanup
-#[tracing::instrument(skip(lobby), fields(room_id = %room_id, listeners_cleaned = tracing::field::Empty, transports_cleaned = tracing::field::Empty, consumers_cleaned = tracing::field::Empty))]
+/// Handle specific listener leaving the room with proper domain cleanup
+#[tracing::instrument(skip(lobby), fields(room_id = %room_id, listener_id = %listener_id))]
 async fn handle_listener_leave(
     room_id: Uuid,
+    listener_id: &str,
     lobby: &Lobby,
 ) -> anyhow::Result<()> {
-    let span = tracing::Span::current();
-
     let room_state = lobby.get_room(&room_id)
         .ok_or_else(|| anyhow::anyhow!("Room not found"))?;
 
     let mut room_state_guard = room_state.write().await;
 
-    // Get all listener IDs to clean up
-    let listener_ids: Vec<String> = room_state_guard.listeners.iter().map(|entry| entry.key().clone()).collect();
-
-    let mut transports_cleaned = 0;
-    let mut consumers_cleaned = 0;
-
-    // Clean up all listener resources
-    for listener_id in &listener_ids {
-        // Remove listener state (includes transport and consumer)
-        if let Some((_listener_id, mut listener_state)) = room_state_guard.listeners.remove(listener_id) {
-            // Close consumer if exists
-            if listener_state.has_consumer() {
-                if let Err(e) = listener_state.stop_consuming().await {
-                    tracing::warn!("Failed to close consumer for listener {}: {}", listener_id, e);
-                } else {
-                    consumers_cleaned += 1;
-                    tracing::debug!("Closed consumer for listener {}", listener_id);
-                }
-            }
-
-            // Transport will be automatically closed when dropped (it's in the listener_state.transport)
-            transports_cleaned += 1;
-            tracing::debug!("Cleaned up transport for listener {}", listener_id);
-        }
-    }
-
-    // Update listener count
-    let previous_count = room_state_guard.listener_count;
-    room_state_guard.listener_count = room_state_guard.listener_count.saturating_sub(listener_ids.len() as u32);
-
-    span.record("listeners_cleaned", listener_ids.len());
-    span.record("transports_cleaned", transports_cleaned);
-    span.record("consumers_cleaned", consumers_cleaned);
+    // Use domain method to properly remove listener with MediaSoup cleanup
+    room_state_guard.remove_listener(listener_id).await?;
 
     tracing::info!(
         room_id = %room_id,
-        listeners_cleaned = listener_ids.len(),
-        transports_cleaned = transports_cleaned,
-        consumers_cleaned = consumers_cleaned,
-        previous_listener_count = previous_count,
+        listener_id = %listener_id,
         new_listener_count = room_state_guard.listener_count,
-        "Completed listener cleanup for room"
+        "Listener leave handled successfully using domain method"
     );
-
-    // Broadcast listener count update
-    if previous_count != room_state_guard.listener_count {
-        let listener_update = ListenerEvent::ListenerCountUpdated {
-            room_id: room_id.to_string(),
-            count: room_state_guard.listener_count,
-        };
-
-        if let Ok(msg) = serde_json::to_string(&listener_update) {
-            // Broadcast to lobby
-            let lobby_event = LobbyEvent::RoomUpdated {
-                room: room_state_guard.clone().into(),
-            };
-            lobby.send_lobby_event(lobby_event).ok();
-        }
-    }
 
     Ok(())
 }

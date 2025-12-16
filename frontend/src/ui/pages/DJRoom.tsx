@@ -3,7 +3,7 @@ import { useParams, useNavigate } from '@solidjs/router'
 import { Effect, Option } from 'effect'
 import { DeviceSelector } from '../components/controls/DeviceSelector'
 import { createRoomStore } from '../../stores/room.store'
-import { publishDJRoom } from '../../services/flows/dj-flows.service'
+import { publishDJRoom, toggleDJStream } from '../../services/flows/dj-flows.service'
 import { Oscilloscope } from '../components/shared/Oscilloscope'
 import { ConnectionState } from '../../domain/schemas/room.schema'
 
@@ -82,11 +82,7 @@ export default function DJRoom() {
     if (!isStreaming()) return // Only allow mute when streaming
 
     try {
-      if (isPaused()) {
-        roomStore.actions.resumeStreaming()
-      } else {
-        roomStore.actions.pauseStreaming()
-      }
+      await Effect.runPromise(toggleDJStream(roomStore))
     } catch (err: any) {
       console.error('Failed to toggle mute:', err)
     }
@@ -97,9 +93,9 @@ export default function DJRoom() {
       // Start recording (same as current startStreaming)
       await startStreaming()
     } else {
-      // Stop recording but keep connection
+      // Stop recording but keep connection (pause the stream)
       try {
-        roomStore.actions.pauseStreaming()
+        await Effect.runPromise(toggleDJStream(roomStore))
       } catch (err: any) {
         console.error('Failed to stop recording:', err)
       }

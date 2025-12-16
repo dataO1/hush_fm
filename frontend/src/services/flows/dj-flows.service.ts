@@ -681,3 +681,48 @@ export const closeDJRoom = (
       console.info('✅ DJ room closed')
     })
   )
+
+/**
+ * Toggle DJ stream pause/resume based on current state
+ * Checks store for current status and toggles appropriately
+ */
+export const toggleDJStream = (
+  roomStore: RoomStore
+): Effect.Effect<void, DJFlowError> =>
+  pipe(
+    Effect.gen(function* (_) {
+      // Check if DJ is currently streaming
+      if (!roomStore.isDJStreaming) {
+        return yield* _(Effect.fail(new DJFlowError({
+          cause: 'Cannot toggle stream - DJ is not currently streaming',
+          step: 'streaming',
+          stepNumber: 17,
+          recoverable: true,
+          context: { timestamp: new Date(), operation: 'toggle_stream_not_streaming' }
+        })))
+      }
+
+      // Get DJ WebSocket from store
+      const djState = roomStore.djState as any
+      const djWebSocket = Option.getOrNull(djState?.websocket?.websocket)
+      
+      if (!djWebSocket) {
+        return yield* _(Effect.fail(new DJFlowError({
+          cause: 'DJ WebSocket not available for stream toggle',
+          step: 'streaming',
+          stepNumber: 17,
+          recoverable: true,
+          context: { timestamp: new Date(), operation: 'toggle_stream_no_websocket' }
+        })))
+      }
+
+      // Toggle based on current paused state
+      if (roomStore.isPaused) {
+        console.info('🔄 Toggling DJ stream: resuming (was paused)')
+        yield* _(resumeDJStream(roomStore, djWebSocket as WebSocket))
+      } else {
+        console.info('🔄 Toggling DJ stream: pausing (was playing)')
+        yield* _(pauseDJStream(roomStore, djWebSocket as WebSocket))
+      }
+    })
+  )

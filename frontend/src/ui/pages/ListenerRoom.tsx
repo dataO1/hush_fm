@@ -3,9 +3,10 @@ import { useParams, useNavigate, useLocation } from '@solidjs/router'
 import { Effect, Option } from 'effect'
 import { createRoomStore } from '../../stores/room.store'
 import { createLobbyStore } from '../../stores/lobby.store'
-import { joinRoomAsListener } from '../../services/flows/listener-flows.service'
+import { joinRoomAsListener, leaveRoomAsListener } from '../../services/flows/listener-flows.service'
 import { leaveLobby } from '../../services/flows/lobby-flows.service'
 import { Oscilloscope } from '../components/shared/Oscilloscope'
+import { ConnectionState } from '../../domain/schemas/room.schema'
 
 export default function ListenerRoom() {
   const params = useParams()
@@ -26,22 +27,23 @@ export default function ListenerRoom() {
   const [roomId] = createSignal(params.roomId)
   const [needsUserPlay, setNeedsUserPlay] = createSignal(false)
 
-  // Read state from store instead of local state
+  // Use session ID as the listener ID (single source of truth)
   const currentListenerId = () => {
-    const listeners = roomStore.listeners
-    return listeners.length > 0 ? (listeners[0] as any).id : undefined
+    return navigationState.sessionId
   }
   
   const currentListener = () => {
-    const listeners = roomStore.listeners
-    return listeners.length > 0 ? listeners[0] : undefined
+    const sessionId = navigationState.sessionId
+    if (!sessionId) return undefined
+    return roomStore.getListener(sessionId)
   }
 
-  // Use unified connection state from store
+  // Use unified connection state from store as single source of truth
   const connectionState = () => roomStore.connectionState
-  const isConnected = () => roomStore.isConnected && !!currentListenerId()
-  const isDJLive = () => isConnected() && roomStore.isStreaming
-  const isConnecting = () => roomStore.isConnecting
+  const isConnected = () => connectionState() === ConnectionState.CONNECTED || connectionState() === ConnectionState.STREAMING || connectionState() === ConnectionState.PAUSED
+  const isStreaming = () => connectionState() === ConnectionState.STREAMING
+  const isPaused = () => connectionState() === ConnectionState.PAUSED
+  const isConnecting = () => connectionState() === ConnectionState.CONNECTING
   const currentError = () => {
     const listener = currentListener()
     return listener ? Option.getOrNull(listener.stepError) : null
@@ -186,34 +188,56 @@ const handleManualPlay = () => {
   }
 
   const leaveRoom = async () => {
-    // 1. Cleanup Audio
+    console.info('🚪 Initiating leave room flow')
+    
+    // 1. Cleanup Audio immediately
     if (audioRef) {
       audioRef.pause()
       audioRef.srcObject = null
+      console.info('🔇 Audio element cleaned up')
     }
 
-    // 2. Leave room using listener flows if we have a listener ID
+    // 2. Leave room using proper service flow if we have a listener ID
     const listenerId = currentListenerId()
     if (listenerId) {
       try {
-        // Import and use leaveRoomAsListener when available
-        console.log('Leaving room as listener:', listenerId)
-        roomStore.actions.removeListener(listenerId)
+        console.info('📡 Calling leaveRoomAsListener service with listenerId:', listenerId)
+        // This will: 
+        // 1. Send leaveRoom command to backend
+        // 2. Close MediaSoup consumer and transport
+        // 3. Close WebSocket connection  
+        // 4. Update room state to DISCONNECTED
+        // 5. Remove listener from store
+        await Effect.runPromise(leaveRoomAsListener(roomStore, listenerId))
+        console.info('✅ Leave room service flow completed')
       } catch (error) {
-        console.error('Error leaving room:', error)
+        console.error('❌ Error in leave room service flow:', error)
+        // Fallback cleanup if service fails
+        try {
+          roomStore.actions.removeListener(listenerId)
+          roomStore.actions.setConnectionState(ConnectionState.DISCONNECTED)
+        } catch (fallbackError) {
+          console.error('❌ Fallback cleanup also failed:', fallbackError)
+        }
+      }
+    } else {
+      console.warn('⚠️ No listener ID found for leave room flow')
+    }
+
+    // 3. Cleanup lobby connection if exists
+    const lobbyWs = Option.getOrNull(lobbyStore.state.connection.websocket)
+    if (lobbyWs) {
+      try {
+        console.info('🏢 Disconnecting from lobby')
+        await Effect.runPromise(leaveLobby(lobbyWs))
+        lobbyStore.actions.setDisconnected()
+      } catch (error) {
+        console.error('❌ Error disconnecting from lobby:', error)
       }
     }
 
-    // 3. Disconnect from room store
-    try {
-      roomStore.actions.disconnectFromRoom()
-    } catch (error) {
-      console.error('Error disconnecting from room:', error)
-    }
-
-    // 4. State is now managed by store - no manual reset needed
-
-    // 5. Navigate Away
+    // 4. Navigate back to lobby
+    console.info('🔙 Navigating back to lobby')
     navigate('/')
   }
 
@@ -247,11 +271,24 @@ const handleManualPlay = () => {
         <div class="card bg-base-100 shadow-xl max-w-md w-full">
           <div class="card-body flex flex-col items-center gap-8">
 
-            {/* Status Indicator */}
+            {/* Status Indicator - single source of truth from connection state */}
             <div class="flex flex-col items-center gap-2">
-                <div class={`w-4 h-4 rounded-full ${isDJLive() ? 'bg-success animate-pulse' : 'bg-warning'}`}></div>
-                <div class="text-sm uppercase tracking-widest font-semibold">
-                    {isDJLive() ? 'LIVE' : isConnected() ? 'PAUSED' : connectionState()}
+                <div class={`w-4 h-4 rounded-full ${
+                  isStreaming() ? 'bg-success animate-pulse' : 
+                  isPaused() ? 'bg-warning' : 
+                  isConnected() ? 'bg-info' : 
+                  'bg-error'
+                }`}></div>
+                <div class={`badge ${
+                  isStreaming() ? 'badge-success' :
+                  isPaused() ? 'badge-warning' :
+                  connectionState() === ConnectionState.ERROR ? 'badge-error' :
+                  isConnected() ? 'badge-info' :
+                  'badge-ghost'
+                }`}>
+                  {isStreaming() ? 'LIVE' :
+                   isPaused() ? 'PAUSED' :
+                   connectionState()}
                 </div>
             </div>
 

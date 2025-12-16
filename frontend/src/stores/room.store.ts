@@ -26,7 +26,10 @@ import {
 } from '../domain/schemas/dj.schema'
 import {
   type ListenerState,
-  type ListenerFlowStep
+  type ListenerFlowStep,
+  type ReceiveTransportState,
+  type ConsumerState,
+  type ListenerWebSocketState
 } from '../domain/schemas/listener.schema'
 import {
   RoomConnectionError
@@ -58,13 +61,19 @@ export interface RoomStoreActions {
   clearDJError: () => void
   setSelectedDeviceId: (deviceId: string) => void
   
-  // Listener state management (embedded MediaSoup state)
-  addListener: (listener: ListenerState) => void
+  // Listener state management (embedded MediaSoup state)  
+  addListener: (sessionId: string, listener: ListenerState) => void
   updateListener: (listenerId: string, updates: Partial<ListenerState>) => void
   removeListener: (listenerId: string) => void
   setListenerFlowStep: (listenerId: string, step: ListenerFlowStep) => void
   setListenerError: (listenerId: string, error: string, step?: ListenerFlowStep) => void
   clearListenerError: (listenerId: string) => void
+  
+  // MediaSoup resource cleanup state management
+  updateListenerTransportState: (listenerId: string, updates: Partial<ReceiveTransportState>) => void
+  updateListenerConsumerState: (listenerId: string, updates: Partial<ConsumerState>) => void
+  updateListenerWebSocketState: (listenerId: string, updates: Partial<ListenerWebSocketState>) => void
+  markListenerResourceClosed: (listenerId: string, resource: 'consumer' | 'transport' | 'websocket') => void
   
   // Streaming status management
   setStreamingStatus: (status: StreamingStatus) => void
@@ -135,8 +144,9 @@ const mapListenerFlowStepToConnectionState = (step: ListenerFlowStep): Connectio
     case 'streaming':
       return ConnectionState.STREAMING
     case 'error':
-    case 'cleanup':
       return ConnectionState.ERROR
+    case 'cleanup':
+      return ConnectionState.DISCONNECTING
     default:
       return ConnectionState.IDLE
   }
@@ -170,7 +180,6 @@ export const createRoomStore = () => {
   })
   
   // Helper function to generate listener IDs
-  const generateListenerId = (): string => `listener_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`
   
   // Event handling will be implemented by flow services
   
@@ -229,7 +238,7 @@ export const createRoomStore = () => {
       // Reset DJ and listeners
       setState('participants', {
         dj: Option.none(),
-        listeners: [],
+        listeners: {}, // Change to Record<string, ListenerState>
         totalCount: 0,
         maxListeners: Option.none()
       })
@@ -324,28 +333,26 @@ export const createRoomStore = () => {
     /**
      * Listener state management (using domain schema)
      */
-    addListener: (listener: ListenerState) => {
-      setState('participants', 'listeners', (listeners: ListenerState[]) => [
+    addListener: (sessionId: string, listener: ListenerState) => {
+      setState('participants', 'listeners', (listeners: Record<string, ListenerState>) => ({
         ...listeners,
-        { ...(listener as any), id: (listener as any).id || generateListenerId() }
-      ])
+        [sessionId]: listener
+      }))
       setState('participants', 'totalCount', (count: number) => count + 1)
     },
 
     updateListener: (listenerId: string, updates: Partial<ListenerState>) => {
-      setState('participants', 'listeners', (listeners: ListenerState[]) =>
-        listeners.map((listener: any) => 
-          listener.id === listenerId 
-            ? { ...listener, ...updates }
-            : listener
-        )
-      )
+      setState('participants', 'listeners', (listeners: Record<string, ListenerState>) => ({
+        ...listeners,
+        [listenerId]: listeners[listenerId] ? { ...listeners[listenerId], ...updates } : updates as ListenerState
+      }))
     },
 
     removeListener: (listenerId: string) => {
-      setState('participants', 'listeners', (listeners: ListenerState[]) =>
-        listeners.filter((listener: any) => listener.id !== listenerId)
-      )
+      setState('participants', 'listeners', (listeners: Record<string, ListenerState>) => {
+        const { [listenerId]: removed, ...remaining } = listeners
+        return remaining
+      })
       setState('participants', 'totalCount', (count: number) => Math.max(0, count - 1))
     },
 
@@ -379,6 +386,61 @@ export const createRoomStore = () => {
         stepError: Option.none(),
         lastError: Option.none()
       })
+    },
+
+    /**
+     * MediaSoup resource cleanup state management
+     */
+    updateListenerTransportState: (listenerId: string, updates: Partial<ReceiveTransportState>) => {
+      actions.updateListener(listenerId, {
+        receiveTransport: {
+          ...state.participants.listeners[listenerId]?.receiveTransport,
+          ...updates
+        }
+      })
+    },
+
+    updateListenerConsumerState: (listenerId: string, updates: Partial<ConsumerState>) => {
+      actions.updateListener(listenerId, {
+        consumer: {
+          ...state.participants.listeners[listenerId]?.consumer,
+          ...updates
+        }
+      })
+    },
+
+    updateListenerWebSocketState: (listenerId: string, updates: Partial<ListenerWebSocketState>) => {
+      actions.updateListener(listenerId, {
+        websocket: {
+          ...state.participants.listeners[listenerId]?.websocket,
+          ...updates
+        }
+      })
+    },
+
+    markListenerResourceClosed: (listenerId: string, resource: 'consumer' | 'transport' | 'websocket') => {
+      switch (resource) {
+        case 'consumer':
+          actions.updateListenerConsumerState(listenerId, {
+            consumer: Option.none(),
+            track: Option.none()
+          })
+          break
+        case 'transport':
+          actions.updateListenerTransportState(listenerId, {
+            transport: Option.none(),
+            connected: false,
+            connectionState: 'disconnected'
+          })
+          break
+        case 'websocket':
+          actions.updateListenerWebSocketState(listenerId, {
+            websocket: Option.none(),
+            connectionState: 'disconnected',
+            connectedAt: Option.none()
+          })
+          break
+      }
     },
 
     /**
@@ -443,7 +505,7 @@ export const createRoomStore = () => {
     setListenerVolume: (listenerId: string, volume: number) => {
       actions.updateListener(listenerId, {
         audioPlayback: {
-          ...((state.participants.listeners as any[]).find(l => l.id === listenerId)?.audioPlayback || {}),
+          ...state.participants.listeners[listenerId]?.audioPlayback,
           volume: Math.max(0, Math.min(1, volume))
         }
       })
@@ -452,7 +514,7 @@ export const createRoomStore = () => {
     setListenerMuted: (listenerId: string, muted: boolean) => {
       actions.updateListener(listenerId, {
         audioPlayback: {
-          ...((state.participants.listeners as any[]).find(l => l.id === listenerId)?.audioPlayback || {}),
+          ...state.participants.listeners[listenerId]?.audioPlayback,
           muted
         }
       })
@@ -553,11 +615,15 @@ export const createRoomStore = () => {
     
     // Listener state getters
     get listeners() {
-      return state.participants.listeners as ListenerState[]
+      return Object.values(state.participants.listeners as Record<string, ListenerState>)
     },
     
     get listenerCount() {
-      return state.participants.listeners.length
+      return Object.keys(state.participants.listeners as Record<string, ListenerState>).length
+    },
+    
+    getListener(sessionId: string) {
+      return (state.participants.listeners as Record<string, ListenerState>)[sessionId]
     },
     
     // Streaming status

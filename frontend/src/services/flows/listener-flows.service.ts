@@ -31,8 +31,15 @@ import { createAudioConsumer } from '../mediasoup/consumer.service'
 import {
   connectToListenerSession,
   requestRouterCapabilities,
-  subscribeToRouterCapabilities
+  subscribeToRouterCapabilities,
+  sendListenerCommand
 } from '../websocket/websocket.service'
+import { ConnectionState } from '../../domain/schemas/room.schema'
+import {
+  cleanupConsumerWithStore,
+  cleanupTransportWithStore,
+  cleanupWebSocketWithStore
+} from './cleanup-flows.service'
 
 /**
  * WebSocket connection error for listener
@@ -101,7 +108,7 @@ export const getOrCreateListenerWebSocket = (
 
       console.info('🔗 Creating new listener WebSocket connection:', { sessionId, listenerWebSocketUrl })
 
-      // Initialize listener state in room store
+      // Initialize listener state in room store with session ID
       const initialListenerState = createInitialListenerState()
       const listenerState: ListenerState = {
         ...initialListenerState,
@@ -109,7 +116,8 @@ export const getOrCreateListenerWebSocket = (
         flowStartedAt: Option.some(new Date())
       }
 
-      roomStore.actions.addListener(listenerState)
+      // Add listener using session ID as the key
+      roomStore.actions.addListener(sessionId, listenerState)
 
       // Create WebSocket connection using websocket service
       const listenerWebSocket = yield* _(pipe(
@@ -122,6 +130,10 @@ export const getOrCreateListenerWebSocket = (
       ))
 
       console.info('✅ Listener WebSocket connected successfully via service')
+
+      // Set up stream event listeners for pause/resume
+      console.log(`🔧 [Listener ${sessionId}] Setting up stream event handlers for pause/resume`)
+      setupListenerStreamEventHandlers(listenerWebSocket, roomStore, sessionId)
 
       // Update listener state with connected WebSocket
       roomStore.actions.updateListener(sessionId, {
@@ -368,6 +380,9 @@ export const joinRoomAsListener = (
         // Step 10a: Media streaming starts
         console.info('✅ Step 10a: Media streaming should start now')
         roomStore.actions.setListenerFlowStep(listenerId, 'streaming')
+        
+        // Set room connection state to streaming (listener is now receiving audio)
+        roomStore.actions.setConnectionState(ConnectionState.STREAMING)
 
         const audioStream = new MediaStream([consumer.track])
 
@@ -431,66 +446,95 @@ export const joinRoomAsListener = (
 
 /**
  * Leave room as listener - cleanup flow
+ * Sends leaveRoom command to backend, then cleans up local resources
  */
 export const leaveRoomAsListener = (
   roomStore: RoomStore,
   listenerId: string
-): Effect.Effect<void, never> =>
+): Effect.Effect<void, ListenerFlowError> =>
   pipe(
     Effect.gen(function* (_) {
       console.info('👋 Leaving room as listener:', listenerId)
 
-      // Get current listener state
-      const listeners = roomStore.listeners
-      const listener = listeners.find(l => (l as any).id === listenerId)
+      // Get current listener state using session ID
+      const listener = roomStore.getListener(listenerId)
 
-      if (listener) {
-        // Cleanup MediaSoup resources
-        Option.match(listener.consumer.consumer, {
-          onSome: (consumer: any) => {
-            console.info('Closing consumer')
-            consumer.close()
-          },
-          onNone: () => {}
-        })
-
-        Option.match(listener.receiveTransport.transport, {
-          onSome: (transport: any) => {
-            console.info('Closing receive transport')
-            transport.close()
-          },
-          onNone: () => {}
-        })
-
-        Option.match(listener.websocket.websocket, {
-          onSome: (ws: WebSocket) => {
-            console.info('Closing listener websocket')
-            ws.close()
-          },
-          onNone: () => {}
-        })
-
-        // Remove listener from store
-        roomStore.actions.removeListener(listenerId)
-        console.info('Cleaned up listener resources and removed from store')
+      if (!listener) {
+        console.warn('No listener found with ID:', listenerId)
+        return
       }
 
-      // If this was the last listener, disconnect from room
-      if (roomStore.listenerCount === 0 && !roomStore.isDJStreaming) {
-        // Close WebSocket before updating store state
-        const listeners = roomStore.listeners
-        if (listeners.length > 0) {
-          const listener = listeners[0]
-          Option.match(listener.websocket.websocket, {
-            onSome: (ws: WebSocket) => {
-              console.info('Closing listener websocket')
-              ws.close()
-            },
-            onNone: () => {}
-          })
+      // Step 1: Send leaveRoom command to backend if WebSocket is open
+      const listenerWebSocket = Option.getOrNull(listener.websocket.websocket)
+      if (listenerWebSocket && listenerWebSocket.readyState === WebSocket.OPEN) {
+        console.info('📡 Sending leaveRoom command to backend')
+        try {
+          yield* _(sendListenerCommand(listenerWebSocket, { type: 'leaveRoom' }).pipe(
+            Effect.tapBoth({
+              onFailure: (error) => Effect.sync(() => {
+                console.warn('Failed to send leaveRoom command, continuing with cleanup:', error.message)
+              }),
+              onSuccess: () => Effect.sync(() => {
+                console.info('✅ LeaveRoom command sent to backend')
+              })
+            }),
+            // Don't fail the entire leave flow if command sending fails
+            Effect.catchAll(() => Effect.void)
+          ))
+        } catch (error) {
+          console.warn('Error sending leave command:', error)
         }
-        roomStore.actions.disconnectFromRoom()
+      } else {
+        console.info('WebSocket not available or not open, skipping backend notification')
       }
+
+      // Step 2: Sequential cleanup using store-aware cleanup services
+      console.info('🧹 Starting sequential MediaSoup cleanup with store updates')
+      roomStore.actions.setListenerFlowStep(listenerId, 'cleanup')
+      
+      // 2a: Consumer cleanup with store updates - use leaving mode for faster cleanup
+      yield* _(cleanupConsumerWithStore(roomStore, listenerId, 5000, true).pipe(
+        Effect.catchAll((error) => {
+          console.warn(`⚠️ [${listenerId}] Consumer cleanup failed, continuing:`, error.message)
+          return Effect.void
+        })
+      ))
+      
+      // 2b: Transport cleanup with store updates - use leaving mode for faster cleanup
+      yield* _(cleanupTransportWithStore(roomStore, listenerId, 5000, true).pipe(
+        Effect.catchAll((error) => {
+          console.warn(`⚠️ [${listenerId}] Transport cleanup failed, continuing:`, error.message)
+          return Effect.void
+        })
+      ))
+      
+      // 2c: WebSocket cleanup with store updates
+      yield* _(cleanupWebSocketWithStore(roomStore, listenerId, 3000).pipe(
+        Effect.catchAll((error) => {
+          console.warn(`⚠️ [${listenerId}] WebSocket cleanup failed, continuing:`, error.message)
+          return Effect.void
+        })
+      ))
+
+      // Step 3: Update room state
+      console.info('🔄 Updating room state to DISCONNECTED')
+      roomStore.actions.setConnectionState(ConnectionState.DISCONNECTED)
+      
+      // Step 4: Remove listener from store
+      roomStore.actions.removeListener(listenerId)
+      console.info('✅ Listener removed from store and local cleanup complete')
+
+      console.info('🏁 Leave room as listener flow completed successfully')
+    }),
+    // Add timeout protection for the entire cleanup process
+    Effect.timeout(15_000), // 15 second timeout for complete cleanup
+    Effect.catchAll((error) => {
+      console.error(`❌ [${listenerId}] Leave room flow failed or timed out:`, error)
+      // Force cleanup on timeout/error - ensure store is always cleaned up
+      roomStore.actions.setConnectionState(ConnectionState.DISCONNECTED)
+      roomStore.actions.removeListener(listenerId)
+      console.warn(`🔧 [${listenerId}] Forced cleanup completed after error/timeout`)
+      return Effect.void
     })
   )
 
@@ -548,6 +592,65 @@ export const controlListenerAudio = (
 
 // Helper functions for WebSocket event handling
 
+/**
+ * Set up stream event handlers for listener WebSocket
+ * Handles streamPaused and streamResumed events from DJ
+ */
+function setupListenerStreamEventHandlers(
+  listenerWebSocket: WebSocket,
+  roomStore: RoomStore,
+  sessionId: string
+): void {
+  const handleMessage = (event: MessageEvent) => {
+    try {
+      const message = JSON.parse(event.data) as ListenerEvent
+      
+      // Debug: Log all messages to see what we're receiving
+      console.log(`🔍 [Listener ${sessionId}] Received WebSocket message:`, message.type, message)
+      
+      switch (message.type) {
+        case 'streamPaused':
+          console.info(`🎵 [Listener ${sessionId}] Stream paused by DJ, updating room state to PAUSED`)
+          roomStore.actions.setConnectionState(ConnectionState.PAUSED)
+          // Also update the specific listener's audio playback state
+          roomStore.actions.setListenerMuted(sessionId, true)
+          console.log(`🔄 [Listener ${sessionId}] Room connection state set to:`, roomStore.connectionState)
+          break
+          
+        case 'streamResumed':
+          console.info(`🎵 [Listener ${sessionId}] Stream resumed by DJ, updating room state to STREAMING`)
+          roomStore.actions.setConnectionState(ConnectionState.STREAMING)
+          // Also update the specific listener's audio playback state
+          roomStore.actions.setListenerMuted(sessionId, false)
+          console.log(`🔄 [Listener ${sessionId}] Room connection state set to:`, roomStore.connectionState)
+          break
+          
+        case 'roomClosed':
+          console.info(`🏠 [Listener ${sessionId}] Room closed by DJ, disconnecting listener`)
+          roomStore.actions.setConnectionState(ConnectionState.DISCONNECTED)
+          // Cleanup will be handled by the room store
+          break
+          
+        default:
+          // Don't ignore completely - log for debugging
+          console.debug(`🔍 [Listener ${sessionId}] Ignoring message type: ${message.type}`)
+          break
+      }
+    } catch (error) {
+      console.warn(`❌ [Listener ${sessionId}] Failed to parse WebSocket message:`, error, event.data)
+    }
+  }
+
+  // Add the message handler
+  listenerWebSocket.addEventListener('message', handleMessage)
+  console.log(`✅ [Listener ${sessionId}] Stream event handler added to WebSocket`)
+  
+  // Clean up handler when WebSocket closes
+  listenerWebSocket.addEventListener('close', () => {
+    listenerWebSocket.removeEventListener('message', handleMessage)
+    console.info(`🧹 [Listener ${sessionId}] Cleaned up stream event listeners`)
+  })
+}
 
 /**
  * Wait for transport parameters
