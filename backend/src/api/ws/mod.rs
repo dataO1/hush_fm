@@ -1039,10 +1039,9 @@ async fn handle_dj_command(
             }
         }
         DjCommand::CloseRoom => {
-            // Clean up room and all resources
-            match handle_delete_room(room_id, &lobby).await {
+            // Use domain method for comprehensive room closure
+            match lobby.close_room(&room_id).await {
                 Ok(_) => {
-                    lobby.remove_room(&room_id).await;
                     let response = DjEvent::RoomClosed {
                         room_id: room_id.to_string(),
                         reason: "Closed by DJ".to_string(),
@@ -1052,10 +1051,10 @@ async fn handle_dj_command(
                     }
                 }
                 Err(e) => {
-                    tracing::error!("Failed to delete room {}: {}", room_id, e);
+                    tracing::error!("Failed to close room {}: {}", room_id, e);
                     let response = DjEvent::CommandFailed {
                         command: "closeRoom".to_string(),
-                        error: format!("Room deletion failed: {}", e),
+                        error: format!("Room closure failed: {}", e),
                     };
                     if let Ok(msg) = serde_json::to_string(&response) {
                         sender.send(Message::Text(msg)).await.ok();
@@ -1374,31 +1373,43 @@ async fn handle_listener_command(
             }
         }
         ListenerCommand::LeaveRoom => {
-            // Handle listener leaving the room using domain method
-            match handle_listener_leave(room_id, &session_id, &lobby).await {
-                Ok(_) => {
-                    tracing::info!(
-                        room_id = %room_id,
-                        listener_id = %session_id,
-                        "Listener left room successfully"
-                    );
-                    // Connection will be closed by the client
-                }
-                Err(e) => {
-                    tracing::error!(
-                        room_id = %room_id,
-                        listener_id = %session_id,
-                        error = %e,
-                        "Failed to handle listener leave"
-                    );
-                    let response = ListenerEvent::CommandFailed {
-                        command: "leaveRoom".to_string(),
-                        error: format!("Leave room failed: {}", e),
-                    };
-
-                    if let Ok(msg) = serde_json::to_string(&response) {
-                        sender.send(Message::Text(msg)).await.ok();
+            // Use domain method for listener leaving
+            if let Some(room_state) = lobby.get_room(&room_id) {
+                let mut room_guard = room_state.write().await;
+                match room_guard.handle_listener_leave(&session_id).await {
+                    Ok(_) => {
+                        tracing::info!(
+                            room_id = %room_id,
+                            listener_id = %session_id,
+                            "Listener left room successfully"
+                        );
+                        // Connection will be closed by the client
                     }
+                    Err(e) => {
+                        tracing::error!(
+                            room_id = %room_id,
+                            listener_id = %session_id,
+                            error = %e,
+                            "Failed to handle listener leave"
+                        );
+                        let response = ListenerEvent::CommandFailed {
+                            command: "leaveRoom".to_string(),
+                            error: format!("Leave room failed: {}", e),
+                        };
+
+                        if let Ok(msg) = serde_json::to_string(&response) {
+                            sender.send(Message::Text(msg)).await.ok();
+                        }
+                    }
+                }
+            } else {
+                let response = ListenerEvent::CommandFailed {
+                    command: "leaveRoom".to_string(),
+                    error: "Room not found".to_string(),
+                };
+
+                if let Ok(msg) = serde_json::to_string(&response) {
+                    sender.send(Message::Text(msg)).await.ok();
                 }
             }
         }
@@ -1645,31 +1656,6 @@ async fn handle_stop_producing(
     Ok(())
 }
 
-/// Handle room deletion and cleanup
-async fn handle_delete_room(
-    room_id: Uuid,
-    lobby: &Lobby,
-) -> anyhow::Result<()> {
-    let room_state = lobby.get_room(&room_id)
-        .ok_or_else(|| anyhow::anyhow!("Room not found"))?;
-
-    let mut room_state_guard = room_state.write().await;
-
-    // Close producer and transport if exists
-    if let Some(mut dj) = room_state_guard.dj.take() {
-        if let Some(_producer) = dj.producer.take() {
-            // Producer will be dropped automatically when going out of scope
-        }
-        if let Some(_transport) = dj.transport.take() {
-            // Transport will be cleaned up when dropped
-        }
-    }
-
-    room_state_guard.start_closing();
-
-    tracing::info!("Room {} marked for deletion", room_id);
-    Ok(())
-}
 
 /// Handle resume producing
 async fn handle_resume_producing(
@@ -1878,30 +1864,6 @@ async fn handle_connect_listener_transport(
     Ok(actual_transport_id)
 }
 
-/// Handle specific listener leaving the room with proper domain cleanup
-#[tracing::instrument(skip(lobby), fields(room_id = %room_id, listener_id = %listener_id))]
-async fn handle_listener_leave(
-    room_id: Uuid,
-    listener_id: &str,
-    lobby: &Lobby,
-) -> anyhow::Result<()> {
-    let room_state = lobby.get_room(&room_id)
-        .ok_or_else(|| anyhow::anyhow!("Room not found"))?;
-
-    let mut room_state_guard = room_state.write().await;
-
-    // Use domain method to properly remove listener with MediaSoup cleanup
-    room_state_guard.remove_listener(listener_id).await?;
-
-    tracing::info!(
-        room_id = %room_id,
-        listener_id = %listener_id,
-        new_listener_count = room_state_guard.listener_count,
-        "Listener leave handled successfully using domain method"
-    );
-
-    Ok(())
-}
 
 /// Handle listener requesting consumer creation for room's current producer
 #[tracing::instrument(skip(lobby, device_rtp_capabilities), fields(room_id = %room_id, session_id = %session_id, producer_id = tracing::field::Empty, consumer_id = tracing::field::Empty))]

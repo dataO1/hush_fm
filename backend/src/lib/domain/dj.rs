@@ -312,6 +312,45 @@ impl DJ {
         Ok(())
     }
 
+    /// Complete cleanup of DJ resources including producer and transport
+    #[tracing::instrument(skip(self), fields(dj_id = %self.dj_id, producer_cleaned = tracing::field::Empty, transport_cleaned = tracing::field::Empty))]
+    pub async fn cleanup(&mut self) -> Result<()> {
+        let span = tracing::Span::current();
+        tracing::info!(dj_id = %self.dj_id, "Starting complete DJ cleanup");
+
+        let mut producer_cleaned = false;
+        let mut transport_cleaned = false;
+
+        // Step 1: Clean up producer (MediaSoup auto-cleans when dropped)
+        if let Some(_producer) = self.producer.take() {
+            producer_cleaned = true;
+            // Clear producer state
+            self.producer_id = None;
+            self.is_streaming = false;
+            self.is_paused = false;
+            tracing::info!(dj_id = %self.dj_id, "Producer cleaned up");
+        }
+
+        // Step 2: Clean up transport (MediaSoup auto-cleans when dropped)
+        if let Some(_transport) = self.transport.take() {
+            transport_cleaned = true;
+            tracing::info!(dj_id = %self.dj_id, "Transport cleaned up");
+        }
+
+        // Record cleanup results in tracing span
+        span.record("producer_cleaned", producer_cleaned);
+        span.record("transport_cleaned", transport_cleaned);
+
+        tracing::info!(
+            dj_id = %self.dj_id,
+            producer_cleaned = producer_cleaned,
+            transport_cleaned = transport_cleaned,
+            "Complete DJ cleanup finished"
+        );
+        
+        Ok(())
+    }
+
     /// Check if DJ has a transport ready
     pub fn has_transport(&self) -> bool {
         self.transport.is_some()

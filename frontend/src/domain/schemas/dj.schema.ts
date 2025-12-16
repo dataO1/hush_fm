@@ -12,6 +12,18 @@
 
 import { Schema as S } from 'effect'
 import { Option } from 'effect'
+import { Device, types } from 'mediasoup-client'
+
+/**
+ * Custom schemas for MediaSoup types
+ */
+const MediaSoupDevice = S.instanceOf(Device)
+const MediaSoupTransport = S.Unknown.pipe(S.filter((value): value is types.Transport => 
+  value != null && typeof value === 'object' && 'id' in value && 'connectionState' in value
+))
+const MediaSoupProducer = S.Unknown.pipe(S.filter((value): value is types.Producer => 
+  value != null && typeof value === 'object' && 'id' in value && 'kind' in value && 'paused' in value
+))
 
 /**
  * DJ Flow Steps (tracking progress through 18-step flow)
@@ -38,7 +50,7 @@ export type DJFlowStep = S.Schema.Type<typeof DJFlowStep>
  * MediaSoup Device State (Step 3: Create and load device)
  */
 export const MediaSoupDeviceState = S.Struct({
-  device: S.Option(S.Unknown), // mediasoup-client Device instance
+  device: S.Option(MediaSoupDevice), // mediasoup-client Device instance
   loaded: S.Boolean,
   rtpCapabilities: S.Option(S.Unknown), // Received in Step 2
   loadError: S.Option(S.String),
@@ -63,7 +75,7 @@ export type AudioTrackState = S.Schema.Type<typeof AudioTrackState>
  * Send Transport State (Steps 5-8: Request and create send transport)
  */
 export const SendTransportState = S.Struct({
-  transport: S.Option(S.Unknown), // mediasoup-client Transport instance
+  transport: S.Option(MediaSoupTransport), // mediasoup-client Transport instance
   id: S.Option(S.String),
   connectionState: S.Literal('new', 'connecting', 'connected', 'disconnecting', 'disconnected', 'failed'),
   iceGatheringState: S.Option(S.String),
@@ -80,7 +92,7 @@ export type SendTransportState = S.Schema.Type<typeof SendTransportState>
  * Producer State (Steps 13-17: Create and manage producer)
  */
 export const ProducerState = S.Struct({
-  producer: S.Option(S.Unknown), // mediasoup-client Producer instance
+  producer: S.Option(MediaSoupProducer), // mediasoup-client Producer instance
   id: S.Option(S.String), // Producer ID from backend (Step 16)
   kind: S.Literal('audio', 'video'),
   paused: S.Boolean,

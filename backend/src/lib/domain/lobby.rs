@@ -7,6 +7,7 @@ use mediasoup::{
 use std::sync::{Arc, atomic::{AtomicUsize, Ordering}};
 use tokio::sync::{broadcast, RwLock};
 use uuid::Uuid;
+use anyhow::Result;
 
 use crate::lib::models::{Room, LobbyEvent};
 
@@ -140,6 +141,29 @@ impl Lobby {
 
         tracing::debug!("Found {} public rooms out of {}", public_rooms.len(), self.rooms.len());
         public_rooms
+    }
+
+    /// Close room with graceful cleanup and remove from lobby
+    /// This is the proper domain method for room closure initiated by DJ
+    pub async fn close_room(&self, room_id: &Uuid) -> Result<()> {
+        tracing::info!("Starting room closure process for room {}", room_id);
+
+        // Get room and perform cleanup
+        if let Some(room_arc) = self.get_room(room_id) {
+            {
+                let mut room = room_arc.write().await;
+                // Call the room's comprehensive close method
+                room.close_room().await?;
+            }
+
+            // Remove room from lobby after cleanup
+            self.remove_room(room_id).await;
+
+            tracing::info!("Room {} closed and removed from lobby successfully", room_id);
+            Ok(())
+        } else {
+            Err(anyhow::anyhow!("Room {} not found for closure", room_id))
+        }
     }
 
     /// Remove room from lobby

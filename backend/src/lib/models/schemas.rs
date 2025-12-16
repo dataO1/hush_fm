@@ -517,6 +517,8 @@ pub enum RoomStatus {
     Paused,
     /// Room is being torn down
     Closing,
+    /// Room is completely closed and cleaned up
+    Closed,
 }
 
 /// Unified Room model (used everywhere - API, internal logic, etc.)

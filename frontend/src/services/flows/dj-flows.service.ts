@@ -44,6 +44,7 @@ import {
 } from '../../domain/errors'
 import type { RoomStore } from '../../stores/room.store'
 import type { DJState } from '../../domain/schemas/dj.schema'
+import { ConnectionState } from '../../domain/schemas/room.schema'
 import {
   createAndLoadDevice,
   MediaSoupDeviceServiceLive
@@ -633,7 +634,7 @@ export const resumeDJStream = (
   )
 
 /**
- * Close DJ room (cleanup flow)
+ * Close DJ room with comprehensive cleanup following listener cleanup pattern
  */
 export const closeDJRoom = (
   roomStore: RoomStore,
@@ -641,45 +642,161 @@ export const closeDJRoom = (
 ): Effect.Effect<void, DJFlowError> =>
   pipe(
     Effect.gen(function* (_) {
-      console.info('🔒 Closing DJ room')
-      
-      // Update room store
-      roomStore.actions.stopStreaming()
+      console.info('🚪 Starting DJ room closure process')
+
+      // Step 1: Update flow step to cleanup
       roomStore.actions.setDJFlowStep('cleanup')
-      
-      // Send close command to backend
-      const closeCommand: DjCommand = {
-        type: 'closeRoom'
+      console.info('📊 DJ flow step set to cleanup')
+
+      // Step 2: Send close room command to backend if WebSocket is open
+      if (djWebSocket && djWebSocket.readyState === WebSocket.OPEN) {
+        console.info('📡 Sending closeRoom command to backend')
+        try {
+          const closeCommand: DjCommand = { type: 'closeRoom' }
+          
+          yield* _(sendDjCommand(djWebSocket, closeCommand).pipe(
+            Effect.tapBoth({
+              onFailure: (error) => Effect.sync(() => {
+                console.warn('Failed to send closeRoom command, continuing with cleanup:', error)
+              }),
+              onSuccess: () => Effect.sync(() => {
+                console.info('✅ CloseRoom command sent to backend')
+              })
+            }),
+            // Don't fail the entire close flow if command sending fails
+            Effect.catchAll(() => Effect.void),
+            Effect.mapError(error => new DJFlowError({
+              cause: (error as any)?.message || 'Failed to send close room command',
+              step: 'cleanup',
+              stepNumber: 1,
+              recoverable: false,
+              context: { timestamp: new Date(), operation: 'send_close_command', details: { error } }
+            }))
+          ))
+        } catch (error) {
+          console.warn('Error sending close room command:', error)
+        }
+      } else {
+        console.info('WebSocket not available or not open, skipping backend notification')
       }
+
+      // Step 3: Clean up local MediaSoup resources
+      console.info('🧹 Starting DJ MediaSoup resource cleanup')
+      yield* _(cleanupDJMediaSoupResources(roomStore).pipe(
+        Effect.catchAll((error) => {
+          console.warn('⚠️ DJ MediaSoup cleanup failed, continuing:', error)
+          return Effect.void
+        })
+      ))
+
+      // Step 4: Close WebSocket with store updates
+      console.info('🔌 Closing DJ WebSocket connection')
+      if (djWebSocket && djWebSocket.readyState === WebSocket.OPEN) {
+        try {
+          djWebSocket.close()
+          console.info('✅ DJ WebSocket closed')
+        } catch (error) {
+          console.warn('⚠️ Failed to close DJ WebSocket:', error)
+        }
+      }
+
+      // Step 5: Update store state - disconnect from room and reset
+      console.info('🔄 Updating room state to DISCONNECTED')
+      roomStore.actions.setConnectionState(ConnectionState.DISCONNECTED)
+      roomStore.actions.disconnectFromRoom()
       
-      yield* _(sendDjCommand(djWebSocket, closeCommand).pipe(
-        Effect.mapError(error => new DJFlowError({
-          cause: error.message || 'Failed to close room',
+      console.info('✅ DJ room closure completed successfully')
+    }),
+    // Add timeout protection for the entire cleanup process
+    Effect.timeout(30000),
+    Effect.mapError(error => {
+      if (error._tag === 'TimeoutException') {
+        return new DJFlowError({
+          cause: 'Room closure timed out after 30 seconds',
           step: 'cleanup',
           stepNumber: 0,
           recoverable: false,
-          context: { timestamp: new Date(), operation: 'close_room', details: { error } }
-        }))
-      ))
-      
-      // Close WebSocket and disconnect from room
-      // Get DJ WebSocket from store and close it
-      const djState = roomStore.djState as DJState | null
-      if (djState) {
-        Option.match(djState.websocket.websocket, {
-          onSome: (ws: WebSocket) => {
-            console.info('Closing DJ websocket')
-            ws.close()
-          },
-          onNone: () => {}
+          context: { timestamp: new Date(), operation: 'close_room_timeout' }
         })
       }
-      
-      // Update store state
-      roomStore.actions.disconnectFromRoom()
-      
-      console.info('✅ DJ room closed')
+      return error instanceof DJFlowError ? error : new DJFlowError({
+        cause: (error as any)?.message || 'Unknown error during room closure',
+        step: 'cleanup',
+        stepNumber: 0,
+        recoverable: false,
+        context: { timestamp: new Date(), operation: 'close_room_error', details: { error } }
+      })
     })
+  )
+
+/**
+ * Clean up DJ MediaSoup resources (producer, transport)
+ * Similar to listener cleanup but for DJ resources
+ */
+const cleanupDJMediaSoupResources = (roomStore: RoomStore): Effect.Effect<void, DJFlowError> =>
+  pipe(
+    Effect.gen(function* (_) {
+      console.info('🧹 Starting DJ MediaSoup resource cleanup')
+
+      const djState = roomStore.djState as DJState | null
+      if (!djState) {
+        console.info('ℹ️ No DJ state to clean up')
+        return
+      }
+
+      // Clean up producer if exists
+      Option.match(djState.producer, {
+        onSome: (producerState) => {
+          Option.match(producerState.producer, {
+            onSome: (producer) => {
+              console.info('🛑 Closing DJ producer')
+              try {
+                (producer as any).close()
+                console.info('✅ DJ producer closed')
+              } catch (error) {
+                console.warn('⚠️ Failed to close DJ producer:', error)
+              }
+            },
+            onNone: () => console.info('ℹ️ No producer instance to clean up')
+          })
+        },
+        onNone: () => console.info('ℹ️ No producer state to clean up')
+      })
+
+      // Clean up transport if exists  
+      Option.match(djState.sendTransport, {
+        onSome: (transportState) => {
+          Option.match(transportState.transport, {
+            onSome: (transport) => {
+              console.info('🛑 Closing DJ transport')
+              try {
+                (transport as any).close()
+                console.info('✅ DJ transport closed')
+              } catch (error) {
+                console.warn('⚠️ Failed to close DJ transport:', error)
+              }
+            },
+            onNone: () => console.info('ℹ️ No transport instance to clean up')
+          })
+        },
+        onNone: () => console.info('ℹ️ No send transport state to clean up')
+      })
+
+      // Update store to reflect cleanup - clear producer and transport references
+      roomStore.actions.updateDJState({
+        producer: Option.none(),
+        sendTransport: Option.none()
+      })
+
+      console.info('✅ DJ MediaSoup resource cleanup completed')
+    }),
+    Effect.mapError(error => new DJFlowError({
+      cause: (error as any)?.message || 'Failed to cleanup DJ MediaSoup resources',
+      step: 'cleanup',
+      stepNumber: 3,
+      recoverable: false,
+      context: { timestamp: new Date(), operation: 'cleanup_mediasoup', details: { error } }
+    }))
   )
 
 /**

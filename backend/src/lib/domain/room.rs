@@ -479,6 +479,61 @@ impl Room {
         Ok(())
     }
 
+    /// Comprehensive room closure with graceful listener cleanup
+    /// Handles DJ stopping stream, ejecting all listeners, and cleaning up resources
+    pub async fn close_room(&mut self) -> Result<()> {
+        tracing::info!("Starting room closure for room {}", self.id);
+
+        // Step 1: Send pause event to all listeners first to prevent audio interruption
+        let pause_event = crate::lib::models::ListenerEvent::StreamPaused {
+            room_id: self.id.to_string(),
+        };
+        self.broadcast_to_listeners(pause_event);
+        tracing::info!("Sent pause event to {} listeners before room closure", self.listeners.len());
+
+        // Step 2: Gracefully eject all listeners with proper cleanup
+        let listener_ids: Vec<String> = self.listeners.iter()
+            .map(|entry| entry.key().clone())
+            .collect();
+
+        tracing::info!("Ejecting {} listeners from room {}", listener_ids.len(), self.id);
+        
+        for listener_id in listener_ids {
+            // Send room closed notification to listener before removing
+            if let Some(listener) = self.listeners.get(&listener_id) {
+                let close_event = crate::lib::models::ListenerEvent::RoomClosed {
+                    room_id: self.id.to_string(),
+                    reason: "Room closed by DJ".to_string(),
+                };
+
+                if let Err(e) = listener.event_tx.send(close_event) {
+                    tracing::warn!("Failed to send room closed notification to listener {}: {}", listener_id, e);
+                }
+            }
+
+            // Use existing remove_listener method which already handles cleanup
+            if let Err(e) = self.remove_listener(&listener_id).await {
+                tracing::warn!("Failed to eject listener {} during room closure: {}", listener_id, e);
+                // Continue with other listeners even if one fails
+            }
+        }
+
+        // Step 3: Clean up DJ resources with proper tracking
+        if let Some(mut dj) = self.dj.take() {
+            if let Err(e) = dj.cleanup().await {
+                tracing::warn!("Failed to clean up DJ resources during room closure: {}", e);
+            }
+        }
+
+        // Step 4: Mark room as closed
+        self.status = RoomStatus::Closed;
+        self.update_activity();
+
+        tracing::info!("Room {} closure completed successfully", self.id);
+        Ok(())
+    }
+
+
     /// Get router RTP capabilities for client device initialization (native MediaSoup type)
     pub fn get_router_rtp_capabilities(&self) -> Result<RtpCapabilitiesFinalized> {
         let router = self.router.as_ref()

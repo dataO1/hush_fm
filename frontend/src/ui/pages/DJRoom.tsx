@@ -3,9 +3,10 @@ import { useParams, useNavigate } from '@solidjs/router'
 import { Effect, Option } from 'effect'
 import { DeviceSelector } from '../components/controls/DeviceSelector'
 import { createRoomStore } from '../../stores/room.store'
-import { publishDJRoom, toggleDJStream } from '../../services/flows/dj-flows.service'
+import { publishDJRoom, toggleDJStream, closeDJRoom } from '../../services/flows/dj-flows.service'
 import { Oscilloscope } from '../components/shared/Oscilloscope'
 import { ConnectionState } from '../../domain/schemas/room.schema'
+import type { DJState } from '../../domain/schemas/dj.schema'
 
 export default function DJRoom() {
   const params = useParams()
@@ -88,30 +89,40 @@ export default function DJRoom() {
     }
   }
 
-  const toggleRecording = async () => {
-    if (!isStreaming()) {
-      // Start recording (same as current startStreaming)
-      await startStreaming()
-    } else {
-      // Stop recording but keep connection (pause the stream)
-      try {
-        await Effect.runPromise(toggleDJStream(roomStore))
-      } catch (err: any) {
-        console.error('Failed to stop recording:', err)
-      }
-    }
-  }
-
   const endStream = async () => {
     try {
-      // Stop streaming and disconnect from room
-      roomStore.actions.stopStreaming()
-      roomStore.actions.disconnectFromRoom()
-    } catch (error) {
-      console.error('Failed to end stream:', error)
-    }
+      // Get DJ WebSocket from store  
+      const djState = roomStore.djState as DJState | null
+      if (!djState) {
+        console.warn('No DJ state found for room closure')
+        navigate('/')
+        return
+      }
 
-    navigate('/')
+      let djWebSocket: WebSocket | null = null
+      Option.match(djState.websocket.websocket, {
+        onSome: (ws) => { djWebSocket = ws as WebSocket },
+        onNone: () => { djWebSocket = null }
+      })
+      
+      if (!djWebSocket) {
+        console.warn('No valid DJ WebSocket found for room closure')
+        navigate('/')
+        return
+      }
+
+      // Use proper cleanup service following the established pattern
+      console.info('🚪 Ending stream and closing DJ room')
+      await Effect.runPromise(closeDJRoom(roomStore, djWebSocket))
+      console.info('✅ DJ room closed successfully')
+      
+      // Navigate back to lobby after successful cleanup
+      navigate('/')
+    } catch (error) {
+      console.error('❌ Failed to end stream and close room:', error)
+      // Navigate anyway to prevent stuck state
+      navigate('/')
+    }
   }
 
   const goBack = () => {
@@ -199,76 +210,46 @@ export default function DJRoom() {
                 </div>
               </Show>
 
-              {/* Show recording controls when streaming */}
+              {/* Show streaming controls when streaming */}
               <Show when={isStreaming()}>
-                <div class="flex flex-col gap-4 items-center mt-6">
+                <div class="flex gap-3 justify-center items-center mt-6">
                   
-                  {/* Main Record/Stop Button */}
+                  {/* Mute/Unmute Button */}
                   <button
                     class={`btn btn-lg gap-3 min-w-32 ${
-                      isStreaming() ? 'btn-error hover:btn-error' : 'btn-primary hover:btn-primary'
+                      isPaused() ? 'btn-warning hover:btn-warning' : 'btn-success hover:btn-success'
                     }`}
-                    onClick={toggleRecording}
+                    onClick={toggleMute}
                     disabled={connectionState() === ConnectionState.ERROR || isConnecting()}
                   >
-                    {isStreaming() ? (
+                    {isPaused() ? (
                       <>
-                        <svg class="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
-                          <rect x="6" y="6" width="12" height="12" rx="2"/>
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path stroke-linecap="round" stroke-linejoin="round" stroke-width={2} d="M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z" />
+                          <path stroke-linecap="round" stroke-linejoin="round" stroke-width={2} d="M17 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2" />
                         </svg>
-                        Stop
+                        Unmute
                       </>
                     ) : (
                       <>
-                        <svg class="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
-                          <circle cx="12" cy="12" r="6"/>
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path stroke-linecap="round" stroke-linejoin="round" stroke-width={2} d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z" />
                         </svg>
-                        Record
+                        Mute
                       </>
                     )}
                   </button>
 
-                  {/* Secondary Controls - only visible when streaming */}
-                  <Show when={isStreaming()}>
-                    <div class="flex gap-3 items-center">
-                      {/* Mute Button */}
-                      <button
-                        class={`btn btn-sm gap-2 ${
-                          isPaused() ? 'btn-warning hover:btn-warning' : 'btn-success hover:btn-success'
-                        }`}
-                        onClick={toggleMute}
-                        disabled={connectionState() === ConnectionState.ERROR || isConnecting()}
-                      >
-                        {isPaused() ? (
-                          <>
-                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                              <path stroke-linecap="round" stroke-linejoin="round" stroke-width={2} d="M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z" />
-                              <path stroke-linecap="round" stroke-linejoin="round" stroke-width={2} d="M17 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2" />
-                            </svg>
-                            Muted
-                          </>
-                        ) : (
-                          <>
-                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                              <path stroke-linecap="round" stroke-linejoin="round" stroke-width={2} d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z" />
-                            </svg>
-                            Live
-                          </>
-                        )}
-                      </button>
-
-                      {/* End Stream Button */}
-                      <button 
-                        class="btn btn-outline btn-error btn-sm gap-2" 
-                        onClick={endStream}
-                      >
-                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path stroke-linecap="round" stroke-linejoin="round" stroke-width={2} d="M6 18L18 6M6 6l12 12" />
-                        </svg>
-                        End Stream
-                      </button>
-                    </div>
-                  </Show>
+                  {/* End Stream Button */}
+                  <button 
+                    class="btn btn-outline btn-error btn-lg gap-3" 
+                    onClick={endStream}
+                  >
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width={2} d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                    End Stream
+                  </button>
                   
                 </div>
               </Show>
