@@ -125,7 +125,7 @@ export type MediaStreamsState = S.Schema.Type<typeof MediaStreamsState>
  * WebSocket Connection State for DJ
  */
 export const DJWebSocketState = S.Struct({
-  websocket: S.Option(S.Unknown), // DJ WebSocket connection instance
+  websocket: S.Option(S.instanceOf(WebSocket)), // DJ WebSocket connection instance
   connectionState: S.Literal('disconnected', 'connecting', 'connected', 'error', 'reconnecting'),
   url: S.Option(S.String),
   connectedAt: S.Option(S.Date),

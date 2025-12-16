@@ -210,8 +210,8 @@ export const joinRoomAsListener = (
           console.error('❌ Step 6b/7b: Router incompatible, canceling join')
           roomStore.actions.setListenerError(listenerId, consumerResult.error, 'error')
           
-          // Cleanup and return to lobby
-          yield* _(roomStore.actions.disconnectFromRoom())
+          // Cleanup and return to lobby - store action is now synchronous
+          roomStore.actions.disconnectFromRoom()
           
           yield* _(Effect.fail(new ListenerFlowError({
             cause: `Room join failed: ${consumerResult.error}`,
@@ -352,7 +352,7 @@ export const leaveRoomAsListener = (
         })
         
         Option.match(listener.websocket.websocket, {
-          onSome: (ws: any) => {
+          onSome: (ws: WebSocket) => {
             console.info('Closing listener websocket')
             ws.close()
           },
@@ -366,7 +366,19 @@ export const leaveRoomAsListener = (
       
       // If this was the last listener, disconnect from room
       if (roomStore.listenerCount === 0 && !roomStore.isDJStreaming) {
-        yield* _(roomStore.actions.disconnectFromRoom())
+        // Close WebSocket before updating store state
+        const listeners = roomStore.listeners
+        if (listeners.length > 0) {
+          const listener = listeners[0]
+          Option.match(listener.websocket.websocket, {
+            onSome: (ws: WebSocket) => {
+              console.info('Closing listener websocket')
+              ws.close()
+            },
+            onNone: () => {}
+          })
+        }
+        roomStore.actions.disconnectFromRoom()
       }
     })
   )

@@ -2,6 +2,15 @@ import { createSignal, For, Show, onMount, onCleanup } from 'solid-js'
 import { useNavigate } from '@solidjs/router'
 import { Effect } from 'effect'
 import { createLobbyStore } from '../../stores/lobby.store'
+import {
+  connectToLobbyWebSocket,
+  discoverRooms,
+  subscribeLobbyEvents,
+  announceRoomCreation,
+  leaveLobby,
+  type CreateRoomRequest
+} from '../../services/flows/lobby-flows.service'
+import type { LobbyEvent } from '../../services/websocket/schemas/websocket'
 
 export default function Landing() {
   const navigate = useNavigate()
@@ -11,21 +20,68 @@ export default function Landing() {
 
   // Create lobby store instance
   const lobbyStore = createLobbyStore()
+  
+  // Track WebSocket for cleanup
+  let currentWebSocket: WebSocket | null = null
 
   // Connect to lobby on mount
-  onMount(() => {
-    const connectEffect = lobbyStore.actions.connectToLobby()
-    lobbyStore.runEffect(connectEffect)
+  onMount(async () => {
+    try {
+      lobbyStore.actions.setConnecting(true)
+      
+      // Connect to lobby WebSocket
+      const ws = await Effect.runPromise(connectToLobbyWebSocket())
+      currentWebSocket = ws
+      lobbyStore.actions.setConnected(ws)
+      
+      // Subscribe to lobby events
+      const subscribe = await Effect.runPromise(subscribeLobbyEvents(ws))
+      subscribe((event: LobbyEvent) => {
+        switch (event.type) {
+          case 'roomAdded':
+            lobbyStore.actions.addRoom(event.room)
+            break
+          case 'roomUpdated':
+            lobbyStore.actions.updateRoom(event.room)
+            break
+          case 'roomRemoved':
+            lobbyStore.actions.removeRoom(event.roomId)
+            break
+        }
+      })
+      
+      // Initial room discovery
+      await loadRooms()
+    } catch (error) {
+      console.error('Failed to connect to lobby:', error)
+      lobbyStore.actions.setConnectionError(error instanceof Error ? error.message : 'Connection failed')
+    }
   })
 
   // Cleanup on unmount
   onCleanup(() => {
-    const disconnectEffect = lobbyStore.actions.disconnectFromLobby()
-    lobbyStore.runEffect(disconnectEffect)
+    if (currentWebSocket) {
+      Effect.runPromise(leaveLobby(currentWebSocket))
+        .catch(err => console.error('Error disconnecting:', err))
+      currentWebSocket = null
+    }
+    lobbyStore.actions.setDisconnected()
   })
 
+  // Load rooms helper
+  const loadRooms = async () => {
+    try {
+      lobbyStore.actions.setRoomsLoading(true)
+      const rooms = await Effect.runPromise(discoverRooms())
+      lobbyStore.actions.setRooms(rooms)
+    } catch (error) {
+      console.error('Failed to load rooms:', error)
+      lobbyStore.actions.setRoomDiscoveryError(error instanceof Error ? error.message : 'Failed to load rooms')
+    }
+  }
+  
   // Create room handler
-  const handleCreateRoom = () => {
+  const handleCreateRoom = async () => {
     const name = roomName().trim()
     const dj = djName().trim()
     
@@ -33,29 +89,37 @@ export default function Landing() {
       setError('Please enter both room name and DJ name')
       return
     }
+    
+    if (!currentWebSocket) {
+      setError('Not connected to lobby')
+      return
+    }
 
     setError(null)
     
-    const createRoomEffect = Effect.gen(function* (_) {
-      const result = yield* _(lobbyStore.actions.createRoom({
+    try {
+      lobbyStore.actions.setRoomCreating(true)
+      
+      const request: CreateRoomRequest = {
         name,
         djName: dj,
         description: `${dj}'s room`
-      }))
-
+      }
+      
+      const result = await Effect.runPromise(announceRoomCreation(currentWebSocket, request))
+      
+      lobbyStore.actions.setLastCreatedRoom(result.roomId)
+      
       // Navigate to DJ room with the returned WebSocket URL
       navigate(`/dj/${result.roomId}`, {
         state: { djWebSocketUrl: result.djWebSocketUrl }
       })
-    }).pipe(
-      Effect.catchAll((error) => 
-        Effect.sync(() => {
-          setError(`Failed to create room: ${error.message || error}`)
-        })
-      )
-    )
-
-    lobbyStore.runEffect(createRoomEffect)
+    } catch (error) {
+      console.error('Failed to create room:', error)
+      const errorMessage = error instanceof Error ? error.message : 'Failed to create room'
+      setError(errorMessage)
+      lobbyStore.actions.setRoomCreationError(errorMessage)
+    }
   }
 
   // Join room as listener
@@ -65,8 +129,7 @@ export default function Landing() {
 
   // Refresh room listings
   const handleRefreshRooms = () => {
-    const refreshEffect = lobbyStore.actions.refreshRooms()
-    lobbyStore.runEffect(refreshEffect)
+    loadRooms()
   }
 
   return (

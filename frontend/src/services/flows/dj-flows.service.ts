@@ -27,7 +27,8 @@
 import { Effect, pipe, Option } from 'effect'
 import { Device, types } from 'mediasoup-client'
 import { 
-  sendDjCommand
+  sendDjCommand,
+  connectToDjRoom
 } from '../websocket/websocket.service'
 import type { 
   DjCommand, 
@@ -42,6 +43,7 @@ import {
   DJFlowError
 } from '../../domain/errors'
 import type { RoomStore } from '../../stores/room.store'
+import type { DJState } from '../../domain/schemas/dj.schema'
 import {
   createAndLoadDevice,
   MediaSoupDeviceServiceLive
@@ -98,13 +100,36 @@ const waitForDjEvent = <T extends DjEvent>(
     const handler = (event: MessageEvent) => {
       try {
         const data = JSON.parse(event.data)
+        
+        // 🔍 Comprehensive WebSocket message logging for debugging
+        console.log(`🔍 DJ WebSocket Message Received:`, {
+          type: data.type,
+          expectedType: eventType,
+          fullMessage: JSON.stringify(data, null, 2)
+        })
+        
+        // Special logging for roomInitialized to debug RTP capabilities
+        if (data.type === 'roomInitialized') {
+          console.log(`🎵 RTP Capabilities Debug:`, {
+            hasRtpCapabilities: !!data.rtpCapabilities,
+            rtpCapabilitiesType: typeof data.rtpCapabilities,
+            hasCodecs: !!(data.rtpCapabilities && data.rtpCapabilities.codecs),
+            codecsType: data.rtpCapabilities && typeof data.rtpCapabilities.codecs,
+            codecsLength: data.rtpCapabilities && data.rtpCapabilities.codecs && data.rtpCapabilities.codecs.length,
+            hasHeaderExtensions: !!(data.rtpCapabilities && data.rtpCapabilities.headerExtensions),
+            headerExtensionsType: data.rtpCapabilities && typeof data.rtpCapabilities.headerExtensions,
+            fullRtpCapabilities: data.rtpCapabilities ? JSON.stringify(data.rtpCapabilities, null, 2) : 'undefined'
+          })
+        }
+        
         if (data.type === eventType) {
           ws.removeEventListener('message', handler)
           resume(Effect.succeed(data as T))
         }
       } catch (error) {
+        console.error(`❌ Failed to parse WebSocket message:`, error, event.data)
         ws.removeEventListener('message', handler)
-        resume(Effect.fail(new Error(`Failed to parse ${eventType} event`)))
+        resume(Effect.fail(new Error(`Failed to parse ${eventType} event: ${error}`)))
       }
     }
     
@@ -136,30 +161,45 @@ const dtlsParamsToJson = (params: any): DtlsParametersJson => ({
 export const publishDJRoom = (
   roomStore: RoomStore,
   roomId: string,
-  djWebSocket: WebSocket,
   deviceId?: string
 ): Effect.Effect<DJPublishResult, DJFlowError> =>
   pipe(
     Effect.gen(function* (_) {
       console.info('🎤 Starting DJ Room Publishing Flow (18 steps)')
       
-      // Step 1: Already done - room announced in lobby, returns DJ WebSocket
+      // Step 1: Already done - room announced in lobby, returns DJ WebSocket URL
       console.info('✅ Step 1: Room announced (prerequisites met)')
       
-      // Initialize DJ state in room store
+      // Connect to DJ WebSocket using centralized WebSocket service
+      console.info('🔄 Connecting to DJ WebSocket...')
       roomStore.actions.setDJFlowStep('connecting')
+      
+      const djWebSocket = yield* _(pipe(
+        connectToDjRoom(roomId),
+        Effect.mapError(error => new DJFlowError({
+          cause: `Failed to connect to DJ WebSocket: ${error.message}`,
+          step: 'connecting',
+          stepNumber: 1,
+          recoverable: false,
+          context: { timestamp: new Date(), operation: 'websocket_connect', details: { roomId, error } }
+        }))
+      ))
+      
+      // Store DJ WebSocket in room store via service action
       roomStore.actions.updateDJState({
         flowStartedAt: Option.some(new Date()),
         websocket: {
           websocket: Option.some(djWebSocket),
           connectionState: 'connected',
-          url: Option.some(djWebSocket.url),
+          url: Option.some(`wss://${window.location.hostname}:3443/ws/room/${roomId}`),
           connectedAt: Option.some(new Date()),
           lastMessageAt: Option.none(),
           messageCount: 0,
           connectionError: Option.none()
         }
       })
+      
+      console.info('✅ Connected to DJ WebSocket')
       
       // Step 2: Send room init message, receive rtpCapabilities
       console.info('🔄 Step 2: Sending room init message...')
@@ -194,17 +234,48 @@ export const publishDJRoom = (
       const device = yield* _(pipe(
         createAndLoadDevice(rtpCapabilities),
         Effect.provide(MediaSoupDeviceServiceLive),
-        Effect.mapError(error => new DJFlowError({
-          cause: 'Failed to load device capabilities',
-          step: 'device_load',
-          stepNumber: 3,
-          recoverable: false,
-          context: { 
-            timestamp: new Date(),
-            operation: 'device_load',
-            details: { roomId, error }
-          }
-        }))
+        Effect.mapError(error => {
+          // Enhanced error context for device loading failures
+          const deviceErrorMessage = error instanceof Error ? error.message : String(error)
+          const isPermissionError = deviceErrorMessage.toLowerCase().includes('permission') || 
+                                   deviceErrorMessage.toLowerCase().includes('denied') ||
+                                   deviceErrorMessage.toLowerCase().includes('getusermedia')
+          const isBrowserError = deviceErrorMessage.toLowerCase().includes('webrtc') ||
+                                deviceErrorMessage.toLowerCase().includes('browser') ||
+                                deviceErrorMessage.toLowerCase().includes('unsupported')
+          
+          console.error('❌ Device loading failed in DJ flow:', {
+            original_error: deviceErrorMessage,
+            error_type: error.constructor.name,
+            is_permission_error: isPermissionError,
+            is_browser_error: isBrowserError,
+            room_id: roomId,
+            step: 'device_load',
+            step_number: 3
+          })
+          
+          return new DJFlowError({
+            cause: `Failed to load MediaSoup device: ${deviceErrorMessage}`,
+            step: 'device_load',
+            stepNumber: 3,
+            recoverable: false, // Device loading failures typically require user action
+            context: { 
+              timestamp: new Date(),
+              operation: 'device_load',
+              details: { 
+                roomId, 
+                originalError: deviceErrorMessage,
+                errorType: error.constructor.name,
+                isPermissionError,
+                isBrowserError,
+                rtpCapabilitiesSummary: {
+                  codecCount: rtpCapabilities.codecs?.length || 0,
+                  headerExtCount: rtpCapabilities.headerExtensions?.length || 0
+                }
+              }
+            }
+          })
+        })
       ))
       
       // Update room store with device state
@@ -466,10 +537,18 @@ export const publishDJRoom = (
       
       // Send cleanup command if needed
       if (roomStore.roomId) {
-        const cleanupCommand: DjCommand = {
-          type: 'closeRoom'
+        const djState = roomStore.djState as DJState | null
+        if (djState) {
+          Option.match(djState.websocket.websocket, {
+            onSome: (ws: WebSocket) => {
+              const cleanupCommand: DjCommand = {
+                type: 'closeRoom'
+              }
+              Effect.runSync(sendDjCommand(ws, cleanupCommand))
+            },
+            onNone: () => {}
+          })
         }
-        Effect.runSync(sendDjCommand(djWebSocket, cleanupCommand))
       }
       
       return Effect.fail(error instanceof DJFlowError ? error : new DJFlowError({
@@ -578,8 +657,21 @@ export const closeDJRoom = (
         }))
       ))
       
-      // Disconnect from room
-      yield* _(roomStore.actions.disconnectFromRoom())
+      // Close WebSocket and disconnect from room
+      // Get DJ WebSocket from store and close it
+      const djState = roomStore.djState as DJState | null
+      if (djState) {
+        Option.match(djState.websocket.websocket, {
+          onSome: (ws: WebSocket) => {
+            console.info('Closing DJ websocket')
+            ws.close()
+          },
+          onNone: () => {}
+        })
+      }
+      
+      // Update store state
+      roomStore.actions.disconnectFromRoom()
       
       console.info('✅ DJ room closed')
     })

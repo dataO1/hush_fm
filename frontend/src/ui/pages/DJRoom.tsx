@@ -7,6 +7,7 @@ import { publishDJRoom } from '../../services/flows/dj-flows.service'
 
 type StreamStatus = 'idle' | 'ready' | 'connecting' | 'live' | 'muted' | 'error'
 
+
 export default function DJRoom() {
   const params = useParams()
   const navigate = useNavigate()
@@ -14,7 +15,8 @@ export default function DJRoom() {
   // Use room store for DJ state management
   const roomStore = createRoomStore()
 
-  const [roomId] = createSignal(params.roomId)
+  // Get room data from route params
+  const roomId = () => params.roomId
   const [status, setStatus] = createSignal<StreamStatus>('idle')
   const [error, setError] = createSignal<string | null>(null)
   const [isInitializing, setIsInitializing] = createSignal(true)
@@ -95,35 +97,20 @@ export default function DJRoom() {
       return
     }
 
+    const currentRoomId = roomId()
+    if (!currentRoomId) {
+      setError('Room ID is required')
+      return
+    }
+
     setIsInitializing(true)
     setStatus('connecting')
     setError(null)
 
-    // Create WebSocket connection for DJ flow
-    let djWebSocket: WebSocket
     try {
-      djWebSocket = new WebSocket(`ws://localhost:3000/ws/dj/${roomId()}`)
-      await new Promise((resolve, reject) => {
-        djWebSocket.onopen = resolve
-        djWebSocket.onerror = reject
-        setTimeout(reject, 5000)
-      })
-    } catch {
-      setError('Failed to connect to room WebSocket')
-      setStatus('error')
-      setIsInitializing(false)
-      return
-    }
-
-    try {
-      // Set WebSocket in room store
-      await Effect.runPromise(
-        roomStore.actions.setRoomWebSocket(djWebSocket, roomId(), 'dj')
-      )
-      
-      // Start DJ publishing flow with selected device
+      // Start DJ publishing flow - service will handle WebSocket connection
       const result = await Effect.runPromise(
-        publishDJRoom(roomStore, roomId(), djWebSocket, deviceId)
+        publishDJRoom(roomStore, currentRoomId, deviceId)
       )
       
       setIsRecording(true)
@@ -172,7 +159,7 @@ export default function DJRoom() {
   const endStream = async () => {
     try {
       // Stop streaming and disconnect from room
-      await Effect.runPromise(roomStore.actions.disconnectFromRoom())
+      roomStore.actions.disconnectFromRoom()
       roomStore.actions.stopStreaming()
     } catch (error) {
       console.error('Failed to notify backend of room deletion:', error)

@@ -28,7 +28,7 @@ export type WSConnectionState = S.Schema.Type<typeof WSConnectionState>
  */
 export const LobbyConnectionState = S.Struct({
   state: WSConnectionState,
-  websocket: S.Option(S.Unknown), // WebSocket instance
+  websocket: S.Option(S.instanceOf(WebSocket)), // WebSocket instance
   lastConnectedAt: S.Option(S.Date),
   connectionAttempts: S.Number,
   lastError: S.Option(S.String)

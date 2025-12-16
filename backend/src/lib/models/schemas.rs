@@ -6,6 +6,7 @@ use uuid::Uuid;
 use std::sync::Arc;
 use mediasoup::prelude::*;
 use mediasoup_types::data_structures::{DtlsRole, DtlsFingerprint};
+use mediasoup_types::rtp_parameters::{RtpCodecParametersParametersValue, RtpHeaderExtensionDirection};
 use dashmap::DashMap;
 use arc_swap::ArcSwap;
 
@@ -46,6 +47,19 @@ pub struct IceCandidateSchema {
 
 
 
+/// Helper function to format hex bytes with colons (RFC 4572 format)
+fn format_hex_with_colons(bytes: &[u8]) -> String {
+    let hex_string = hex::encode_upper(bytes);
+    // Insert colons between every 2 characters
+    hex_string
+        .chars()
+        .collect::<Vec<_>>()
+        .chunks(2)
+        .map(|chunk| chunk.iter().collect::<String>())
+        .collect::<Vec<_>>()
+        .join(":")
+}
+
 /// DTLS fingerprint wrapper with proper serialization
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, ToSchema)]
 pub struct DtlsFingerprintWrapper {
@@ -60,23 +74,23 @@ impl From<DtlsFingerprint> for DtlsFingerprintWrapper {
         match fp {
             DtlsFingerprint::Sha1 { value } => Self {
                 algorithm: "sha-1".to_string(),
-                value: hex::encode(value),
+                value: format_hex_with_colons(&value),
             },
             DtlsFingerprint::Sha224 { value } => Self {
                 algorithm: "sha-224".to_string(),
-                value: hex::encode(value),
+                value: format_hex_with_colons(&value),
             },
             DtlsFingerprint::Sha256 { value } => Self {
                 algorithm: "sha-256".to_string(),
-                value: hex::encode(value),
+                value: format_hex_with_colons(&value),
             },
             DtlsFingerprint::Sha384 { value } => Self {
                 algorithm: "sha-384".to_string(),
-                value: hex::encode(value),
+                value: format_hex_with_colons(&value),
             },
             DtlsFingerprint::Sha512 { value } => Self {
                 algorithm: "sha-512".to_string(),
-                value: hex::encode(value),
+                value: format_hex_with_colons(&value),
             },
         }
     }
@@ -191,29 +205,159 @@ pub struct TransportOptions {
     pub sctp_parameters: Option<serde_json::Value>,
 }
 
+/// RTP codec capability wrapper with proper typing
+/// 
+/// Strongly typed representation of MediaSoup's RtpCodecCapability::Audio variant
+/// ensuring no undefined/unknown fields in frontend.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct RtpCodecCapabilityWrapper {
+    /// Media kind - always "audio" for HushFM
+    pub kind: String,
+    /// Codec MIME type (e.g., "audio/opus", "audio/PCMU")
+    pub mime_type: String,
+    /// Preferred payload type (96-127 for dynamic types)
+    pub preferred_payload_type: Option<u8>,
+    /// Codec clock rate in Hz (e.g., 48000 for Opus)
+    pub clock_rate: u32,
+    /// Number of audio channels (1 for mono, 2 for stereo)
+    pub channels: u8,
+    /// Codec-specific parameters (e.g., Opus: stereo=1, useinbandfec=1)
+    pub parameters: std::collections::BTreeMap<String, String>,
+    /// RTCP feedback mechanisms
+    pub rtcp_feedback: Vec<RtcpFeedbackWrapper>,
+}
+
+/// RTP header extension wrapper with proper typing
+/// 
+/// Strongly typed representation of MediaSoup's RtpHeaderExtension
+/// for audio streaming extensions like audio level and transport-wide CC.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct RtpHeaderExtensionWrapper {
+    /// Media kind - always "audio" for HushFM
+    pub kind: String,
+    /// Extension URI (e.g., "urn:ietf:params:rtp-hdrext:ssrc-audio-level")
+    pub uri: String,
+    /// Preferred numeric identifier (1-14)
+    pub preferred_id: u16,
+    /// Encryption preference (currently unused by MediaSoup)
+    pub preferred_encrypt: bool,
+    /// Direction capability ("sendrecv", "sendonly", "recvonly")
+    pub direction: String,
+}
+
+/// RTCP feedback mechanism wrapper
+/// 
+/// Represents transport and codec feedback for network adaptation
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct RtcpFeedbackWrapper {
+    /// Feedback type (e.g., "transport-cc", "nack")
+    pub r#type: String,
+    /// Optional parameter (most feedback types don't need this)
+    pub parameter: Option<String>,
+}
+
 /// RTP capabilities wrapper for API serialization
 ///
-/// Wraps MediaSoup's RtpCapabilities with proper JsonSchema support for OpenAPI generation.
-/// This ensures the frontend gets properly typed schemas while maintaining compatibility
-/// with MediaSoup's native types.
+/// Strongly typed wrapper for MediaSoup's RtpCapabilities ensuring no undefined fields.
+/// This provides full type safety for frontend while maintaining MediaSoup compatibility.
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, ToSchema)]
+#[serde(rename_all = "camelCase")]
 pub struct RtpCapabilitiesWrapper {
-    /// Supported codecs with their capabilities
-    pub codecs: Vec<serde_json::Value>,
-    /// Supported RTP header extensions
-    #[serde(rename = "headerExtensions")]
-    pub header_extensions: Vec<serde_json::Value>,
-    /// Forward Error Correction mechanisms (optional)
-    #[serde(rename = "fecMechanisms", default)]
-    pub fec_mechanisms: Vec<serde_json::Value>,
+    /// Supported codecs with their complete configuration
+    pub codecs: Vec<RtpCodecCapabilityWrapper>,
+    /// Supported RTP header extensions for audio streaming
+    pub header_extensions: Vec<RtpHeaderExtensionWrapper>,
+}
+
+/// Helper function to convert MediaSoup RTP parameters to strongly typed map
+fn convert_rtp_parameters(params: mediasoup::prelude::RtpCodecParametersParameters) -> std::collections::BTreeMap<String, String> {
+    let mut result = std::collections::BTreeMap::new();
+    
+    for (key, value) in params.iter() {
+        let string_value = match value {
+            RtpCodecParametersParametersValue::String(s) => s.to_string(),
+            RtpCodecParametersParametersValue::Number(n) => n.to_string(),
+        };
+        result.insert(key.to_string(), string_value);
+    }
+    result
+}
+
+/// Helper function to convert MediaSoup RTCP feedback to wrapper
+fn convert_rtcp_feedback(feedback: mediasoup::prelude::RtcpFeedback) -> RtcpFeedbackWrapper {
+    match feedback {
+        mediasoup::prelude::RtcpFeedback::Nack => RtcpFeedbackWrapper {
+            r#type: "nack".to_string(),
+            parameter: None,
+        },
+        mediasoup::prelude::RtcpFeedback::NackPli => RtcpFeedbackWrapper {
+            r#type: "nack".to_string(),
+            parameter: Some("pli".to_string()),
+        },
+        mediasoup::prelude::RtcpFeedback::CcmFir => RtcpFeedbackWrapper {
+            r#type: "ccm".to_string(),
+            parameter: Some("fir".to_string()),
+        },
+        mediasoup::prelude::RtcpFeedback::GoogRemb => RtcpFeedbackWrapper {
+            r#type: "goog-remb".to_string(),
+            parameter: None,
+        },
+        mediasoup::prelude::RtcpFeedback::TransportCc => RtcpFeedbackWrapper {
+            r#type: "transport-cc".to_string(),
+            parameter: None,
+        },
+        _ => RtcpFeedbackWrapper {
+            r#type: "unknown".to_string(),
+            parameter: None,
+        },
+    }
 }
 
 impl From<mediasoup::prelude::RtpCapabilities> for RtpCapabilitiesWrapper {
     fn from(caps: mediasoup::prelude::RtpCapabilities) -> Self {
         Self {
-            codecs: serde_json::to_value(&caps.codecs).unwrap_or_default().as_array().cloned().unwrap_or_default(),
-            header_extensions: serde_json::to_value(&caps.header_extensions).unwrap_or_default().as_array().cloned().unwrap_or_default(),
-            fec_mechanisms: vec![], // MediaSoup doesn't always include FEC mechanisms
+            codecs: caps.codecs.into_iter().filter_map(|codec| {
+                // Only convert audio codecs for HushFM
+                match codec {
+                    mediasoup::prelude::RtpCodecCapability::Audio {
+                        mime_type,
+                        preferred_payload_type,
+                        clock_rate,
+                        channels,
+                        parameters,
+                        rtcp_feedback,
+                    } => Some(RtpCodecCapabilityWrapper {
+                        kind: "audio".to_string(),
+                        mime_type: format!("audio/{}", mime_type.as_str().to_lowercase()),
+                        preferred_payload_type,
+                        clock_rate: clock_rate.get(),
+                        channels: channels.get(),
+                        parameters: convert_rtp_parameters(parameters),
+                        rtcp_feedback: rtcp_feedback.into_iter().map(convert_rtcp_feedback).collect(),
+                    }),
+                    _ => None, // Skip video codecs
+                }
+            }).collect(),
+            header_extensions: caps.header_extensions.into_iter().map(|ext| {
+                RtpHeaderExtensionWrapper {
+                    kind: match ext.kind {
+                        mediasoup::prelude::MediaKind::Audio => "audio".to_string(),
+                        mediasoup::prelude::MediaKind::Video => "video".to_string(),
+                    },
+                    uri: ext.uri.as_str().to_string(),
+                    preferred_id: ext.preferred_id,
+                    preferred_encrypt: ext.preferred_encrypt,
+                    direction: match ext.direction {
+                        RtpHeaderExtensionDirection::SendRecv => "sendrecv".to_string(),
+                        RtpHeaderExtensionDirection::SendOnly => "sendonly".to_string(),
+                        RtpHeaderExtensionDirection::RecvOnly => "recvonly".to_string(),
+                        RtpHeaderExtensionDirection::Inactive => "inactive".to_string(),
+                    },
+                }
+            }).collect(),
         }
     }
 }
@@ -221,26 +365,65 @@ impl From<mediasoup::prelude::RtpCapabilities> for RtpCapabilitiesWrapper {
 impl From<mediasoup::prelude::RtpCapabilitiesFinalized> for RtpCapabilitiesWrapper {
     fn from(caps: mediasoup::prelude::RtpCapabilitiesFinalized) -> Self {
         Self {
-            codecs: serde_json::to_value(&caps.codecs).unwrap_or_default().as_array().cloned().unwrap_or_default(),
-            header_extensions: serde_json::to_value(&caps.header_extensions).unwrap_or_default().as_array().cloned().unwrap_or_default(),
-            fec_mechanisms: vec![], // MediaSoup doesn't always include FEC mechanisms
+            codecs: caps.codecs.into_iter().filter_map(|codec| {
+                // Convert finalized codecs - they don't have the enum structure so we need different handling
+                // For now, use a simplified approach with serialize/deserialize
+                if let Ok(codec_value) = serde_json::to_value(&codec) {
+                    if let Some(mime_type) = codec_value.get("mimeType").and_then(|v| v.as_str()) {
+                        if mime_type.starts_with("audio/") {
+                            return Some(RtpCodecCapabilityWrapper {
+                                kind: "audio".to_string(),
+                                mime_type: mime_type.to_string(),
+                                preferred_payload_type: codec_value.get("preferredPayloadType").and_then(|v| v.as_u64()).map(|v| v as u8),
+                                clock_rate: codec_value.get("clockRate").and_then(|v| v.as_u64()).unwrap_or(0) as u32,
+                                channels: codec_value.get("channels").and_then(|v| v.as_u64()).unwrap_or(1) as u8,
+                                parameters: codec_value.get("parameters").and_then(|v| v.as_object())
+                                    .map(|obj| obj.iter().map(|(k, v)| (k.clone(), v.as_str().unwrap_or("").to_string())).collect())
+                                    .unwrap_or_default(),
+                                rtcp_feedback: codec_value.get("rtcpFeedback").and_then(|v| v.as_array())
+                                    .map(|arr| arr.iter().filter_map(|fb| {
+                                        fb.get("type").and_then(|t| t.as_str()).map(|t| RtcpFeedbackWrapper {
+                                            r#type: t.to_string(),
+                                            parameter: fb.get("parameter").and_then(|p| p.as_str()).map(|s| s.to_string()),
+                                        })
+                                    }).collect())
+                                    .unwrap_or_default(),
+                            });
+                        }
+                    }
+                }
+                None
+            }).collect(),
+            header_extensions: caps.header_extensions.into_iter().map(|ext| {
+                RtpHeaderExtensionWrapper {
+                    kind: match ext.kind {
+                        mediasoup::prelude::MediaKind::Audio => "audio".to_string(),
+                        mediasoup::prelude::MediaKind::Video => "video".to_string(),
+                    },
+                    uri: ext.uri.as_str().to_string(),
+                    preferred_id: ext.preferred_id,
+                    preferred_encrypt: ext.preferred_encrypt,
+                    direction: match ext.direction {
+                        RtpHeaderExtensionDirection::SendRecv => "sendrecv".to_string(),
+                        RtpHeaderExtensionDirection::SendOnly => "sendonly".to_string(),
+                        RtpHeaderExtensionDirection::RecvOnly => "recvonly".to_string(),
+                        RtpHeaderExtensionDirection::Inactive => "inactive".to_string(),
+                    },
+                }
+            }).collect(),
         }
     }
 }
 
 /// Convert from our wrapper back to MediaSoup type (for use with MediaSoup APIs)
+/// Note: This is simplified for now since we primarily send capabilities backend → frontend
 impl TryFrom<RtpCapabilitiesWrapper> for mediasoup::prelude::RtpCapabilities {
-    type Error = serde_json::Error;
+    type Error = anyhow::Error;
 
-    fn try_from(wrapper: RtpCapabilitiesWrapper) -> Result<Self, Self::Error> {
-        // Create a JSON object matching MediaSoup's expected format
-        let json_value = serde_json::json!({
-            "codecs": wrapper.codecs,
-            "headerExtensions": wrapper.header_extensions,
-            "fecMechanisms": wrapper.fec_mechanisms
-        });
-
-        serde_json::from_value(json_value)
+    fn try_from(_wrapper: RtpCapabilitiesWrapper) -> Result<Self, Self::Error> {
+        // For now, this is a simplified conversion since we mainly send capabilities one way
+        // In the future, we could implement full reverse conversion if needed
+        Err(anyhow::anyhow!("Conversion from wrapper back to MediaSoup type not yet implemented - capabilities are generated by backend"))
     }
 }
 

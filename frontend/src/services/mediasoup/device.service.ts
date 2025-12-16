@@ -146,11 +146,55 @@ class MediaSoupDeviceServiceImpl implements MediaSoupDeviceService {
           console.info('📡 Loading device with router RTP capabilities', {
             router_capabilities: routerRtpCapabilities,
             codec_count: routerRtpCapabilities.codecs?.length || 0,
-            header_extensions_count: routerRtpCapabilities.headerExtensions?.length || 0
+            header_extensions_count: routerRtpCapabilities.headerExtensions?.length || 0,
+            device_state: {
+              loaded: device.loaded,
+              handler_name: device.handlerName || 'not-detected'
+            }
           })
 
-          // Load device with router capabilities
-          await device.load({ routerRtpCapabilities })
+          // Check browser permissions before device loading to avoid deadlocks
+          await this.checkBrowserCapabilities()
+
+          try {
+            // Load device with router capabilities
+            console.info('🔄 Calling device.load() with router capabilities...')
+            await device.load({ routerRtpCapabilities })
+            console.info('✅ device.load() completed successfully')
+          } catch (loadError) {
+            // Enhanced error logging for device loading failures
+            // IMPORTANT: Don't access device properties when device loading failed
+            console.error('❌ device.load() failed:', {
+              error_name: loadError instanceof Error ? loadError.name : 'Unknown',
+              error_message: loadError instanceof Error ? loadError.message : String(loadError),
+              error_stack: loadError instanceof Error ? loadError.stack : undefined,
+              device_state_before_load: {
+                handler_name: device.handlerName,
+                loaded_before: false // Device is never loaded before load() call
+              },
+              router_capabilities_summary: {
+                codec_count: routerRtpCapabilities.codecs?.length || 0,
+                first_codec: routerRtpCapabilities.codecs?.[0]?.mimeType || 'none',
+                header_ext_count: routerRtpCapabilities.headerExtensions?.length || 0
+              },
+              browser_info: {
+                user_agent: navigator.userAgent,
+                webrtc_support: 'RTCPeerConnection' in window,
+                media_devices_support: 'mediaDevices' in navigator
+              }
+            })
+            
+            // Re-throw with enhanced context - don't access device.rtpCapabilities here
+            if (loadError instanceof Error) {
+              throw new Error(`MediaSoup device.load() failed: ${loadError.name}: ${loadError.message}`)
+            }
+            throw loadError
+          }
+
+          // Only access device properties after successful loading
+          if (!device.loaded) {
+            throw new Error('Device.load() completed but device.loaded is false')
+          }
 
           // Log successful device loading with capabilities
           console.info('✅ MediaSoup Device loaded successfully', {
@@ -162,13 +206,70 @@ class MediaSoupDeviceServiceImpl implements MediaSoupDeviceService {
             effective_codec_count: device.rtpCapabilities.codecs?.length || 0
           })
         },
-        catch: (error) => new DeviceLoadError(
-          `Failed to load device: ${error}`,
-          error
-        )
+        catch: (error) => {
+          // Enhanced error context for Effect error handling
+          const errorMessage = error instanceof Error ? error.message : String(error)
+          const errorName = error instanceof Error ? error.name : 'UnknownError'
+          
+          console.error('❌ Device loading failed in Effect wrapper:', {
+            error_name: errorName,
+            error_message: errorMessage,
+            error_cause: error
+          })
+          
+          return new DeviceLoadError(
+            `Failed to load MediaSoup device: ${errorName}: ${errorMessage}`,
+            error
+          )
+        }
       }),
       Effect.tap(() => Effect.logInfo('Device loaded with router capabilities'))
     )
+
+  /**
+   * Check browser capabilities without triggering permission requests that could deadlock
+   */
+  private checkBrowserCapabilities = async (): Promise<void> => {
+    console.info('🔍 Checking browser capabilities before device loading...')
+    
+    // Check basic WebRTC support
+    if (!('RTCPeerConnection' in window)) {
+      throw new Error('Browser does not support WebRTC (RTCPeerConnection not available)')
+    }
+    
+    if (!('mediaDevices' in navigator)) {
+      throw new Error('Browser does not support MediaDevices API')
+    }
+    
+    if (!('getUserMedia' in navigator.mediaDevices)) {
+      throw new Error('Browser does not support getUserMedia')
+    }
+    
+    // Smart permission check - only query if browser supports it and won't deadlock
+    try {
+      if ('permissions' in navigator && 'query' in navigator.permissions) {
+        console.info('🔍 Checking microphone permission status...')
+        const permissionStatus = await navigator.permissions.query({ name: 'microphone' as PermissionName })
+        console.info('🎤 Microphone permission status:', {
+          state: permissionStatus.state,
+          supported: true
+        })
+        
+        // Only warn if explicitly denied - 'prompt' state is fine for MediaSoup
+        if (permissionStatus.state === 'denied') {
+          console.warn('⚠️ Microphone permission denied - device loading may fail')
+          // Don't throw here - let MediaSoup handle permission request during device.load()
+        }
+      } else {
+        console.info('📋 Permission API not supported - will rely on MediaSoup permission handling')
+      }
+    } catch (permissionError) {
+      // Permission query failed - just log and continue
+      console.warn('⚠️ Permission check failed (non-fatal):', permissionError)
+    }
+    
+    console.info('✅ Browser capabilities check completed')
+  }
 
   /**
    * Check if device can produce audio

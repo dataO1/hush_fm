@@ -4,7 +4,9 @@
 /// producer management, and DJ lifecycle according to the reference implementation.
 
 use mediasoup::prelude::*;
+use mediasoup::transport::{TransportTraceEventType, TransportTraceEventData};
 use mediasoup_types::data_structures::DtlsRole;
+use mediasoup_types::rtp_parameters::{RtpHeaderExtensionDirection, RtpHeaderExtension};
 use std::sync::Arc;
 use anyhow::Result;
 use serde_json::Value;
@@ -60,24 +62,63 @@ impl DJ {
     /// Step 6: Create sender transport for DJ using room's router
     #[tracing::instrument(skip(self, router), fields(dj_id = %self.dj_id, room_id = %self.room_id))]
     pub async fn create_sender_transport(&mut self, router: &Router) -> Result<TransportOptions> {
-        // Use local IP detection for WiFi-optimized transport
+        // Use both localhost and local IP for robust connectivity
         let local_ip = crate::lib::utils::get_local_ip()?;
         
-        tracing::info!("Creating DJ sender transport. Announcing IP: {}", local_ip);
+        tracing::info!("Creating DJ sender transport with localhost and local IP support");
+        tracing::info!("  - Localhost: 127.0.0.1 (for local browser clients)");
+        tracing::info!("  - Local IP: {} (for network clients)", local_ip);
 
-        let mut transport_options = WebRtcTransportOptions::new(
-            WebRtcTransportListenInfos::new(ListenInfo {
-                protocol: Protocol::Udp,
-                ip: local_ip,
-                announced_address: Some(local_ip.to_string()),
-                expose_internal_ip: false,
-                port: None,
-                port_range: Some(40000..=49999),
-                flags: None,
-                send_buffer_size: None,
-                recv_buffer_size: None,
-            })
-        );
+        // Start with localhost UDP for browser clients
+        let listen_infos = WebRtcTransportListenInfos::new(ListenInfo {
+            protocol: Protocol::Udp,
+            ip: "127.0.0.1".parse()?,
+            announced_address: None, // No announced address for localhost
+            expose_internal_ip: false,
+            port: None,
+            port_range: Some(10000..=59999), // Align with worker port range
+            flags: None,
+            send_buffer_size: None,
+            recv_buffer_size: None,
+        })
+        // Add localhost TCP fallback
+        .insert(ListenInfo {
+            protocol: Protocol::Tcp,
+            ip: "127.0.0.1".parse()?,
+            announced_address: None,
+            expose_internal_ip: false,
+            port: None,
+            port_range: Some(10000..=59999),
+            flags: None,
+            send_buffer_size: None,
+            recv_buffer_size: None,
+        })
+        // Add local network UDP for mobile/network clients
+        .insert(ListenInfo {
+            protocol: Protocol::Udp,
+            ip: local_ip,
+            announced_address: Some(local_ip.to_string()),
+            expose_internal_ip: false,
+            port: None,
+            port_range: Some(10000..=59999),
+            flags: None,
+            send_buffer_size: None,
+            recv_buffer_size: None,
+        })
+        // Add local network TCP fallback
+        .insert(ListenInfo {
+            protocol: Protocol::Tcp,
+            ip: local_ip,
+            announced_address: Some(local_ip.to_string()),
+            expose_internal_ip: false,
+            port: None,
+            port_range: Some(10000..=59999),
+            flags: None,
+            send_buffer_size: None,
+            recv_buffer_size: None,
+        });
+
+        let mut transport_options = WebRtcTransportOptions::new(listen_infos);
 
         // Optimize for local WiFi network sending
         transport_options.enable_udp = true;
@@ -97,6 +138,40 @@ impl DJ {
             dtls_state = ?transport.dtls_state(),
             "DJ sender transport created successfully"
         );
+
+        // Enable transport trace events for debugging ICE/DTLS connectivity
+        transport.enable_trace_event(vec![
+            TransportTraceEventType::Probation,
+            TransportTraceEventType::Bwe
+        ]).await?;
+        
+        // Add transport event listener for connection monitoring  
+        let transport_id_for_events = transport_id.clone();
+        let dj_id_for_events = self.dj_id.clone();
+        let _trace_handler = transport.on_trace(Arc::new(move |trace_event: &TransportTraceEventData| {
+            match trace_event {
+                TransportTraceEventData::Probation { timestamp, direction, info } => {
+                    tracing::info!(
+                        transport_id = %transport_id_for_events,
+                        dj_id = %dj_id_for_events,
+                        event_type = "probation",
+                        timestamp = %timestamp,
+                        direction = ?direction,
+                        "DJ Transport Probation Event: {:?}", info
+                    );
+                },
+                TransportTraceEventData::Bwe { timestamp, direction, info } => {
+                    tracing::info!(
+                        transport_id = %transport_id_for_events,
+                        dj_id = %dj_id_for_events,
+                        event_type = "bwe",
+                        timestamp = %timestamp,
+                        direction = ?direction,
+                        "DJ Transport BWE Event: {:?}", info
+                    );
+                }
+            }
+        }));
 
         // Generate transport options for client
         let client_transport_options = self.generate_transport_options(&transport).await?;
@@ -440,18 +515,35 @@ impl DJ {
     }
 
     /// Get preferred audio codec capabilities for MediaSoup routers
+    /// Optimized for high-quality music streaming with low latency
     pub fn get_preferred_audio_capabilities() -> Vec<RtpCodecCapability> {
+        // Create music-optimized Opus parameters
+        let mut opus_params = RtpCodecParametersParameters::default();
+        
+        // Essential Opus parameters for high-quality music streaming
+        opus_params.insert("useinbandfec", "1");  // Forward Error Correction for packet loss
+        opus_params.insert("stereo", "1");        // Enable stereo encoding
+        opus_params.insert("sprop-stereo", "1");  // Signal stereo preference to receiver
+        opus_params.insert("maxaveragebitrate", "320000"); // 320kbps for music quality
+        opus_params.insert("maxplaybackrate", "48000");    // Full 48kHz bandwidth
+        opus_params.insert("ptime", "20");        // 20ms frame size for low latency
+        opus_params.insert("minptime", "3");      // Allow down to 3ms for ultra-low latency
+        opus_params.insert("maxptime", "60");     // Allow up to 60ms if needed
+        
         vec![
-            // Opus - preferred for high quality audio
+            // Opus - optimized for high-quality music streaming
             RtpCodecCapability::Audio {
                 mime_type: MimeTypeAudio::Opus,
                 preferred_payload_type: Some(111),
-                clock_rate: NonZero::new(48000).unwrap(),
-                channels: NonZero::new(2).unwrap(), // Stereo
-                parameters: RtpCodecParametersParameters::default(),
-                rtcp_feedback: vec![],
+                clock_rate: NonZero::new(48000).unwrap(), // 48kHz for full audio bandwidth
+                channels: NonZero::new(2).unwrap(), // Stereo for music
+                parameters: opus_params,
+                rtcp_feedback: vec![
+                    RtcpFeedback::TransportCc, // Transport-wide congestion control for network adaptation
+                    RtcpFeedback::Nack,        // NACK for packet loss recovery
+                ],
             },
-            // PCMU - fallback
+            // PCMU - fallback for compatibility
             RtpCodecCapability::Audio {
                 mime_type: MimeTypeAudio::Pcmu,
                 preferred_payload_type: Some(0),
@@ -460,7 +552,7 @@ impl DJ {
                 parameters: RtpCodecParametersParameters::default(),
                 rtcp_feedback: vec![],
             },
-            // PCMA - fallback
+            // PCMA - fallback for compatibility
             RtpCodecCapability::Audio {
                 mime_type: MimeTypeAudio::Pcma,
                 preferred_payload_type: Some(8),
@@ -468,6 +560,45 @@ impl DJ {
                 channels: NonZero::new(1).unwrap(),
                 parameters: RtpCodecParametersParameters::default(),
                 rtcp_feedback: vec![],
+            },
+        ]
+    }
+
+    /// Get essential audio header extensions for MediaSoup routers
+    /// These extensions provide audio level monitoring and network adaptation for music streaming
+    pub fn get_preferred_header_extensions() -> Vec<RtpHeaderExtension> {
+        vec![
+            // Audio level extension - provides volume information in RTP header
+            RtpHeaderExtension {
+                kind: MediaKind::Audio,
+                uri: RtpHeaderExtensionUri::AudioLevel, // urn:ietf:params:rtp-hdrext:ssrc-audio-level
+                preferred_id: 1,
+                preferred_encrypt: false,
+                direction: RtpHeaderExtensionDirection::SendRecv,
+            },
+            // Transport-wide congestion control - essential for network adaptation
+            RtpHeaderExtension {
+                kind: MediaKind::Audio,
+                uri: RtpHeaderExtensionUri::TransportWideCcDraft01, // http://www.ietf.org/id/draft-holmer-rmcat-transport-wide-cc-extensions-01
+                preferred_id: 5,
+                preferred_encrypt: false,
+                direction: RtpHeaderExtensionDirection::SendRecv,
+            },
+            // Absolute send time - provides timing information for synchronization
+            RtpHeaderExtension {
+                kind: MediaKind::Audio,
+                uri: RtpHeaderExtensionUri::AbsSendTime, // http://www.webrtc.org/experiments/rtp-hdrext/abs-send-time
+                preferred_id: 4,
+                preferred_encrypt: false,
+                direction: RtpHeaderExtensionDirection::SendRecv,
+            },
+            // Time offset - provides timestamp offset for enhanced timing
+            RtpHeaderExtension {
+                kind: MediaKind::Audio,
+                uri: RtpHeaderExtensionUri::TimeOffset, // urn:ietf:params:rtp-hdrext:toffset
+                preferred_id: 2,
+                preferred_encrypt: false,
+                direction: RtpHeaderExtensionDirection::SendRecv,
             },
         ]
     }

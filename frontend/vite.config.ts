@@ -22,11 +22,15 @@ export default defineConfig({
     port: 5173,
     host: true, // This listens on 0.0.0.0 (ALL interfaces)
     strictPort: true, // Fail if port 5173 is taken
+    https: {
+      key: '../tls/server.key',
+      cert: '../tls/server.crt',
+    },
     proxy: {
       '/api': {
-        target: 'http://localhost:3000', // Only relevant if you use /api/... locally
+        target: 'https://localhost:3443', // Updated to use HTTPS backend
         changeOrigin: true,
-        secure: false
+        secure: false // Allow self-signed certificates in development
       },
     },
   },

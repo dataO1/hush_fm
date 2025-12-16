@@ -48,7 +48,7 @@ export const connectToLobbyWebSocket = (): Effect.Effect<WebSocket, LobbyConnect
       ErrorFactories.lobbyConnectionError(
         'Failed to connect to lobby WebSocket',
         'connect_to_lobby',
-        { url: 'ws://localhost:3000/ws/lobby', originalError: error }
+        { url: 'wss://localhost:3443/ws/lobby', originalError: error }
       )
     ),
     Effect.tap(() => Effect.logInfo('Connected to lobby WebSocket'))

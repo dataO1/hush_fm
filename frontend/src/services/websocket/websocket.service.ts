@@ -317,12 +317,12 @@ export const subscribeToMessages = <T extends LobbyEvent | DjEvent | ListenerEve
  * WebSocket connection helper for different roles
  */
 export const connectToLobby = (): Effect.Effect<WebSocket, WebSocketConnectionError> =>
-  connectWebSocket({ url: 'ws://localhost:3000/ws/lobby' })
+  connectWebSocket({ url: `wss://${window.location.hostname}:3443/ws/lobby` })
 
 export const connectToDjRoom = (roomId: string): Effect.Effect<WebSocket, WebSocketConnectionError> =>
-  connectWebSocket({ url: `ws://localhost:3000/ws/dj/${roomId}` })
+  connectWebSocket({ url: `wss://${window.location.hostname}:3443/ws/room/${roomId}` })
 
 export const connectToListenerRoom = (roomId: string): Effect.Effect<WebSocket, WebSocketConnectionError> =>
-  connectWebSocket({ url: `ws://localhost:3000/ws/listen/${roomId}` })
+  connectWebSocket({ url: `wss://${window.location.hostname}:3443/ws/listen/${roomId}` })
 
 // Managed connection removed for simplicity - use individual connection functions above

@@ -4,6 +4,7 @@
 /// consumer management, and listener lifecycle according to the reference implementation.
 
 use mediasoup::prelude::*;
+use mediasoup::transport::{TransportTraceEventType, TransportTraceEventData};
 use mediasoup_types::data_structures::DtlsRole;
 use std::sync::Arc;
 use anyhow::Result;
@@ -61,24 +62,63 @@ impl Listener {
     /// Step 2: Create receiver transport for listener using room's router
     #[tracing::instrument(skip(self, router), fields(listener_id = %self.listener_id, room_id = %self.room_id))]
     pub async fn create_receiver_transport(&mut self, router: &Router) -> Result<TransportOptions> {
-        // Use local IP detection for WiFi-optimized transport
+        // Use both localhost and local IP for robust connectivity
         let local_ip = crate::lib::utils::get_local_ip()?;
         
-        tracing::info!("Creating listener receiver transport. Announcing IP: {}", local_ip);
+        tracing::info!("Creating listener receiver transport with localhost and local IP support");
+        tracing::info!("  - Localhost: 127.0.0.1 (for local browser clients)");
+        tracing::info!("  - Local IP: {} (for network clients)", local_ip);
 
-        let mut transport_options = WebRtcTransportOptions::new(
-            WebRtcTransportListenInfos::new(ListenInfo {
-                protocol: Protocol::Udp,
-                ip: local_ip,
-                announced_address: Some(local_ip.to_string()),
-                expose_internal_ip: false,
-                port: None,
-                port_range: Some(40000..=49999),
-                flags: None,
-                send_buffer_size: None,
-                recv_buffer_size: None,
-            })
-        );
+        // Start with localhost UDP for browser clients
+        let listen_infos = WebRtcTransportListenInfos::new(ListenInfo {
+            protocol: Protocol::Udp,
+            ip: "127.0.0.1".parse()?,
+            announced_address: None, // No announced address for localhost
+            expose_internal_ip: false,
+            port: None,
+            port_range: Some(10000..=59999), // Align with worker port range
+            flags: None,
+            send_buffer_size: None,
+            recv_buffer_size: None,
+        })
+        // Add localhost TCP fallback
+        .insert(ListenInfo {
+            protocol: Protocol::Tcp,
+            ip: "127.0.0.1".parse()?,
+            announced_address: None,
+            expose_internal_ip: false,
+            port: None,
+            port_range: Some(10000..=59999),
+            flags: None,
+            send_buffer_size: None,
+            recv_buffer_size: None,
+        })
+        // Add local network UDP for mobile/network clients
+        .insert(ListenInfo {
+            protocol: Protocol::Udp,
+            ip: local_ip,
+            announced_address: Some(local_ip.to_string()),
+            expose_internal_ip: false,
+            port: None,
+            port_range: Some(10000..=59999),
+            flags: None,
+            send_buffer_size: None,
+            recv_buffer_size: None,
+        })
+        // Add local network TCP fallback
+        .insert(ListenInfo {
+            protocol: Protocol::Tcp,
+            ip: local_ip,
+            announced_address: Some(local_ip.to_string()),
+            expose_internal_ip: false,
+            port: None,
+            port_range: Some(10000..=59999),
+            flags: None,
+            send_buffer_size: None,
+            recv_buffer_size: None,
+        });
+
+        let mut transport_options = WebRtcTransportOptions::new(listen_infos);
 
         // Optimize for local WiFi network receiving
         transport_options.enable_udp = true;
@@ -98,6 +138,40 @@ impl Listener {
             dtls_state = ?transport.dtls_state(),
             "Listener receiver transport created successfully"
         );
+
+        // Enable transport trace events for debugging ICE/DTLS connectivity
+        transport.enable_trace_event(vec![
+            TransportTraceEventType::Probation,
+            TransportTraceEventType::Bwe
+        ]).await?;
+        
+        // Add transport event listener for connection monitoring
+        let transport_id_for_events = transport_id.clone();
+        let listener_id_for_events = self.listener_id.clone();
+        let _trace_handler = transport.on_trace(Arc::new(move |trace_event: &TransportTraceEventData| {
+            match trace_event {
+                TransportTraceEventData::Probation { timestamp, direction, info } => {
+                    tracing::info!(
+                        transport_id = %transport_id_for_events,
+                        listener_id = %listener_id_for_events,
+                        event_type = "probation",
+                        timestamp = %timestamp,
+                        direction = ?direction,
+                        "Listener Transport Probation Event: {:?}", info
+                    );
+                },
+                TransportTraceEventData::Bwe { timestamp, direction, info } => {
+                    tracing::info!(
+                        transport_id = %transport_id_for_events,
+                        listener_id = %listener_id_for_events,
+                        event_type = "bwe",
+                        timestamp = %timestamp,
+                        direction = ?direction,
+                        "Listener Transport BWE Event: {:?}", info
+                    );
+                }
+            }
+        }));
 
         // Generate transport options for client
         let client_transport_options = self.generate_transport_options(&transport).await?;

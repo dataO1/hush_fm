@@ -190,19 +190,98 @@ export interface RoomInfoResponse {
 }
 
 /**
+ * Optional parameter (most feedback types don't need this)
+ */
+export type RtcpFeedbackWrapperParameter = string | null;
+
+/**
+ * RTCP feedback mechanism wrapper
+
+Represents transport and codec feedback for network adaptation
+ */
+export interface RtcpFeedbackWrapper {
+  /** Optional parameter (most feedback types don't need this) */
+  parameter?: RtcpFeedbackWrapperParameter;
+  /** Feedback type (e.g., "transport-cc", "nack") */
+  type: string;
+}
+
+/**
  * RTP capabilities wrapper for API serialization
 
-Wraps MediaSoup's RtpCapabilities with proper JsonSchema support for OpenAPI generation.
-This ensures the frontend gets properly typed schemas while maintaining compatibility
-with MediaSoup's native types.
+Strongly typed wrapper for MediaSoup's RtpCapabilities ensuring no undefined fields.
+This provides full type safety for frontend while maintaining MediaSoup compatibility.
  */
 export interface RtpCapabilitiesWrapper {
-  /** Supported codecs with their capabilities */
-  codecs: unknown[];
-  /** Forward Error Correction mechanisms (optional) */
-  fecMechanisms?: unknown[];
-  /** Supported RTP header extensions */
-  headerExtensions: unknown[];
+  /** Supported codecs with their complete configuration */
+  codecs: RtpCodecCapabilityWrapper[];
+  /** Supported RTP header extensions for audio streaming */
+  headerExtensions: RtpHeaderExtensionWrapper[];
+}
+
+/**
+ * Codec-specific parameters (e.g., Opus: stereo=1, useinbandfec=1)
+ */
+export type RtpCodecCapabilityWrapperParameters = {[key: string]: string};
+
+/**
+ * Preferred payload type (96-127 for dynamic types)
+ * @minimum 0
+ */
+export type RtpCodecCapabilityWrapperPreferredPayloadType = number | null;
+
+/**
+ * RTP codec capability wrapper with proper typing
+
+Strongly typed representation of MediaSoup's RtpCodecCapability::Audio variant
+ensuring no undefined/unknown fields in frontend.
+ */
+export interface RtpCodecCapabilityWrapper {
+  /**
+   * Number of audio channels (1 for mono, 2 for stereo)
+   * @minimum 0
+   */
+  channels: number;
+  /**
+   * Codec clock rate in Hz (e.g., 48000 for Opus)
+   * @minimum 0
+   */
+  clockRate: number;
+  /** Media kind - always "audio" for HushFM */
+  kind: string;
+  /** Codec MIME type (e.g., "audio/opus", "audio/PCMU") */
+  mimeType: string;
+  /** Codec-specific parameters (e.g., Opus: stereo=1, useinbandfec=1) */
+  parameters: RtpCodecCapabilityWrapperParameters;
+  /**
+   * Preferred payload type (96-127 for dynamic types)
+   * @minimum 0
+   */
+  preferredPayloadType?: RtpCodecCapabilityWrapperPreferredPayloadType;
+  /** RTCP feedback mechanisms */
+  rtcpFeedback: RtcpFeedbackWrapper[];
+}
+
+/**
+ * RTP header extension wrapper with proper typing
+
+Strongly typed representation of MediaSoup's RtpHeaderExtension
+for audio streaming extensions like audio level and transport-wide CC.
+ */
+export interface RtpHeaderExtensionWrapper {
+  /** Direction capability ("sendrecv", "sendonly", "recvonly") */
+  direction: string;
+  /** Media kind - always "audio" for HushFM */
+  kind: string;
+  /** Encryption preference (currently unused by MediaSoup) */
+  preferredEncrypt: boolean;
+  /**
+   * Preferred numeric identifier (1-14)
+   * @minimum 0
+   */
+  preferredId: number;
+  /** Extension URI (e.g., "urn:ietf:params:rtp-hdrext:ssrc-audio-level") */
+  uri: string;
 }
 
 /**

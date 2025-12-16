@@ -17,6 +17,9 @@ use tokio::signal;
 use utoipa::OpenApi;
 use utoipa_swagger_ui::SwaggerUi;
 
+// TLS support
+use axum_server::tls_rustls::RustlsConfig;
+
 mod api;
 mod lib;
 mod telemetry;
@@ -24,6 +27,7 @@ mod telemetry;
 use api::api::rooms::rooms_router;
 use api::api::openapi::ApiDoc;
 use lib::domain::Lobby;
+use lib::utils::network::get_local_ip;
 use api::ws::{ws_handler, listener_handler, lobby_handler};
 
 #[tokio::main]
@@ -37,9 +41,24 @@ async fn main() -> anyhow::Result<()> {
     // Initialize application state
     let lobby = Lobby::new().await?;
 
-    // Setup CORS
+    // Get local IP address for CORS configuration
+    let local_ip = get_local_ip()?;
+    tracing::info!("🌐 Detected local IP: {}", local_ip);
+
+    // Setup CORS for development (allow HTTPS origins for credentials)
+    let mut allowed_origins = vec![
+        "https://localhost:5173".parse::<HeaderValue>()?,
+    ];
+    
+    // Add the local IP origin if it's not localhost
+    if !local_ip.is_loopback() {
+        let local_origin = format!("https://{}:5173", local_ip);
+        allowed_origins.push(local_origin.parse::<HeaderValue>()?);
+        tracing::info!("🌐 Added local IP HTTPS origin: {}", local_origin);
+    }
+    
     let cors = CorsLayer::new()
-        .allow_origin("http://localhost:5173".parse::<HeaderValue>()?)
+        .allow_origin(allowed_origins)
         .allow_methods([Method::GET, Method::POST, Method::DELETE, Method::OPTIONS])
         .allow_credentials(true)
         .allow_headers([AUTHORIZATION, ACCEPT, CONTENT_TYPE]);
@@ -63,15 +82,20 @@ async fn main() -> anyhow::Result<()> {
                 .layer(DefaultBodyLimit::disable()),
         );
 
-    // Start server
-    let addr = SocketAddr::from(([0, 0, 0, 0], 3000));
-    tracing::info!("🎵 HushFM Backend starting on http://{}", addr);
-
-    let listener = tokio::net::TcpListener::bind(addr).await?;
+    // Load TLS configuration
+    let cert_file = "../tls/server.crt";
+    let key_file = "../tls/server.key";
     
-    // Setup graceful shutdown
-    axum::serve(listener, app)
-        .with_graceful_shutdown(shutdown_signal())
+    let tls_config = RustlsConfig::from_pem_file(cert_file, key_file).await
+        .map_err(|e| anyhow::anyhow!("Failed to load TLS configuration: {}", e))?;
+    
+    // Start HTTPS server
+    let addr = SocketAddr::from(([0, 0, 0, 0], 3443));
+    tracing::info!("🔒 HushFM Backend starting on https://{}", addr);
+    
+    // Setup graceful shutdown with TLS
+    axum_server::bind_rustls(addr, tls_config)
+        .serve(app.into_make_service())
         .await?;
 
     // Shutdown telemetry

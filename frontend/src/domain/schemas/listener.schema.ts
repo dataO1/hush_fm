@@ -121,7 +121,7 @@ export type ListenerConnectionQuality = S.Schema.Type<typeof ListenerConnectionQ
  * WebSocket Connection State for Listener
  */
 export const ListenerWebSocketState = S.Struct({
-  websocket: S.Option(S.Unknown), // Listener WebSocket connection instance
+  websocket: S.Option(S.instanceOf(WebSocket)), // Listener WebSocket connection instance
   connectionState: S.Literal('disconnected', 'connecting', 'connected', 'error', 'reconnecting'),
   roomId: S.Option(S.String), // Room ID the listener is connected to
   url: S.Option(S.String),

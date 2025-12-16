@@ -17,6 +17,9 @@ tower-http = { version = "0.6", features = ["cors", "fs", "trace"] }
 tokio = { version = "1", features = ["full"] }
 futures-util = "0.3"
 
+# TLS support
+axum-server = { version = "0.7", features = ["tls-rustls"] }
+
 # WebSockets
 tokio-tungstenite = "0.24"
 

@@ -3,7 +3,7 @@ import { defineConfig } from 'orval'
 // orval.config.ts - SIMPLIFIED
 export default defineConfig({
   api: {
-    input: { target: 'http://localhost:3000/api-docs/openapi.json' },
+    input: { target: 'https://localhost:3443/api-docs/openapi.json' },
     output: {
       target: './src/services/generated',
       client: 'fetch',  // ✅ Native fetch, NO mutator

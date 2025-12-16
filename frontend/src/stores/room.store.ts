@@ -30,7 +30,6 @@ import {
 import {
   type WSConnectionState
 } from '../domain/schemas/lobby.schema'
-import { closeWebSocket } from '../services/websocket/websocket.service'
 import {
   RoomConnectionError
 } from '../domain/errors'
@@ -41,7 +40,7 @@ import {
 export interface RoomStoreActions {
   // Room connection management
   setRoomWebSocket: (ws: WebSocket, roomId: string, connectionType: 'dj' | 'listener') => Effect.Effect<void, RoomConnectionError>
-  disconnectFromRoom: () => Effect.Effect<void, never>
+  disconnectFromRoom: () => void
   updateConnectionState: (state: WSConnectionState) => void
   
   // Room metadata management
@@ -148,28 +147,24 @@ export const createRoomStore = () => {
      * Disconnect from room
      */
     disconnectFromRoom: () => {
-      return Effect.gen(function* (_) {
-        if (Option.isSome(roomWebSocket)) {
-          yield* _(closeWebSocket(roomWebSocket.value))
-          roomWebSocket = Option.none()
-        }
-        
-        setState('connection', {
-          websocket: Option.none(),
-          state: 'disconnected',
-          roomId: Option.none(),
-          connectionType: Option.none(),
-          connectionAttempts: 0,
-          lastError: Option.none()
-        })
-        
-        // Reset DJ and listeners
-        setState('participants', {
-          dj: Option.none(),
-          listeners: [],
-          totalCount: 0,
-          maxListeners: Option.none()
-        })
+      // Store only updates state - WebSocket closing is handled by services
+      roomWebSocket = Option.none()
+      
+      setState('connection', {
+        websocket: Option.none(),
+        state: 'disconnected',
+        roomId: Option.none(),
+        connectionType: Option.none(),
+        connectionAttempts: 0,
+        lastError: Option.none()
+      })
+      
+      // Reset DJ and listeners
+      setState('participants', {
+        dj: Option.none(),
+        listeners: [],
+        totalCount: 0,
+        maxListeners: Option.none()
       })
     },
 

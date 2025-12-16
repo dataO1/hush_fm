@@ -4,6 +4,7 @@ import { Effect, Option } from 'effect'
 import { createRoomStore } from '../../stores/room.store'
 import { createLobbyStore } from '../../stores/lobby.store'
 import { joinRoomAsListener } from '../../services/flows/listener-flows.service'
+import { connectToLobbyWebSocket, leaveLobby } from '../../services/flows/lobby-flows.service'
 
 export default function ListenerRoom() {
   const params = useParams()
@@ -19,14 +20,41 @@ export default function ListenerRoom() {
   const [error, setError] = createSignal<Option.Option<string>>(Option.none())
   const [isInitializing, setIsInitializing] = createSignal(true)
   const [needsUserPlay, setNeedsUserPlay] = createSignal(false)
-  const [currentListenerId, setCurrentListenerId] = createSignal<string | undefined>()
 
-  // For listeners: connected = has consumer AND DJ is actively streaming (not paused)
-  const [connectionState, setConnectionState] = createSignal<'connecting' | 'connected' | 'failed'>('connecting')
+  // Read state from store instead of local state
+  const currentListenerId = () => {
+    const listeners = roomStore.listeners
+    return listeners.length > 0 ? (listeners[0] as any).id : undefined
+  }
+  
+  const currentListener = () => {
+    const listeners = roomStore.listeners
+    return listeners.length > 0 ? listeners[0] : undefined
+  }
+
+  const connectionState = () => {
+    const listener = currentListener()
+    if (!listener) return 'connecting'
+    
+    // Check listener flow step for connection state
+    switch (listener.currentStep) {
+      case 'streaming':
+        return 'connected'
+      case 'error':
+        return 'failed'
+      default:
+        return 'connecting'
+    }
+  }
+  
   const isConnected = () => connectionState() === 'connected' && roomStore.isConnected && !!currentListenerId()
   const isDJLive = () => isConnected() && roomStore.isStreaming
 
-  const [mediaStream, setMediaStream] = createSignal<Option.Option<MediaStream>>(Option.none())
+  const mediaStream = () => {
+    const listener = currentListener()
+    if (!listener) return Option.none()
+    return listener.audioPlayback.mediaStream as Option.Option<MediaStream>
+  }
 
   // 1. Ensure audioRef is typed correctly
   let audioRef: HTMLAudioElement | undefined
@@ -38,10 +66,11 @@ export default function ListenerRoom() {
     // Check both stream and ref presence
     if (Option.isSome(streamOption)) {
       if (audioRef) {
-        console.log("🌊 Stream detected, attaching to audio element...", streamOption.value.id)
+        const stream = streamOption.value as MediaStream
+        console.log("🌊 Stream detected, attaching to audio element...", stream.id)
 
         // A. Set source
-        audioRef.srcObject = streamOption.value
+        audioRef.srcObject = stream
 
         // B. Update volume immediately
         audioRef.volume = isMuted() ? 0 : volume()
@@ -79,16 +108,20 @@ export default function ListenerRoom() {
   onCleanup(async () => {
     // Cleanup using room store
     try {
-      await Effect.runPromise(roomStore.actions.disconnectFromRoom())
+      roomStore.actions.disconnectFromRoom()
     } catch (error) {
       console.error('Error during cleanup:', error)
     }
     
     // Disconnect from lobby
-    try {
-      await Effect.runPromise(lobbyStore.actions.disconnectFromLobby())
-    } catch (error) {
-      console.error('Error disconnecting from lobby:', error)
+    const lobbyWs = Option.getOrNull(lobbyStore.state.connection.websocket)
+    if (lobbyWs) {
+      try {
+        await Effect.runPromise(leaveLobby(lobbyWs))
+        lobbyStore.actions.setDisconnected()
+      } catch (error) {
+        console.error('Error disconnecting from lobby:', error)
+      }
     }
   })
 
@@ -126,20 +159,16 @@ export default function ListenerRoom() {
 
       try {
           // First, we need to connect to lobby to get the room info
-          await Effect.runPromise(lobbyStore.actions.connectToLobby())
+          lobbyStore.actions.setConnecting(true)
+          const lobbyWs = await Effect.runPromise(connectToLobbyWebSocket())
+          lobbyStore.actions.setConnected(lobbyWs)
           
           // Find the room info from lobby
           const roomInfo = lobbyStore.availableRooms.find(room => room.id === roomId())
           if (!roomInfo) {
               throw new Error('Room not found in lobby')
           }
-
-          // Connect to lobby websocket to request listener websocket
-          const lobbyWsOption = lobbyStore.state.connection.websocket
-          if (!Option.isSome(lobbyWsOption)) {
-            throw new Error('Lobby WebSocket not connected')
-          }
-          const lobbyWs = lobbyWsOption.value as WebSocket
+          // Use the connected lobby WebSocket as WebSocket
           
           // Start listener join flow
           const result = await Effect.runPromise(
@@ -150,10 +179,7 @@ export default function ListenerRoom() {
             })
           )
 
-          // Update local state
-          setCurrentListenerId(result.listenerId)
-          setConnectionState('connected')
-          setMediaStream(Option.some(result.audioStream))
+          // State is now managed by the store - just update initialization
           setIsInitializing(false)
           
           console.log("Join room success:", result)
@@ -183,7 +209,7 @@ export default function ListenerRoom() {
 
           setError(Option.some(errorMessage))
           setIsInitializing(false)
-          setConnectionState('failed')
+          // Connection state is now read from store
 
           // Step 7b: Return to lobby for certain error types
           if (shouldReturnToLobby) {
@@ -241,14 +267,12 @@ const handleManualPlay = () => {
 
     // 3. Disconnect from room store
     try {
-      await Effect.runPromise(roomStore.actions.disconnectFromRoom())
+      roomStore.actions.disconnectFromRoom()
     } catch (error) {
       console.error('Error disconnecting from room:', error)
     }
 
-    // 4. Reset local state
-    setCurrentListenerId(undefined)
-    setMediaStream(Option.none())
+    // 4. State is now managed by store - no manual reset needed
 
     // 5. Navigate Away
     navigate('/')

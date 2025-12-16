@@ -64,46 +64,55 @@ pub enum DjEvent {
     /// Room has been initialized for DJ (Step 3 of DJ flow)
     RoomInitialized {
         /// ID of the initialized room
+        #[serde(rename = "roomId")]
         room_id: String,
         /// RTP capabilities for device initialization
+        #[serde(rename = "rtpCapabilities")]
         rtp_capabilities: super::schemas::RtpCapabilitiesWrapper,
     },
 
     /// DJ transport is ready (Step 7 of DJ flow)
     DjTransportReady {
         /// Transport options for WebRTC connection
+        #[serde(rename = "transportOptions")]
         transport_options: super::schemas::TransportOptions,
     },
 
     /// WebRTC transport connection completed
     TransportConnected {
         /// ID of the connected transport
+        #[serde(rename = "transportId")]
         transport_id: String,
     },
     
     /// Audio producer has been created and is streaming
     ProducerCreated { 
         /// ID of the created producer
+        #[serde(rename = "producerId")]
         producer_id: String,
         /// ID of the room where producer was created
+        #[serde(rename = "roomId")]
         room_id: String,
     },
     
     /// Audio stream has been paused (DJ muted)
     StreamPaused { 
         /// ID of the room where stream was paused
+        #[serde(rename = "roomId")]
         room_id: String,
     },
     
     /// Audio stream has been resumed (DJ unmuted)
     StreamResumed { 
         /// ID of the room where stream was resumed
+        #[serde(rename = "roomId")]
         room_id: String,
     },
 
     /// Room has been closed by DJ
     RoomClosed { 
         /// ID of the closed room
+        #[serde(rename = "roomId")]
         room_id: String,
         /// Reason for closing
         reason: String,
@@ -120,6 +129,7 @@ pub enum DjEvent {
     /// Room not found error
     RoomNotFound {
         /// ID of the room that wasn't found
+        #[serde(rename = "roomId")]
         room_id: String,
     },
 }
@@ -131,6 +141,7 @@ pub enum ListenerEvent {
     /// Listener transport is ready (Step 2 of listener flow)
     ListenerTransportReady {
         /// Transport options for WebRTC connection
+        #[serde(rename = "transportOptions")]
         transport_options: super::schemas::TransportOptions,
     },
 
@@ -139,40 +150,50 @@ pub enum ListenerEvent {
         /// Room information (clean model for clients)
         room: RoomInfo,
         /// Transport options for WebRTC connection
+        #[serde(rename = "transportOptions")]
         transport_options: super::schemas::TransportOptions,
         /// Producer ID to consume from (guaranteed to exist)
+        #[serde(rename = "producerId")]
         producer_id: String,
         /// RTP capabilities for consuming
+        #[serde(rename = "rtpCapabilities")]
         rtp_capabilities: super::schemas::RtpCapabilitiesWrapper,
     },
 
     /// WebRTC transport connection completed
     TransportConnected {
         /// ID of the connected transport
+        #[serde(rename = "transportId")]
         transport_id: String,
     },
     
     /// Audio consumer has been created for listening
     ConsumerCreated {
         /// ID of the created consumer
+        #[serde(rename = "consumerId")]
         consumer_id: String,
         /// ID of the producer being consumed
+        #[serde(rename = "producerId")]
         producer_id: String,
         /// Consumer parameters for WebRTC
+        #[serde(rename = "consumerParameters")]
         consumer_parameters: super::schemas::ConsumerParameters,
     },
 
     /// Router RTP capabilities for device initialization
     RouterCapabilities {
         /// ID of the room these capabilities are for
+        #[serde(rename = "roomId")]
         room_id: String,
         /// Router RTP capabilities (native MediaSoup type)
+        #[serde(rename = "rtpCapabilities")]
         rtp_capabilities: super::schemas::RtpCapabilitiesWrapper,
     },
     
     /// Listener count has been updated
     ListenerCountUpdated {
         /// ID of the room
+        #[serde(rename = "roomId")]
         room_id: String,
         /// New listener count
         count: u32,
@@ -181,18 +202,21 @@ pub enum ListenerEvent {
     /// Audio stream has been paused (DJ muted) - broadcasted to listeners
     StreamPaused { 
         /// ID of the room where stream was paused
+        #[serde(rename = "roomId")]
         room_id: String,
     },
     
     /// Audio stream has been resumed (DJ unmuted) - broadcasted to listeners
     StreamResumed { 
         /// ID of the room where stream was resumed
+        #[serde(rename = "roomId")]
         room_id: String,
     },
 
     /// Room has been closed by DJ - broadcasted to listeners
     RoomClosed { 
         /// ID of the closed room
+        #[serde(rename = "roomId")]
         room_id: String,
         /// Reason for closing
         reason: String,
@@ -209,6 +233,7 @@ pub enum ListenerEvent {
     /// Room not found error
     RoomNotFound {
         /// ID of the room that wasn't found
+        #[serde(rename = "roomId")]
         room_id: String,
     },
 }
@@ -232,6 +257,7 @@ pub enum LobbyEvent {
     /// Room has been removed from the lobby
     RoomRemoved { 
         /// ID of the removed room
+        #[serde(rename = "roomId")]
         room_id: String,
     },
 }

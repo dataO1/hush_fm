@@ -219,3 +219,4 @@ Data Flow (Unidirectional)
     Write: On success, Service updates the Store.
 
     React: Store updates trigger UI re-renders automatically.
+- the ui layer should never call websockets/api directly, it should always use the service effects! the store should never contain effects, only pure state transitions, the state should contain as pure effect code as possible but can of course contain side effects

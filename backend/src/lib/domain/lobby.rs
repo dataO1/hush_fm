@@ -1,7 +1,7 @@
 use dashmap::DashMap;
 use mediasoup::{
     prelude::*,
-    worker::{WorkerLogLevel, WorkerSettings},
+    worker::{WorkerLogLevel, WorkerLogTag, WorkerSettings, WorkerDtlsFiles},
     worker_manager::WorkerManager
 };
 use std::sync::{Arc, atomic::{AtomicUsize, Ordering}};
@@ -38,7 +38,28 @@ impl Lobby {
         for i in 0..8 {
             let mut worker_settings = WorkerSettings::default();
             worker_settings.enable_liburing = false;
-            worker_settings.log_level = WorkerLogLevel::Warn;
+            worker_settings.log_level = WorkerLogLevel::Debug; // Enable debug logging
+            worker_settings.log_tags = vec![
+                WorkerLogTag::Dtls,
+                WorkerLogTag::Ice, 
+                WorkerLogTag::Rtp,
+                WorkerLogTag::Info,
+            ];
+            
+            // Explicitly set port range to ensure alignment with transport configuration
+            worker_settings.rtc_port_range = 10000..=59999;
+            
+            // Configure custom DTLS certificates with SHA-256 fingerprints
+            // Compute absolute paths relative to the server binary location
+            let current_dir = std::env::current_dir()
+                .map_err(|e| anyhow::anyhow!("Failed to get current directory: {}", e))?;
+            let cert_path = current_dir.join("dtls").join("dtls.cert.pem");
+            let key_path = current_dir.join("dtls").join("dtls.key.pem");
+            
+            worker_settings.dtls_files = Some(WorkerDtlsFiles {
+                certificate: cert_path,
+                private_key: key_path,
+            });
 
             let worker = worker_manager
                 .create_worker(worker_settings)
@@ -80,11 +101,8 @@ impl Lobby {
         // Store room
         self.rooms.insert(id, room_arc.clone());
 
-        // Broadcast room creation
-        let room_clone = room_arc.read().await.clone();
-        let _ = self.broadcast_tx.send(LobbyEvent::RoomAdded {
-            room: room_clone.into(),
-        });
+        // NOTE: Room is NOT broadcasted here (Step 1) - only when it becomes public (Step 16)
+        // This implements the atomic room publication pattern
 
         tracing::info!("Created room '{}' with ID {}", name, id);
         Ok(room_arc)
@@ -125,13 +143,34 @@ impl Lobby {
         }
     }
 
-    /// Update room and broadcast changes
+    /// Update room and broadcast changes (atomic publication pattern)
     pub async fn update_room(&self, room_id: &Uuid) {
         if let Some(room_arc) = self.get_room(room_id) {
             let room = room_arc.read().await;
-            let _ = self.broadcast_tx.send(LobbyEvent::RoomUpdated {
-                room: room.clone().into(),
-            });
+            
+            // Check if room is now public (Step 16 atomic publication)
+            if room.is_public() {
+                // First time becoming public = RoomAdded, subsequent updates = RoomUpdated
+                let event = if matches!(room.status, crate::lib::models::schemas::RoomStatus::Live) {
+                    // Room just became Live for first time (producer created)
+                    LobbyEvent::RoomAdded {
+                        room: room.clone().into(),
+                    }
+                } else {
+                    // Subsequent updates (paused/resumed etc.)
+                    LobbyEvent::RoomUpdated {
+                        room: room.clone().into(),
+                    }
+                };
+                
+                let _ = self.broadcast_tx.send(event);
+                tracing::debug!(
+                    room_id = %room_id,
+                    room_status = ?room.status,
+                    is_public = room.is_public(),
+                    "Room state broadcasted to lobby subscribers"
+                );
+            }
         }
     }
 

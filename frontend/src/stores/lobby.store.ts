@@ -7,51 +7,41 @@
  * Extracted from: SignalingProvider.tsx lobby-related functionality
  */
 
-import { createSignal, createEffect, onCleanup } from 'solid-js'
+import { createSignal } from 'solid-js'
 import { createStore } from 'solid-js/store'
-import { Effect, Option, Runtime, Layer } from 'effect'
+import { Option } from 'effect'
 import type { RoomInfo } from '../services/generated/hushFMAPI.schemas'
 import {
   type LobbyState,
-  type WSConnectionState,
   createInitialLobbyState
 } from '../domain/schemas/lobby.schema'
-import {
-  connectToLobbyWebSocket,
-  discoverRooms,
-  subscribeLobbyEvents,
-  announceRoomCreation,
-  leaveLobby,
-  refreshRoomListings,
-  type CreateRoomRequest
-} from '../services/flows/lobby-flows.service'
-import type { LobbyEvent } from '../services/websocket/schemas/websocket'
-import {
-  LobbyConnectionError,
-  RoomDiscoveryError,
-  RoomCreationError
-} from '../domain/errors'
 
 /**
- * Lobby store actions
+ * Lobby store actions - Pure state setters only
  */
 export interface LobbyStoreActions {
-  // Connection actions
-  connectToLobby: () => Effect.Effect<void, LobbyConnectionError>
-  disconnectFromLobby: () => Effect.Effect<void, never>
+  // Connection state management
+  setConnecting: (connecting: boolean) => void
+  setConnected: (websocket: WebSocket | null) => void
+  setDisconnected: () => void
+  setConnectionError: (error: string) => void
   
-  // Room discovery actions
-  refreshRooms: () => Effect.Effect<void, RoomDiscoveryError>
+  // Room discovery state management
+  setRoomsLoading: (loading: boolean) => void
+  setRooms: (rooms: RoomInfo[]) => void
+  setRoomDiscoveryError: (error: string) => void
   
-  // Room creation actions
-  createRoom: (request: CreateRoomRequest) => Effect.Effect<{ roomId: string, djWebSocketUrl: string }, RoomCreationError>
+  // Room creation state management
+  setRoomCreating: (creating: boolean) => void
+  setRoomCreationError: (error: string) => void
+  setLastCreatedRoom: (roomId: string) => void
   
-  // State management
-  updateConnectionState: (state: WSConnectionState) => void
+  // Room management
   addRoom: (room: RoomInfo) => void
   updateRoom: (room: RoomInfo) => void
   removeRoom: (roomId: string) => void
-  setError: (error: string) => void
+  
+  // General error management
   clearError: () => void
 }
 
@@ -67,228 +57,113 @@ export const createLobbyStore = () => {
   const [isRefreshing, setIsRefreshing] = createSignal(false)
   const [isCreating, setIsCreating] = createSignal(false)
   
-  // Effect runtime for service calls
-  let effectRuntime: Option.Option<Runtime.Runtime<never>> = Option.none()
-  let lobbyWebSocket: Option.Option<WebSocket> = Option.none()
-  // Event subscriber for cleanup (currently unused but maintained for future use)
-  // let _eventSubscriber: Option.Option<(handler: (event: LobbyEvent) => void) => void> = Option.none()
-  
-  // Initialize Effect runtime
-  createEffect(() => {
-    Effect.runPromise(
-      Effect.scoped(Layer.toRuntime(Layer.empty))
-    ).then(runtime => {
-      effectRuntime = Option.some(runtime)
-    }).catch(err => {
-      console.error('Failed to initialize lobby store runtime:', err)
-    })
-  })
-  
-  // Cleanup on dispose
-  onCleanup(() => {
-    // WebSocket cleanup will happen when connection is closed
-    Option.match(lobbyWebSocket, {
-      onSome: (ws) => ws.close(),
-      onNone: () => {}
-    })
-  })
-  
-  // Actions implementation
+  // Pure state actions - no Effects, no service calls
   const actions: LobbyStoreActions = {
-    /**
-     * Connect to lobby WebSocket
-     */
-    connectToLobby: () => {
-      return Effect.gen(function* (_) {
-        setIsConnecting(true)
-        setState('connection', 'state', 'connecting')
-        
-        // Connect to lobby
-        const ws = yield* _(connectToLobbyWebSocket())
-        
-        // Store WebSocket reference
-        lobbyWebSocket = Option.some(ws)
-        setState('connection', {
-          websocket: Option.some(ws),
-          state: 'connected',
-          lastConnectedAt: Option.some(new Date()),
-          connectionAttempts: 0,
-          lastError: Option.none()
-        })
-        
-        // Subscribe to lobby events
-        const subscribe = yield* _(subscribeLobbyEvents(ws))
-        // _eventSubscriber = Option.some(subscribe)
-        
-        // Set up event handling
-        subscribe((event: LobbyEvent) => {
-          switch (event.type) {
-            case 'roomAdded':
-              actions.addRoom(event.room)
-              break
-            case 'roomUpdated':
-              actions.updateRoom(event.room)
-              break
-            case 'roomRemoved':
-              actions.removeRoom(event.roomId)
-              break
-          }
-        })
-        
-        // Initial room discovery
-        yield* _(actions.refreshRooms().pipe(
-          Effect.mapError((roomError) => 
-            new LobbyConnectionError({
-              cause: `Failed to discover rooms during lobby connection: ${roomError.message}`,
-              context: { timestamp: new Date(), operation: 'connecting', details: { cause: roomError } }
-            })
-          )
-        ))
-        
-        setIsConnecting(false)
+    // Connection state management
+    setConnecting: (connecting: boolean) => {
+      setIsConnecting(connecting)
+      setState('connection', 'state', connecting ? 'connecting' : 'disconnected')
+    },
+    
+    setConnected: (websocket: WebSocket | null) => {
+      setIsConnecting(false)
+      setState('connection', {
+        websocket: websocket ? Option.some(websocket) : Option.none(),
+        state: 'connected',
+        lastConnectedAt: Option.some(new Date()),
+        connectionAttempts: 0,
+        lastError: Option.none()
       })
     },
-
-    /**
-     * Disconnect from lobby
-     */
-    disconnectFromLobby: () => {
-      return Effect.gen(function* (_) {
-        if (Option.isSome(lobbyWebSocket)) {
-          yield* _(leaveLobby(lobbyWebSocket.value))
-          lobbyWebSocket = Option.none()
-        }
-        
-        // Clear event subscriber reference
-        // _eventSubscriber = Option.none()
-        
-        setState('connection', {
-          websocket: Option.none(),
-          state: 'disconnected',
-          connectionAttempts: 0,
-          lastError: Option.none()
-        })
+    
+    setDisconnected: () => {
+      setIsConnecting(false)
+      setState('connection', {
+        websocket: Option.none(),
+        state: 'disconnected',
+        connectionAttempts: 0,
+        lastError: Option.none()
       })
     },
-
-    /**
-     * Refresh room listings
-     */
-    refreshRooms: () => {
-      return Effect.gen(function* (_) {
-        setIsRefreshing(true)
-        setState('discovery', 'loading', true)
-        
-        const rooms = yield* _(
-          Option.match(lobbyWebSocket, {
-            onSome: (ws) => refreshRoomListings(ws),
-            onNone: () => discoverRooms()
-          })
-        )
-        
-        setState('discovery', {
-          availableRooms: rooms,
-          loading: false,
-          lastRefreshAt: Option.some(new Date()),
-          refreshError: Option.none()
-        })
-        
-        setIsRefreshing(false)
+    
+    setConnectionError: (error: string) => {
+      setIsConnecting(false)
+      setState('connection', {
+        state: 'error',
+        lastError: Option.some(error)
       })
     },
-
-    /**
-     * Create new room
-     */
-    createRoom: (request: CreateRoomRequest) => {
-      return Effect.gen(function* (_) {
-        const ws = Option.getOrElse(lobbyWebSocket, () => {
-          throw new Error('Not connected to lobby')
-        })
-        
-        setIsCreating(true)
-        setState('creation', 'creating', true)
-        
-        const result = yield* _(announceRoomCreation(ws, request))
-        
-        setState('creation', {
-          creating: false,
-          creationError: Option.none(),
-          lastCreatedRoomId: Option.some(result.roomId)
-        })
-        
-        setIsCreating(false)
-        
-        return result
+    
+    // Room discovery state management
+    setRoomsLoading: (loading: boolean) => {
+      setIsRefreshing(loading)
+      setState('discovery', 'loading', loading)
+    },
+    
+    setRooms: (rooms: RoomInfo[]) => {
+      setIsRefreshing(false)
+      setState('discovery', {
+        availableRooms: rooms,
+        loading: false,
+        lastRefreshAt: Option.some(new Date()),
+        refreshError: Option.none()
       })
     },
-
-    /**
-     * Update connection state
-     */
-    updateConnectionState: (newState: WSConnectionState) => {
-      setState('connection', 'state', newState)
-      if (newState === 'error') {
-        setIsConnecting(false)
-      }
+    
+    setRoomDiscoveryError: (error: string) => {
+      setIsRefreshing(false)
+      setState('discovery', {
+        loading: false,
+        refreshError: Option.some(error)
+      })
     },
-
-    /**
-     * Add room to listings
-     */
+    
+    // Room creation state management
+    setRoomCreating: (creating: boolean) => {
+      setIsCreating(creating)
+      setState('creation', 'creating', creating)
+    },
+    
+    setRoomCreationError: (error: string) => {
+      setIsCreating(false)
+      setState('creation', {
+        creating: false,
+        creationError: Option.some(error)
+      })
+    },
+    
+    setLastCreatedRoom: (roomId: string) => {
+      setIsCreating(false)
+      setState('creation', {
+        creating: false,
+        creationError: Option.none(),
+        lastCreatedRoomId: Option.some(roomId)
+      })
+    },
+    
+    // Room management
     addRoom: (room: RoomInfo) => {
       setState('discovery', 'availableRooms', (rooms: RoomInfo[]) => [...rooms, room])
     },
-
-    /**
-     * Update existing room in listings
-     */
+    
     updateRoom: (updatedRoom: RoomInfo) => {
       setState('discovery', 'availableRooms', (rooms: RoomInfo[]) =>
         rooms.map((room: RoomInfo) => room.id === updatedRoom.id ? updatedRoom : room)
       )
     },
-
-    /**
-     * Remove room from listings
-     */
+    
     removeRoom: (roomId: string) => {
       setState('discovery', 'availableRooms', (rooms: RoomInfo[]) =>
         rooms.filter((room: RoomInfo) => room.id !== roomId)
       )
     },
-
-    /**
-     * Set error message
-     */
-    setError: (error: string) => {
-      setState('connection', 'lastError', Option.some(error))
-    },
-
-    /**
-     * Clear error message
-     */
+    
+    // General error management
     clearError: () => {
       setState('connection', 'lastError', Option.none())
       setState('discovery', 'refreshError', Option.none())
       setState('creation', 'creationError', Option.none())
     }
-  }
-  
-  // Auto-run effects with runtime when available
-  const runEffect = <E, A>(effect: Effect.Effect<A, E>) => {
-    Option.match(effectRuntime, {
-      onSome: (runtime) => {
-        Runtime.runPromiseExit(runtime)(effect).then(exit => {
-          if (exit._tag === 'Failure') {
-            console.error('Lobby store effect failed:', exit.cause)
-          }
-        })
-      },
-      onNone: () => {
-        console.warn('Effect runtime not available, deferring effect')
-      }
-    })
   }
 
   return {
@@ -320,8 +195,6 @@ export const createLobbyStore = () => {
       return Option.getOrNull(state.creation.lastCreatedRoomId)
     },
     
-    // Effect runner (for external use)
-    runEffect
   }
 }
 

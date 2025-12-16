@@ -341,16 +341,92 @@ export const TransportOptionsFromApi = {
   })
 }
 
-// RTP capabilities conversion
+// RTP capabilities conversion with proper type safety and defensive coding
 export const RtpCapabilitiesFromApi = {
-  decode: (api: RtpCapabilitiesWrapper): types.RtpCapabilities => ({
-    codecs: api.codecs as any,
-    headerExtensions: api.headerExtensions as any
-  }) as types.RtpCapabilities,
+  decode: (api: RtpCapabilitiesWrapper): types.RtpCapabilities => {
+    console.log(`🔧 RtpCapabilitiesFromApi.decode() input:`, api)
+    
+    // Defensive validation
+    if (!api) {
+      console.error('🚨 RtpCapabilitiesFromApi.decode() - api is null/undefined')
+      throw new Error('RTP capabilities API data is null or undefined')
+    }
+    
+    if (!api.codecs) {
+      console.error('🚨 RtpCapabilitiesFromApi.decode() - api.codecs is missing:', api)
+      throw new Error('RTP capabilities missing codecs array')
+    }
+    
+    if (!Array.isArray(api.codecs)) {
+      console.error('🚨 RtpCapabilitiesFromApi.decode() - api.codecs is not an array:', typeof api.codecs, api.codecs)
+      throw new Error(`RTP capabilities codecs is not an array: ${typeof api.codecs}`)
+    }
+    
+    if (!api.headerExtensions) {
+      console.error('🚨 RtpCapabilitiesFromApi.decode() - api.headerExtensions is missing:', api)
+      throw new Error('RTP capabilities missing headerExtensions array')
+    }
+    
+    if (!Array.isArray(api.headerExtensions)) {
+      console.error('🚨 RtpCapabilitiesFromApi.decode() - api.headerExtensions is not an array:', typeof api.headerExtensions, api.headerExtensions)
+      throw new Error(`RTP capabilities headerExtensions is not an array: ${typeof api.headerExtensions}`)
+    }
+    
+    console.log(`✅ RtpCapabilitiesFromApi.decode() - validation passed, processing ${api.codecs.length} codecs and ${api.headerExtensions.length} header extensions`)
+    
+    const result = {
+      codecs: api.codecs.map((codec, index) => {
+        console.log(`🎵 Processing codec ${index}:`, codec)
+        return {
+          kind: codec.kind as types.MediaKind,
+          mimeType: codec.mimeType,
+          preferredPayloadType: codec.preferredPayloadType ?? undefined, // Fix: Use ?? to preserve payload type 0
+          clockRate: codec.clockRate,
+          channels: codec.channels ?? 1, // Fix: Use ?? to preserve channels 0 if valid
+          parameters: codec.parameters || {},
+          rtcpFeedback: (codec.rtcpFeedback || []).map(fb => ({
+            type: fb.type,
+            parameter: fb.parameter ?? undefined // Fix: Use ?? to preserve empty string parameters
+          }))
+        }
+      }),
+      headerExtensions: api.headerExtensions.map((ext, index) => {
+        console.log(`📡 Processing header extension ${index}:`, ext)
+        return {
+          kind: ext.kind as types.MediaKind,
+          uri: ext.uri,
+          preferredId: ext.preferredId,
+          preferredEncrypt: ext.preferredEncrypt,
+          direction: ext.direction as any // MediaSoup client types may be more restrictive
+        }
+      })
+    } as types.RtpCapabilities
+    
+    console.log(`🎯 RtpCapabilitiesFromApi.decode() result:`, result)
+    return result
+  },
   encode: (native: types.RtpCapabilities): RtpCapabilitiesWrapper => ({
-    codecs: native.codecs as any,
-    headerExtensions: native.headerExtensions as any,
-    fecMechanisms: []
+    codecs: (native.codecs || []).map(codec => ({
+      kind: codec.kind,
+      mimeType: codec.mimeType,
+      preferredPayloadType: codec.preferredPayloadType ?? null, // Fix: Use ?? to preserve payload type 0
+      clockRate: codec.clockRate,
+      channels: codec.channels ?? 1, // Fix: Use ?? to preserve channels 0 if valid
+      parameters: Object.fromEntries(
+        Object.entries(codec.parameters || {}).map(([key, value]) => [key, String(value)])
+      ),
+      rtcpFeedback: (codec.rtcpFeedback || []).map(fb => ({
+        type: fb.type,
+        parameter: fb.parameter ?? null // Fix: Use ?? to preserve empty string parameters
+      }))
+    })),
+    headerExtensions: (native.headerExtensions || []).map(ext => ({
+      kind: ext.kind,
+      uri: ext.uri,
+      preferredId: ext.preferredId,
+      preferredEncrypt: ext.preferredEncrypt || false,
+      direction: ext.direction || 'sendrecv'
+    }))
   })
 }
 

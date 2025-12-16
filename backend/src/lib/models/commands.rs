@@ -28,11 +28,16 @@ impl TryFrom<DtlsParametersJson> for DtlsParameters {
 
     fn try_from(json: DtlsParametersJson) -> Result<Self> {
         // Parse role string to DtlsRole enum
+        // NOTE: Frontend should use "client", backend should use "server"
+        // "auto" is discouraged as it can cause connection issues
         let role = match json.role.as_str() {
-            "auto" => DtlsRole::Auto,
             "client" => DtlsRole::Client,
             "server" => DtlsRole::Server,
-            _ => bail!("Invalid DTLS role: {}", json.role),
+            "auto" => {
+                tracing::warn!("DTLS role 'auto' is discouraged - use explicit 'client' or 'server'");
+                DtlsRole::Auto
+            },
+            _ => bail!("Invalid DTLS role: {}. Use 'client' or 'server'", json.role),
         };
 
         // Convert fingerprints

@@ -1321,10 +1321,38 @@ async fn handle_connect_transport(
             );
         }
 
+            // Log detailed DTLS parameters before connecting
+            tracing::info!(
+                room_id = %room_id,
+                transport_id = %actual_transport_id,
+                dtls_role = ?dtls_parameters.role,
+                fingerprint_count = dtls_parameters.fingerprints.len(),
+                "🔄 Attempting MediaSoup transport.connect() with DTLS parameters"
+            );
+
             // Connect DJ transport directly without transport manager
-            dj_transport.connect(mediasoup::webrtc_transport::WebRtcTransportRemoteParameters {
+            match dj_transport.connect(mediasoup::webrtc_transport::WebRtcTransportRemoteParameters {
                 dtls_parameters,
-            }).await?;
+            }).await {
+                Ok(_) => {
+                    tracing::info!(
+                        room_id = %room_id,
+                        transport_id = %actual_transport_id,
+                        "✅ MediaSoup transport.connect() succeeded - DTLS handshake completed"
+                    );
+                },
+                Err(e) => {
+                    tracing::error!(
+                        room_id = %room_id,
+                        transport_id = %actual_transport_id,
+                        error = %e,
+                        error_debug = ?e,
+                        "❌ MediaSoup transport.connect() FAILED - DTLS handshake failed"
+                    );
+                    return Err(anyhow::anyhow!("MediaSoup transport connect failed: {}", e));
+                }
+            }
+
             tracing::info!("DJ transport connected for room {}, transport_id: {}", room_id, actual_transport_id);
 
             Ok(actual_transport_id)
