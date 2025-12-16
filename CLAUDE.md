@@ -170,3 +170,52 @@ rust
 #[serde(tag = "type")]
 pub enum ClientMessage {
     JoinRoom { room_id: String },
+- Architectural Context: SolidJS + Effect TS Frontend
+
+Architecture: Functional Core (Effect), Reactive Shell (SolidJS).
+Pattern: Separates State (Stores), Logic (Services), and Definitions (Schemas).
+Core Components & Roles
+
+    Domain Schemas (The Model - src/domain/schemas/)
+
+        Tool: Effect.Schema (or Zod).
+
+        Role: Stateless data definitions, validation logic, and type inference.
+
+        Rule: Defines what valid data looks like (mirrors Rust backend types).
+
+    Services (The Controller - src/services/)
+
+        Tool: Effect.Service / Effect.Layer.
+
+        Role: Stateless orchestration, side effects (API calls), and business logic.
+
+        Rule: Pure logic only. Never holds state. Validates inputs via Schemas, executes logic, and commits results to Stores.
+
+    Stores (The State - src/stores/)
+
+        Tool: SolidJS Store / Signal.
+
+        Role: Single source of truth. Acts as an in-memory database.
+
+        Rule: Domain-centric, not UI-centric. Normalized structure (dictionaries by ID). Mutated only by Services on success.
+
+    Components (The View - src/ui/)
+
+        Tool: Solid Components + createMemo.
+
+        Role: Reactive rendering.
+
+        Rule: Read-only. Derives UI state from Domain Stores using createMemo (Selectors). Triggers Service flows via event handlers.
+
+Data Flow (Unidirectional)
+
+    Trigger: UI Component invokes a Service function (e.g., UserService.updateProfile(data)).
+
+    Read/Validate: Service validates inputs against Schema and (optionally) reads current Store state.
+
+    Compute: Service executes logic (API calls, calculations) using Effect.gen.
+
+    Write: On success, Service updates the Store.
+
+    React: Store updates trigger UI re-renders automatically.

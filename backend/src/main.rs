@@ -18,17 +18,13 @@ use utoipa::OpenApi;
 use utoipa_swagger_ui::SwaggerUi;
 
 mod api;
-mod models;
-mod state;
+mod lib;
 mod telemetry;
-mod webrtc;
-mod ws;
-mod openapi;
 
-use api::rooms::rooms_router;
-use openapi::ApiDoc;
-use state::AppState;
-use ws::{ws_handler, listener_handler};
+use api::api::rooms::rooms_router;
+use api::api::openapi::ApiDoc;
+use lib::domain::Lobby;
+use api::ws::{ws_handler, listener_handler, lobby_handler};
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -39,7 +35,7 @@ async fn main() -> anyhow::Result<()> {
     telemetry::init_tracing_with_level(&log_level)?;
 
     // Initialize application state
-    let app_state = AppState::new().await?;
+    let lobby = Lobby::new().await?;
 
     // Setup CORS
     let cors = CorsLayer::new()
@@ -55,9 +51,9 @@ async fn main() -> anyhow::Result<()> {
     let stateful_routes = Router::new()
         .route("/ws/room/:room_id", get(ws_handler))
         .route("/ws/listen/:room_id", get(listener_handler))
-        .route("/ws/lobby", get(ws::lobby_handler))
+        .route("/ws/lobby", get(lobby_handler))
         .nest("/api", rooms_router())
-        .with_state(app_state);
+        .with_state(lobby);
 
     let app = stateless_routes.merge(stateful_routes)
         .layer(

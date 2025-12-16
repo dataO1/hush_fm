@@ -1,0 +1,3 @@
+- Router = room
+- worker can have many routers
+-

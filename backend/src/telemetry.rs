@@ -6,16 +6,12 @@ use opentelemetry_sdk::Resource;
 use opentelemetry_semantic_conventions as semcov;
 use opentelemetry::global;
 use tracing_opentelemetry::OpenTelemetryLayer;
-use tracing_subscriber::{Registry, EnvFilter, layer::SubscriberExt, util::SubscriberInitExt};
+use tracing_subscriber::{EnvFilter, layer::SubscriberExt, util::SubscriberInitExt};
 use anyhow::Result;
 use tracing::info;
 use opentelemetry_sdk::trace::SdkTracerProvider;
 use once_cell::sync::Lazy;
 use std::sync::Mutex;
-use opentelemetry::propagation::Extractor;
-use tracing_opentelemetry::OpenTelemetrySpanExt;
-
-use crate::models::{ClientCommand, ServerEvent, TraceContext};
 
 static TRACER_PROVIDER: Lazy<Mutex<Option<SdkTracerProvider>>> = Lazy::new(|| Mutex::new(None));
 
@@ -72,69 +68,6 @@ pub fn shutdown_tracer() {
     }
 }
 
-/// Custom extractor for WebSocket message payload trace context
-pub struct MessageExtractor<'a>(Option<&'a TraceContext>);
-
-impl<'a> MessageExtractor<'a> {
-    pub fn new(trace_context: Option<&'a TraceContext>) -> Self {
-        MessageExtractor(trace_context)
-    }
-}
-
-impl<'a> Extractor for MessageExtractor<'a> {
-    fn get(&self, key: &str) -> Option<&str> {
-        self.0.and_then(|ctx| match key {
-            "traceparent" => Some(ctx.traceparent.as_str()),
-            "tracestate" => ctx.tracestate.as_deref(),
-            _ => None,
-        })
-    }
-
-    fn keys(&self) -> Vec<&str> {
-        vec!["traceparent", "tracestate"]
-    }
-}
-
-/// Extract trace context from ClientCommand and set up parent span
-pub fn extract_trace_context_from_command(cmd: &ClientCommand) -> opentelemetry::Context {
-    let trace_context = cmd.trace_context();
-    let extractor = MessageExtractor::new(trace_context);
-    global::get_text_map_propagator(|propagator| propagator.extract(&extractor))
-}
-
-/// Inject current trace context into ServerEvent
-pub fn inject_trace_context_into_event(
-    event: &mut ServerEvent,
-    span: &tracing::Span,
-) {
-    use std::collections::HashMap;
-    use opentelemetry::propagation::Injector;
-
-    struct HashMapInjector<'a>(&'a mut HashMap<String, String>);
-    
-    impl<'a> Injector for HashMapInjector<'a> {
-        fn set(&mut self, key: &str, value: String) {
-            self.0.insert(key.to_string(), value);
-        }
-    }
-
-    let mut carrier = HashMap::new();
-    let context = span.context();
-    
-    global::get_text_map_propagator(|propagator| {
-        propagator.inject_context(&context, &mut HashMapInjector(&mut carrier));
-    });
-
-    // Convert HashMap to TraceContext
-    if let Some(traceparent) = carrier.get("traceparent") {
-        let trace_context = TraceContext {
-            traceparent: traceparent.clone(),
-            tracestate: carrier.get("tracestate").cloned(),
-            metadata: if carrier.len() > 2 { Some(carrier) } else { None },
-        };
-        event.set_trace_context(Some(trace_context));
-    }
-}
 
 /// Create a child span with WebSocket message attributes using static string
 pub fn create_ws_message_span(

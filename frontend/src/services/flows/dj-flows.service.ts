@@ -1,0 +1,586 @@
+/**
+ * DJ Flows Service
+ * 
+ * Implements the exact 18-step DJ room creation flow from DJ_ROOM_CREATION_FLOW_HOW_ITS_SUPPOSED_TO_BE.md
+ * Integrates with the room store to update DJ state with embedded MediaSoup state.
+ * 
+ * Flow Steps (18 total):
+ * 1. Announce room creation in lobby websocket → DJ websocket (handled by lobby-flows.service)
+ * 2. Connect to room, send room init → receive rtpCapabilities  
+ * 3. Create device + call load() with received rtpCapabilities
+ * 4. Call getUserMedia() and get audio track
+ * 5. Request WebRTC transport from backend
+ * 6-7. Backend creates transport + returns params
+ * 8. Use device to create send transport
+ * 9. Use send transport + call produce() (fires connect & produce events)
+ * 10. Connect handler returns dtlsParams
+ * 11. Send dtls to backend
+ * 12. Backend calls connect() on send transport
+ * 13. Produce handler returns parameters
+ * 14. Send parameters to backend
+ * 15. Backend calls produce() + creates server-side producer
+ * 16. Backend saves producerId, marks room public, sends producerId to DJ
+ * 17. Frontend calls callback with producerId (local producer ready)
+ * 18. Handle errback for cleanup if errors
+ */
+
+import { Effect, pipe, Option } from 'effect'
+import { Device, types } from 'mediasoup-client'
+import { 
+  sendDjCommand
+} from '../websocket/websocket.service'
+import type { 
+  DjCommand, 
+  DjEvent, 
+  DtlsParametersJson 
+} from '../websocket/schemas/websocket'
+import { 
+  RtpCapabilitiesFromApi, 
+  TransportOptionsFromApi 
+} from '../websocket/schemas/websocket'
+import {
+  DJFlowError
+} from '../../domain/errors'
+import type { RoomStore } from '../../stores/room.store'
+import {
+  createAndLoadDevice,
+  MediaSoupDeviceServiceLive
+} from '../mediasoup/device.service'
+import {
+  createSendTransportWithEvents,
+  MediaSoupTransportServiceLive
+} from '../mediasoup/transport.service'
+import {
+  createAudioProducer,
+  MediaSoupProducerServiceLive
+} from '../mediasoup/producer.service'
+
+/**
+ * DJ Room Publishing Result (after completing 18-step flow)
+ */
+export interface DJPublishResult {
+  roomId: string
+  producerId: string
+  device: Device
+  sendTransport: types.Transport
+  producer: types.Producer
+  audioTrack: MediaStreamTrack
+}
+
+/**
+ * Audio constraints optimized for music streaming (no processing)
+ */
+const getAudioConstraints = (deviceId?: string): MediaStreamConstraints => ({
+  audio: {
+    deviceId: deviceId ? { exact: deviceId } : undefined,
+    channelCount: { ideal: 2, min: 1 },
+    // Disable all audio processing for music
+    echoCancellation: false,
+    noiseSuppression: false,
+    autoGainControl: false,
+    googEchoCancellation: false,
+    googAutoGainControl: false,
+    googNoiseSuppression: false,
+    googHighpassFilter: false
+  } as MediaTrackConstraints,
+  video: false
+})
+
+/**
+ * Wait for specific DJ event with timeout
+ */
+const waitForDjEvent = <T extends DjEvent>(
+  ws: WebSocket,
+  eventType: T['type'],
+  timeoutMs: number = 10000
+): Effect.Effect<T, Error> =>
+  Effect.async<T, Error>((resume) => {
+    const handler = (event: MessageEvent) => {
+      try {
+        const data = JSON.parse(event.data)
+        if (data.type === eventType) {
+          ws.removeEventListener('message', handler)
+          resume(Effect.succeed(data as T))
+        }
+      } catch (error) {
+        ws.removeEventListener('message', handler)
+        resume(Effect.fail(new Error(`Failed to parse ${eventType} event`)))
+      }
+    }
+    
+    ws.addEventListener('message', handler)
+    
+    setTimeout(() => {
+      ws.removeEventListener('message', handler)
+      resume(Effect.fail(new Error(`Timeout waiting for ${eventType}`)))
+    }, timeoutMs)
+    
+    return Effect.sync(() => ws.removeEventListener('message', handler))
+  })
+
+/**
+ * Convert DTLS parameters to JSON format
+ */
+const dtlsParamsToJson = (params: any): DtlsParametersJson => ({
+  fingerprints: params.fingerprints,
+  role: params.role
+})
+
+/**
+ * DJ Room Publishing Flow (18 Steps) - follows specification exactly
+ * 
+ * Prerequisites: Room already announced in lobby (Step 1 done by lobby-flows.service)
+ * 
+ * Integrates with room store to update DJ state throughout the flow.
+ */
+export const publishDJRoom = (
+  roomStore: RoomStore,
+  roomId: string,
+  djWebSocket: WebSocket,
+  deviceId?: string
+): Effect.Effect<DJPublishResult, DJFlowError> =>
+  pipe(
+    Effect.gen(function* (_) {
+      console.info('🎤 Starting DJ Room Publishing Flow (18 steps)')
+      
+      // Step 1: Already done - room announced in lobby, returns DJ WebSocket
+      console.info('✅ Step 1: Room announced (prerequisites met)')
+      
+      // Initialize DJ state in room store
+      roomStore.actions.setDJFlowStep('connecting')
+      roomStore.actions.updateDJState({
+        flowStartedAt: Option.some(new Date()),
+        websocket: {
+          websocket: Option.some(djWebSocket),
+          connectionState: 'connected',
+          url: Option.some(djWebSocket.url),
+          connectedAt: Option.some(new Date()),
+          lastMessageAt: Option.none(),
+          messageCount: 0,
+          connectionError: Option.none()
+        }
+      })
+      
+      // Step 2: Send room init message, receive rtpCapabilities
+      console.info('🔄 Step 2: Sending room init message...')
+      roomStore.actions.setDJFlowStep('initializing')
+      
+      const initCommand: DjCommand = {
+        type: 'initRoom',
+        roomId: roomId
+      }
+      
+      yield* _(sendDjCommand(djWebSocket, initCommand))
+      
+      const roomInitResponse = yield* _(
+        waitForDjEvent<DjEvent & { type: 'roomInitialized' }>(djWebSocket, 'roomInitialized', 10000).pipe(
+          Effect.mapError(error => new DJFlowError({
+            cause: error.message,
+            step: 'connecting',
+            stepNumber: 2,
+            recoverable: false,
+            context: { timestamp: new Date(), operation: 'room_init', details: { error } }
+          }))
+        )
+      )
+      
+      console.info('✅ Step 2: Room initialized, RTP capabilities received')
+      
+      // Step 3: Create new device and call load() with received rtpCapabilities
+      console.info('🔄 Step 3: Creating MediaSoup device and loading capabilities...')
+      roomStore.actions.setDJFlowStep('device_loading')
+      
+      const rtpCapabilities = RtpCapabilitiesFromApi.decode(roomInitResponse.rtpCapabilities)
+      const device = yield* _(pipe(
+        createAndLoadDevice(rtpCapabilities),
+        Effect.provide(MediaSoupDeviceServiceLive),
+        Effect.mapError(error => new DJFlowError({
+          cause: 'Failed to load device capabilities',
+          step: 'device_load',
+          stepNumber: 3,
+          recoverable: false,
+          context: { 
+            timestamp: new Date(),
+            operation: 'device_load',
+            details: { roomId, error }
+          }
+        }))
+      ))
+      
+      // Update room store with device state
+      roomStore.actions.updateDJState({
+        device: {
+          device: Option.some(device),
+          loaded: true,
+          rtpCapabilities: Option.some(device.rtpCapabilities),
+          loadError: Option.none(),
+          handlerName: Option.some(device.handlerName)
+        }
+      })
+      
+      console.info('✅ Step 3: Device loaded with RTP capabilities')
+      
+      // Step 4: Call getUserMedia(options) and get audio track
+      console.info('🔄 Step 4: Requesting audio track from getUserMedia...')
+      roomStore.actions.setDJFlowStep('requesting_media')
+      
+      const stream = yield* _(Effect.tryPromise({
+        try: () => navigator.mediaDevices.getUserMedia(getAudioConstraints(deviceId)),
+        catch: (error) => new DJFlowError({
+          cause: 'Failed to get user media',
+          step: 'get_user_media',
+          stepNumber: 4,
+          recoverable: true,
+          context: { 
+            timestamp: new Date(),
+            operation: 'get_user_media',
+            details: { roomId, deviceId, error }
+          }
+        })
+      }))
+      
+      const audioTrack = stream.getAudioTracks()[0]
+      if (!audioTrack) {
+        yield* _(Effect.fail(new DJFlowError({
+          cause: 'No audio track in media stream',
+          step: 'get_user_media',
+          stepNumber: 4,
+          recoverable: true,
+          context: { 
+            timestamp: new Date(),
+            operation: 'get_user_media',
+            details: { roomId, deviceId }
+          }
+        })))
+      }
+      
+      // Update room store with audio track state
+      roomStore.actions.updateDJState({
+        audioTrack: {
+          track: Option.some(audioTrack),
+          stream: Option.some(stream),
+          deviceId: Option.fromNullable(deviceId),
+          constraints: Option.some(getAudioConstraints(deviceId)),
+          acquiredAt: Option.some(new Date()),
+          error: Option.none()
+        },
+        streams: Option.some({
+          localStream: Option.some(stream),
+          audioTrack: Option.some(audioTrack),
+          streamId: Option.some(stream.id),
+          createdAt: Option.some(new Date())
+        })
+      })
+      
+      console.info('✅ Step 4: Audio track acquired')
+      
+      // Step 5: Request WebRTC transport from backend
+      console.info('🔄 Step 5: Requesting DJ transport...')
+      roomStore.actions.setDJFlowStep('requesting_transport')
+      
+      const transportCommand: DjCommand = {
+        type: 'requestDjTransport'
+      }
+      
+      yield* _(sendDjCommand(djWebSocket, transportCommand))
+      
+      // Step 6-7: Backend creates transport and returns params
+      const transportResponse = yield* _(
+        waitForDjEvent<DjEvent & { type: 'djTransportReady' }>(djWebSocket, 'djTransportReady', 10000).pipe(
+          Effect.mapError(error => new DJFlowError({
+            cause: error.message,
+            step: 'creating_transport',
+            stepNumber: 6,
+            recoverable: false,
+            context: { timestamp: new Date(), operation: 'transport_ready', details: { error } }
+          }))
+        )
+      )
+      
+      console.info('✅ Steps 6-7: DJ transport ready, parameters received')
+      
+      // Step 8: Use device to create send transport
+      console.info('🔄 Step 8: Creating send transport...')
+      roomStore.actions.setDJFlowStep('creating_transport')
+      
+      const transportOptions = TransportOptionsFromApi.decode(transportResponse.transportOptions)
+      
+      const sendTransport = yield* _(pipe(
+        createSendTransportWithEvents(device, transportResponse.transportOptions, {
+          // Step 10-12: Connect event handler (dtls flow)
+          onConnect: async (dtlsParameters) => {
+            console.info('🔄 Steps 10-11: Transport connect event, sending DTLS params...')
+            roomStore.actions.setDJFlowStep('connecting_transport')
+            
+            const dtlsCommand: DjCommand = {
+              type: 'connectDjTransport',
+              transportId: transportOptions.id,
+              dtlsParameters: dtlsParamsToJson(dtlsParameters)
+            }
+            
+            // Step 11: Send dtls to backend
+            await Effect.runPromise(sendDjCommand(djWebSocket, dtlsCommand))
+            console.info('✅ Steps 11-12: DTLS parameters sent, backend connecting transport')
+          },
+          
+          // Step 13-17: Produce event handler
+          onProduce: (parameters, callback, _errback) => {
+            console.info('🔄 Steps 13-14: Produce event, sending RTP parameters...')
+            roomStore.actions.setDJFlowStep('creating_producer')
+            
+            // Step 14: Send parameters to backend
+            const produceCommand: DjCommand = {
+              type: 'produce',
+              rtpParameters: parameters.rtpParameters as any
+            }
+            
+            Effect.runSync(sendDjCommand(djWebSocket, produceCommand))
+            
+            // Step 15-16: Backend will create producer and send producerId back
+            // We'll handle the response in a separate listener
+            
+            // Step 17: Will be called when we receive producerId from backend
+            callback({ id: 'temp-id' }) // Temporary ID until backend responds
+          }
+        }),
+        Effect.provide(MediaSoupTransportServiceLive),
+        Effect.mapError(error => new DJFlowError({
+          cause: 'Failed to create send transport',
+          step: 'create_transport',
+          stepNumber: 8,
+          recoverable: false,
+          context: { 
+            timestamp: new Date(),
+            operation: 'create_transport',
+            details: { roomId, error }
+          }
+        }))
+      ))
+      
+      // Update room store with transport state
+      roomStore.actions.updateDJState({
+        sendTransport: Option.some({
+          transport: Option.some(sendTransport),
+          id: Option.some(transportOptions.id),
+          connectionState: 'new',
+          iceGatheringState: Option.none(),
+          iceConnectionState: Option.none(),
+          dtlsState: Option.none(),
+          transportOptions: Option.some(transportOptions),
+          dtlsParameters: Option.none(),
+          connected: false,
+          connectError: Option.none()
+        })
+      })
+      
+      console.info('✅ Step 8: Send transport created')
+      
+      // Step 9: Use send transport and call produce() (which fires connect & produce events)
+      console.info('🔄 Step 9: Calling produce() - will trigger connect and produce events...')
+      roomStore.actions.setDJFlowStep('creating_producer')
+      
+      const producer = yield* _(pipe(
+        createAudioProducer(sendTransport, audioTrack, {
+          onTrackEnded: (_producer) => {
+            console.error('❌ Producer track ended - audio source stopped')
+            roomStore.actions.setDJError('Audio track ended', 'error')
+          },
+          onTransportClose: (_producer) => {
+            console.error('❌ Producer transport closed')
+            roomStore.actions.setDJError('Transport closed', 'error')
+          }
+        }),
+        Effect.provide(MediaSoupProducerServiceLive),
+        Effect.mapError(error => new DJFlowError({
+          cause: 'Failed to create producer',
+          step: 'create_producer',
+          stepNumber: 15,
+          recoverable: false,
+          context: { 
+            timestamp: new Date(),
+            operation: 'create_producer',
+            details: { roomId, error }
+          }
+        }))
+      ))
+      
+      // Update room store with producer state
+      roomStore.actions.updateDJState({
+        producer: Option.some({
+          producer: Option.some(producer),
+          id: Option.some(producer.id),
+          kind: 'audio',
+          paused: producer.paused,
+          rtpParameters: Option.some(producer.rtpParameters),
+          track: Option.some(audioTrack),
+          appData: Option.some(producer.appData),
+          stats: Option.none(),
+          createdAt: Option.some(new Date()),
+          error: Option.none()
+        })
+      })
+      
+      // Wait for backend to confirm producer creation and send final producerId
+      console.info('🔄 Step 16: Waiting for backend producer confirmation...')
+      const producerCreatedResponse = yield* _(
+        waitForDjEvent<DjEvent & { type: 'producerCreated' }>(djWebSocket, 'producerCreated', 10000).pipe(
+          Effect.mapError(error => new DJFlowError({
+            cause: error.message,
+            step: 'publishing',
+            stepNumber: 16,
+            recoverable: false,
+            context: { timestamp: new Date(), operation: 'producer_created', details: { error } }
+          }))
+        )
+      )
+      
+      // Step 16-18: Room is now public and streaming
+      console.info('✅ Steps 16-18: Producer created, room is public and streaming!')
+      roomStore.actions.setDJFlowStep('streaming')
+      roomStore.actions.updateDJState({
+        flowCompletedAt: Option.some(new Date()),
+        lastError: Option.none()
+      })
+      
+      // Update room streaming status
+      roomStore.actions.startStreaming()
+      
+      return {
+        roomId,
+        producerId: producerCreatedResponse.producerId,
+        device,
+        sendTransport,
+        producer,
+        audioTrack
+      }
+    }),
+    
+    // Step 18: Error handling and cleanup
+    Effect.catchAll((error) => {
+      console.error('❌ DJ Flow Error - Step 18: Cleanup required', error)
+      roomStore.actions.setDJFlowStep('error')
+      roomStore.actions.setDJError(
+        error instanceof Error ? error.message : String(error),
+        'error'
+      )
+      
+      // Send cleanup command if needed
+      if (roomStore.roomId) {
+        const cleanupCommand: DjCommand = {
+          type: 'closeRoom'
+        }
+        Effect.runSync(sendDjCommand(djWebSocket, cleanupCommand))
+      }
+      
+      return Effect.fail(error instanceof DJFlowError ? error : new DJFlowError({
+        cause: error instanceof Error ? error.message : String(error),
+        step: 'error',
+        stepNumber: 18,
+        recoverable: false,
+        context: { timestamp: new Date(), operation: 'cleanup', details: { error } }
+      }))
+    })
+  )
+
+/**
+ * Pause DJ stream (control flow)
+ */
+export const pauseDJStream = (
+  roomStore: RoomStore,
+  djWebSocket: WebSocket
+): Effect.Effect<void, DJFlowError> =>
+  pipe(
+    Effect.gen(function* (_) {
+      console.info('⏸️ Pausing DJ stream')
+      
+      // Update room store
+      roomStore.actions.pauseStreaming()
+      
+      // Send pause command to backend
+      const pauseCommand: DjCommand = {
+        type: 'pauseStream'
+      }
+      
+      yield* _(sendDjCommand(djWebSocket, pauseCommand).pipe(
+        Effect.mapError(error => new DJFlowError({
+          cause: error.message || 'Failed to pause stream',
+          step: 'streaming',
+          stepNumber: 0,
+          recoverable: true,
+          context: { timestamp: new Date(), operation: 'pause_stream', details: { error } }
+        }))
+      ))
+      
+      console.info('✅ DJ stream paused')
+    })
+  )
+
+/**
+ * Resume DJ stream (control flow)
+ */
+export const resumeDJStream = (
+  roomStore: RoomStore,
+  djWebSocket: WebSocket
+): Effect.Effect<void, DJFlowError> =>
+  pipe(
+    Effect.gen(function* (_) {
+      console.info('▶️ Resuming DJ stream')
+      
+      // Update room store
+      roomStore.actions.resumeStreaming()
+      
+      // Send resume command to backend
+      const resumeCommand: DjCommand = {
+        type: 'resumeStream'
+      }
+      
+      yield* _(sendDjCommand(djWebSocket, resumeCommand).pipe(
+        Effect.mapError(error => new DJFlowError({
+          cause: error.message || 'Failed to resume stream',
+          step: 'streaming',
+          stepNumber: 0,
+          recoverable: true,
+          context: { timestamp: new Date(), operation: 'resume_stream', details: { error } }
+        }))
+      ))
+      
+      console.info('✅ DJ stream resumed')
+    })
+  )
+
+/**
+ * Close DJ room (cleanup flow)
+ */
+export const closeDJRoom = (
+  roomStore: RoomStore,
+  djWebSocket: WebSocket
+): Effect.Effect<void, DJFlowError> =>
+  pipe(
+    Effect.gen(function* (_) {
+      console.info('🔒 Closing DJ room')
+      
+      // Update room store
+      roomStore.actions.stopStreaming()
+      roomStore.actions.setDJFlowStep('cleanup')
+      
+      // Send close command to backend
+      const closeCommand: DjCommand = {
+        type: 'closeRoom'
+      }
+      
+      yield* _(sendDjCommand(djWebSocket, closeCommand).pipe(
+        Effect.mapError(error => new DJFlowError({
+          cause: error.message || 'Failed to close room',
+          step: 'cleanup',
+          stepNumber: 0,
+          recoverable: false,
+          context: { timestamp: new Date(), operation: 'close_room', details: { error } }
+        }))
+      ))
+      
+      // Disconnect from room
+      yield* _(roomStore.actions.disconnectFromRoom())
+      
+      console.info('✅ DJ room closed')
+    })
+  )

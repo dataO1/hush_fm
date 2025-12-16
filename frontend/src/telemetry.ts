@@ -1,11 +1,9 @@
-import { Context, Effect, Layer, pipe } from 'effect'
+import { Effect, Layer, pipe } from 'effect'
 import { WebSdk } from '@effect/opentelemetry'
-import { trace, propagation, context as otelContext } from '@opentelemetry/api'
 import { getWebAutoInstrumentations } from '@opentelemetry/auto-instrumentations-web'
 import { BatchSpanProcessor } from '@opentelemetry/sdk-trace-base'
 import { OTLPTraceExporter } from '@opentelemetry/exporter-trace-otlp-http'
-import * as Option from 'effect/Option'
-import type { TraceContext, SerializedTraceContext } from './models/websocket'
+// Removed websocket trace context - backend no longer uses it
 
 /**
  * Unified Cross-Service Span Architecture for HushFM
@@ -71,93 +69,7 @@ export const OtelLayer = Layer.unwrapEffect(
   )
 )
 
-/**
- * Trace service for context propagation between frontend and backend
- */
-export interface TraceService {
-  readonly injectTraceContext: <T extends { _traceContext: Option.Option<TraceContext> }>(
-    message: T
-  ) => Effect.Effect<T, never>
-  readonly extractTraceContext: (context: Option.Option<TraceContext>) => Effect.Effect<void, never>
-}
-
-export const TraceServiceTag = Context.GenericTag<TraceService>('TraceService')
-
-/**
- * Implementation using Effect's built-in OpenTelemetry integration
- * with proper W3C trace context propagation
- */
-export const TraceServiceLive = Layer.succeed(
-  TraceServiceTag,
-  {
-    /**
-     * Inject current OpenTelemetry span context into WebSocket message
-     * This creates proper W3C traceparent headers for backend correlation
-     */
-    injectTraceContext: <T extends { _traceContext: Option.Option<TraceContext> }>(
-      message: T
-    ): Effect.Effect<T, never> =>
-      Effect.sync(() => {
-        // Get the active OpenTelemetry span from the current context
-        const activeSpan = trace.getActiveSpan()
-        if (!activeSpan) {
-          return message
-        }
-
-        // Create carrier for context injection using OpenTelemetry propagation API
-        const carrier: Record<string, string> = {}
-        propagation.inject(otelContext.active(), carrier)
-
-        // Convert carrier to our TraceContext format
-        if (carrier.traceparent) {
-          const traceContext: TraceContext = {
-            traceparent: carrier.traceparent,
-            tracestate: Option.fromNullable(carrier.tracestate),
-            metadata: Object.keys(carrier).length > 1 ? 
-              Option.some(carrier) : 
-              Option.none(),
-          }
-
-          return {
-            ...message,
-            _traceContext: Option.some(traceContext),
-          }
-        }
-
-        return message
-      }),
-
-    /**
-     * Extract trace context from server message and set as parent for new spans
-     * This allows frontend spans to be children of backend spans
-     */
-    extractTraceContext: (context: Option.Option<TraceContext>) =>
-      Effect.sync(() => {
-        if (Option.isSome(context)) {
-          const traceContext = context.value
-          const carrier: Record<string, string> = {
-            traceparent: traceContext.traceparent,
-          }
-
-          // Add tracestate if present
-          if (Option.isSome(traceContext.tracestate)) {
-            carrier.tracestate = traceContext.tracestate.value
-          }
-
-          // Add metadata if present
-          if (Option.isSome(traceContext.metadata)) {
-            Object.assign(carrier, traceContext.metadata.value)
-          }
-
-          // Extract the context and set it as active for subsequent spans
-          const extractedContext = propagation.extract(otelContext.active(), carrier)
-          otelContext.with(extractedContext, () => {
-            // Context is now active for subsequent Effect operations
-          })
-        }
-      })
-  }
-)
+// WebSocket trace service removed - backend no longer uses trace context
 
 /**
  * Create root span for user interactions (top-level operations)
@@ -290,19 +202,13 @@ export const withAudioConsumeTrace = <A, E>(
 
 /**
  * Provide telemetry for the entire application
- * Sets up unified tracing across frontend and backend
+ * Sets up OpenTelemetry tracing for frontend operations only
  */
 export const provideTelemetry = <A, E>(effect: Effect.Effect<A, E>): Effect.Effect<A, E> =>
   pipe(
     effect,
-    Effect.provide(TraceServiceLive),
     Effect.provide(OtelLayer)
   )
-
-/**
- * Access trace service from context
- */
-export const useTraceService = Context.get(TraceServiceTag)
 
 /**
  * Legacy compatibility exports for existing code
@@ -328,74 +234,6 @@ export const createRootSpan = (_operationName: string, _attributes?: Record<stri
 export const createWebRTCSpan = createRootSpan
 export const createWebSocketSpan = createRootSpan
 
-export const injectTraceContext = <T extends { _traceContext: Option.Option<TraceContext> }>(
-  message: T
-): Effect.Effect<T, never> => {
-  return pipe(
-    TraceServiceTag,
-    Effect.andThen(service => service.injectTraceContext(message)),
-    Effect.provide(TraceServiceLive)
-  )
-}
-
-/**
- * Generate a random trace ID (32 hex characters)
- */
-const generateTraceId = (): string => {
-  return Array.from({ length: 16 }, () =>
-    Math.floor(Math.random() * 16).toString(16)
-  ).join('')
-}
-
-/**
- * Generate a random span ID (16 hex characters)
- */
-const generateSpanId = (): string => {
-  return Array.from({ length: 8 }, () =>
-    Math.floor(Math.random() * 16).toString(16)
-  ).join('')
-}
-
-/**
- * THE SINGLE SOURCE OF TRUTH for WebSocket trace context
- * 
- * This function always returns a valid SerializedTraceContext that matches
- * the backend Rust TraceContext struct exactly:
- * - traceparent: String (required)
- * - tracestate: Option<String> (optional, sent as null if missing)
- * - metadata: Option<HashMap<String, String>> (optional, sent as null if missing)
- * 
- * Use this function EVERYWHERE for WebSocket commands to ensure unified tracing.
- */
-export const getWebSocketTraceContext = (): SerializedTraceContext => {
-  // Try to get current OpenTelemetry context
-  const carrier: Record<string, string> = {}
-  propagation.inject(otelContext.active(), carrier)
-  
-  // If we have an active span, use its trace context
-  if (carrier.traceparent) {
-    return {
-      traceparent: carrier.traceparent,
-      tracestate: carrier.tracestate || null,
-      metadata: null  // We don't use metadata for now
-    }
-  }
-  
-  // No active span - create new trace for this WebSocket command
-  // This ensures every command is traceable even outside Effect spans
-  return {
-    traceparent: `00-${generateTraceId()}-${generateSpanId()}-01`,
-    tracestate: null,
-    metadata: null
-  }
-}
-
-export const extractTraceContext = (context: Option.Option<TraceContext>): Effect.Effect<void, never> => {
-  return pipe(
-    TraceServiceTag,
-    Effect.andThen(service => service.extractTraceContext(context)),
-    Effect.provide(TraceServiceLive)
-  )
-}
+// WebSocket trace context functions removed - backend no longer uses trace context
 
 export const withSpan = withWebSocketSpan
