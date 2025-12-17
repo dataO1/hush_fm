@@ -1,5 +1,7 @@
-import { createSignal, For, Show, onMount } from 'solid-js'
+import { createSignal, For, Show, onMount, onCleanup } from 'solid-js'
+import { Effect } from 'effect'
 import type { RoomStore } from '../../../stores/room.store'
+import { previewAudioDevice, stopDevicePreview } from '../../../services/flows/dj-flows.service'
 
 type AudioDevice = {
   deviceId: string
@@ -21,6 +23,12 @@ export function DeviceSelector(props: Props) {
 
   onMount(() => {
     loadAudioDevices()
+  })
+
+  onCleanup(() => {
+    // Stop preview stream when component unmounts
+    Effect.runPromise(stopDevicePreview(props.roomStore))
+      .catch(err => console.error('Error stopping device preview:', err))
   })
 
   const loadAudioDevices = async () => {
@@ -50,10 +58,9 @@ export function DeviceSelector(props: Props) {
       if (audioInputs.length > 0 && !selectedDevice()) {
         const firstDevice = audioInputs[0].deviceId
         setSelectedDevice(firstDevice)
-        console.log('Auto-selecting first device:', firstDevice)
         
-        // Notify parent component
-        props.onDeviceSelected?.(firstDevice)
+        // Start preview for first device and notify parent
+        await handleDeviceSelection(firstDevice)
       }
     } catch (err) {
       setError('Microphone access denied')
@@ -63,15 +70,28 @@ export function DeviceSelector(props: Props) {
     }
   }
 
+  const handleDeviceSelection = async (deviceId: string) => {
+    try {
+      // Only start preview if DJ is not currently streaming
+      if (!props.roomStore.isDJStreaming) {
+        // Start preview stream for the selected device
+        await Effect.runPromise(previewAudioDevice(props.roomStore, deviceId))
+      }
+      
+      // Always notify parent component of device selection
+      props.onDeviceSelected?.(deviceId)
+    } catch (err) {
+      console.error('Failed to preview device:', err)
+      setError(`Failed to preview device: ${err instanceof Error ? err.message : 'Unknown error'}`)
+    }
+  }
+  
   const handleDeviceChange = (event: Event) => {
     const target = event.target as HTMLSelectElement
     const deviceId = target.value
     
     setSelectedDevice(deviceId)
-    console.log('Device selected:', deviceId)
-    
-    // Notify parent component of device selection
-    props.onDeviceSelected?.(deviceId)
+    handleDeviceSelection(deviceId)
   }
 
   return (

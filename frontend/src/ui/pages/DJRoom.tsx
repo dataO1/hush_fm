@@ -2,7 +2,7 @@ import { onMount, onCleanup, Show } from 'solid-js'
 import { useParams, useNavigate } from '@solidjs/router'
 import { Effect, Option } from 'effect'
 import { DeviceSelector } from '../components/controls/DeviceSelector'
-import { createRoomStore } from '../../stores/room.store'
+import { getRoomStore } from '../../stores/room.store'
 import { publishDJRoom, toggleDJStream, closeDJRoom } from '../../services/flows/dj-flows.service'
 import { ConnectionState } from '../../domain/schemas/room.schema'
 import type { DJState } from '../../domain/schemas/dj.schema'
@@ -14,7 +14,7 @@ export default function DJRoom() {
   const navigate = useNavigate()
 
   // Use room store for DJ state management - all state comes from here
-  const roomStore = createRoomStore()
+  const roomStore = getRoomStore()
 
   // Get room data from route params
   const roomId = () => params.roomId
@@ -41,6 +41,11 @@ export default function DJRoom() {
   const isConnecting = () => roomStore.isConnecting
   const isPaused = () => roomStore.isPaused
   const selectedDeviceId = () => roomStore.selectedDeviceId
+  
+  // Room information
+  const roomMetadata = () => roomStore.roomMetadata
+  const roomName = () => roomMetadata()?.name || `Room ${roomId()}`
+  const djName = () => roomMetadata()?.djName || 'DJ'
 
   // Helper to convert ConnectionState to dot status
   const getDotStatus = () => {
@@ -180,6 +185,12 @@ export default function DJRoom() {
         <Show when={!isConnecting()}>
           <div class="card bg-white/10 backdrop-blur-sm border border-white/20">
             <div class="card-body p-4 sm:p-6">
+              
+              {/* Room Header */}
+              <div class="text-center mb-4 sm:mb-6">
+                <h1 class="text-lg sm:text-xl font-semibold text-white/90 mb-1">{roomName()}</h1>
+                <p class="text-sm text-white/60">DJ: {djName()}</p>
+              </div>
               <div class="flex justify-between items-center mb-4 sm:mb-6">
                 <button class="btn btn-sm sm:btn-md btn-ghost text-white hover:bg-white/20" onClick={goBack}>←</button>
                 <div class="flex items-center gap-2">
@@ -198,8 +209,8 @@ export default function DJRoom() {
                 onDeviceSelected={onDeviceSelected}
               />
               
-              {/* Audio Oscilloscope - show when streaming with audio stream */}
-              <Show when={isStreaming() && djAudioStream()}>
+              {/* Audio Oscilloscope - show when audio stream is available (preview or streaming) */}
+              <Show when={djAudioStream()}>
                 <div class="w-full mb-4">
                   <Oscilloscope stream={djAudioStream()!} height={60} class="mb-0" />
                 </div>

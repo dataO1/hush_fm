@@ -10,7 +10,7 @@
  * State is managed in lobby stores.
  */
 
-import { Effect, pipe } from 'effect'
+import { Effect, pipe, Option } from 'effect'
 import { 
   connectToLobby,
   connectToListenerRoom,
@@ -27,6 +27,8 @@ import {
   RoomCreationError,
   ErrorFactories
 } from '../../domain/errors'
+import type { RoomStore } from '../../stores/room.store'
+import type { RoomMetadata } from '../../domain/schemas/room.schema'
 
 /**
  * Room creation request
@@ -91,7 +93,8 @@ export const subscribeLobbyEvents = (
  */
 export const announceRoomCreation = (
   lobbyWs: WebSocket,
-  request: CreateRoomRequest
+  request: CreateRoomRequest,
+  roomStore: RoomStore
 ): Effect.Effect<{ roomId: string, djWebSocketUrl: string }, RoomCreationError> =>
   pipe(
     Effect.gen(function* (_) {
@@ -144,6 +147,18 @@ export const announceRoomCreation = (
           })
         })
       )
+      
+      // Set room metadata in store from the request and response
+      const metadata: RoomMetadata = {
+        id: response.room.id,
+        name: request.name,
+        description: request.description ? Option.some(request.description) : Option.none(),
+        djName: request.djName,
+        isPublic: true,
+        createdAt: new Date(),
+        tags: request.tags || []
+      }
+      roomStore.actions.setRoomMetadata(metadata)
       
       return {
         roomId: response.room.id,

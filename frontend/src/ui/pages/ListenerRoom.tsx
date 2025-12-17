@@ -1,7 +1,7 @@
 import { createSignal, onMount, onCleanup, Show, createEffect } from 'solid-js'
 import { useParams, useNavigate, useLocation } from '@solidjs/router'
 import { Effect, Option } from 'effect'
-import { createRoomStore } from '../../stores/room.store'
+import { getRoomStore } from '../../stores/room.store'
 import { createLobbyStore } from '../../stores/lobby.store'
 import { joinRoomAsListener, leaveRoomAsListener } from '../../services/flows/listener-flows.service'
 import { leaveLobby } from '../../services/flows/lobby-flows.service'
@@ -15,7 +15,7 @@ export default function ListenerRoom() {
   const location = useLocation()
 
   // Use room store and lobby store
-  const roomStore = createRoomStore()
+  const roomStore = getRoomStore()
   const lobbyStore = createLobbyStore()
 
   // Get data from navigation state (from Landing.tsx RequestJoin response)
@@ -65,6 +65,11 @@ export default function ListenerRoom() {
     const listener = currentListener()
     return listener ? Option.getOrNull(listener.stepError) : null
   }
+  
+  // Room information
+  const roomMetadata = () => roomStore.roomMetadata
+  const roomName = () => roomMetadata()?.name || `Room ${roomId()}`
+  const djName = () => roomMetadata()?.djName || 'DJ'
 
   // Get listener audio stream from room store
   const listenerAudioStream = () => {
@@ -293,6 +298,12 @@ const handleManualPlay = () => {
       <Show when={!isConnecting() && !currentError()}>
         <div class="card bg-white/10 backdrop-blur-sm border border-white/20 shadow-xl max-w-sm sm:max-w-md w-full mx-4">
           <div class="card-body flex flex-col items-center gap-6 sm:gap-8 p-4 sm:p-6">
+            
+            {/* Room Header */}
+            <div class="text-center">
+              <h1 class="text-lg sm:text-xl font-semibold text-white/90 mb-1">{roomName()}</h1>
+              <p class="text-sm text-white/60">DJ: {djName()}</p>
+            </div>
 
             {/* Status Indicator - single source of truth from connection state */}
             <div class="flex flex-col items-center gap-2 sm:gap-3">

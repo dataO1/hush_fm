@@ -153,6 +153,110 @@ const dtlsParamsToJson = (params: any): DtlsParametersJson => ({
 })
 
 /**
+ * Device Preview Flow - Create preview stream for device selection
+ * 
+ * Creates a getUserMedia stream for the selected device and stores it in DJ state
+ * so the oscilloscope can show audio input before going live.
+ */
+export const previewAudioDevice = (
+  roomStore: RoomStore,
+  deviceId: string
+): Effect.Effect<MediaStream, DJFlowError> =>
+  pipe(
+    Effect.gen(function* (_) {
+      console.info(`🎤 Starting device preview for device: ${deviceId}`)
+      
+      try {
+        // Clean up any existing preview stream first
+        const currentDJ = roomStore.djState as any
+        if (currentDJ && currentDJ.streams && Option.isSome(currentDJ.streams)) {
+          const streams = currentDJ.streams.value as any
+          if (streams.localStream && Option.isSome(streams.localStream)) {
+            const localStream = streams.localStream.value as MediaStream
+            console.info('🧹 Cleaning up existing preview stream')
+            localStream.getTracks().forEach(track => track.stop())
+          }
+        }
+        
+        // Create new stream with selected device
+        const stream = yield* _(Effect.tryPromise({
+          try: () => navigator.mediaDevices.getUserMedia(getAudioConstraints(deviceId)),
+          catch: (error: unknown) => new DJFlowError({
+            cause: `Failed to get user media for device ${deviceId}: ${String(error)}`,
+            step: 'device_preview',
+            stepNumber: 0,
+            recoverable: true,
+            context: {
+              timestamp: new Date(),
+              operation: 'preview_audio_device',
+              details: { deviceId }
+            }
+          })
+        }))
+        
+        console.info(`✅ Device preview stream created for device: ${deviceId}`)
+        
+        // Update store with preview stream using updateDJState for partial updates
+        roomStore.actions.updateDJState({
+          streams: Option.some({
+            localStream: Option.some(stream as any),
+            audioTrack: Option.some(stream.getAudioTracks()[0] as any),
+            streamId: Option.some(stream.id),
+            createdAt: Option.some(new Date())
+          } as any)
+        })
+        
+        return stream
+        
+      } catch (error) {
+        console.error(`❌ Device preview failed for device ${deviceId}:`, error)
+        throw new DJFlowError({
+          cause: `Device preview failed: ${String(error)}`,
+          step: 'device_preview',
+          stepNumber: 0,
+          recoverable: true,
+          context: {
+            timestamp: new Date(),
+            operation: 'preview_audio_device',
+            details: { deviceId }
+          }
+        })
+      }
+    })
+  )
+
+/**
+ * Stop Device Preview Flow
+ * 
+ * Stops and cleans up the preview stream
+ */
+export const stopDevicePreview = (
+  roomStore: RoomStore
+): Effect.Effect<void, DJFlowError> =>
+  pipe(
+    Effect.gen(function* (_) {
+      console.info('🛑 Stopping device preview')
+      
+      const currentDJ = roomStore.djState as any
+      if (currentDJ && currentDJ.streams && Option.isSome(currentDJ.streams)) {
+        const streams = currentDJ.streams.value as any
+        if (streams.localStream && Option.isSome(streams.localStream)) {
+          const localStream = streams.localStream.value as MediaStream
+          console.info('🧹 Stopping preview stream tracks')
+          localStream.getTracks().forEach(track => track.stop())
+        }
+      }
+      
+      // Clear streams from store
+      roomStore.actions.updateDJState({
+        streams: Option.none()
+      })
+      
+      console.info('✅ Device preview stopped')
+    })
+  )
+
+/**
  * DJ Room Publishing Flow (18 Steps) - follows specification exactly
  * 
  * Prerequisites: Room already announced in lobby (Step 1 done by lobby-flows.service)
@@ -297,38 +401,77 @@ export const publishDJRoom = (
       
       console.info('✅ Step 3: Device loaded with RTP capabilities')
       
-      // Step 4: Call getUserMedia(options) and get audio track
-      console.info('🔄 Step 4: Requesting audio track from getUserMedia...')
+      // Step 4: Get audio track (reuse existing preview stream if available)
+      console.info('🔄 Step 4: Getting audio track for production...')
       roomStore.actions.setDJFlowStep('requesting_media')
       
-      const stream = yield* _(Effect.tryPromise({
-        try: () => navigator.mediaDevices.getUserMedia(getAudioConstraints(deviceId)),
-        catch: (error) => new DJFlowError({
-          cause: 'Failed to get user media',
-          step: 'get_user_media',
-          stepNumber: 4,
-          recoverable: true,
-          context: { 
-            timestamp: new Date(),
-            operation: 'get_user_media',
-            details: { roomId, deviceId, error }
-          }
-        })
-      }))
+      let stream: MediaStream
+      let audioTrack: MediaStreamTrack
       
-      const audioTrack = stream.getAudioTracks()[0]
-      if (!audioTrack) {
-        yield* _(Effect.fail(new DJFlowError({
-          cause: 'No audio track in media stream',
-          step: 'get_user_media',
-          stepNumber: 4,
-          recoverable: true,
-          context: { 
-            timestamp: new Date(),
-            operation: 'get_user_media',
-            details: { roomId, deviceId }
-          }
-        })))
+      // Try to reuse existing preview stream first
+      const currentDJ = roomStore.djState as any
+      const hasExistingStream = currentDJ && 
+        currentDJ.streams && 
+        Option.isSome(currentDJ.streams) &&
+        currentDJ.streams.value.localStream &&
+        Option.isSome(currentDJ.streams.value.localStream)
+      
+      if (hasExistingStream) {
+        console.info('✅ Step 4: Reusing existing preview stream for production')
+        stream = currentDJ.streams.value.localStream.value as MediaStream
+        audioTrack = stream.getAudioTracks()[0]
+        
+        if (!audioTrack) {
+          console.warn('⚠️ Preview stream has no audio track, creating new stream')
+          // Fall back to creating new stream
+          stream = yield* _(Effect.tryPromise({
+            try: () => navigator.mediaDevices.getUserMedia(getAudioConstraints(deviceId)),
+            catch: (error) => new DJFlowError({
+              cause: 'Failed to get user media (fallback)',
+              step: 'get_user_media',
+              stepNumber: 4,
+              recoverable: true,
+              context: { 
+                timestamp: new Date(),
+                operation: 'get_user_media_fallback',
+                details: { roomId, deviceId, error }
+              }
+            })
+          }))
+          audioTrack = stream.getAudioTracks()[0]
+        }
+      } else {
+        console.info('📡 Step 4: Creating new stream for production (no preview stream found)')
+        // Create new stream
+        stream = yield* _(Effect.tryPromise({
+          try: () => navigator.mediaDevices.getUserMedia(getAudioConstraints(deviceId)),
+          catch: (error) => new DJFlowError({
+            cause: 'Failed to get user media',
+            step: 'get_user_media',
+            stepNumber: 4,
+            recoverable: true,
+            context: { 
+              timestamp: new Date(),
+              operation: 'get_user_media',
+              details: { roomId, deviceId, error }
+            }
+          })
+        }))
+        audioTrack = stream.getAudioTracks()[0]
+        
+        if (!audioTrack) {
+          yield* _(Effect.fail(new DJFlowError({
+            cause: 'No audio track in media stream',
+            step: 'get_user_media',
+            stepNumber: 4,
+            recoverable: true,
+            context: { 
+              timestamp: new Date(),
+              operation: 'get_user_media',
+              details: { roomId, deviceId }
+            }
+          })))
+        }
       }
       
       // Update room store with audio track state

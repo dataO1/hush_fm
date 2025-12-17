@@ -590,7 +590,7 @@ export const createRoomStore = () => {
       return Option.getOrNull(state.connection.connectionType)
     },
     
-    get roomMetadata() {
+    get roomMetadata(): RoomMetadata | null {
       return Option.getOrNull(state.metadata)
     },
     
@@ -676,3 +676,18 @@ export const createRoomStore = () => {
  * Room store type
  */
 export type RoomStore = ReturnType<typeof createRoomStore>
+
+/**
+ * Singleton room store instance
+ */
+let roomStoreInstance: RoomStore | null = null
+
+/**
+ * Get or create the singleton room store instance
+ */
+export function getRoomStore(): RoomStore {
+  if (!roomStoreInstance) {
+    roomStoreInstance = createRoomStore()
+  }
+  return roomStoreInstance
+}

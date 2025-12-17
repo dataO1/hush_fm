@@ -3,6 +3,7 @@ import { useNavigate } from '@solidjs/router'
 import { Effect } from 'effect'
 import { createLobbyStore } from '../../stores/lobby.store'
 import { getUserStore } from '../../stores/user.store'
+import { getRoomStore } from '../../stores/room.store'
 import { getSessionId } from '../../services/user.service'
 import {
   connectToLobbyWebSocket,
@@ -21,6 +22,7 @@ export default function Landing() {
   // Create store instances
   const lobbyStore = createLobbyStore()
   const userStore = getUserStore()
+  const roomStore = getRoomStore()
   
   // Track WebSocket for cleanup
   let currentWebSocket: WebSocket | null = null
@@ -111,7 +113,7 @@ export default function Landing() {
         description: `${dj}'s room`
       }
       
-      const result = await Effect.runPromise(announceRoomCreation(currentWebSocket, request))
+      const result = await Effect.runPromise(announceRoomCreation(currentWebSocket, request, roomStore))
       
       lobbyStore.actions.setLastCreatedRoom(result.roomId)
       
