@@ -36,7 +36,7 @@ export function DeviceSelector(props: Props) {
     setError(null)
 
     try {
-      // Request microphone permission first
+      // Request audio input permission first
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
       
       // Stop the temporary stream
@@ -48,7 +48,7 @@ export function DeviceSelector(props: Props) {
         .filter(device => device.kind === 'audioinput' && device.deviceId !== 'default')
         .map(device => ({
           deviceId: device.deviceId,
-          label: device.label || `Microphone ${device.deviceId.slice(0, 5)}`,
+          label: device.label || `Audio Source ${device.deviceId.slice(0, 5)}`,
           groupId: device.groupId,
         }))
 
@@ -63,7 +63,7 @@ export function DeviceSelector(props: Props) {
         await handleDeviceSelection(firstDevice)
       }
     } catch (err) {
-      setError('Microphone access denied')
+      setError('Audio input access denied')
       console.error('Error loading audio devices:', err)
     } finally {
       setIsLoading(false)
@@ -97,7 +97,7 @@ export function DeviceSelector(props: Props) {
   return (
     <div class="form-control w-full">
       <label class="label">
-        <span class="label-text">Microphone</span>
+        <span class="label-text">Audio Source</span>
       </label>
       
       <Show
@@ -131,7 +131,7 @@ export function DeviceSelector(props: Props) {
             disabled={props.disabled || isLoading()}
           >
             <option disabled value="">
-              Select microphone
+              Select audio source
             </option>
             <For each={devices()}>
               {(device) => (

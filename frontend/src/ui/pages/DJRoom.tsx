@@ -266,7 +266,7 @@ export default function DJRoom() {
                     )}
                   </button>
                   <div class="text-xs sm:text-sm text-white/60 mt-2">
-                    Select a microphone to get started
+                    Select an audio source to get started
                   </div>
                 </div>
               </Show>
