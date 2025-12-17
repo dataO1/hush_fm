@@ -42,25 +42,25 @@ impl Lobby {
             worker_settings.log_level = WorkerLogLevel::Debug; // Enable debug logging
             worker_settings.log_tags = vec![
                 WorkerLogTag::Dtls,
-                WorkerLogTag::Ice, 
+                WorkerLogTag::Ice,
                 WorkerLogTag::Rtp,
                 WorkerLogTag::Info,
             ];
-            
+
             // Explicitly set port range to ensure alignment with transport configuration
             worker_settings.rtc_port_range = 10000..=59999;
-            
+
             // Configure custom DTLS certificates with SHA-256 fingerprints
             // Compute absolute paths relative to the server binary location
-            let current_dir = std::env::current_dir()
-                .map_err(|e| anyhow::anyhow!("Failed to get current directory: {}", e))?;
-            let cert_path = current_dir.join("dtls").join("dtls.cert.pem");
-            let key_path = current_dir.join("dtls").join("dtls.key.pem");
-            
-            worker_settings.dtls_files = Some(WorkerDtlsFiles {
-                certificate: cert_path,
-                private_key: key_path,
-            });
+            // let current_dir = std::env::current_dir()
+            //     .map_err(|e| anyhow::anyhow!("Failed to get current directory: {}", e))?;
+            // let cert_path = current_dir.join("dtls").join("dtls.cert.pem");
+            // let key_path = current_dir.join("dtls").join("dtls.key.pem");
+            //
+            // worker_settings.dtls_files = Some(WorkerDtlsFiles {
+            //     certificate: cert_path,
+            //     private_key: key_path,
+            // });
 
             let worker = worker_manager
                 .create_worker(worker_settings)
@@ -185,7 +185,7 @@ impl Lobby {
     pub async fn update_room(&self, room_id: &Uuid) {
         if let Some(room_arc) = self.get_room(room_id) {
             let room = room_arc.read().await;
-            
+
             // Check if room is now public (Step 16 atomic publication)
             if room.is_public() {
                 // First time becoming public = RoomAdded, subsequent updates = RoomUpdated
@@ -200,7 +200,7 @@ impl Lobby {
                         room: room.clone().into(),
                     }
                 };
-                
+
                 let _ = self.broadcast_tx.send(event);
                 tracing::debug!(
                     room_id = %room_id,
