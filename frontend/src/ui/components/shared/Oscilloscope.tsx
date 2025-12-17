@@ -12,7 +12,7 @@ export function Oscilloscope(props: OscilloscopeProps) {
   let analyser: AnalyserNode | null = null
   let source: MediaStreamAudioSourceNode | null = null
   let animationId: number | null = null
-  let dataArray: Uint8Array | null = null
+  let dataArray: Uint8Array<ArrayBuffer> | null = null
 
   const setupOscilloscope = () => {
     if (!props.stream || !canvasRef) return
@@ -20,19 +20,23 @@ export function Oscilloscope(props: OscilloscopeProps) {
     try {
       // Create audio context and analyser
       audioContext = new (window.AudioContext || (window as any).webkitAudioContext)()
+      
+      // Resume audio context if suspended
+      if (audioContext.state === 'suspended') {
+        audioContext.resume()
+      }
+      
       analyser = audioContext.createAnalyser()
+      analyser.fftSize = 2048
+      analyser.smoothingTimeConstant = 0.3
       
       // Connect stream to analyser
       source = audioContext.createMediaStreamSource(props.stream)
       source.connect(analyser)
       
-      // Configure analyser for time domain (oscilloscope) data
-      analyser.fftSize = 2048
-      analyser.smoothingTimeConstant = 0.8
-      
       // Create data array for waveform data
       const bufferLength = analyser.frequencyBinCount
-      dataArray = new Uint8Array(bufferLength) as Uint8Array
+      dataArray = new Uint8Array(new ArrayBuffer(bufferLength))
       
       // Set canvas dimensions
       const canvas = canvasRef
@@ -43,10 +47,9 @@ export function Oscilloscope(props: OscilloscopeProps) {
       
       // Start drawing
       draw()
-      console.log('🌊 Native oscilloscope started successfully')
       
     } catch (error) {
-      console.error('Error setting up native oscilloscope:', error)
+      console.error('Oscilloscope setup error:', error)
     }
   }
 
@@ -54,28 +57,35 @@ export function Oscilloscope(props: OscilloscopeProps) {
     if (!canvasRef || !analyser || !dataArray) return
     
     // Get waveform data
-    analyser.getByteTimeDomainData(dataArray as any)
+    analyser.getByteTimeDomainData(dataArray)
     
     const canvas = canvasRef
     const ctx = canvas.getContext('2d')
     if (!ctx) return
     
-    // Clear canvas completely
+    // Clear canvas
     ctx.clearRect(0, 0, canvas.width, canvas.height)
     
-    // Draw waveform
-    ctx.lineWidth = 2 * window.devicePixelRatio
-    ctx.strokeStyle = 'hsl(var(--p))' // DaisyUI primary color
+    // Draw waveform with enhanced styling
+    ctx.lineWidth = Math.max(2, 3 * window.devicePixelRatio)
+    ctx.strokeStyle = '#ec4899'
     ctx.lineCap = 'round'
+    ctx.lineJoin = 'round'
     ctx.beginPath()
     
     const sliceWidth = canvas.width / dataArray.length
     let x = 0
     
     for (let i = 0; i < dataArray.length; i++) {
-      // Convert byte data (0-255) to canvas coordinate
-      const v = dataArray[i] / 128.0 // Convert to 0-2 range
-      const y = (v * canvas.height) / 2 // Scale to canvas height
+      // Convert byte data (0-255) to normalized range
+      const normalized = (dataArray[i] - 128) / 128.0
+      
+      // Amplify small variations by 10x for better visibility
+      const amplified = normalized * 10.0
+      
+      // Scale to canvas and clamp to bounds
+      let y = (canvas.height / 2) - (amplified * canvas.height * 0.4)
+      y = Math.max(0, Math.min(canvas.height, y))
       
       if (i === 0) {
         ctx.moveTo(x, y)
@@ -117,7 +127,6 @@ export function Oscilloscope(props: OscilloscopeProps) {
     }
     
     dataArray = null
-    console.log('🌊 Native oscilloscope cleaned up')
   }
 
   // React to stream changes
@@ -141,7 +150,7 @@ export function Oscilloscope(props: OscilloscopeProps) {
   })
 
   return (
-    <div class={`bg-base-300 rounded-lg p-3 ${props.class || ''}`}>
+    <div class={`bg-white/5 backdrop-blur-sm border border-white/10 rounded-lg p-3 ${props.class || ''}`}>
       <canvas
         ref={canvasRef}
         class="w-full"

@@ -4,9 +4,10 @@ import { Effect, Option } from 'effect'
 import { DeviceSelector } from '../components/controls/DeviceSelector'
 import { createRoomStore } from '../../stores/room.store'
 import { publishDJRoom, toggleDJStream, closeDJRoom } from '../../services/flows/dj-flows.service'
-import { Oscilloscope } from '../components/shared/Oscilloscope'
 import { ConnectionState } from '../../domain/schemas/room.schema'
 import type { DJState } from '../../domain/schemas/dj.schema'
+import ConnectionStatusDot from '../components/ConnectionStatusDot'
+import { Oscilloscope } from '../components/shared/Oscilloscope'
 
 export default function DJRoom() {
   const params = useParams()
@@ -41,15 +42,40 @@ export default function DJRoom() {
   const isPaused = () => roomStore.isPaused
   const selectedDeviceId = () => roomStore.selectedDeviceId
 
-  // Get DJ source audio stream from room store
-  const djSourceStream = () => {
-    const dj = roomStore.djState as any
-    if (!dj?.streams) return undefined
+  // Helper to convert ConnectionState to dot status
+  const getDotStatus = () => {
+    const state = connectionState()
+    if (state === ConnectionState.STREAMING && isPaused()) return 'paused'
+    if (state === ConnectionState.STREAMING) return 'streaming'
+    if (state === ConnectionState.PAUSED) return 'paused'
+    if (state === ConnectionState.ERROR) return 'error'
+    if (state === ConnectionState.CONNECTED || state === ConnectionState.IDLE) return 'setup'
+    if (state === ConnectionState.CONNECTING || state === ConnectionState.DISCONNECTING) return 'connecting'
+    return 'disconnected'
+  }
+
+  // Helper to get status text for accessibility
+  const getStatusText = () => {
+    const state = connectionState()
+    if (state === ConnectionState.STREAMING && isPaused()) return 'MUTED'
+    if (state === ConnectionState.STREAMING) return 'LIVE'
+    if (state === ConnectionState.IDLE) return 'SETUP'
+    return state
+  }
+
+  // Get DJ audio stream from room store
+  const djAudioStream = () => {
+    const dj = roomStore.djState as DJState | null
+    if (!dj) return null
     
-    const streams = Option.getOrUndefined(dj.streams) as any
-    if (!streams?.localStream) return undefined
+    // Get stream from the DJ's streams state
+    const streamsOption = dj.streams
+    if (Option.isNone(streamsOption)) return null
     
-    return Option.getOrUndefined(streams.localStream) as MediaStream | undefined
+    const streams = Option.getOrNull(streamsOption)
+    if (!streams) return null
+    
+    return Option.getOrNull(streams.localStream) as MediaStream | null
   }
 
   const startStreaming = async () => {
@@ -67,11 +93,9 @@ export default function DJRoom() {
 
     try {
       // Start DJ publishing flow - service will handle WebSocket connection and state
-      const result = await Effect.runPromise(
+      await Effect.runPromise(
         publishDJRoom(roomStore, currentRoomId, String(deviceId))
       )
-      
-      console.log('DJ room published successfully:', result)
 
     } catch (err: any) {
       console.error('Failed to start streaming:', err)
@@ -134,41 +158,37 @@ export default function DJRoom() {
   }
 
   return (
-    <div class="min-h-screen bg-base-100 p-4">
+    <div class="min-h-screen bg-gradient-to-br from-purple-900 via-blue-900 to-indigo-900 text-white p-4 sm:p-6">
       
-      <div class="max-w-md mx-auto">
+      <div class="max-w-sm sm:max-w-md lg:max-w-lg mx-auto">
         <Show when={isConnecting()}>
-          <div class="card bg-base-200">
-            <div class="card-body text-center">
-              <div class="loading loading-spinner loading-lg mx-auto"></div>
-              <h2>Connecting...</h2>
+          <div class="card bg-white/10 backdrop-blur-sm border border-white/20">
+            <div class="card-body text-center py-8">
+              <div class="loading loading-spinner loading-lg mx-auto mb-4"></div>
+              <h2 class="text-lg sm:text-xl">Connecting...</h2>
             </div>
           </div>
         </Show>
 
         <Show when={djError()}>
-          <div class="alert alert-error mb-4">
+          <div class="alert alert-error mb-4 text-sm sm:text-base">
             <span>{String(djError() || 'An error occurred')}</span>
             <button class="btn btn-sm btn-circle" onClick={() => roomStore.actions.clearDJError()}>✕</button>
           </div>
         </Show>
 
         <Show when={!isConnecting()}>
-          <div class="card bg-base-200">
-            <div class="card-body">
-              <div class="flex justify-between items-center mb-4">
-                <button class="btn btn-sm btn-ghost" onClick={goBack}>←</button>
-                <div class={`badge ${
-                  connectionState() === ConnectionState.STREAMING && !isPaused() ? 'badge-success' :
-                  connectionState() === ConnectionState.PAUSED ? 'badge-warning' :
-                  connectionState() === ConnectionState.ERROR ? 'badge-error' :
-                  connectionState() === ConnectionState.CONNECTED || connectionState() === ConnectionState.IDLE ? 'badge-info' :
-                  'badge-ghost'
-                }`}>
-                  {connectionState() === ConnectionState.IDLE ? 'SETUP' : 
-                   connectionState() === ConnectionState.STREAMING && isPaused() ? 'MUTED' :
-                   connectionState() === ConnectionState.STREAMING ? 'LIVE' :
-                   connectionState()}
+          <div class="card bg-white/10 backdrop-blur-sm border border-white/20">
+            <div class="card-body p-4 sm:p-6">
+              <div class="flex justify-between items-center mb-4 sm:mb-6">
+                <button class="btn btn-sm sm:btn-md btn-ghost text-white hover:bg-white/20" onClick={goBack}>←</button>
+                <div class="flex items-center gap-2">
+                  <ConnectionStatusDot 
+                    connectionState={getDotStatus()}
+                    size="md"
+                    title={getStatusText()}
+                  />
+                  <span class="text-xs sm:text-sm font-medium">{getStatusText()}</span>
                 </div>
               </div>
 
@@ -178,33 +198,36 @@ export default function DJRoom() {
                 onDeviceSelected={onDeviceSelected}
               />
               
-              {/* Audio Oscilloscope - show when streaming with source */}
-              <Show when={isStreaming() && djSourceStream()}>
-                <Oscilloscope 
-                  stream={djSourceStream()} 
-                  height={80}
-                  class="w-full"
-                />
+              {/* Audio Oscilloscope - show when streaming with audio stream */}
+              <Show when={isStreaming() && djAudioStream()}>
+                <div class="w-full mb-4">
+                  <Oscilloscope stream={djAudioStream()!} height={60} class="mb-0" />
+                </div>
               </Show>
               
               {/* Show Go Live button when not streaming */}
               <Show when={!isStreaming()}>
-                <div class="text-center mt-4">
+                <div class="text-center mt-4 sm:mt-6">
                   <button
-                    class="btn btn-primary btn-lg"
+                    class="btn btn-primary btn-md sm:btn-lg w-full sm:w-auto px-8"
                     onClick={startStreaming}
                     disabled={!selectedDeviceId() || isConnecting()}
                   >
                     {isConnecting() ? (
                       <>
                         <span class="loading loading-spinner loading-sm"></span>
-                        Connecting...
+                        <span class="ml-2">Connecting...</span>
                       </>
                     ) : (
-                      'Go Live'
+                      <>
+                        <svg class="w-4 h-4 sm:w-5 sm:h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path stroke-linecap="round" stroke-linejoin="round" stroke-width={2} d="M14.828 14.828a4 4 0 01-5.656 0M9 10h1m4 0h1m-6 4h2m4 0h2M7 7h10a2 2 0 012 2v8a2 2 0 01-2 2H7a2 2 0 01-2-2V9a2 2 0 012-2z" />
+                        </svg>
+                        Go Live
+                      </>
                     )}
                   </button>
-                  <div class="text-sm text-base-content/60 mt-2">
+                  <div class="text-xs sm:text-sm text-white/60 mt-2">
                     Select a microphone to get started
                   </div>
                 </div>
@@ -212,11 +235,11 @@ export default function DJRoom() {
 
               {/* Show streaming controls when streaming */}
               <Show when={isStreaming()}>
-                <div class="flex gap-3 justify-center items-center mt-6">
+                <div class="flex flex-col sm:flex-row gap-3 justify-center items-center mt-6">
                   
                   {/* Mute/Unmute Button */}
                   <button
-                    class={`btn btn-lg gap-3 min-w-32 ${
+                    class={`btn btn-md sm:btn-lg gap-2 w-full sm:w-auto sm:min-w-32 ${
                       isPaused() ? 'btn-warning hover:btn-warning' : 'btn-success hover:btn-success'
                     }`}
                     onClick={toggleMute}
@@ -224,31 +247,31 @@ export default function DJRoom() {
                   >
                     {isPaused() ? (
                       <>
-                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <svg class="w-4 h-4 sm:w-5 sm:h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                           <path stroke-linecap="round" stroke-linejoin="round" stroke-width={2} d="M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z" />
                           <path stroke-linecap="round" stroke-linejoin="round" stroke-width={2} d="M17 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2" />
                         </svg>
-                        Unmute
+                        <span class="text-sm sm:text-base">Unmute</span>
                       </>
                     ) : (
                       <>
-                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <svg class="w-4 h-4 sm:w-5 sm:h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                           <path stroke-linecap="round" stroke-linejoin="round" stroke-width={2} d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z" />
                         </svg>
-                        Mute
+                        <span class="text-sm sm:text-base">Mute</span>
                       </>
                     )}
                   </button>
 
                   {/* End Stream Button */}
                   <button 
-                    class="btn btn-outline btn-error btn-lg gap-3" 
+                    class="btn btn-outline btn-error btn-md sm:btn-lg gap-2 w-full sm:w-auto border-red-500 text-red-500 hover:bg-red-500 hover:text-white" 
                     onClick={endStream}
                   >
-                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <svg class="w-4 h-4 sm:w-5 sm:h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path stroke-linecap="round" stroke-linejoin="round" stroke-width={2} d="M6 18L18 6M6 6l12 12" />
                     </svg>
-                    End Stream
+                    <span class="text-sm sm:text-base">End Stream</span>
                   </button>
                   
                 </div>

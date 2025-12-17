@@ -68,7 +68,7 @@ export const createDjRoomViaLobby = (
       // Connect to lobby WebSocket
       const ws = yield* _(Effect.tryPromise({
         try: () => new Promise<WebSocket>((resolve, reject) => {
-          const socket = new WebSocket('wss://localhost:3443/ws/lobby')
+          const socket = new WebSocket(`wss://${window.location.hostname}:3443/ws/lobby`)
           
           socket.onopen = () => resolve(socket)
           socket.onerror = () => reject(new Error('Failed to connect to lobby'))

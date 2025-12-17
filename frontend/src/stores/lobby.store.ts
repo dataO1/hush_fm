@@ -206,6 +206,10 @@ export const createLobbyStore = () => {
       return Option.getOrNull(state.creation.lastCreatedRoomId)
     },
     
+    get creationError() {
+      return Option.getOrNull(state.creation.creationError)
+    },
+    
   }
 }
 
