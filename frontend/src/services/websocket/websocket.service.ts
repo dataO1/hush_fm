@@ -407,10 +407,7 @@ export const connectToLobby = (): Effect.Effect<WebSocket, WebSocketConnectionEr
 export const connectToDjRoom = (roomId: string): Effect.Effect<WebSocket, WebSocketConnectionError> =>
   connectWebSocket({ url: `wss://${window.location.hostname}:3443/ws/room/${roomId}` })
 
-export const connectToListenerRoom = (roomId: string): Effect.Effect<WebSocket, WebSocketConnectionError> =>
-  connectWebSocket({ url: `wss://${window.location.hostname}:3443/ws/listen/${roomId}` })
-
-export const connectToListenerSession = (sessionId: string): Effect.Effect<WebSocket, WebSocketConnectionError> =>
-  connectWebSocket({ url: `wss://${window.location.hostname}:3443/ws/listener/${sessionId}` })
+export const connectToListener = (roomId: string, sessionId: string): Effect.Effect<WebSocket, WebSocketConnectionError> =>
+  connectWebSocket({ url: `wss://${window.location.hostname}:3443/ws/listener/${roomId}/${sessionId}` })
 
 // Managed connection removed for simplicity - use individual connection functions above

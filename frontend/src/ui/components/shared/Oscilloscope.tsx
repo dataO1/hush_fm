@@ -4,6 +4,7 @@ interface OscilloscopeProps {
   stream?: MediaStream
   class?: string
   height?: number
+  userGestureAvailable?: boolean // Pass this from parent component
 }
 
 export function Oscilloscope(props: OscilloscopeProps) {
@@ -13,17 +14,29 @@ export function Oscilloscope(props: OscilloscopeProps) {
   let source: MediaStreamAudioSourceNode | null = null
   let animationId: number | null = null
   let dataArray: Uint8Array<ArrayBuffer> | null = null
+  let setupInProgress = false
+  let lastFrameTime = 0
 
-  const setupOscilloscope = () => {
-    if (!props.stream || !canvasRef) return
-
+  const setupOscilloscope = async () => {
+    if (!props.stream || !canvasRef || setupInProgress) return
+    
+    setupInProgress = true
     try {
+      // Validate that we don't already have an active AudioContext
+      if (audioContext && audioContext.state !== 'closed') {
+        console.warn('AudioContext already exists, cleaning up first')
+        audioContext.close()
+        audioContext = null
+      }
+      
       // Create audio context and analyser
       audioContext = new (window.AudioContext || (window as any).webkitAudioContext)()
       
-      // Resume audio context if suspended
+      // Handle suspended audio context (no user gesture)
       if (audioContext.state === 'suspended') {
-        audioContext.resume()
+        console.info('AudioContext suspended - waiting for user gesture to resume')
+        // Don't try to resume automatically - wait for user interaction
+        return
       }
       
       analyser = audioContext.createAnalyser()
@@ -38,23 +51,26 @@ export function Oscilloscope(props: OscilloscopeProps) {
       const bufferLength = analyser.frequencyBinCount
       dataArray = new Uint8Array(new ArrayBuffer(bufferLength))
       
-      // Set canvas dimensions
-      const canvas = canvasRef
-      canvas.width = canvas.offsetWidth * window.devicePixelRatio || 400
-      canvas.height = (props.height || 60) * window.devicePixelRatio
-      canvas.style.width = `${canvas.offsetWidth}px`
-      canvas.style.height = `${props.height || 60}px`
-      
       // Start drawing
       draw()
       
     } catch (error) {
       console.error('Oscilloscope setup error:', error)
+      setupInProgress = false
+    } finally {
+      setupInProgress = false
     }
   }
 
-  const draw = () => {
+  const draw = (currentTime?: number) => {
     if (!canvasRef || !analyser || !dataArray) return
+    
+    // Frame rate limiting - cap at 60fps
+    if (currentTime && currentTime - lastFrameTime < 16.67) {
+      animationId = requestAnimationFrame(draw)
+      return
+    }
+    lastFrameTime = currentTime || performance.now()
     
     // Get waveform data
     analyser.getByteTimeDomainData(dataArray)
@@ -127,20 +143,38 @@ export function Oscilloscope(props: OscilloscopeProps) {
     }
     
     dataArray = null
+    setupInProgress = false
+    lastFrameTime = 0
   }
 
-  // React to stream changes
+  // React to stream changes and user gesture availability
   createEffect(() => {
-    if (props.stream && canvasRef) {
+    if (props.stream) {
       cleanup() // Clean up previous instance
-      setupOscilloscope()
+      
+      if (props.userGestureAvailable !== false) {
+        // User gesture available or not specified, setup oscilloscope
+        setupOscilloscope()
+      } else {
+        // No user gesture available, skip oscilloscope setup
+        console.info('Oscilloscope setup deferred - no user gesture available')
+      }
     } else {
       cleanup()
     }
   })
 
   onMount(() => {
-    if (props.stream && canvasRef) {
+    // Set canvas dimensions once on mount
+    if (canvasRef) {
+      const canvas = canvasRef
+      canvas.width = canvas.offsetWidth * window.devicePixelRatio || 400
+      canvas.height = (props.height || 60) * window.devicePixelRatio
+      canvas.style.width = `${canvas.offsetWidth}px`
+      canvas.style.height = `${props.height || 60}px`
+    }
+    
+    if (props.stream && canvasRef && props.userGestureAvailable !== false) {
       setupOscilloscope()
     }
   })

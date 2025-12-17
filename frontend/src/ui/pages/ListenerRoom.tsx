@@ -25,13 +25,29 @@ export default function ListenerRoom() {
     sessionId?: string
   } || {}
 
-  const [roomId] = createSignal(params.roomId)
+  // Signal for autoplay blocked state instead of store
   const [needsUserPlay, setNeedsUserPlay] = createSignal(false)
 
-  // Use session ID as the listener ID (single source of truth)
+  // Use session ID as the listener ID (single source of truth)  
   const currentListenerId = () => {
-    return navigationState.sessionId
+    // Try navigation state first (normal flow)
+    if (navigationState.sessionId) {
+      return navigationState.sessionId
+    }
+    
+    // For page reload scenarios, we'll get the session ID after successful join
+    // The join flow will populate the store with the listener using sessionId as key
+    const listeners = roomStore.listeners
+    if (listeners.length > 0) {
+      // In our architecture, the listener ID is the session ID
+      // We can extract it from the store keys (session IDs are used as listener IDs)
+      const listenerIds = Object.keys(roomStore.state.participants.listeners as Record<string, any>)
+      return listenerIds.length > 0 ? listenerIds[0] : null
+    }
+    
+    return null
   }
+  
   
   const currentListener = () => {
     const sessionId = navigationState.sessionId
@@ -66,8 +82,9 @@ export default function ListenerRoom() {
     return listener ? Option.getOrNull(listener.stepError) : null
   }
   
-  // Room information
+  // Room information - get room ID from store metadata or fallback to params
   const roomMetadata = () => roomStore.roomMetadata
+  const roomId = () => roomMetadata()?.id || params.roomId
   const roomName = () => roomMetadata()?.name || `Room ${roomId()}`
   const djName = () => roomMetadata()?.djName || 'DJ'
 
@@ -103,10 +120,12 @@ export default function ListenerRoom() {
         // C. Explicit Play Attempt
         audioRef.play()
           .then(() => {
+             // Autoplay succeeded - use signal instead of store
              setNeedsUserPlay(false)
           })
           .catch(e => {
              console.warn("⚠️ Autoplay blocked or failed:", e)
+             // Autoplay was blocked - use signal instead of store
              setNeedsUserPlay(true)
           })
       } else {
@@ -114,6 +133,8 @@ export default function ListenerRoom() {
       }
     }
   })
+
+
 
   // Start join room flow on mount (create WebSocket connection for listeners)
   onMount(async () => {
@@ -156,52 +177,44 @@ export default function ListenerRoom() {
 
 
   const joinRoom = async () => {
-      try {
-          // Check if we have the required navigation state
-          if (!navigationState.listenerWebSocketUrl || !navigationState.sessionId) {
-              throw new Error('Missing listener WebSocket URL or session ID from navigation state')
-          }
-          
-          console.info('🎧 Starting listener join flow with navigation state:', {
-              roomId: roomId(),
-              sessionId: navigationState.sessionId,
-              listenerWebSocketUrl: navigationState.listenerWebSocketUrl,
-              hasRoomInfo: !!navigationState.roomInfo
-          })
-          
-          // Start listener join flow - all state management handled by service and store
-          await Effect.runPromise(
-            joinRoomAsListener(roomStore, {
-              roomId: roomId(),
-              sessionId: navigationState.sessionId,
-              listenerWebSocketUrl: navigationState.listenerWebSocketUrl,
-              roomInfo: navigationState.roomInfo,
-              listenerName: `Listener_${Math.random().toString(36).substr(2, 5)}`
-            })
-          )
-          
+    try {
+      // Use navigation state (should be available from normal join flow via lobby)
+      const sessionId = navigationState.sessionId
+      const listenerWebSocketUrl = navigationState.listenerWebSocketUrl
+      const roomInfo = navigationState.roomInfo
 
-      } catch (err: any) {
-          console.error('Failed to join room:', err)
-
-          // Enhanced error handling following reference Step 7b
-          let shouldReturnToLobby = false
-
-          if (err.message?.includes('Router incompatible') || err.message?.includes('Room join failed')) {
-              shouldReturnToLobby = true
-          } else if (err.message?.includes('Room not found') || err.message?.includes('producer')) {
-              shouldReturnToLobby = true
-          } else if (err.message?.includes('Transport') || err.message?.includes('Consumer')) {
-              shouldReturnToLobby = true
-          }
-
-          // Step 7b: Return to lobby for certain error types
-          if (shouldReturnToLobby) {
-              setTimeout(() => {
-                  navigate('/')
-              }, 3000) // Give user time to read the error message
-          }
+      if (!sessionId || !listenerWebSocketUrl) {
+        console.error('Missing required navigation state for listener join')
+        navigate('/')
+        return
       }
+      
+      console.info('🎧 Starting listener join flow:', {
+        roomId: roomId(),
+        sessionId: sessionId,
+        listenerWebSocketUrl: listenerWebSocketUrl,
+        hasRoomInfo: !!roomInfo
+      })
+      
+      // Start listener join flow - all state management handled by service and store
+      await Effect.runPromise(
+        joinRoomAsListener(roomStore, {
+          roomId: roomId(),
+          sessionId: sessionId,
+          listenerWebSocketUrl: listenerWebSocketUrl,
+          roomInfo: roomInfo,
+          listenerName: `Listener_${Math.random().toString(36).substr(2, 5)}`
+        })
+      )
+
+    } catch (err: any) {
+      console.error('Failed to join room:', err)
+
+      // Return to lobby on any join failure
+      setTimeout(() => {
+        navigate('/')
+      }, 3000) // Give user time to read the error message
+    }
   }
 
 const handleManualPlay = () => {
@@ -318,7 +331,12 @@ const handleManualPlay = () => {
             {/* Audio Oscilloscope - show when we have audio stream */}
             <Show when={listenerAudioStream()}>
               <div class="w-full">
-                <Oscilloscope stream={listenerAudioStream()!} height={60} class="mb-0" />
+                <Oscilloscope 
+                  stream={listenerAudioStream()!} 
+                  height={60} 
+                  class="mb-0"
+                  userGestureAvailable={!needsUserPlay()}
+                />
               </div>
             </Show>
 

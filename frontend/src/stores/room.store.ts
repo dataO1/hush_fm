@@ -86,6 +86,7 @@ export interface RoomStoreActions {
   // Audio management for listeners
   setListenerVolume: (listenerId: string, volume: number) => void
   setListenerMuted: (listenerId: string, muted: boolean) => void
+  setListenerAutoplayBlocked: (listenerId: string, blocked: boolean) => void
   
   // Error management (replacing webrtc-error-store)
   setGlobalRoomError: (error: string, recoverable?: boolean) => void
@@ -516,6 +517,15 @@ export const createRoomStore = () => {
         audioPlayback: {
           ...state.participants.listeners[listenerId]?.audioPlayback,
           muted
+        }
+      })
+    },
+
+    setListenerAutoplayBlocked: (listenerId: string, blocked: boolean) => {
+      actions.updateListener(listenerId, {
+        audioPlayback: {
+          ...state.participants.listeners[listenerId]?.audioPlayback,
+          autoplayBlocked: blocked
         }
       })
     },

@@ -16,7 +16,7 @@ use crate::lib::models::ListenerEvent;
 use crate::lib::models::schemas::{TransportOptions, ConsumerParameters, RtpParametersWrapper};
 
 /// Listener state containing all WebRTC resources and metadata for audio receiving
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct Listener {
     /// Listener identifier
     pub listener_id: String,
@@ -34,6 +34,10 @@ pub struct Listener {
     pub producer_id: Option<String>,
     /// When listener connected to the room
     pub connected_at: chrono::DateTime<chrono::Utc>,
+    /// When listener last disconnected (WebSocket closed)
+    pub last_disconnected_at: Option<chrono::DateTime<chrono::Utc>>,
+    /// Cleanup timer handle (cancelled on reconnection)
+    pub cleanup_timer: Option<tokio::task::JoinHandle<()>>,
     /// Event channel for sending WebSocket events to listener
     pub event_tx: mpsc::UnboundedSender<ListenerEvent>,
 }
@@ -55,13 +59,25 @@ impl Listener {
             consumer_id: None,
             producer_id: None,
             connected_at: chrono::Utc::now(),
+            last_disconnected_at: None,
+            cleanup_timer: None,
             event_tx,
         }
     }
 
-    /// Step 2: Create receiver transport for listener using room's router
+    /// Step 2: Get receiver transport for listener using room's router
+    /// Single source of truth - always creates new transport (WebRTC transports are stateful and cannot be reused)
     #[tracing::instrument(skip(self, router), fields(listener_id = %self.listener_id, room_id = %self.room_id))]
-    pub async fn create_receiver_transport(&mut self, router: &Router) -> Result<TransportOptions> {
+    pub async fn get_receiver_transport(&mut self, router: &Router) -> Result<TransportOptions> {
+        // Clean up existing transport if any (for reconnection scenarios)
+        if let Some(old_transport) = self.transport.take() {
+            tracing::info!(
+                listener_id = %self.listener_id,
+                old_transport_id = %old_transport.id(),
+                "Cleaning up existing transport before creating new one for reconnection"
+            );
+            // Transport will be cleaned up when Arc is dropped
+        }
         // Use both localhost and local IP for robust connectivity
         let local_ip = crate::lib::utils::get_local_ip()?;
         
@@ -362,6 +378,7 @@ impl Listener {
         self.transport.is_some()
     }
 
+
     /// Check if listener has an active consumer
     pub fn has_consumer(&self) -> bool {
         self.consumer.is_some()
@@ -383,7 +400,7 @@ impl Listener {
     }
 
     /// Generate transport options for client connection
-    async fn generate_transport_options(&self, transport: &WebRtcTransport) -> Result<TransportOptions> {
+    pub async fn generate_transport_options(&self, transport: &WebRtcTransport) -> Result<TransportOptions> {
         let ice_params = transport.ice_parameters();
         let dtls_params = transport.dtls_parameters();
         let ice_candidates = transport.ice_candidates();
@@ -499,6 +516,85 @@ impl Listener {
                 // Simplified header extensions for local network
             ],
         }
+    }
+
+    /// Start cleanup timer when listener disconnects (WebSocket closes)
+    pub fn start_disconnect_cleanup_timer(
+        &mut self,
+        room_id: uuid::Uuid,
+        session_id: String,
+        lobby: crate::lib::domain::Lobby,
+    ) {
+        // Cancel any existing timer
+        if let Some(timer) = self.cleanup_timer.take() {
+            timer.abort();
+        }
+
+        // Record disconnect time
+        self.last_disconnected_at = Some(chrono::Utc::now());
+
+        // Start new cleanup timer (1 minute timeout)
+        let cleanup_timer = tokio::spawn(async move {
+            tokio::time::sleep(tokio::time::Duration::from_secs(60)).await;
+            
+            // Check if listener is still disconnected and remove if so
+            if let Some(room_state) = lobby.get_room(&room_id) {
+                // First check if cleanup is needed
+                let should_cleanup = {
+                    let room_guard = room_state.read().await;
+                    let listener_ref = room_guard.get_listener(&session_id);
+                    listener_ref.map_or(false, |l| l.last_disconnected_at.is_some())
+                };
+                
+                if should_cleanup {
+                    // Perform cleanup using existing domain method
+                    let mut room_write_guard = room_state.write().await;
+                    if let Err(e) = room_write_guard.remove_listener(&session_id).await {
+                        tracing::error!(
+                            session_id = %session_id,
+                            room_id = %room_id,
+                            error = %e,
+                            "Failed to cleanup abandoned listener"
+                        );
+                    } else {
+                        tracing::info!(
+                            session_id = %session_id,
+                            room_id = %room_id,
+                            "Cleaned up abandoned listener after timeout"
+                        );
+                        
+                        // Update lobby state to reflect listener count change
+                        // This ensures the public room list shows the correct listener count
+                        if room_write_guard.is_public() {
+                            drop(room_write_guard); // Release write lock before lobby call
+                            
+                            lobby.update_room(&room_id).await;
+                            tracing::debug!(
+                                session_id = %session_id,
+                                room_id = %room_id,
+                                "Updated lobby state after listener cleanup"
+                            );
+                        }
+                    }
+                }
+            }
+        });
+
+        self.cleanup_timer = Some(cleanup_timer);
+    }
+
+    /// Cancel cleanup timer when listener reconnects
+    pub fn cancel_disconnect_cleanup_timer(&mut self) {
+        if let Some(timer) = self.cleanup_timer.take() {
+            timer.abort();
+            tracing::debug!(
+                listener_id = %self.listener_id,
+                "Cancelled disconnect cleanup timer due to reconnection"
+            );
+        }
+        
+        // Clear disconnect timestamp since listener is now connected
+        self.last_disconnected_at = None;
     }
 }
 

@@ -29,7 +29,7 @@ import { createAndLoadDevice } from '../mediasoup/device.service'
 import { createReceiveTransportWithEvents } from '../mediasoup/transport.service'
 import { createAudioConsumer } from '../mediasoup/consumer.service'
 import {
-  connectToListenerSession,
+  connectToListener,
   requestRouterCapabilities,
   subscribeToRouterCapabilities,
   sendListenerCommand
@@ -119,9 +119,9 @@ export const getOrCreateListenerWebSocket = (
       // Add listener using session ID as the key
       roomStore.actions.addListener(sessionId, listenerState)
 
-      // Create WebSocket connection using websocket service
+      // Create WebSocket connection using websocket service with correct URL format
       const listenerWebSocket = yield* _(pipe(
-        connectToListenerSession(sessionId),
+        connectToListener(roomId, sessionId),
         Effect.mapError(error => new ListenerWebSocketError(
           'Failed to connect to listener WebSocket via service',
           true,

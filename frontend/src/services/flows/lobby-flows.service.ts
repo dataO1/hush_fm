@@ -13,7 +13,7 @@
 import { Effect, pipe, Option } from 'effect'
 import { 
   connectToLobby,
-  connectToListenerRoom,
+  connectToListener,
   sendLobbyCommand, 
   subscribeToLobbyEvents,
   closeWebSocket
@@ -29,6 +29,7 @@ import {
 } from '../../domain/errors'
 import type { RoomStore } from '../../stores/room.store'
 import type { RoomMetadata } from '../../domain/schemas/room.schema'
+import { getUserStore } from '../../stores/user.store'
 
 /**
  * Room creation request
@@ -184,13 +185,25 @@ export const announceRoomCreation = (
 /**
  * Request to join an existing room (Step 1 of Listener flow)
  * 
- * This creates a listener WebSocket connection for the specified room
+ * This creates a listener WebSocket connection for the specified room using the current user's session
  */
 export const requestJoinRoom = (
   roomId: string
 ): Effect.Effect<WebSocket, LobbyConnectionError> => 
   pipe(
-    connectToListenerRoom(roomId),
+    Effect.sync((): string => {
+      const userStore = getUserStore()
+      const sessionId = userStore.sessionId
+      
+      if (!sessionId) {
+        throw new Error('Session ID not available - user session not initialized')
+      }
+      
+      return sessionId as string
+    }),
+    Effect.andThen(sessionId => 
+      connectToListener(roomId, sessionId)
+    ),
     Effect.mapError(error => 
       new LobbyConnectionError({
         cause: 'Failed to connect to room listener WebSocket',

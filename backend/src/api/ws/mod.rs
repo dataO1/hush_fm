@@ -34,10 +34,10 @@ pub async fn lobby_handler(
 /// WebSocket handler for listener connections
 pub async fn listener_handler(
     ws: WebSocketUpgrade,
-    Path(session_id): Path<String>,
+    Path((room_id, session_id)): Path<(String, String)>,
     State(lobby): State<Lobby>,
 ) -> Response {
-    ws.on_upgrade(move |socket| handle_listener_socket(socket, session_id, lobby))
+    ws.on_upgrade(move |socket| handle_listener_socket(socket, room_id, session_id, lobby))
 }
 
 async fn handle_room_socket(socket: WebSocket, room_id: Uuid, lobby: Lobby) {
@@ -331,8 +331,8 @@ async fn handle_lobby_command(
                     // Store listener in room
                     room_guard.add_listener(listener);
 
-                    // Generate unique WebSocket URL for this session
-                    let listener_websocket_url = format!("/ws/listener/{}", session_id);
+                    // Generate unique WebSocket URL for this session  
+                    let listener_websocket_url = format!("/ws/listener/{}/{}", room_id, session_id);
 
                     // Get room info for response
                     let room_info = room_guard.clone().into();
@@ -403,57 +403,75 @@ async fn handle_lobby_command(
     Ok(())
 }
 
-async fn handle_listener_socket(socket: WebSocket, session_id: String, lobby: Lobby) {
+async fn handle_listener_socket(socket: WebSocket, room_id_str: String, session_id: String, lobby: Lobby) {
     let (mut sender, mut receiver) = socket.split();
 
-    tracing::info!(
-        session_id = %session_id,
-        "New listener WebSocket connection established"
-    );
-
-    // Find the room that contains the listener with this session_id
-    let (room_id, room_state) = match lobby.find_room_by_listener_session(&session_id).await {
-        Some((room_id, room_state)) => {
-            tracing::info!(
-                session_id = %session_id,
-                room_id = %room_id,
-                "Found existing listener in room"
-            );
-            (room_id, room_state)
-        }
-        None => {
+    // Parse room_id from path parameter
+    let room_id = match Uuid::parse_str(&room_id_str) {
+        Ok(id) => id,
+        Err(_) => {
             tracing::error!(
                 session_id = %session_id,
-                "Listener not found in any room - WebSocket connection rejected"
+                room_id_str = %room_id_str,
+                "Invalid room ID format in WebSocket path"
             );
             return;
         }
     };
 
-    // Update the listener's event_tx with a new channel for this WebSocket connection
-    let mut event_rx = {
-        let (event_tx, event_rx) = tokio::sync::mpsc::unbounded_channel();
-        
-        // Update the listener's event_tx to use the new channel for this WebSocket connection
-        let update_success = room_state.read().await.update_listener(&session_id, |listener| {
-            listener.event_tx = event_tx;
-        });
+    tracing::info!(
+        session_id = %session_id,
+        room_id = %room_id,
+        "New listener WebSocket connection established"
+    );
 
-        if update_success {
-            tracing::info!(
-                session_id = %session_id,
-                room_id = %room_id,
-                "Updated listener's event channel for WebSocket connection"
-            );
-            event_rx
-        } else {
+    // Check if room exists
+    let room_state = match lobby.get_room(&room_id) {
+        Some(room_state) => room_state,
+        None => {
             tracing::error!(
                 session_id = %session_id,
                 room_id = %room_id,
-                "Failed to update listener's event channel"
+                "Room not found - WebSocket connection rejected"
             );
             return;
         }
+    };
+
+    // Handle listener connection using domain logic (reconnection or fresh join)
+    let mut event_rx = {
+        let (event_tx, event_rx) = tokio::sync::mpsc::unbounded_channel();
+        
+        // Use domain method to handle connection
+        let room_guard = room_state.read().await;
+        match room_guard.handle_listener_connection(&session_id, event_tx).await {
+            Ok(true) => {
+                tracing::info!(
+                    session_id = %session_id,
+                    room_id = %room_id,
+                    "Successfully handled listener reconnection"
+                );
+            }
+            Ok(false) => {
+                // This shouldn't happen with current implementation but could be extended for fresh joins
+                tracing::info!(
+                    session_id = %session_id,
+                    room_id = %room_id,
+                    "Successfully handled fresh listener join"
+                );
+            }
+            Err(e) => {
+                tracing::error!(
+                    session_id = %session_id,
+                    room_id = %room_id,
+                    error = %e,
+                    "Failed to handle listener connection"
+                );
+                return;
+            }
+        }
+        
+        event_rx
     };
 
     tracing::info!(
@@ -525,40 +543,27 @@ async fn handle_listener_socket(socket: WebSocket, session_id: String, lobby: Lo
         }
     }
 
-    // Connection closed - perform cleanup
+    // Connection closed - start cleanup timer for abandoned listener detection
     tracing::info!(
         room_id = %room_id,
         session_id = %session_id,
-        "Listener WebSocket connection closed, performing cleanup"
+        "Listener WebSocket connection closed, starting cleanup timer for abandoned detection"
     );
-
-    // Remove the specific listener by session_id using proper domain cleanup
+    
+    // Start cleanup timer in case listener doesn't reconnect
     if let Some(room_state) = lobby.get_room(&room_id) {
-        let mut room_guard = room_state.write().await;
-        match room_guard.remove_listener(&session_id).await {
-            Ok(()) => {
-                tracing::info!(
-                    session_id = %session_id,
-                    room_id = %room_id,
-                    "Listener removed and cleaned up successfully"
-                );
-            }
-            Err(e) => {
-                tracing::error!(
-                    session_id = %session_id,
-                    room_id = %room_id,
-                    error = %e,
-                    "Failed to remove listener during cleanup"
-                );
-            }
+        let room_guard = room_state.read().await;
+        let listener_exists = room_guard.get_listener(&session_id).is_some();
+        drop(room_guard);
+        
+        if listener_exists {
+            // Use room's update method to start disconnect timer
+            let room_guard_for_update = room_state.read().await;
+            room_guard_for_update.update_listener(&session_id, |listener| {
+                listener.start_disconnect_cleanup_timer(room_id, session_id.clone(), lobby.clone());
+            });
         }
     }
-
-    tracing::info!(
-        room_id = %room_id,
-        session_id = %session_id,
-        "Listener cleanup completed"
-    );
 }
 
 #[tracing::instrument(skip(cmd, lobby, sender), fields(room_id = %room_id, command_type = cmd.command_type()))]

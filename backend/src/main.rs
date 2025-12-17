@@ -69,7 +69,7 @@ async fn main() -> anyhow::Result<()> {
 
     let stateful_routes = Router::new()
         .route("/ws/room/:room_id", get(ws_handler))
-        .route("/ws/listener/:session_id", get(listener_handler))
+        .route("/ws/listener/:room_id/:session_id", get(listener_handler))
         .route("/ws/lobby", get(lobby_handler))
         .nest("/api", rooms_router())
         .with_state(lobby);

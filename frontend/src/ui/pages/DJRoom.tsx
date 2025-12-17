@@ -1,5 +1,5 @@
-import { onMount, onCleanup, Show } from 'solid-js'
-import { useParams, useNavigate } from '@solidjs/router'
+import { onMount, onCleanup, Show, createSignal, createEffect } from 'solid-js'
+import { useParams, useNavigate, useLocation } from '@solidjs/router'
 import { Effect, Option } from 'effect'
 import { DeviceSelector } from '../components/controls/DeviceSelector'
 import { getRoomStore } from '../../stores/room.store'
@@ -12,12 +12,28 @@ import { Oscilloscope } from '../components/shared/Oscilloscope'
 export default function DJRoom() {
   const params = useParams()
   const navigate = useNavigate()
+  const location = useLocation()
 
   // Use room store for DJ state management - all state comes from here
   const roomStore = getRoomStore()
 
-  // Get room data from route params
-  const roomId = () => params.roomId
+  // Get navigation state (from Landing.tsx room creation)
+  const navigationState = location.state as {
+    djWebSocketUrl?: string
+  } || {}
+
+  const [isRedirecting, setIsRedirecting] = createSignal(false)
+
+  // Router state guard - redirect to lobby if missing critical state  
+  createEffect(() => {
+    // Check if we have valid navigation state to be in DJ room
+    if (!navigationState.djWebSocketUrl && connectionState() === ConnectionState.DISCONNECTED) {
+      console.info('No valid DJ WebSocket URL detected, redirecting to lobby')
+      setIsRedirecting(true)
+      setTimeout(() => navigate('/'), 1000) // Brief delay to show redirect message
+    }
+  })
+
 
   // Initialize room as ready on mount
   onMount(async () => {
@@ -42,8 +58,9 @@ export default function DJRoom() {
   const isPaused = () => roomStore.isPaused
   const selectedDeviceId = () => roomStore.selectedDeviceId
   
-  // Room information
+  // Room information - get room ID from store metadata or fallback to params
   const roomMetadata = () => roomStore.roomMetadata
+  const roomId = () => roomMetadata()?.id || params.roomId
   const roomName = () => roomMetadata()?.name || `Room ${roomId()}`
   const djName = () => roomMetadata()?.djName || 'DJ'
 
@@ -166,7 +183,17 @@ export default function DJRoom() {
     <div class="min-h-screen bg-gradient-to-br from-purple-900 via-blue-900 to-indigo-900 text-white p-4 sm:p-6">
       
       <div class="max-w-sm sm:max-w-md lg:max-w-lg mx-auto">
-        <Show when={isConnecting()}>
+        <Show when={isRedirecting()}>
+          <div class="card bg-white/10 backdrop-blur-sm border border-white/20">
+            <div class="card-body text-center py-8">
+              <div class="loading loading-spinner loading-lg mx-auto mb-4"></div>
+              <div class="text-lg sm:text-xl font-bold">Returning to lobby...</div>
+              <div class="text-sm text-white/70 mt-2">Please create a new room</div>
+            </div>
+          </div>
+        </Show>
+
+        <Show when={!isRedirecting() && isConnecting()}>
           <div class="card bg-white/10 backdrop-blur-sm border border-white/20">
             <div class="card-body text-center py-8">
               <div class="loading loading-spinner loading-lg mx-auto mb-4"></div>
@@ -182,7 +209,7 @@ export default function DJRoom() {
           </div>
         </Show>
 
-        <Show when={!isConnecting()}>
+        <Show when={!isRedirecting() && !isConnecting()}>
           <div class="card bg-white/10 backdrop-blur-sm border border-white/20">
             <div class="card-body p-4 sm:p-6">
               

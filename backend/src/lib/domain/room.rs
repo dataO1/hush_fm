@@ -367,13 +367,14 @@ impl Room {
             event_tx,
         );
         
-        let transport_options = listener.create_receiver_transport(router).await?;
+        let transport_options = listener.get_receiver_transport(router).await?;
 
         tracing::info!("Listener transport initialized for room {}, listener {}", self.id, listener_id);
         Ok((listener, transport_options))
     }
 
     /// Abstract coordination: Initialize transport for existing listener (Step 2 of new flow)
+    /// Handles both new transport creation and transport reuse for reconnection
     pub async fn init_listener_transport(&mut self, session_id: &str) -> Result<TransportOptions> {
         let router = self.router.as_ref()
             .ok_or_else(|| anyhow::anyhow!("No router available for room"))?;
@@ -383,13 +384,8 @@ impl Room {
             Some(mut listener_ref) => {
                 let listener = listener_ref.value_mut();
                 
-                // Check if listener already has transport
-                if listener.has_transport() {
-                    return Err(anyhow::anyhow!("Listener already has transport"));
-                }
-
-                // Create transport for the listener
-                match listener.create_receiver_transport(router).await {
+                // Get or create transport (handles reuse automatically)
+                match listener.get_receiver_transport(router).await {
                     Ok(transport_options) => {
                         tracing::info!("Transport initialized for existing listener {} in room {}", session_id, self.id);
                         Ok(transport_options)
@@ -477,6 +473,44 @@ impl Room {
         self.remove_listener(listener_id).await?;
         tracing::info!("Listener {} left room {}", listener_id, self.id);
         Ok(())
+    }
+
+    /// Handle listener WebSocket connection (reconnection or fresh join)
+    /// Returns true if listener exists (reconnection), false if needs to be created
+    pub async fn handle_listener_connection(
+        &self,
+        session_id: &str,
+        event_tx: tokio::sync::mpsc::UnboundedSender<crate::lib::models::ListenerEvent>
+    ) -> Result<bool> {
+        // Check if listener already exists (reconnection scenario)
+        if let Some(listener_ref) = self.get_listener(session_id) {
+            // Update the event channel for the existing listener
+            drop(listener_ref); // Release the reference before calling update_listener
+            
+            let update_success = self.update_listener(session_id, |listener| {
+                listener.event_tx = event_tx;
+                listener.cancel_disconnect_cleanup_timer(); // Cancel cleanup timer on reconnection
+            });
+            
+            if update_success {
+                tracing::info!(
+                    session_id = %session_id,
+                    room_id = %self.id,
+                    "Updated existing listener's event channel for reconnection"
+                );
+                Ok(true) // Reconnection scenario
+            } else {
+                Err(anyhow::anyhow!("Failed to update listener event channel"))
+            }
+        } else {
+            // Listener doesn't exist - this should have been created by lobby RequestJoin flow
+            tracing::warn!(
+                session_id = %session_id,
+                room_id = %self.id,
+                "Listener not found - should have been created by lobby RequestJoin flow"
+            );
+            Err(anyhow::anyhow!("Listener not found - invalid connection attempt"))
+        }
     }
 
     /// Comprehensive room closure with graceful listener cleanup
