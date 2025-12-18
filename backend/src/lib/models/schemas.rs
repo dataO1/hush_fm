@@ -583,6 +583,29 @@ pub struct Room {
     #[serde(skip)]
     #[schemars(skip)]
     pub last_activity_atomic: Arc<ArcSwap<chrono::DateTime<chrono::Utc>>>,
+    
+    // Configuration (not serialized to API)
+    /// WebRTC port range configuration
+    #[serde(skip)]
+    #[serde(default = "default_port_range")]
+    #[schemars(skip)]
+    pub port_range: std::ops::RangeInclusive<u16>,
+    
+    /// Announced IP address configuration
+    #[serde(skip)]
+    #[serde(default = "default_announced_ip")]
+    #[schemars(skip)]  
+    pub announced_ip: String,
+}
+
+/// Default port range for Room configuration
+fn default_port_range() -> std::ops::RangeInclusive<u16> {
+    10000..=59999
+}
+
+/// Default announced IP for Room configuration  
+fn default_announced_ip() -> String {
+    "localhost".to_string()
 }
 
 /// Custom serialization for ISO8601 datetime

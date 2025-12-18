@@ -19,6 +19,8 @@ impl Room {
         description: Option<String>, 
         tags: Option<Vec<String>>,
         worker: &Arc<Worker>,
+        port_range: std::ops::RangeInclusive<u16>,
+        announced_ip: String,
     ) -> Result<Self> {
         let now = chrono::Utc::now();
         
@@ -40,10 +42,14 @@ impl Room {
             
             // WebRTC Infrastructure (not serialized)
             router: Some(Arc::new(router)),
-            dj: Some(DJ::new(dj_name, id, None)), // Create DJ with name during room init
+            dj: Some(DJ::new(dj_name, id, None, port_range.clone(), announced_ip.clone())), // Create DJ with name during room init
             listeners: Arc::new(dashmap::DashMap::new()),
             status: RoomStatus::Setup,
             last_activity_atomic: Arc::new(arc_swap::ArcSwap::new(Arc::new(now))),
+            
+            // Configuration
+            port_range,
+            announced_ip,
         })
     }
     
@@ -354,7 +360,7 @@ impl Room {
         &self,
         listener_id: String,
         device_capabilities: serde_json::Value,
-        event_tx: tokio::sync::mpsc::UnboundedSender<crate::lib::models::ListenerEvent>
+        event_tx: tokio::sync::mpsc::UnboundedSender<crate::lib::models::ListenerEvent>,
     ) -> Result<(Listener, TransportOptions)> {
         let router = self.router.as_ref()
             .ok_or_else(|| anyhow::anyhow!("No router available for room"))?;
@@ -365,6 +371,8 @@ impl Room {
             self.id,
             device_capabilities,
             event_tx,
+            self.port_range.clone(),
+            self.announced_ip.clone(),
         );
         
         let transport_options = listener.get_receiver_transport(router).await?;

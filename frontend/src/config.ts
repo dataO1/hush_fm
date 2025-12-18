@@ -55,7 +55,14 @@ export const config: Config = {
     baseUrl: (() => {
       const hostName = getEnvVar('HUSHFM_HOST_NAME', 'localhost')
       const protocol = hostName === 'localhost' ? 'ws' : 'wss'
-      return `${protocol}://${hostName}`
+      
+      // Include backend port for localhost development, exclude for production (nginx proxy)
+      if (hostName === 'localhost') {
+        const backendPort = getEnvNumber('HUSHFM_BACKEND_PORT', 3000)
+        return `${protocol}://${hostName}:${backendPort}`
+      } else {
+        return `${protocol}://${hostName}`
+      }
     })()
   },
   development: {

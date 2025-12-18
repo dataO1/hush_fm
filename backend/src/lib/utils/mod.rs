@@ -1,3 +1,1 @@
-pub mod network;
-
-pub use network::get_local_ip;
+// Utility modules - network utils removed as we use environment configuration

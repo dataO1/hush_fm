@@ -51,7 +51,6 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 anyhow = "1"
 hex = "0.4"
-local-ip-address = "0.6"
 
 # OpenTelemetry and OTLP (using exact versions from working example)
 opentelemetry = "0.31"

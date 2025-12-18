@@ -25,16 +25,25 @@ pub struct Lobby {
 
     /// Lobby events broadcast channel (room list updates)
     broadcast_tx: broadcast::Sender<LobbyEvent>,
+
+    /// WebRTC configuration
+    port_range: std::ops::RangeInclusive<u16>,
+    announced_ip: String,
 }
 
 impl Lobby {
     /// Create new Lobby with pre-allocated MediaSoup workers
     pub async fn new() -> anyhow::Result<Self> {
-        Self::with_port_range(10000, 59999).await
+        Self::with_config(10000, 59999, "localhost").await
     }
     
-    /// Create new Lobby with custom worker port range
+    /// Create new Lobby with custom worker port range (deprecated - use with_config)
     pub async fn with_port_range(port_min: u16, port_max: u16) -> anyhow::Result<Self> {
+        Self::with_config(port_min, port_max, "localhost").await
+    }
+
+    /// Create new Lobby with full configuration
+    pub async fn with_config(port_min: u16, port_max: u16, announced_ip: &str) -> anyhow::Result<Self> {
         let (broadcast_tx, _) = broadcast::channel(1024);
 
         // Create worker pool (8 workers for good concurrency)
@@ -82,6 +91,8 @@ impl Lobby {
             workers: Arc::new(workers),
             worker_index: Arc::new(AtomicUsize::new(0)),
             broadcast_tx,
+            port_range: port_min..=port_max,
+            announced_ip: announced_ip.to_string(),
         })
     }
 
@@ -89,6 +100,16 @@ impl Lobby {
     fn get_next_worker(&self) -> Arc<Worker> {
         let index = self.worker_index.fetch_add(1, Ordering::SeqCst) % self.workers.len();
         self.workers[index].clone()
+    }
+
+    /// Get the configured port range
+    pub fn port_range(&self) -> std::ops::RangeInclusive<u16> {
+        self.port_range.clone()
+    }
+
+    /// Get the configured announced IP
+    pub fn announced_ip(&self) -> &str {
+        &self.announced_ip
     }
 
     /// Create a new room with MediaSoup infrastructure
@@ -101,7 +122,7 @@ impl Lobby {
         tags: Option<Vec<String>>,
     ) -> anyhow::Result<Arc<RwLock<Room>>> {
         let worker = self.get_next_worker();
-        let room = Room::init(id, name.clone(), dj_name, description, tags, &worker).await?;
+        let room = Room::init(id, name.clone(), dj_name, description, tags, &worker, self.port_range.clone(), self.announced_ip.clone()).await?;
         let room_arc = Arc::new(RwLock::new(room));
 
         // Store room

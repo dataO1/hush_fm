@@ -326,6 +326,8 @@ async fn handle_lobby_command(
                         room_uuid,
                         serde_json::json!({}), // Placeholder device capabilities, will be updated later
                         event_tx,
+                        room_guard.port_range.clone(),
+                        room_guard.announced_ip.clone(),
                     );
 
                     // Store listener in room
@@ -717,7 +719,7 @@ async fn handle_dj_command(
 
                 let transport_result = {
                     let mut room_state_guard = room_state.write().await;
-                    // Initialize DJ transport using proper domain method
+                    // Initialize DJ transport using proper domain method with lobby configuration
                     room_state_guard.initialize_dj_transport().await
                 };
                 

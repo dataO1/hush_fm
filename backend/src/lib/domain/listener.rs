@@ -40,6 +40,12 @@ pub struct Listener {
     pub cleanup_timer: Option<tokio::task::JoinHandle<()>>,
     /// Event channel for sending WebSocket events to listener
     pub event_tx: mpsc::UnboundedSender<ListenerEvent>,
+    
+    // Configuration
+    /// WebRTC port range configuration
+    pub port_range: std::ops::RangeInclusive<u16>,
+    /// Announced IP address configuration
+    pub announced_ip: String,
 }
 
 impl Listener {
@@ -49,6 +55,8 @@ impl Listener {
         room_id: Uuid,
         device_rtp_capabilities: Value,
         event_tx: mpsc::UnboundedSender<ListenerEvent>,
+        port_range: std::ops::RangeInclusive<u16>,
+        announced_ip: String,
     ) -> Self {
         Self {
             listener_id,
@@ -62,6 +70,8 @@ impl Listener {
             last_disconnected_at: None,
             cleanup_timer: None,
             event_tx,
+            port_range,
+            announced_ip,
         }
     }
 
@@ -78,57 +88,35 @@ impl Listener {
             );
             // Transport will be cleaned up when Arc is dropped
         }
-        // Use both localhost and local IP for robust connectivity
-        let local_ip = crate::lib::utils::get_local_ip()?;
+        // Use stored configuration - bind directly to the announced IP
+        let bind_ip = if self.announced_ip == "localhost" { "127.0.0.1" } else { &self.announced_ip };
+        let announced_address = if self.announced_ip == "localhost" { None } else { Some(self.announced_ip.clone()) };
         
-        tracing::info!("Creating listener receiver transport with localhost and local IP support");
-        tracing::info!("  - Localhost: 127.0.0.1 (for local browser clients)");
-        tracing::info!("  - Local IP: {} (for network clients)", local_ip);
+        tracing::info!("Creating listener receiver transport with configured settings");
+        tracing::info!("  - Bind IP: {}", bind_ip);
+        tracing::info!("  - Announced IP: {}", self.announced_ip);
+        tracing::info!("  - Port range: {:?}", self.port_range);
 
-        // Start with localhost UDP for browser clients
+        // Create transport with configured settings
         let listen_infos = WebRtcTransportListenInfos::new(ListenInfo {
             protocol: Protocol::Udp,
-            ip: "127.0.0.1".parse()?,
-            announced_address: None, // No announced address for localhost
+            ip: bind_ip.parse()?,
+            announced_address: announced_address.clone(),
             expose_internal_ip: false,
             port: None,
-            port_range: Some(10000..=59999), // Align with worker port range
+            port_range: Some(self.port_range.clone()),
             flags: None,
             send_buffer_size: None,
             recv_buffer_size: None,
         })
-        // Add localhost TCP fallback
+        // Add TCP fallback
         .insert(ListenInfo {
             protocol: Protocol::Tcp,
-            ip: "127.0.0.1".parse()?,
-            announced_address: None,
+            ip: bind_ip.parse()?,
+            announced_address: announced_address,
             expose_internal_ip: false,
             port: None,
-            port_range: Some(10000..=59999),
-            flags: None,
-            send_buffer_size: None,
-            recv_buffer_size: None,
-        })
-        // Add local network UDP for mobile/network clients
-        .insert(ListenInfo {
-            protocol: Protocol::Udp,
-            ip: local_ip,
-            announced_address: Some(local_ip.to_string()),
-            expose_internal_ip: false,
-            port: None,
-            port_range: Some(10000..=59999),
-            flags: None,
-            send_buffer_size: None,
-            recv_buffer_size: None,
-        })
-        // Add local network TCP fallback
-        .insert(ListenInfo {
-            protocol: Protocol::Tcp,
-            ip: local_ip,
-            announced_address: Some(local_ip.to_string()),
-            expose_internal_ip: false,
-            port: None,
-            port_range: Some(10000..=59999),
+            port_range: Some(self.port_range.clone()),
             flags: None,
             send_buffer_size: None,
             recv_buffer_size: None,

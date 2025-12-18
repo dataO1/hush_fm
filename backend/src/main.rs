@@ -25,7 +25,6 @@ mod telemetry;
 use api::api::rooms::rooms_router;
 use api::api::openapi::ApiDoc;
 use lib::domain::Lobby;
-use lib::utils::network::get_local_ip;
 use api::ws::{ws_handler, listener_handler, lobby_handler};
 
 #[tokio::main]
@@ -64,19 +63,14 @@ async fn main() -> anyhow::Result<()> {
     
     telemetry::init_tracing_with_level(&log_level)?;
 
-    // Initialize application state with configured worker port range
-    let lobby = Lobby::with_port_range(worker_port_min, worker_port_max).await?;
+    // Initialize application state with configured worker port range and hostname
+    let lobby = Lobby::with_config(worker_port_min, worker_port_max, &host_name).await?;
     tracing::info!("🎵 Configured MediaSoup worker port range: {}-{}", worker_port_min, worker_port_max);
-
-    // Get local IP address for CORS configuration
-    let local_ip = get_local_ip()?;
-    tracing::info!("🌐 Detected local IP: {}", local_ip);
 
     // Setup CORS based on configuration - backend only serves nginx proxy
     let protocol = if host_name == "localhost" { "http" } else { "https" };
     let allowed_origins = vec![
         format!("{}://{}", protocol, host_name).parse::<HeaderValue>()?,
-        format!("{}://{}", protocol, local_ip).parse::<HeaderValue>()?,  // Local IP with same protocol
     ];
     
     let cors = CorsLayer::new()
