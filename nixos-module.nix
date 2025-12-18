@@ -42,12 +42,6 @@ in {
         default = 3000;
         description = "Port for the backend HTTP/HTTPS server";
       };
-      
-      package = mkOption {
-        type = types.package;
-        default = pkgs.hushfm-backend or (throw "hushfm-backend package not available");
-        description = "HushFM backend package to use";
-      };
     };
 
     frontend = {
@@ -55,12 +49,6 @@ in {
         type = types.port;
         default = 8080;
         description = "Port for the frontend HTTP/HTTPS server";
-      };
-      
-      package = mkOption {
-        type = types.package;
-        default = pkgs.hushfm-frontend or (throw "hushfm-frontend package not available");
-        description = "HushFM frontend package to use";
       };
     };
 
@@ -110,7 +98,7 @@ in {
         Type = "simple";
         User = "hushfm";
         Group = "hushfm";
-        ExecStart = "${cfg.backend.package}/bin/server";
+        ExecStart = "${pkgs.hushfm-backend}/bin/server";
         Restart = "always";
         RestartSec = 5;
         
@@ -146,7 +134,7 @@ in {
       sslCertificateKey = mkIf cfg.tls.enable cfg.tls.keyFile;
       
       # Serve frontend static files
-      root = cfg.frontend.package;
+      root = pkgs.hushfm-frontend;
       
       locations = {
         "/" = {

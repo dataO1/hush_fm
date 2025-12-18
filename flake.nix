@@ -7,7 +7,10 @@
 
   outputs = { self, nixpkgs, rust-overlay, flake-utils }:
     let
-      nixosModule = import ./nixos-module.nix;
+      nixosModule = { pkgs, ... }: import ./nixos-module.nix {
+        inherit (pkgs) config lib;
+        pkgs = pkgs // self.packages.${pkgs.system};
+      };
     in
     flake-utils.lib.eachDefaultSystem (system:
       let
