@@ -138,22 +138,24 @@
           
           nativeBuildInputs = with pkgs; [
             nodejs_20
-            nodejs_20.pkgs.npm
+            pnpm
           ];
           
           configurePhase = ''
             export HOME=$TMPDIR
+            export PNPM_HOME=$TMPDIR/pnpm
+            export PATH="$PNPM_HOME:$PATH"
             
             # Copy source files
             cp -r $src/* .
             
             # Install dependencies
-            npm ci
+            pnpm install --frozen-lockfile
           '';
           
           buildPhase = ''
             # Build the production bundle
-            npm run build
+            pnpm run build
           '';
           
           installPhase = ''
