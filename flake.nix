@@ -129,20 +129,43 @@
           };
         };
 
-        # Frontend package (simple directory copy for now)
+        # Frontend package (built production bundle)
         hushfm-frontend = pkgs.stdenv.mkDerivation {
           pname = "hushfm-frontend";
           inherit version;
           
           src = ./frontend;
           
+          nativeBuildInputs = with pkgs; [
+            nodejs_20
+            pnpm
+          ];
+          
+          configurePhase = ''
+            export HOME=$TMPDIR
+            export PNPM_HOME=$TMPDIR/pnpm
+            export PATH="$PNPM_HOME:$PATH"
+            
+            # Copy source files
+            cp -r $src/* .
+            
+            # Install dependencies
+            pnpm install --frozen-lockfile
+          '';
+          
+          buildPhase = ''
+            # Build the production bundle
+            pnpm run build
+          '';
+          
           installPhase = ''
+            # Copy built files to output
             mkdir -p $out
-            cp -r $src/* $out/
+            cp -r dist/* $out/
           '';
           
           meta = with pkgs.lib; {
-            description = "HushFM live audio streaming frontend source";
+            description = "HushFM live audio streaming frontend";
             homepage = "https://github.com/yourusername/hushfm";
             license = licenses.mit;
             maintainers = [ ];
