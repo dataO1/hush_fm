@@ -130,11 +130,9 @@ in {
     };
 
     # Frontend service (using nginx to serve static files)
-    services.nginx = mkIf (!config.services.nginx.enable) {
+    services.nginx = {
       enable = true;
-    };
-    
-    services.nginx.virtualHosts."hushfm-frontend" = {
+      virtualHosts."hushfm-frontend" = {
       listen = [
         { 
           addr = "0.0.0.0"; 
@@ -190,6 +188,7 @@ in {
             proxy_set_header X-Forwarded-Proto $scheme;
           '';
         };
+      };
       };
     };
 
