@@ -18,7 +18,8 @@ use crate::lib::models::{Room, events::RoomInfo, schemas::{RoomInfoResponse, Con
     info(
         title = "HushFM API",
         version = "0.1.0",
-        description = "Live audio streaming platform API"
+        description = "Live audio streaming platform API",
+        license(name = "MIT", identifier = "MIT")
     ),
 )]
 pub struct ApiDoc;

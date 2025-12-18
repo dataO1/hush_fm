@@ -1,0 +1,461 @@
+openapi: 3.1.0
+info:
+  title: HushFM API
+  description: Live audio streaming platform API
+  license:
+    name: ''
+  version: 0.1.0
+paths:
+  /api/rooms:
+    get:
+      tags:
+      - rooms
+      summary: List all rooms
+      operationId: list_rooms
+      responses:
+        '200':
+          description: List of rooms
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/RoomInfo'
+  /api/rooms/{room_id}:
+    get:
+      tags:
+      - rooms
+      summary: Get room information and router RTP capabilities (for device initialization)
+      operationId: get_room_info
+      parameters:
+      - name: room_id
+        in: path
+        description: Room ID
+        required: true
+        schema:
+          type: string
+          format: uuid
+      responses:
+        '200':
+          description: Room info retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RoomInfoResponse'
+        '404':
+          description: Room not found
+components:
+  schemas:
+    ConsumerParameters:
+      type: object
+      description: |-
+        Consumer parameters for audio consumption
+
+        Contains all necessary information for a client to create a MediaSoup consumer
+        and receive audio from a producer.
+      required:
+      - id
+      - producerId
+      - kind
+      - rtpParameters
+      - type
+      - producerPaused
+      properties:
+        id:
+          type: string
+          description: Consumer ID uniquely identifying this consumer
+        kind:
+          type: string
+          description: Media kind - always "audio" for HushFM audio streaming
+        producerId:
+          type: string
+          description: Producer ID that this consumer is consuming from
+        producerPaused:
+          type: boolean
+          description: Whether the producer is initially paused
+        rtpParameters:
+          $ref: '#/components/schemas/RtpParametersWrapper'
+          description: RTP parameters for media consumption
+        type:
+          type: string
+          description: Consumer type - "simple" for standard consumption
+    DtlsFingerprintWrapper:
+      type: object
+      description: DTLS fingerprint wrapper with proper serialization
+      required:
+      - algorithm
+      - value
+      properties:
+        algorithm:
+          type: string
+          description: Hash algorithm name (e.g., "sha-256")
+        value:
+          type: string
+          description: Fingerprint value as colon-separated hex string
+    DtlsParametersWrapper:
+      type: object
+      description: DTLS parameters wrapper with proper serialization
+      required:
+      - role
+      - fingerprints
+      properties:
+        fingerprints:
+          type: array
+          items:
+            $ref: '#/components/schemas/DtlsFingerprintWrapper'
+          description: DTLS fingerprints array
+        role:
+          type: string
+          description: 'DTLS role as string: "auto", "client", or "server"'
+    IceCandidateSchema:
+      type: object
+      description: ICE candidate for API responses
+      required:
+      - foundation
+      - priority
+      - address
+      - protocol
+      - port
+      - type
+      properties:
+        address:
+          type: string
+        foundation:
+          type: string
+        port:
+          type: integer
+          format: int32
+          minimum: 0
+        priority:
+          type: integer
+          format: int32
+          minimum: 0
+        protocol:
+          $ref: '#/components/schemas/ProtocolSchema'
+        tcp_type:
+          oneOf:
+          - type: 'null'
+          - $ref: '#/components/schemas/IceCandidateTcpTypeSchema'
+        type:
+          $ref: '#/components/schemas/IceCandidateTypeSchema'
+    IceCandidateTcpTypeSchema:
+      type: string
+      enum:
+      - Passive
+    IceCandidateTypeSchema:
+      type: string
+      description: ICE candidateType for API responses
+      enum:
+      - host
+      - srflx
+      - prflx
+      - relay
+    IceParametersWrapper:
+      type: object
+      description: ICE parameters wrapper with proper serialization
+      required:
+      - usernameFragment
+      - password
+      properties:
+        iceLite:
+          type:
+          - boolean
+          - 'null'
+          description: ICE lite flag
+        password:
+          type: string
+          description: ICE password
+        usernameFragment:
+          type: string
+          description: ICE username fragment
+    ProtocolSchema:
+      type: string
+      enum:
+      - tcp
+      - udp
+    Room:
+      type: object
+      description: |-
+        Unified Room model (used everywhere - API, internal logic, etc.)
+        Contains both API fields (serialized) and WebRTC infrastructure (skipped)
+      required:
+      - id
+      - name
+      - listenerCount
+      - isStreaming
+      - createdAt
+      - tags
+      properties:
+        createdAt:
+          type: string
+          description: When the room was created (ISO8601 format)
+          example: 2023-11-07T12:00:00Z
+        description:
+          type:
+          - string
+          - 'null'
+          description: Optional room description
+        id:
+          type: string
+          format: uuid
+          description: Unique room identifier
+        isStreaming:
+          type: boolean
+          description: Whether the DJ is currently streaming audio
+        listenerCount:
+          type: integer
+          format: int32
+          description: Current number of listeners
+          minimum: 0
+        name:
+          type: string
+          description: Human-readable room name
+        tags:
+          type: array
+          items:
+            type: string
+          description: Room tags for categorization
+    RoomInfo:
+      type: object
+      description: Room information for client events (clean model without internal state)
+      required:
+      - id
+      - name
+      - djName
+      - listenerCount
+      - isStreaming
+      - createdAt
+      - tags
+      properties:
+        createdAt:
+          type: string
+          description: Room creation timestamp (ISO8601)
+        description:
+          type:
+          - string
+          - 'null'
+          description: Optional room description
+        djName:
+          type: string
+          description: DJ's display name
+        id:
+          type: string
+          format: uuid
+          description: Unique room identifier
+        isStreaming:
+          type: boolean
+          description: Whether DJ is currently streaming
+        listenerCount:
+          type: integer
+          format: int32
+          description: Current number of listeners
+          minimum: 0
+        name:
+          type: string
+          description: Human-readable room name
+        tags:
+          type: array
+          items:
+            type: string
+          description: Room tags for categorization
+    RoomInfoResponse:
+      type: object
+      description: Room info response (without consumer creation)
+      required:
+      - room
+      - rtpCapabilities
+      - transportOptions
+      properties:
+        producerId:
+          type:
+          - string
+          - 'null'
+          description: Producer ID (if streaming)
+        room:
+          $ref: '#/components/schemas/RoomInfo'
+          description: Room information (clean client model)
+        rtpCapabilities:
+          $ref: '#/components/schemas/RtpCapabilitiesWrapper'
+          description: Router RTP capabilities for device initialization
+        transportOptions:
+          $ref: '#/components/schemas/TransportOptions'
+          description: WebRTC transport options for listener (to get DTLS parameters)
+    RtcpFeedbackWrapper:
+      type: object
+      description: |-
+        RTCP feedback mechanism wrapper
+
+        Represents transport and codec feedback for network adaptation
+      required:
+      - type
+      properties:
+        parameter:
+          type:
+          - string
+          - 'null'
+          description: Optional parameter (most feedback types don't need this)
+        type:
+          type: string
+          description: Feedback type (e.g., "transport-cc", "nack")
+    RtpCapabilitiesWrapper:
+      type: object
+      description: |-
+        RTP capabilities wrapper for API serialization
+
+        Strongly typed wrapper for MediaSoup's RtpCapabilities ensuring no undefined fields.
+        This provides full type safety for frontend while maintaining MediaSoup compatibility.
+      required:
+      - codecs
+      - headerExtensions
+      properties:
+        codecs:
+          type: array
+          items:
+            $ref: '#/components/schemas/RtpCodecCapabilityWrapper'
+          description: Supported codecs with their complete configuration
+        headerExtensions:
+          type: array
+          items:
+            $ref: '#/components/schemas/RtpHeaderExtensionWrapper'
+          description: Supported RTP header extensions for audio streaming
+    RtpCodecCapabilityWrapper:
+      type: object
+      description: |-
+        RTP codec capability wrapper with proper typing
+
+        Strongly typed representation of MediaSoup's RtpCodecCapability::Audio variant
+        ensuring no undefined/unknown fields in frontend.
+      required:
+      - kind
+      - mimeType
+      - clockRate
+      - channels
+      - parameters
+      - rtcpFeedback
+      properties:
+        channels:
+          type: integer
+          format: int32
+          description: Number of audio channels (1 for mono, 2 for stereo)
+          minimum: 0
+        clockRate:
+          type: integer
+          format: int32
+          description: Codec clock rate in Hz (e.g., 48000 for Opus)
+          minimum: 0
+        kind:
+          type: string
+          description: Media kind - always "audio" for HushFM
+        mimeType:
+          type: string
+          description: Codec MIME type (e.g., "audio/opus", "audio/PCMU")
+        parameters:
+          type: object
+          description: 'Codec-specific parameters (e.g., Opus: stereo=1, useinbandfec=1)'
+          additionalProperties:
+            type: string
+          propertyNames:
+            type: string
+        preferredPayloadType:
+          type:
+          - integer
+          - 'null'
+          format: int32
+          description: Preferred payload type (96-127 for dynamic types)
+          minimum: 0
+        rtcpFeedback:
+          type: array
+          items:
+            $ref: '#/components/schemas/RtcpFeedbackWrapper'
+          description: RTCP feedback mechanisms
+    RtpHeaderExtensionWrapper:
+      type: object
+      description: |-
+        RTP header extension wrapper with proper typing
+
+        Strongly typed representation of MediaSoup's RtpHeaderExtension
+        for audio streaming extensions like audio level and transport-wide CC.
+      required:
+      - kind
+      - uri
+      - preferredId
+      - preferredEncrypt
+      - direction
+      properties:
+        direction:
+          type: string
+          description: Direction capability ("sendrecv", "sendonly", "recvonly")
+        kind:
+          type: string
+          description: Media kind - always "audio" for HushFM
+        preferredEncrypt:
+          type: boolean
+          description: Encryption preference (currently unused by MediaSoup)
+        preferredId:
+          type: integer
+          format: int32
+          description: Preferred numeric identifier (1-14)
+          minimum: 0
+        uri:
+          type: string
+          description: Extension URI (e.g., "urn:ietf:params:rtp-hdrext:ssrc-audio-level")
+    RtpParametersWrapper:
+      type: object
+      description: |-
+        RTP parameters wrapper for proper API serialization
+
+        Wraps MediaSoup's RtpParameters to provide JsonSchema support while maintaining
+        perfect compatibility with MediaSoup client expectations.
+      required:
+      - codecs
+      - headerExtensions
+      - encodings
+      properties:
+        codecs:
+          type: array
+          items: {}
+          description: RTP codecs configuration
+        encodings:
+          type: array
+          items: {}
+          description: RTP encoding parameters
+        headerExtensions:
+          type: array
+          items: {}
+          description: RTP header extensions
+        mid:
+          type:
+          - string
+          - 'null'
+          description: Media identifier (optional)
+        rtcp:
+          description: RTCP configuration
+    TransportOptions:
+      type: object
+      description: WebRTC transport options for client connection
+      required:
+      - id
+      - iceParameters
+      - iceCandidates
+      - dtlsParameters
+      properties:
+        dtlsParameters:
+          $ref: '#/components/schemas/DtlsParametersWrapper'
+          description: DTLS parameters for secure connection establishment
+        iceCandidates:
+          type: array
+          items:
+            $ref: '#/components/schemas/IceCandidateSchema'
+          description: ICE candidates (empty for local network optimization)
+        iceParameters:
+          $ref: '#/components/schemas/IceParametersWrapper'
+          description: ICE parameters for WebRTC connectivity establishment
+        id:
+          type: string
+          description: Transport ID uniquely identifying this WebRTC transport
+        sctpParameters:
+          description: SCTP parameters for data channel support (if applicable)
+tags:
+- name: rooms
+  description: Room management API
+

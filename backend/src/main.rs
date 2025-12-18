@@ -32,6 +32,15 @@ use api::ws::{ws_handler, listener_handler, lobby_handler};
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
+    // Check for OpenAPI export flag
+    let args: Vec<String> = std::env::args().collect();
+    if args.len() > 1 && args[1] == "--export-openapi" {
+        let openapi = ApiDoc::openapi();
+        let yaml = serde_yaml::to_string(&openapi)?;
+        println!("{}", yaml);
+        return Ok(());
+    }
+
     // Initialize tracing with OpenTelemetry
     let log_level = std::env::var("RUST_LOG")
         .unwrap_or_else(|_| "info".to_string());
