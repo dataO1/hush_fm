@@ -14,7 +14,7 @@
         pkgs = import nixpkgs {
           inherit system overlays;
         };
-        
+
 
         # Extract version from Cargo.toml
         cargoToml = builtins.fromTOML (builtins.readFile ./backend/Cargo.toml);
@@ -24,38 +24,38 @@
         # Common Rust toolchain with cross-compilation targets
         rustToolchain = pkgs.rust-bin.stable.latest.default.override {
           extensions = [ "rust-src" "rust-analyzer" "rustfmt" ];
-          targets = [ 
+          targets = [
             "x86_64-unknown-linux-gnu"
             "aarch64-unknown-linux-gnu"
           ];
         };
-        
+
         # Development shell
         devShell = pkgs.mkShell {
           nativeBuildInputs = with pkgs; [
             # Rust toolchain with cross-compilation support
             rustToolchain
             cargo-watch
-            
+
             # Node.js environment (required for mediasoup build)
             nodejs_20
             nodejs_20.pkgs.npm
-            
+
             # System dependencies for mediasoup C++ build
             pkg-config
             cmake
             gnumake
-            
+
             # Native compilers (for build tools like flatc)
             gcc
             stdenv.cc
-            
+
             # Use Python 3.11 to avoid SafeConfigParser removal in 3.12+
             python311
             python311Packages.pip
             python311Packages.setuptools
             python311Packages.invoke
-            
+
             git
           ] ++ (with pkgs.stdenv; [ cc ]);
 
@@ -68,7 +68,7 @@
           RUST_SRC_PATH = "${rustToolchain}/lib/rustlib/src/rust/library";
           PYTHON = "${pkgs.python311}/bin/python3";
           MEDIASOUP_SKIP_WORKER_PREBUILT_DOWNLOAD = "false";
-          
+
           # HushFM service environment variables
           HUSHFM_BACKEND_PORT = "3000";
           HUSHFM_FRONTEND_PORT = "8080";
@@ -100,14 +100,14 @@
             echo ""
           '';
         };
-        
+
         # Simple binary packaging
         makePackage = targetSystem: binaryPath: pkgs.stdenv.mkDerivation {
           pname = "hushfm-backend";
           inherit version;
-          
+
           src = ./.;
-          
+
           installPhase = ''
             mkdir -p $out/bin
             if [ -f "${binaryPath}" ]; then
@@ -119,7 +119,7 @@
               exit 1
             fi
           '';
-          
+
           meta = with pkgs.lib; {
             description = "HushFM live audio streaming backend";
             homepage = "https://github.com/yourusername/hushfm";
@@ -133,26 +133,26 @@
         hushfm-frontend = pkgs.buildNpmPackage {
           pname = "hushfm-frontend";
           inherit version;
-          
+
           src = ./frontend;
-          
+
           # The hash of the dependencies - will need to be updated when dependencies change
           npmDepsHash = "sha256-J3gScJKvjaqGH+MVQnoa5vKOnX0BXtm+8LQ6tVOfZ48=";
-          
-          
+
+
           # Build script and install
           buildScript = "build";
-          
+
           installPhase = ''
             runHook preInstall
-            
+
             # Copy built files to output
             mkdir -p $out
             cp -r dist/* $out/
-            
+
             runHook postInstall
           '';
-          
+
           meta = with pkgs.lib; {
             description = "HushFM live audio streaming frontend";
             homepage = "https://github.com/yourusername/hushfm";
@@ -168,12 +168,12 @@
           # Architecture-specific backend packages
           hushfm-backend-x86_64 = makePackage "x86_64-linux" "./backend/target/release/server";
           hushfm-backend-aarch64 = makePackage "aarch64-linux" "./backend/target/aarch64-unknown-linux-gnu/server";
-          
-          # Default to current system architecture  
+
+          # Default to current system architecture
           hushfm-backend = if system == "x86_64-linux" then makePackage "x86_64-linux" "./backend/target/release/server"
                           else if system == "aarch64-linux" then makePackage "aarch64-linux" "./backend/target/aarch64-unknown-linux-gnu/server"
                           else throw "Unsupported system: ${system}";
-          
+
           inherit hushfm-frontend;
           default = self.packages.${system}.hushfm-backend;
         };
@@ -189,32 +189,27 @@
         with lib;
         let
           cfg = config.services.hushfm;
-          
+
           # Parse port range string (e.g., "40000-49999") into min/max
-          parsePortRange = portRange: 
+          parsePortRange = portRange:
             let
               parts = lib.splitString "-" portRange;
               min = lib.toInt (lib.head parts);
               max = lib.toInt (lib.last parts);
             in { inherit min max; };
-          
+
           portRange = parsePortRange cfg.worker.portRange;
-          
-          # Environment variables for services
-          backendEnv = {
+
+          # Environment variables for services (production always uses TLS)
+          serviceEnv = {
             HUSHFM_BACKEND_PORT = toString cfg.backend.port;
             HUSHFM_FRONTEND_PORT = toString cfg.frontend.port;
             HUSHFM_WORKER_PORT_MIN = toString portRange.min;
             HUSHFM_WORKER_PORT_MAX = toString portRange.max;
-            HUSHFM_TLS_ENABLED = if cfg.tls.enable then "true" else "false";
+            HUSHFM_TLS_ENABLED = "true";
             HUSHFM_CERT_FILE = cfg.tls.certFile;
             HUSHFM_KEY_FILE = cfg.tls.keyFile;
-            HUSHFM_FRONTEND_URL = "${if cfg.tls.enable then "https" else "http"}://localhost:${toString cfg.frontend.port}";
-          };
-          
-          frontendEnv = backendEnv // {
-            HUSHFM_API_BASE_URL = "${if cfg.tls.enable then "https" else "http"}://localhost:${toString cfg.backend.port}";
-            HUSHFM_WS_PROTOCOL = if cfg.tls.enable then "wss" else "ws";
+            HUSHFM_FRONTEND_URL = "https://localhost:${toString cfg.frontend.port}";
           };
 
         in {
@@ -246,26 +241,22 @@
             };
 
             tls = {
-              enable = mkEnableOption "TLS/HTTPS for both backend and frontend";
-              
               certFile = mkOption {
                 type = types.str;
-                default = "";
                 description = "Path to TLS certificate file";
               };
-              
+
               keyFile = mkOption {
                 type = types.str;
-                default = "";
                 description = "Path to TLS private key file";
               };
             };
           };
 
           config = mkIf cfg.enable {
-            # Open firewall ports
+            # Open firewall ports (production always uses HTTPS)
             networking.firewall = {
-              allowedTCPPorts = [ cfg.backend.port ] ++ (if cfg.tls.enable then [ 443 ] else [ 80 ]);
+              allowedTCPPorts = [ cfg.backend.port 443 ];
               allowedUDPPortRanges = [
                 { from = portRange.min; to = portRange.max; }
               ];
@@ -276,9 +267,9 @@
               description = "HushFM Backend Server";
               after = [ "network.target" ];
               wantedBy = [ "multi-user.target" ];
-              
-              environment = backendEnv;
-              
+
+              environment = serviceEnv;
+
               serviceConfig = {
                 Type = "simple";
                 User = "hushfm";
@@ -286,7 +277,7 @@
                 ExecStart = "${self.packages.${pkgs.system}.hushfm-backend}/bin/server";
                 Restart = "always";
                 RestartSec = 5;
-                
+
                 # Security settings
                 NoNewPrivileges = true;
                 PrivateTmp = true;
@@ -309,7 +300,7 @@
               recommendedOptimisation = true;
               recommendedGzipSettings = true;
               recommendedProxySettings = false;  # DISABLE THIS
-              
+
               # Add upstream map for WebSocket connection header
               appendHttpConfig = ''
                 map $http_upgrade $connection_upgrade {
@@ -317,41 +308,38 @@
                   "" close;
                 }
               '';
-              
-              virtualHosts."hushfm-frontend" = mkMerge [
-                {
-                  listen = [
-                    { 
-                      addr = "0.0.0.0"; 
-                      port = if cfg.tls.enable then 443 else 80; 
-                      ssl = cfg.tls.enable;
-                    }
-                  ];
-                }
-                (mkIf cfg.tls.enable {
-                  # TLS configuration
-                  sslCertificate = cfg.tls.certFile;
-                  sslCertificateKey = cfg.tls.keyFile;
-                  
-                  # SSL protocols and security settings
-                  extraConfig = ''
-                    ssl_protocols TLSv1.2 TLSv1.3;
-                    ssl_prefer_server_ciphers off;
-                    ssl_ciphers ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384;
-                  '';
-                })
-                {
-                  # Serve frontend static files
-                  root = self.packages.${pkgs.system}.hushfm-frontend;
-                  
-                  locations = {
+
+              virtualHosts."hushfm-frontend" = {
+                listen = [
+                  {
+                    addr = "0.0.0.0";
+                    port = 443;
+                    ssl = true;
+                  }
+                ];
+
+                # TLS configuration
+                sslCertificate = cfg.tls.certFile;
+                sslCertificateKey = cfg.tls.keyFile;
+
+                # SSL protocols and security settings
+                extraConfig = ''
+                  ssl_protocols TLSv1.2 TLSv1.3;
+                  ssl_prefer_server_ciphers off;
+                  ssl_ciphers ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384;
+                '';
+
+                # Serve frontend static files
+                root = self.packages.${pkgs.system}.hushfm-frontend;
+
+                locations = {
                     "/" = {
                       tryFiles = "$uri $uri/ /index.html";
                       extraConfig = ''
                         # Enable gzip compression
                         gzip on;
                         gzip_types text/css application/javascript application/json;
-                        
+
                         # Cache static assets
                         location ~* \.(js|css|png|jpg|jpeg|gif|ico|svg)$ {
                           expires 1y;
@@ -359,10 +347,10 @@
                         }
                       '';
                     };
-                    
+
                     # Proxy API requests to backend
                     "/api/" = {
-                      proxyPass = "${if cfg.tls.enable then "https" else "http"}://localhost:${toString cfg.backend.port}/api/";
+                      proxyPass = "https://localhost:${toString cfg.backend.port}/api/";
                       extraConfig = ''
                         proxy_set_header Host $host;
                         proxy_set_header X-Real-IP $remote_addr;
@@ -370,10 +358,10 @@
                         proxy_set_header X-Forwarded-Proto $scheme;
                       '';
                     };
-                    
+
                     # Proxy WebSocket connections to backend
                     "/ws" = {
-                      proxyPass = "${if cfg.tls.enable then "https" else "http"}://localhost:${toString cfg.backend.port}/ws";
+                      proxyPass = "https://localhost:${toString cfg.backend.port}/ws";
                       extraConfig = ''
                         proxy_http_version 1.1;
                         proxy_set_header Upgrade $http_upgrade;
@@ -385,51 +373,6 @@
                       '';
                     };
                   };
-                }
-              ];
-            };
-            
-            # Development frontend service (using nginx on frontend port for dev)
-            services.nginx.virtualHosts."hushfm-dev" = mkIf (!cfg.tls.enable) {
-              listen = [
-                { 
-                  addr = "0.0.0.0"; 
-                  port = cfg.frontend.port;
-                  ssl = false;
-                }
-              ];
-              
-              # Serve frontend static files for development
-              root = self.packages.${pkgs.system}.hushfm-frontend;
-              
-              locations = {
-                "/" = {
-                  tryFiles = "$uri $uri/ /index.html";
-                };
-                
-                # Proxy API requests to backend
-                "/api/" = {
-                  proxyPass = "http://localhost:${toString cfg.backend.port}/api/";
-                  extraConfig = ''
-                    proxy_set_header Host $host;
-                    proxy_set_header X-Real-IP $remote_addr;
-                    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-                    proxy_set_header X-Forwarded-Proto $scheme;
-                  '';
-                };
-                
-                # Proxy WebSocket connections to backend
-                "/ws" = {
-                  proxyPass = "http://localhost:${toString cfg.backend.port}/ws";
-                  extraConfig = ''
-                    proxy_http_version 1.1;
-                    proxy_set_header Upgrade $http_upgrade;
-                    proxy_set_header Connection $connection_upgrade;
-                    proxy_set_header Host $host;
-                    proxy_set_header X-Real-IP $remote_addr;
-                    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-                    proxy_set_header X-Forwarded-Proto $scheme;
-                  '';
                 };
               };
             };
@@ -442,17 +385,16 @@
               home = "/var/lib/hushfm";
               createHome = true;
             };
-            
+
             users.groups.hushfm = {};
 
-            # Ensure TLS files are readable by hushfm user if TLS is enabled
+            # Ensure TLS files are specified (required for production)
             assertions = [
               {
-                assertion = !cfg.tls.enable || (cfg.tls.certFile != "" && cfg.tls.keyFile != "");
-                message = "TLS certificate and key files must be specified when TLS is enabled";
+                assertion = cfg.tls.certFile != "" && cfg.tls.keyFile != "";
+                message = "TLS certificate and key files must be specified for production deployment";
               }
             ];
           };
         };
-    };
-}
+    }
