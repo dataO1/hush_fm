@@ -389,11 +389,8 @@
               recommendedOptimisation = true;
               recommendedGzipSettings = true;
               recommendedProxySettings = false;  # DISABLE THIS
-
-              # Debug logging for SSL troubleshooting
-              logLevel = "debug";
               
-              # Add upstream map for WebSocket connection header
+              # Add upstream map for WebSocket connection header and debug logging
               appendHttpConfig = ''
                 error_log /var/log/nginx/error.log debug;
                 
