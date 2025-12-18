@@ -124,8 +124,8 @@
           };
         };
 
-        # Frontend package (built production bundle)
-        hushfm-frontend = pkgs.buildNpmPackage {
+        # Frontend package builder function (takes environment variables)
+        buildFrontend = extraEnv: pkgs.buildNpmPackage rec {
           pname = "hushfm-frontend";
           inherit version;
 
@@ -134,6 +134,10 @@
           # The hash of the dependencies - will need to be updated when dependencies change
           npmDepsHash = "sha256-J3gScJKvjaqGH+MVQnoa5vKOnX0BXtm+8LQ6tVOfZ48=";
 
+          # Pass environment variables to build process
+          env = {
+            HUSHFM_HOST_NAME = "localhost"; # Default for dev builds
+          } // extraEnv;
 
           # Build script and install
           buildScript = "build";
@@ -156,6 +160,9 @@
             platforms = platforms.all;
           };
         };
+
+        # Default frontend package for development
+        hushfm-frontend = buildFrontend {};
       in
       {
         # Packages for both architectures
@@ -203,6 +210,9 @@
             HUSHFM_WORKER_PORT_MAX = toString portRange.max;
             HUSHFM_HOST_NAME = cfg.hostName;  # Configurable hostname for nginx reverse proxy
           };
+
+          # Build frontend with service-specific hostname
+          frontendPackage = buildFrontend { HUSHFM_HOST_NAME = cfg.hostName; };
 
         in {
           options.services.hushfm = {
@@ -398,7 +408,7 @@
                 locations = {
                   # Serve frontend static files
                   "/" = {
-                    root = self.packages.${pkgs.system}.hushfm-frontend;
+                    root = frontendPackage;
                     index = "index.html";
                     tryFiles = "$uri $uri/ /index.html";  # SPA fallback
                     extraConfig = ''
