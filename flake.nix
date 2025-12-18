@@ -24,7 +24,7 @@
 
         # Common Rust toolchain with cross-compilation targets
         rustToolchain = pkgs.rust-bin.stable.latest.default.override {
-          extensions = [ "rust-src" "rust-analyzer" ];
+          extensions = [ "rust-src" "rust-analyzer" "rustfmt" ];
           targets = [ 
             "x86_64-unknown-linux-gnu"
             "aarch64-unknown-linux-gnu"
