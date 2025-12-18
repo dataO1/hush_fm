@@ -72,10 +72,7 @@
           HUSHFM_FRONTEND_PORT = "8080";
           HUSHFM_WORKER_PORT_MIN = "40000";
           HUSHFM_WORKER_PORT_MAX = "49999";
-          HUSHFM_TLS_ENABLED = "false";
-          HUSHFM_CERT_FILE = "";
-          HUSHFM_KEY_FILE = "";
-          HUSHFM_FRONTEND_URL = "http://localhost:8080";
+          HUSHFM_PROXY_URL = "https://localhost";
 
           shellHook = ''
             echo "🎵 HushFM Development Environment"
@@ -91,10 +88,10 @@
             echo "  RUSTFLAGS=\"-C target-cpu=native\" cargo build --release"
             echo ""
             echo "🌐 Service Configuration:"
-            echo "  Backend:   http://localhost:$HUSHFM_BACKEND_PORT"
-            echo "  Frontend:  $HUSHFM_FRONTEND_URL"
+            echo "  Backend:   http://localhost:$HUSHFM_BACKEND_PORT"  
+            echo "  Frontend:  http://localhost:$HUSHFM_FRONTEND_PORT"
+            echo "  Proxy:     $HUSHFM_PROXY_URL (via nginx on :443)"
             echo "  WebRTC Ports: $HUSHFM_WORKER_PORT_MIN-$HUSHFM_WORKER_PORT_MAX"
-            echo "  TLS Enabled:  $HUSHFM_TLS_ENABLED"
             echo ""
           '';
         };
@@ -204,8 +201,7 @@
             HUSHFM_FRONTEND_PORT = toString cfg.frontend.port;
             HUSHFM_WORKER_PORT_MIN = toString portRange.min;
             HUSHFM_WORKER_PORT_MAX = toString portRange.max;
-            HUSHFM_TLS_ENABLED = "false";  # Backend runs HTTP locally
-            HUSHFM_FRONTEND_URL = "http://localhost:${toString cfg.frontend.port}";
+            HUSHFM_PROXY_URL = "https://localhost";  # Nginx reverse proxy URL
           };
 
         in {
@@ -216,7 +212,7 @@
               port = mkOption {
                 type = types.port;
                 default = 3000;
-                description = "Port for the backend HTTP/HTTPS server";
+                description = "Port for the backend HTTP server";
               };
             };
 
@@ -224,7 +220,7 @@
               port = mkOption {
                 type = types.port;
                 default = 8080;
-                description = "Port for the frontend HTTP/HTTPS server";
+                description = "Port for the frontend development server";
               };
             };
 

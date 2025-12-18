@@ -10,6 +10,7 @@ export default defineConfig({
     devtools({ autoname: true }),
     solid()
   ],
+  envPrefix: ['VITE_', 'HUSHFM_'], // Allow both VITE_ and HUSHFM_ prefixed env vars
   css: {
     postcss: {
       plugins: [tailwindcss, autoprefixer],
@@ -22,15 +23,17 @@ export default defineConfig({
     port: parseInt(process.env.HUSHFM_FRONTEND_PORT || '8080'),
     host: true, // This listens on 0.0.0.0 (ALL interfaces)
     strictPort: true, // Fail if port is taken
-    https: process.env.HUSHFM_TLS_ENABLED === 'true' ? {
-      key: process.env.HUSHFM_KEY_FILE,
-      cert: process.env.HUSHFM_CERT_FILE,
-    } : undefined,
     proxy: {
       '/api': {
-        target: `${process.env.HUSHFM_TLS_ENABLED === 'true' ? 'https' : 'http'}://localhost:${process.env.HUSHFM_BACKEND_PORT || '3000'}`,
+        target: `http://localhost:${process.env.HUSHFM_BACKEND_PORT || '3000'}`,
         changeOrigin: true,
         secure: false // Allow self-signed certificates in development
+      },
+      '/ws': {
+        target: `http://localhost:${process.env.HUSHFM_BACKEND_PORT || '3000'}`,
+        ws: true, // Enable WebSocket proxying
+        changeOrigin: true,
+        secure: false
       },
     },
   },

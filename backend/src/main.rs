@@ -17,8 +17,6 @@ use tokio::signal;
 use utoipa::OpenApi;
 use utoipa_swagger_ui::SwaggerUi;
 
-// TLS support
-use axum_server::tls_rustls::RustlsConfig;
 
 mod api;
 mod lib;
@@ -47,24 +45,8 @@ async fn main() -> anyhow::Result<()> {
         .parse::<u16>()
         .unwrap_or(3000);
     
-    let frontend_port = std::env::var("HUSHFM_FRONTEND_PORT")
-        .unwrap_or_else(|_| "5173".to_string())
-        .parse::<u16>()
-        .unwrap_or(5173);
-    
-    let frontend_url = std::env::var("HUSHFM_FRONTEND_URL")
-        .unwrap_or_else(|_| format!("http://localhost:{}", frontend_port));
-    
-    let tls_enabled = std::env::var("HUSHFM_TLS_ENABLED")
-        .unwrap_or_else(|_| "false".to_string())
-        .parse::<bool>()
-        .unwrap_or(false);
-    
-    let cert_file = std::env::var("HUSHFM_CERT_FILE")
-        .unwrap_or_else(|_| "../tls/server.crt".to_string());
-    
-    let key_file = std::env::var("HUSHFM_KEY_FILE")
-        .unwrap_or_else(|_| "../tls/server.key".to_string());
+    let proxy_url = std::env::var("HUSHFM_PROXY_URL")
+        .unwrap_or_else(|_| "https://localhost".to_string());
     
     let worker_port_min = std::env::var("HUSHFM_WORKER_PORT_MIN")
         .unwrap_or_else(|_| "40000".to_string())
@@ -90,25 +72,12 @@ async fn main() -> anyhow::Result<()> {
     let local_ip = get_local_ip()?;
     tracing::info!("🌐 Detected local IP: {}", local_ip);
 
-    // Setup CORS based on configuration
-    let mut allowed_origins = vec![
-        frontend_url.parse::<HeaderValue>()?,
+    // Setup CORS based on configuration - backend only serves nginx proxy
+    let allowed_origins = vec![
+        proxy_url.parse::<HeaderValue>()?,
+        "https://localhost".parse::<HeaderValue>()?,  // Nginx proxy
+        format!("https://{}", local_ip).parse::<HeaderValue>()?,  // Local IP via proxy
     ];
-    
-    // Add the local IP origin if it's not localhost
-    if !local_ip.is_loopback() {
-        let protocol = if tls_enabled { "https" } else { "http" };
-        let local_origin = format!("{}://{}:{}", protocol, local_ip, frontend_port);
-        allowed_origins.push(local_origin.parse::<HeaderValue>()?);
-        tracing::info!("🌐 Added local IP origin: {}", local_origin);
-    }
-    
-    // Add localhost with both http and https for development
-    if !tls_enabled {
-        allowed_origins.push(format!("https://localhost:{}", frontend_port).parse::<HeaderValue>()?);
-    } else {
-        allowed_origins.push(format!("http://localhost:{}", frontend_port).parse::<HeaderValue>()?);
-    }
     
     let cors = CorsLayer::new()
         .allow_origin(allowed_origins)
@@ -135,23 +104,12 @@ async fn main() -> anyhow::Result<()> {
                 .layer(DefaultBodyLimit::disable()),
         );
 
-    // Configure server address
+    // Configure server address - backend runs HTTP only (nginx handles TLS)
     let addr = SocketAddr::from(([0, 0, 0, 0], backend_port));
     
-    // Start server with or without TLS
-    if tls_enabled {
-        let tls_config = RustlsConfig::from_pem_file(&cert_file, &key_file).await
-            .map_err(|e| anyhow::anyhow!("Failed to load TLS configuration from cert: {}, key: {} - {}", cert_file, key_file, e))?;
-        
-        tracing::info!("🔒 HushFM Backend starting with TLS on https://{}", addr);
-        axum_server::bind_rustls(addr, tls_config)
-            .serve(app.into_make_service())
-            .await?;
-    } else {
-        tracing::info!("🌐 HushFM Backend starting without TLS on http://{}", addr);
-        let listener = tokio::net::TcpListener::bind(addr).await?;
-        axum::serve(listener, app).await?;
-    }
+    tracing::info!("🌐 HushFM Backend starting on http://{} (nginx proxy: {})", addr, proxy_url);
+    let listener = tokio::net::TcpListener::bind(addr).await?;
+    axum::serve(listener, app).await?;
 
     // Shutdown telemetry
     telemetry::shutdown_tracer();

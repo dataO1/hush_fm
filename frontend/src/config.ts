@@ -27,15 +27,14 @@ const getEnvBool = (key: string, defaultValue: boolean): boolean => {
 // Create configuration from environment variables
 export const config: Config = {
   api: {
-    baseUrl: getEnvVar('VITE_API_BASE_URL', 'http://localhost:3000')
+    baseUrl: getEnvVar('HUSHFM_PROXY_URL', 'https://localhost')
   },
   websocket: {
-    protocol: getEnvVar('VITE_WS_PROTOCOL', 'ws') as 'ws' | 'wss',
+    protocol: 'wss' as 'ws' | 'wss',  // Always use wss for proxy connections
     baseUrl: (() => {
-      const apiUrl = getEnvVar('VITE_API_BASE_URL', 'http://localhost:3000')
-      const protocol = getEnvVar('VITE_WS_PROTOCOL', 'ws')
-      // Convert HTTP URL to WebSocket URL
-      return apiUrl.replace(/^https?/, protocol)
+      const proxyUrl = getEnvVar('HUSHFM_PROXY_URL', 'https://localhost')
+      // Convert HTTPS URL to WebSocket URL
+      return proxyUrl.replace(/^https/, 'wss')
     })()
   },
   development: {
