@@ -287,23 +287,34 @@
               wantedBy = [ "multi-user.target" ];
               before = [ "nginx.service" ];
               script = ''
-                mkdir -p /var/lib/nginx/certs
-                if [ ! -f /var/lib/nginx/certs/cert.pem ]; then
+                cert_dir="/var/lib/nginx/certs"
+                cert_file="$cert_dir/cert.pem"
+                key_file="$cert_dir/key.pem"
+                
+                # Ensure directory exists
+                mkdir -p "$cert_dir"
+                
+                # Generate certificate if it doesn't exist
+                if [ ! -f "$cert_file" ]; then
+                  echo "Generating new SSL certificate..."
                   ${pkgs.openssl}/bin/openssl req -x509 -newkey rsa:2048 \
-                    -keyout /var/lib/nginx/certs/key.pem \
-                    -out /var/lib/nginx/certs/cert.pem \
+                    -keyout "$key_file" \
+                    -out "$cert_file" \
                     -days 365 -nodes \
                     -subj "/CN=hushfm.local" \
                     -addext "subjectAltName=IP:127.0.0.1,IP:192.168.178.105,DNS:hushfm.local,DNS:localhost"
-                  
-                  # Set proper ownership and permissions for nginx and hushfm
-                  chown nginx:nginx /var/lib/nginx/certs/key.pem /var/lib/nginx/certs/cert.pem
-                  chmod 640 /var/lib/nginx/certs/key.pem  # nginx group can read
-                  chmod 644 /var/lib/nginx/certs/cert.pem
-                  
-                  # Allow hushfm user to read the certificates by adding to nginx group
-                  usermod -a -G nginx hushfm
+                  echo "SSL certificate generated"
+                else
+                  echo "SSL certificate already exists"
                 fi
+                
+                # Always ensure correct ownership and permissions (idempotent)
+                echo "Setting correct ownership and permissions..."
+                chown nginx:nginx "$key_file" "$cert_file"
+                chmod 640 "$key_file"  # nginx group can read
+                chmod 644 "$cert_file"
+                
+                echo "Certificate setup complete"
               '';
               serviceConfig = {
                 Type = "oneshot";
@@ -339,13 +350,10 @@
                       -subj "/CN=hushfm.local" \
                       -addext "subjectAltName=IP:127.0.0.1,IP:192.168.178.105,DNS:hushfm.local,DNS:localhost"
                     
-                    # Set proper ownership and permissions
+                    # Set proper ownership and permissions (idempotent)
                     chown nginx:nginx "$key_file" "$cert_file"
                     chmod 640 "$key_file"  # nginx group can read
                     chmod 644 "$cert_file"
-                    
-                    # Ensure hushfm user can read the certificates
-                    usermod -a -G nginx hushfm
                     
                     # Reload nginx to use new certificate
                     systemctl reload nginx
@@ -461,6 +469,7 @@
             users.users.hushfm = {
               isSystemUser = true;
               group = "hushfm";
+              extraGroups = [ "nginx" ];  # Allow reading nginx certificates
               description = "HushFM service user";
               home = "/var/lib/hushfm";
               createHome = true;
