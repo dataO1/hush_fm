@@ -41,29 +41,73 @@ async fn main() -> anyhow::Result<()> {
         return Ok(());
     }
 
+    // Read configuration from environment variables
+    let backend_port = std::env::var("HUSHFM_BACKEND_PORT")
+        .unwrap_or_else(|_| "3000".to_string())
+        .parse::<u16>()
+        .unwrap_or(3000);
+    
+    let frontend_port = std::env::var("HUSHFM_FRONTEND_PORT")
+        .unwrap_or_else(|_| "5173".to_string())
+        .parse::<u16>()
+        .unwrap_or(5173);
+    
+    let frontend_url = std::env::var("HUSHFM_FRONTEND_URL")
+        .unwrap_or_else(|_| format!("http://localhost:{}", frontend_port));
+    
+    let tls_enabled = std::env::var("HUSHFM_TLS_ENABLED")
+        .unwrap_or_else(|_| "false".to_string())
+        .parse::<bool>()
+        .unwrap_or(false);
+    
+    let cert_file = std::env::var("HUSHFM_CERT_FILE")
+        .unwrap_or_else(|_| "../tls/server.crt".to_string());
+    
+    let key_file = std::env::var("HUSHFM_KEY_FILE")
+        .unwrap_or_else(|_| "../tls/server.key".to_string());
+    
+    let worker_port_min = std::env::var("HUSHFM_WORKER_PORT_MIN")
+        .unwrap_or_else(|_| "40000".to_string())
+        .parse::<u16>()
+        .unwrap_or(40000);
+    
+    let worker_port_max = std::env::var("HUSHFM_WORKER_PORT_MAX")
+        .unwrap_or_else(|_| "49999".to_string())
+        .parse::<u16>()
+        .unwrap_or(49999);
+
     // Initialize tracing with OpenTelemetry
     let log_level = std::env::var("RUST_LOG")
         .unwrap_or_else(|_| "info".to_string());
     
     telemetry::init_tracing_with_level(&log_level)?;
 
-    // Initialize application state
-    let lobby = Lobby::new().await?;
+    // Initialize application state with configured worker port range
+    let lobby = Lobby::with_port_range(worker_port_min, worker_port_max).await?;
+    tracing::info!("🎵 Configured MediaSoup worker port range: {}-{}", worker_port_min, worker_port_max);
 
     // Get local IP address for CORS configuration
     let local_ip = get_local_ip()?;
     tracing::info!("🌐 Detected local IP: {}", local_ip);
 
-    // Setup CORS for development (allow HTTPS origins for credentials)
+    // Setup CORS based on configuration
     let mut allowed_origins = vec![
-        "https://localhost:5173".parse::<HeaderValue>()?,
+        frontend_url.parse::<HeaderValue>()?,
     ];
     
     // Add the local IP origin if it's not localhost
     if !local_ip.is_loopback() {
-        let local_origin = format!("https://{}:5173", local_ip);
+        let protocol = if tls_enabled { "https" } else { "http" };
+        let local_origin = format!("{}://{}:{}", protocol, local_ip, frontend_port);
         allowed_origins.push(local_origin.parse::<HeaderValue>()?);
-        tracing::info!("🌐 Added local IP HTTPS origin: {}", local_origin);
+        tracing::info!("🌐 Added local IP origin: {}", local_origin);
+    }
+    
+    // Add localhost with both http and https for development
+    if !tls_enabled {
+        allowed_origins.push(format!("https://localhost:{}", frontend_port).parse::<HeaderValue>()?);
+    } else {
+        allowed_origins.push(format!("http://localhost:{}", frontend_port).parse::<HeaderValue>()?);
     }
     
     let cors = CorsLayer::new()
@@ -91,21 +135,23 @@ async fn main() -> anyhow::Result<()> {
                 .layer(DefaultBodyLimit::disable()),
         );
 
-    // Load TLS configuration
-    let cert_file = "../tls/server.crt";
-    let key_file = "../tls/server.key";
+    // Configure server address
+    let addr = SocketAddr::from(([0, 0, 0, 0], backend_port));
     
-    let tls_config = RustlsConfig::from_pem_file(cert_file, key_file).await
-        .map_err(|e| anyhow::anyhow!("Failed to load TLS configuration: {}", e))?;
-    
-    // Start HTTPS server
-    let addr = SocketAddr::from(([0, 0, 0, 0], 3443));
-    tracing::info!("🔒 HushFM Backend starting on https://{}", addr);
-    
-    // Setup graceful shutdown with TLS
-    axum_server::bind_rustls(addr, tls_config)
-        .serve(app.into_make_service())
-        .await?;
+    // Start server with or without TLS
+    if tls_enabled {
+        let tls_config = RustlsConfig::from_pem_file(&cert_file, &key_file).await
+            .map_err(|e| anyhow::anyhow!("Failed to load TLS configuration from cert: {}, key: {} - {}", cert_file, key_file, e))?;
+        
+        tracing::info!("🔒 HushFM Backend starting with TLS on https://{}", addr);
+        axum_server::bind_rustls(addr, tls_config)
+            .serve(app.into_make_service())
+            .await?;
+    } else {
+        tracing::info!("🌐 HushFM Backend starting without TLS on http://{}", addr);
+        let listener = tokio::net::TcpListener::bind(addr).await?;
+        axum::serve(listener, app).await?;
+    }
 
     // Shutdown telemetry
     telemetry::shutdown_tracer();

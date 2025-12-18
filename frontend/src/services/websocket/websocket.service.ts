@@ -31,6 +31,7 @@ import {
   WebSocketConnectionError,
   WebSocketMessageError
 } from '../../domain/errors'
+import { websocket } from '../../config'
 
 /**
  * WebSocket connection configuration
@@ -402,12 +403,12 @@ export const subscribeToMessages = <T extends LobbyEvent | DjEvent | ListenerEve
  * WebSocket connection helper for different roles
  */
 export const connectToLobby = (): Effect.Effect<WebSocket, WebSocketConnectionError> =>
-  connectWebSocket({ url: `wss://${window.location.hostname}:3443/ws/lobby` })
+  connectWebSocket({ url: `${websocket.baseUrl}/ws/lobby` })
 
 export const connectToDjRoom = (roomId: string): Effect.Effect<WebSocket, WebSocketConnectionError> =>
-  connectWebSocket({ url: `wss://${window.location.hostname}:3443/ws/room/${roomId}` })
+  connectWebSocket({ url: `${websocket.baseUrl}/ws/room/${roomId}` })
 
 export const connectToListener = (roomId: string, sessionId: string): Effect.Effect<WebSocket, WebSocketConnectionError> =>
-  connectWebSocket({ url: `wss://${window.location.hostname}:3443/ws/listener/${roomId}/${sessionId}` })
+  connectWebSocket({ url: `${websocket.baseUrl}/ws/listener/${roomId}/${sessionId}` })
 
 // Managed connection removed for simplicity - use individual connection functions above

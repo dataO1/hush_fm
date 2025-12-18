@@ -30,6 +30,11 @@ pub struct Lobby {
 impl Lobby {
     /// Create new Lobby with pre-allocated MediaSoup workers
     pub async fn new() -> anyhow::Result<Self> {
+        Self::with_port_range(10000, 59999).await
+    }
+    
+    /// Create new Lobby with custom worker port range
+    pub async fn with_port_range(port_min: u16, port_max: u16) -> anyhow::Result<Self> {
         let (broadcast_tx, _) = broadcast::channel(1024);
 
         // Create worker pool (8 workers for good concurrency)
@@ -47,8 +52,8 @@ impl Lobby {
                 WorkerLogTag::Info,
             ];
 
-            // Explicitly set port range to ensure alignment with transport configuration
-            worker_settings.rtc_port_range = 10000..=59999;
+            // Set configurable port range for WebRTC transport
+            worker_settings.rtc_port_range = port_min..=port_max;
 
             // Configure custom DTLS certificates with SHA-256 fingerprints
             // Compute absolute paths relative to the server binary location

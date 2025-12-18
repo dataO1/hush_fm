@@ -194,6 +194,8 @@
           # Cross-compilation shell for ARM64
           cross-aarch64 = makeDevShell pkgsAarch64 "aarch64-unknown-linux-gnu";
         };
+        # NixOS module for HushFM service
+        nixosModules.hushfm = import ./nixos-module.nix;
       }
     );
 }
