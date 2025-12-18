@@ -72,7 +72,7 @@
           HUSHFM_FRONTEND_PORT = "8080";
           HUSHFM_WORKER_PORT_MIN = "40000";
           HUSHFM_WORKER_PORT_MAX = "49999";
-          HUSHFM_PROXY_URL = "https://localhost";
+          HUSHFM_HOST_NAME = "localhost";
 
           shellHook = ''
             echo "🎵 HushFM Development Environment"
@@ -90,7 +90,7 @@
             echo "🌐 Service Configuration:"
             echo "  Backend:   http://localhost:$HUSHFM_BACKEND_PORT"  
             echo "  Frontend:  http://localhost:$HUSHFM_FRONTEND_PORT"
-            echo "  Proxy:     $HUSHFM_PROXY_URL (via nginx on :443)"
+            echo "  Hostname:  $HUSHFM_HOST_NAME (nginx proxy on :443 for production)"
             echo "  WebRTC Ports: $HUSHFM_WORKER_PORT_MIN-$HUSHFM_WORKER_PORT_MAX"
             echo ""
           '';
@@ -201,7 +201,7 @@
             HUSHFM_FRONTEND_PORT = toString cfg.frontend.port;
             HUSHFM_WORKER_PORT_MIN = toString portRange.min;
             HUSHFM_WORKER_PORT_MAX = toString portRange.max;
-            HUSHFM_PROXY_URL = "https://localhost";  # Nginx reverse proxy URL
+            HUSHFM_HOST_NAME = cfg.hostName;  # Configurable hostname for nginx reverse proxy
           };
 
         in {
@@ -230,6 +230,12 @@
                 default = "40000-49999";
                 description = "Port range for WebRTC worker processes (format: min-max)";
               };
+            };
+
+            hostName = mkOption {
+              type = types.str;
+              default = "localhost";
+              description = "Hostname for the nginx reverse proxy (e.g., 192.168.178.105)";
             };
 
           };

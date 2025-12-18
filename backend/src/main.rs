@@ -45,8 +45,8 @@ async fn main() -> anyhow::Result<()> {
         .parse::<u16>()
         .unwrap_or(3000);
     
-    let proxy_url = std::env::var("HUSHFM_PROXY_URL")
-        .unwrap_or_else(|_| "https://localhost".to_string());
+    let host_name = std::env::var("HUSHFM_HOST_NAME")
+        .unwrap_or_else(|_| "localhost".to_string());
     
     let worker_port_min = std::env::var("HUSHFM_WORKER_PORT_MIN")
         .unwrap_or_else(|_| "40000".to_string())
@@ -73,10 +73,10 @@ async fn main() -> anyhow::Result<()> {
     tracing::info!("🌐 Detected local IP: {}", local_ip);
 
     // Setup CORS based on configuration - backend only serves nginx proxy
+    let protocol = if host_name == "localhost" { "http" } else { "https" };
     let allowed_origins = vec![
-        proxy_url.parse::<HeaderValue>()?,
-        "https://localhost".parse::<HeaderValue>()?,  // Nginx proxy
-        format!("https://{}", local_ip).parse::<HeaderValue>()?,  // Local IP via proxy
+        format!("{}://{}", protocol, host_name).parse::<HeaderValue>()?,
+        format!("{}://{}", protocol, local_ip).parse::<HeaderValue>()?,  // Local IP with same protocol
     ];
     
     let cors = CorsLayer::new()
@@ -107,7 +107,7 @@ async fn main() -> anyhow::Result<()> {
     // Configure server address - backend runs HTTP only (nginx handles TLS)
     let addr = SocketAddr::from(([0, 0, 0, 0], backend_port));
     
-    tracing::info!("🌐 HushFM Backend starting on http://{} (nginx proxy: {})", addr, proxy_url);
+    tracing::info!("🌐 HushFM Backend starting on http://{} (hostname: {})", addr, host_name);
     let listener = tokio::net::TcpListener::bind(addr).await?;
     axum::serve(listener, app).await?;
 

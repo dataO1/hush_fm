@@ -27,14 +27,23 @@ const getEnvBool = (key: string, defaultValue: boolean): boolean => {
 // Create configuration from environment variables
 export const config: Config = {
   api: {
-    baseUrl: getEnvVar('HUSHFM_PROXY_URL', 'https://localhost')
+    baseUrl: (() => {
+      const hostName = getEnvVar('HUSHFM_HOST_NAME', 'localhost')
+      // Use HTTPS for production (non-localhost), HTTP for development
+      const protocol = hostName === 'localhost' ? 'http' : 'https'
+      return `${protocol}://${hostName}`
+    })()
   },
   websocket: {
-    protocol: 'wss' as 'ws' | 'wss',  // Always use wss for proxy connections
+    protocol: (() => {
+      const hostName = getEnvVar('HUSHFM_HOST_NAME', 'localhost')
+      // Use WSS for production (non-localhost), WS for development
+      return hostName === 'localhost' ? 'ws' : 'wss'
+    })() as 'ws' | 'wss',
     baseUrl: (() => {
-      const proxyUrl = getEnvVar('HUSHFM_PROXY_URL', 'https://localhost')
-      // Convert HTTPS URL to WebSocket URL
-      return proxyUrl.replace(/^https/, 'wss')
+      const hostName = getEnvVar('HUSHFM_HOST_NAME', 'localhost')
+      const protocol = hostName === 'localhost' ? 'ws' : 'wss'
+      return `${protocol}://${hostName}`
     })()
   },
   development: {
