@@ -390,8 +390,13 @@
               recommendedGzipSettings = true;
               recommendedProxySettings = false;  # DISABLE THIS
 
+              # Debug logging for SSL troubleshooting
+              logLevel = "debug";
+              
               # Add upstream map for WebSocket connection header
               appendHttpConfig = ''
+                error_log /var/log/nginx/error.log debug;
+                
                 map $http_upgrade $connection_upgrade {
                   default upgrade;
                   "" close;
@@ -399,24 +404,9 @@
               '';
 
               virtualHosts."hushfm-frontend" = {
-                listen = [
-                  {
-                    addr = "0.0.0.0";
-                    port = 443;
-                    ssl = true;
-                  }
-                ];
-
-                # TLS configuration
+                forceSSL = true;
                 sslCertificate = "/var/lib/nginx/certs/cert.pem";
                 sslCertificateKey = "/var/lib/nginx/certs/key.pem";
-
-                # SSL protocols and security settings
-                extraConfig = ''
-                  ssl_protocols TLSv1.2 TLSv1.3;
-                  ssl_prefer_server_ciphers off;
-                  ssl_ciphers ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384;
-                '';
 
                 # Serve frontend static files
                 root = self.packages.${pkgs.system}.hushfm-frontend;
@@ -464,6 +454,12 @@
                   };
                 };
               };
+
+            # Ensure nginx waits for certificate generation
+            systemd.services.nginx = {
+              after = [ "generate-nginx-cert.service" ];
+              wants = [ "generate-nginx-cert.service" ];
+            };
 
             # Create hushfm user and group
             users.users.hushfm = {
