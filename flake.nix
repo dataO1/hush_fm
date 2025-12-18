@@ -252,7 +252,8 @@
             # Backend service
             systemd.services.hushfm-backend = {
               description = "HushFM Backend Server";
-              after = [ "network.target" ];
+              after = [ "network.target" "generate-nginx-cert.service" ];
+              wants = [ "generate-nginx-cert.service" ];
               wantedBy = [ "multi-user.target" ];
 
               environment = serviceEnv;
@@ -295,10 +296,13 @@
                     -subj "/CN=hushfm.local" \
                     -addext "subjectAltName=IP:127.0.0.1,IP:192.168.178.105,DNS:hushfm.local,DNS:localhost"
                   
-                  # Set proper ownership and permissions for nginx
+                  # Set proper ownership and permissions for nginx and hushfm
                   chown nginx:nginx /var/lib/nginx/certs/key.pem /var/lib/nginx/certs/cert.pem
-                  chmod 600 /var/lib/nginx/certs/key.pem
+                  chmod 640 /var/lib/nginx/certs/key.pem  # nginx group can read
                   chmod 644 /var/lib/nginx/certs/cert.pem
+                  
+                  # Allow hushfm user to read the certificates by adding to nginx group
+                  usermod -a -G nginx hushfm
                 fi
               '';
               serviceConfig = {
@@ -337,8 +341,11 @@
                     
                     # Set proper ownership and permissions
                     chown nginx:nginx "$key_file" "$cert_file"
-                    chmod 600 "$key_file"
+                    chmod 640 "$key_file"  # nginx group can read
                     chmod 644 "$cert_file"
+                    
+                    # Ensure hushfm user can read the certificates
+                    usermod -a -G nginx hushfm
                     
                     # Reload nginx to use new certificate
                     systemctl reload nginx
