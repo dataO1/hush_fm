@@ -137,7 +137,7 @@
           src = ./frontend;
           
           # The hash of the dependencies - will need to be updated when dependencies change
-          npmDepsHash = "sha256-MVd8elFSzqjZ75rkkhonz6lO3RQ6tMs4m1URR4oSPsc=";
+          npmDepsHash = "sha256-J3gScJKvjaqGH+MVQnoa5vKOnX0BXtm+8LQ6tVOfZ48=";
           
           
           # Build script and install

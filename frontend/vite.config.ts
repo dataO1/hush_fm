@@ -36,5 +36,16 @@ export default defineConfig({
   },
   build: {
     target: 'esnext',
+    chunkSizeWarningLimit: 1000, // Increase limit to 1MB to reduce warnings
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          // Split vendor dependencies
+          'vendor-effect': ['effect', '@effect/experimental', '@effect/platform-browser'],
+          'vendor-solid': ['solid-js', '@solidjs/router'],
+          'vendor-mediasoup': ['mediasoup-client']
+        }
+      }
+    }
   },
 })
