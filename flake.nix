@@ -39,7 +39,7 @@
             
             # Node.js environment (required for mediasoup build)
             nodejs_20
-            pnpm
+            nodejs_20.pkgs.npm
             
             # System dependencies for mediasoup C++ build
             pkg-config
@@ -84,7 +84,7 @@
             echo ""
             echo "🔨 Build commands:"
             echo "  Backend:   cd backend && cargo build --release"
-            echo "  Frontend:  cd frontend && pnpm dev"
+            echo "  Frontend:  cd frontend && npm run dev"
             echo "  Watch:     cd backend && cargo watch -x run"
             echo ""
             echo "📱 Raspberry Pi Optimization:"
@@ -130,38 +130,27 @@
         };
 
         # Frontend package (built production bundle)
-        hushfm-frontend = pkgs.stdenv.mkDerivation {
+        hushfm-frontend = pkgs.buildNpmPackage {
           pname = "hushfm-frontend";
           inherit version;
           
           src = ./frontend;
           
-          nativeBuildInputs = with pkgs; [
-            nodejs_20
-            pnpm
-          ];
+          # The hash of the dependencies - will need to be updated when dependencies change
+          npmDepsHash = "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=";
           
-          configurePhase = ''
-            export HOME=$TMPDIR
-            export PNPM_HOME=$TMPDIR/pnpm
-            export PATH="$PNPM_HOME:$PATH"
-            
-            # Copy source files
-            cp -r $src/* .
-            
-            # Install dependencies
-            pnpm install --frozen-lockfile
-          '';
           
-          buildPhase = ''
-            # Build the production bundle
-            pnpm run build
-          '';
+          # Build script and install
+          buildScript = "build";
           
           installPhase = ''
+            runHook preInstall
+            
             # Copy built files to output
             mkdir -p $out
             cp -r dist/* $out/
+            
+            runHook postInstall
           '';
           
           meta = with pkgs.lib; {
