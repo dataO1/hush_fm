@@ -198,16 +198,14 @@
 
           portRange = parsePortRange cfg.worker.portRange;
 
-          # Environment variables for services (production always uses TLS)
+          # Environment variables for services (backend runs HTTP, nginx handles TLS)
           serviceEnv = {
             HUSHFM_BACKEND_PORT = toString cfg.backend.port;
             HUSHFM_FRONTEND_PORT = toString cfg.frontend.port;
             HUSHFM_WORKER_PORT_MIN = toString portRange.min;
             HUSHFM_WORKER_PORT_MAX = toString portRange.max;
-            HUSHFM_TLS_ENABLED = "true";
-            HUSHFM_CERT_FILE = "/var/lib/nginx/certs/cert.pem";
-            HUSHFM_KEY_FILE = "/var/lib/nginx/certs/key.pem";
-            HUSHFM_FRONTEND_URL = "https://localhost:${toString cfg.frontend.port}";
+            HUSHFM_TLS_ENABLED = "false";  # Backend runs HTTP locally
+            HUSHFM_FRONTEND_URL = "http://localhost:${toString cfg.frontend.port}";
           };
 
         in {
@@ -241,19 +239,18 @@
           };
 
           config = mkIf cfg.enable {
-            # Open firewall ports (production always uses HTTPS)
+            # Open firewall ports (reverse proxy on 443, WebRTC UDP range)
             networking.firewall = {
-              allowedTCPPorts = [ cfg.backend.port 443 ];
+              allowedTCPPorts = [ 443 ];  # Only nginx reverse proxy exposed
               allowedUDPPortRanges = [
-                { from = portRange.min; to = portRange.max; }
+                { from = portRange.min; to = portRange.max; }  # WebRTC direct access
               ];
             };
 
             # Backend service
             systemd.services.hushfm-backend = {
               description = "HushFM Backend Server";
-              after = [ "network.target" "generate-nginx-cert.service" ];
-              wants = [ "generate-nginx-cert.service" ];
+              after = [ "network.target" ];
               wantedBy = [ "multi-user.target" ];
 
               environment = serviceEnv;
@@ -382,75 +379,52 @@
               };
             };
 
-            # Frontend service (using nginx to serve static files)
+            # Reverse proxy (nginx) with TLS termination
             services.nginx = {
               enable = true;
               recommendedTlsSettings = true;
               recommendedOptimisation = true;
               recommendedGzipSettings = true;
-              recommendedProxySettings = false;  # DISABLE THIS
-              
-              # Add upstream map for WebSocket connection header and debug logging
-              appendHttpConfig = ''
-                error_log /var/log/nginx/error.log debug;
-                
-                map $http_upgrade $connection_upgrade {
-                  default upgrade;
-                  "" close;
-                }
-              '';
+              recommendedProxySettings = true;  # Enable WebSocket support
 
               virtualHosts."hushfm-frontend" = {
+                default = true;
                 forceSSL = true;
                 sslCertificate = "/var/lib/nginx/certs/cert.pem";
                 sslCertificateKey = "/var/lib/nginx/certs/key.pem";
 
-                # Serve frontend static files
-                root = self.packages.${pkgs.system}.hushfm-frontend;
-
                 locations = {
-                    "/" = {
-                      tryFiles = "$uri $uri/ /index.html";
-                      extraConfig = ''
-                        # Enable gzip compression
-                        gzip on;
-                        gzip_types text/css application/javascript application/json;
+                  # Serve frontend static files
+                  "/" = {
+                    root = self.packages.${pkgs.system}.hushfm-frontend;
+                    index = "index.html";
+                    tryFiles = "$uri $uri/ /index.html";  # SPA fallback
+                    extraConfig = ''
+                      # Enable gzip compression
+                      gzip on;
+                      gzip_types text/css application/javascript application/json;
+                      
+                      # Cache static assets
+                      location ~* \.(js|css|png|jpg|jpeg|gif|ico|svg)$ {
+                        expires 1y;
+                        add_header Cache-Control "public, immutable";
+                      }
+                    '';
+                  };
 
-                        # Cache static assets
-                        location ~* \.(js|css|png|jpg|jpeg|gif|ico|svg)$ {
-                          expires 1y;
-                          add_header Cache-Control "public, immutable";
-                        }
-                      '';
-                    };
+                  # Proxy API requests to backend (HTTP)
+                  "/api" = {
+                    proxyPass = "http://127.0.0.1:${toString cfg.backend.port}";
+                  };
 
-                    # Proxy API requests to backend
-                    "/api/" = {
-                      proxyPass = "https://localhost:${toString cfg.backend.port}/api/";
-                      extraConfig = ''
-                        proxy_set_header Host $host;
-                        proxy_set_header X-Real-IP $remote_addr;
-                        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-                        proxy_set_header X-Forwarded-Proto $scheme;
-                      '';
-                    };
-
-                    # Proxy WebSocket connections to backend
-                    "/ws" = {
-                      proxyPass = "https://localhost:${toString cfg.backend.port}/ws";
-                      extraConfig = ''
-                        proxy_http_version 1.1;
-                        proxy_set_header Upgrade $http_upgrade;
-                        proxy_set_header Connection $connection_upgrade;
-                        proxy_set_header Host $host;
-                        proxy_set_header X-Real-IP $remote_addr;
-                        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-                        proxy_set_header X-Forwarded-Proto $scheme;
-                      '';
-                    };
+                  # Proxy WebSocket connections to backend (HTTP)
+                  "/ws" = {
+                    proxyPass = "http://127.0.0.1:${toString cfg.backend.port}";
+                    proxyWebsockets = true;
                   };
                 };
               };
+            };
 
             # Ensure nginx waits for certificate generation
             systemd.services.nginx = {
@@ -462,7 +436,6 @@
             users.users.hushfm = {
               isSystemUser = true;
               group = "hushfm";
-              extraGroups = [ "nginx" ];  # Allow reading nginx certificates
               description = "HushFM service user";
               home = "/var/lib/hushfm";
               createHome = true;
