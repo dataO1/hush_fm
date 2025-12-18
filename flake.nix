@@ -293,6 +293,19 @@
             # Frontend service (using nginx to serve static files)
             services.nginx = {
               enable = true;
+              recommendedTlsSettings = true;
+              recommendedOptimisation = true;
+              recommendedGzipSettings = true;
+              recommendedProxySettings = false;  # DISABLE THIS
+              
+              # Add upstream map for WebSocket connection header
+              appendHttpConfig = ''
+                map $http_upgrade $connection_upgrade {
+                  default upgrade;
+                  "" close;
+                }
+              '';
+              
               virtualHosts."hushfm-frontend" = {
                 listen = [
                   { 
@@ -338,11 +351,11 @@
                   
                   # Proxy WebSocket connections to backend
                   "/ws" = {
-                    proxyPass = "${if cfg.tls.enable then "wss" else "ws"}://localhost:${toString cfg.backend.port}/ws";
+                    proxyPass = "${if cfg.tls.enable then "https" else "http"}://localhost:${toString cfg.backend.port}/ws";
                     extraConfig = ''
                       proxy_http_version 1.1;
                       proxy_set_header Upgrade $http_upgrade;
-                      proxy_set_header Connection "upgrade";
+                      proxy_set_header Connection $connection_upgrade;
                       proxy_set_header Host $host;
                       proxy_set_header X-Real-IP $remote_addr;
                       proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
@@ -384,11 +397,11 @@
                 
                 # Proxy WebSocket connections to backend
                 "/ws" = {
-                  proxyPass = "ws://localhost:${toString cfg.backend.port}/ws";
+                  proxyPass = "http://localhost:${toString cfg.backend.port}/ws";
                   extraConfig = ''
                     proxy_http_version 1.1;
                     proxy_set_header Upgrade $http_upgrade;
-                    proxy_set_header Connection "upgrade";
+                    proxy_set_header Connection $connection_upgrade;
                     proxy_set_header Host $host;
                     proxy_set_header X-Real-IP $remote_addr;
                     proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
