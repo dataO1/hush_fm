@@ -220,3 +220,4 @@ Data Flow (Unidirectional)
 
     React: Store updates trigger UI re-renders automatically.
 - the ui layer should never call websockets/api directly, it should always use the service effects! the store should never contain effects, only pure state transitions, the state should contain as pure effect code as possible but can of course contain side effects
+- listen/bind ip and announced needs to be 127.0.0.1 for local dev!! for production the listen ip should be 0.0.0.0 for listening to all all incoming traffic and announced ip needs to be the real ip of the server coming from the env variable.

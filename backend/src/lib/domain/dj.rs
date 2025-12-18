@@ -72,12 +72,12 @@ impl DJ {
     /// Step 6: Create sender transport for DJ using room's router
     #[tracing::instrument(skip(self, router), fields(dj_id = %self.dj_id, room_id = %self.room_id))]
     pub async fn create_sender_transport(&mut self, router: &Router) -> Result<TransportOptions> {
-        // Use stored configuration - bind to all interfaces, announce the correct IP
-        let bind_ip = "0.0.0.0"; // Always bind to all interfaces
+        // Use stored configuration - bind to correct interface for environment
+        let bind_ip = if self.announced_ip == "localhost" { "127.0.0.1" } else { "0.0.0.0" };
         let announced_address = if self.announced_ip == "localhost" { None } else { Some(self.announced_ip.clone()) };
         
         tracing::info!("Creating DJ sender transport with configured settings");
-        tracing::info!("  - Bind IP: {} (listen on all interfaces)", bind_ip);
+        tracing::info!("  - Bind IP: {} ({})", bind_ip, if self.announced_ip == "localhost" { "localhost only" } else { "all interfaces" });
         tracing::info!("  - Announced IP: {} (for ICE candidates)", self.announced_ip);
         tracing::info!("  - Port range: {:?}", self.port_range);
 
