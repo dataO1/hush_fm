@@ -2,12 +2,7 @@
 import { render } from 'solid-js/web'
 import './index.css'
 import App from './App'
-import { initTelemetry } from './telemetry'
 import 'solid-devtools'
-
-// Initialize OpenTelemetry as early as possible
-const jaegerEndpoint = (import.meta as any).env?.VITE_JAEGER_ENDPOINT || 'http://localhost:14268/api/traces'
-initTelemetry('hushfm-frontend', jaegerEndpoint)
 
 const root = document.getElementById('root')
 
