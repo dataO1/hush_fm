@@ -155,11 +155,11 @@
         packages = {
           # Architecture-specific backend packages
           hushfm-backend-x86_64 = makePackage "x86_64-linux" "./backend/target/release/server";
-          hushfm-backend-aarch64 = makePackage "aarch64-linux" "./backend/target/aarch64-unknown-linux-gnu/release/server";
+          hushfm-backend-aarch64 = makePackage "aarch64-linux" "./backend/target/aarch64-unknown-linux-gnu/server";
           
           # Default to current system architecture  
           hushfm-backend = if system == "x86_64-linux" then makePackage "x86_64-linux" "./backend/target/release/server"
-                          else if system == "aarch64-linux" then makePackage "aarch64-linux" "./backend/target/release/server"
+                          else if system == "aarch64-linux" then makePackage "aarch64-linux" "./backend/target/aarch64-unknown-linux-gnu/server"
                           else throw "Unsupported system: ${system}";
           
           inherit hushfm-frontend;
