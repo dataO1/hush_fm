@@ -1,9 +1,12 @@
 /// <reference types="vite/client" />
 
 interface ImportMetaEnv {
-  readonly VITE_API_BASE_URL?: string
-  readonly VITE_WS_PROTOCOL?: string
-  readonly VITE_ENABLE_DEVTOOLS?: string
+  // HushFM service configuration variables
+  readonly HUSHFM_BACKEND_PORT?: string
+  readonly HUSHFM_FRONTEND_PORT?: string
+  readonly HUSHFM_HOST_NAME?: string
+  
+  // Vite built-in
   readonly DEV: boolean
 }
 

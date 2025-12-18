@@ -211,8 +211,14 @@
             HUSHFM_HOST_NAME = cfg.hostName;  # Configurable hostname for nginx reverse proxy
           };
 
-          # Build frontend with service-specific hostname
-          frontendPackage = buildFrontend { HUSHFM_HOST_NAME = cfg.hostName; };
+          # Build frontend with only frontend-relevant environment variables
+          frontendEnv = {
+            HUSHFM_BACKEND_PORT = toString cfg.backend.port;
+            HUSHFM_FRONTEND_PORT = toString cfg.frontend.port;
+            HUSHFM_HOST_NAME = cfg.hostName;
+          };
+          
+          frontendPackage = buildFrontend frontendEnv;
 
         in {
           options.services.hushfm = {

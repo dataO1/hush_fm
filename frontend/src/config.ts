@@ -10,6 +10,11 @@ export interface Config {
   development: {
     enableDevtools: boolean
   }
+  ports: {
+    backend: number
+    frontend: number
+  }
+  hostName: string
 }
 
 // Read configuration from environment variables (build-time)
@@ -22,6 +27,13 @@ const getEnvVar = (key: string, defaultValue: string): string => {
 const getEnvBool = (key: string, defaultValue: boolean): boolean => {
   const value = getEnvVar(key, defaultValue.toString())
   return value.toLowerCase() === 'true'
+}
+
+// Parse numeric environment variables
+const getEnvNumber = (key: string, defaultValue: number): number => {
+  const value = getEnvVar(key, defaultValue.toString())
+  const parsed = parseInt(value, 10)
+  return isNaN(parsed) ? defaultValue : parsed
 }
 
 // Create configuration from environment variables
@@ -47,12 +59,17 @@ export const config: Config = {
     })()
   },
   development: {
-    enableDevtools: getEnvBool('VITE_ENABLE_DEVTOOLS', import.meta.env.DEV as boolean)
-  }
+    enableDevtools: import.meta.env.DEV as boolean
+  },
+  ports: {
+    backend: getEnvNumber('HUSHFM_BACKEND_PORT', 3000),
+    frontend: getEnvNumber('HUSHFM_FRONTEND_PORT', 8080)
+  },
+  hostName: getEnvVar('HUSHFM_HOST_NAME', 'localhost')
 }
 
 // Export individual config sections for convenience
-export const { api, websocket, development } = config
+export const { api, websocket, development, ports, hostName } = config
 
 // Custom fetch mutator for Orval (automatically applies base URL)
 export const apiMutator = <T>(url: string, options?: RequestInit): Promise<T> => {
