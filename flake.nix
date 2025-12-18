@@ -75,8 +75,8 @@
           HUSHFM_WORKER_PORT_MIN = "40000";
           HUSHFM_WORKER_PORT_MAX = "49999";
           HUSHFM_TLS_ENABLED = "false";
-          HUSHFM_CERT_FILE = "./tls/server.crt";
-          HUSHFM_KEY_FILE = "./tls/server.key";
+          HUSHFM_CERT_FILE = "";
+          HUSHFM_KEY_FILE = "";
           HUSHFM_FRONTEND_URL = "http://localhost:8080";
 
           shellHook = ''
@@ -318,64 +318,75 @@
                 }
               '';
               
-              virtualHosts."hushfm-frontend" = {
-                listen = [
-                  { 
-                    addr = "0.0.0.0"; 
-                    port = if cfg.tls.enable then 443 else 80; 
-                    ssl = cfg.tls.enable;
-                  }
-                ];
-                
-                # TLS configuration
-                sslCertificate = mkIf cfg.tls.enable cfg.tls.certFile;
-                sslCertificateKey = mkIf cfg.tls.enable cfg.tls.keyFile;
-                
-                # Serve frontend static files
-                root = self.packages.${pkgs.system}.hushfm-frontend;
-                
-                locations = {
-                  "/" = {
-                    tryFiles = "$uri $uri/ /index.html";
-                    extraConfig = ''
-                      # Enable gzip compression
-                      gzip on;
-                      gzip_types text/css application/javascript application/json;
-                      
-                      # Cache static assets
-                      location ~* \.(js|css|png|jpg|jpeg|gif|ico|svg)$ {
-                        expires 1y;
-                        add_header Cache-Control "public, immutable";
-                      }
-                    '';
-                  };
+              virtualHosts."hushfm-frontend" = mkMerge [
+                {
+                  listen = [
+                    { 
+                      addr = "0.0.0.0"; 
+                      port = if cfg.tls.enable then 443 else 80; 
+                      ssl = cfg.tls.enable;
+                    }
+                  ];
+                }
+                (mkIf cfg.tls.enable {
+                  # TLS configuration
+                  sslCertificate = cfg.tls.certFile;
+                  sslCertificateKey = cfg.tls.keyFile;
                   
-                  # Proxy API requests to backend
-                  "/api/" = {
-                    proxyPass = "${if cfg.tls.enable then "https" else "http"}://localhost:${toString cfg.backend.port}/api/";
-                    extraConfig = ''
-                      proxy_set_header Host $host;
-                      proxy_set_header X-Real-IP $remote_addr;
-                      proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-                      proxy_set_header X-Forwarded-Proto $scheme;
-                    '';
-                  };
+                  # SSL protocols and security settings
+                  extraConfig = ''
+                    ssl_protocols TLSv1.2 TLSv1.3;
+                    ssl_prefer_server_ciphers off;
+                    ssl_ciphers ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384;
+                  '';
+                })
+                {
+                  # Serve frontend static files
+                  root = self.packages.${pkgs.system}.hushfm-frontend;
                   
-                  # Proxy WebSocket connections to backend
-                  "/ws" = {
-                    proxyPass = "${if cfg.tls.enable then "https" else "http"}://localhost:${toString cfg.backend.port}/ws";
-                    extraConfig = ''
-                      proxy_http_version 1.1;
-                      proxy_set_header Upgrade $http_upgrade;
-                      proxy_set_header Connection $connection_upgrade;
-                      proxy_set_header Host $host;
-                      proxy_set_header X-Real-IP $remote_addr;
-                      proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-                      proxy_set_header X-Forwarded-Proto $scheme;
-                    '';
+                  locations = {
+                    "/" = {
+                      tryFiles = "$uri $uri/ /index.html";
+                      extraConfig = ''
+                        # Enable gzip compression
+                        gzip on;
+                        gzip_types text/css application/javascript application/json;
+                        
+                        # Cache static assets
+                        location ~* \.(js|css|png|jpg|jpeg|gif|ico|svg)$ {
+                          expires 1y;
+                          add_header Cache-Control "public, immutable";
+                        }
+                      '';
+                    };
+                    
+                    # Proxy API requests to backend
+                    "/api/" = {
+                      proxyPass = "${if cfg.tls.enable then "https" else "http"}://localhost:${toString cfg.backend.port}/api/";
+                      extraConfig = ''
+                        proxy_set_header Host $host;
+                        proxy_set_header X-Real-IP $remote_addr;
+                        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+                        proxy_set_header X-Forwarded-Proto $scheme;
+                      '';
+                    };
+                    
+                    # Proxy WebSocket connections to backend
+                    "/ws" = {
+                      proxyPass = "${if cfg.tls.enable then "https" else "http"}://localhost:${toString cfg.backend.port}/ws";
+                      extraConfig = ''
+                        proxy_http_version 1.1;
+                        proxy_set_header Upgrade $http_upgrade;
+                        proxy_set_header Connection $connection_upgrade;
+                        proxy_set_header Host $host;
+                        proxy_set_header X-Real-IP $remote_addr;
+                        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+                        proxy_set_header X-Forwarded-Proto $scheme;
+                      '';
+                    };
                   };
-                };
-              };
+                }
+              ];
             };
             
             # Development frontend service (using nginx on frontend port for dev)
