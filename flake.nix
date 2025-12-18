@@ -124,8 +124,8 @@
           };
         };
 
-        # Frontend package builder function (takes environment variables)
-        buildFrontend = extraEnv: pkgs.buildNpmPackage rec {
+        # Default frontend package for development
+        hushfm-frontend = pkgs.buildNpmPackage rec {
           pname = "hushfm-frontend";
           inherit version;
 
@@ -137,7 +137,7 @@
           # Pass environment variables to build process
           env = {
             HUSHFM_HOST_NAME = "localhost"; # Default for dev builds
-          } // extraEnv;
+          };
 
           # Build script and install
           buildScript = "build";
@@ -160,9 +160,6 @@
             platforms = platforms.all;
           };
         };
-
-        # Default frontend package for development
-        hushfm-frontend = buildFrontend {};
       in
       {
         # Packages for both architectures
@@ -191,6 +188,43 @@
         with lib;
         let
           cfg = config.services.hushfm;
+
+          # Frontend package builder function (takes environment variables)
+          buildFrontend = extraEnv: pkgs.buildNpmPackage rec {
+            pname = "hushfm-frontend";
+            version = "0.1.0";
+
+            src = ./frontend;
+
+            # The hash of the dependencies - will need to be updated when dependencies change
+            npmDepsHash = "sha256-J3gScJKvjaqGH+MVQnoa5vKOnX0BXtm+8LQ6tVOfZ48=";
+
+            # Pass environment variables to build process
+            env = {
+              HUSHFM_HOST_NAME = "localhost"; # Default for dev builds
+            } // extraEnv;
+
+            # Build script and install
+            buildScript = "build";
+
+            installPhase = ''
+              runHook preInstall
+
+              # Copy built files to output
+              mkdir -p $out
+              cp -r dist/* $out/
+
+              runHook postInstall
+            '';
+
+            meta = with pkgs.lib; {
+              description = "HushFM live audio streaming frontend";
+              homepage = "https://github.com/yourusername/hushfm";
+              license = licenses.mit;
+              maintainers = [ ];
+              platforms = platforms.all;
+            };
+          };
 
           # Parse port range string (e.g., "40000-49999") into min/max
           parsePortRange = portRange:
