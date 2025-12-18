@@ -65,7 +65,10 @@ async fn main() -> anyhow::Result<()> {
 
     // Initialize application state with configured worker port range and hostname
     let lobby = Lobby::with_config(worker_port_min, worker_port_max, &host_name).await?;
-    tracing::info!("🎵 Configured MediaSoup worker port range: {}-{}", worker_port_min, worker_port_max);
+    tracing::info!("🎵 MediaSoup Configuration:");
+    tracing::info!("  - Worker port range: {}-{}", worker_port_min, worker_port_max);
+    tracing::info!("  - Announced hostname: {}", host_name);
+    tracing::info!("  - Backend bind port: {}", backend_port);
 
     // Setup CORS based on configuration - backend only serves nginx proxy
     let protocol = if host_name == "localhost" { "http" } else { "https" };

@@ -88,13 +88,13 @@ impl Listener {
             );
             // Transport will be cleaned up when Arc is dropped
         }
-        // Use stored configuration - bind directly to the announced IP
-        let bind_ip = if self.announced_ip == "localhost" { "127.0.0.1" } else { &self.announced_ip };
+        // Use stored configuration - bind to all interfaces, announce the correct IP
+        let bind_ip = "0.0.0.0"; // Always bind to all interfaces
         let announced_address = if self.announced_ip == "localhost" { None } else { Some(self.announced_ip.clone()) };
         
         tracing::info!("Creating listener receiver transport with configured settings");
-        tracing::info!("  - Bind IP: {}", bind_ip);
-        tracing::info!("  - Announced IP: {}", self.announced_ip);
+        tracing::info!("  - Bind IP: {} (listen on all interfaces)", bind_ip);
+        tracing::info!("  - Announced IP: {} (for ICE candidates)", self.announced_ip);
         tracing::info!("  - Port range: {:?}", self.port_range);
 
         // Create transport with configured settings
@@ -179,6 +179,13 @@ impl Listener {
 
         // Generate transport options for client
         let client_transport_options = self.generate_transport_options(&transport).await?;
+        
+        tracing::info!(
+            transport_id = %transport.id(),
+            listener_id = %self.listener_id,
+            room_id = %self.room_id,
+            "Listener receiver transport created successfully - ready for DTLS connection"
+        );
         
         // Store transport
         self.transport = Some(Arc::new(transport));
