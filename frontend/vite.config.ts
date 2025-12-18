@@ -19,16 +19,16 @@ export default defineConfig({
     alias: { '@': '/src' },
   },
   server: {
-    port: 5173,
+    port: parseInt(process.env.HUSHFM_FRONTEND_PORT || '8080'),
     host: true, // This listens on 0.0.0.0 (ALL interfaces)
-    strictPort: true, // Fail if port 5173 is taken
-    https: {
-      key: '../tls/server.key',
-      cert: '../tls/server.crt',
-    },
+    strictPort: true, // Fail if port is taken
+    https: process.env.HUSHFM_TLS_ENABLED === 'true' ? {
+      key: process.env.HUSHFM_KEY_FILE,
+      cert: process.env.HUSHFM_CERT_FILE,
+    } : undefined,
     proxy: {
       '/api': {
-        target: 'https://localhost:3443', // Updated to use HTTPS backend
+        target: `${process.env.HUSHFM_TLS_ENABLED === 'true' ? 'https' : 'http'}://localhost:${process.env.HUSHFM_BACKEND_PORT || '3000'}`,
         changeOrigin: true,
         secure: false // Allow self-signed certificates in development
       },

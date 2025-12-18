@@ -15,9 +15,6 @@
           inherit system overlays;
         };
         
-        # Cross-compilation package sets
-        pkgsCross = pkgs.pkgsCross;
-        pkgsAarch64 = pkgsCross.aarch64-multiplatform;
 
         # Extract version from Cargo.toml
         cargoToml = builtins.fromTOML (builtins.readFile ./backend/Cargo.toml);
@@ -33,8 +30,8 @@
           ];
         };
         
-        # Create development shell for cross-compilation
-        makeDevShell = targetPkgs: rustTarget: targetPkgs.mkShell {
+        # Development shell
+        devShell = pkgs.mkShell {
           nativeBuildInputs = with pkgs; [
             # Rust toolchain with cross-compilation support
             rustToolchain
@@ -60,10 +57,9 @@
             python311Packages.invoke
             
             git
-          ] ++ (with targetPkgs.stdenv; [ cc ]);
+          ] ++ (with pkgs.stdenv; [ cc ]);
 
-          buildInputs = with targetPkgs; [
-            # Target libraries (will be cross-compiled)
+          buildInputs = with pkgs; [
             openssl
             openssl.dev
           ];
@@ -72,53 +68,35 @@
           RUST_SRC_PATH = "${rustToolchain}/lib/rustlib/src/rust/library";
           PYTHON = "${pkgs.python311}/bin/python3";
           MEDIASOUP_SKIP_WORKER_PREBUILT_DOWNLOAD = "false";
+          
+          # HushFM service environment variables
+          HUSHFM_BACKEND_PORT = "3000";
+          HUSHFM_FRONTEND_PORT = "8080";
+          HUSHFM_WORKER_PORT_MIN = "40000";
+          HUSHFM_WORKER_PORT_MAX = "49999";
+          HUSHFM_TLS_ENABLED = "false";
+          HUSHFM_CERT_FILE = "./tls/server.crt";
+          HUSHFM_KEY_FILE = "./tls/server.key";
+          HUSHFM_FRONTEND_URL = "http://localhost:8080";
 
           shellHook = ''
-            ${if rustTarget == "aarch64-unknown-linux-gnu" then ''
-              echo "🛠️  Cross-compilation environment ready!"
-              echo "📍 Target: ARM64 (aarch64-unknown-linux-gnu)"
-              echo "📍 Rust targets available:"
-              rustc --print target-list | grep -E "(x86_64|aarch64).*linux"
-            '' else ''
-              echo "🎵 HushFM Development Environment"
-              echo "📍 Target: Native x86_64"
-            ''}
-            
-            ${if rustTarget == "aarch64-unknown-linux-gnu" then ''
-              # Set up cargo cross-compilation environment
-              export CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER="${targetPkgs.stdenv.cc.targetPrefix}cc"
-              export CC_aarch64_unknown_linux_gnu="${targetPkgs.stdenv.cc.targetPrefix}cc"
-              export CXX_aarch64_unknown_linux_gnu="${targetPkgs.stdenv.cc.targetPrefix}c++"
-              export AR_aarch64_unknown_linux_gnu="${targetPkgs.stdenv.cc.targetPrefix}ar"
-              
-              # OpenSSL cross-compilation setup
-              export PKG_CONFIG_PATH="${targetPkgs.openssl.dev}/lib/pkgconfig"
-              export PKG_CONFIG_ALLOW_CROSS=1
-              export OPENSSL_STATIC=1
-              export OPENSSL_LIB_DIR="${targetPkgs.openssl.out}/lib"
-              export OPENSSL_INCLUDE_DIR="${targetPkgs.openssl.dev}/include"
-            '' else ""}
-            
-            # Build commands
+            echo "🎵 HushFM Development Environment"
             echo ""
             echo "🔨 Build commands:"
-            ${if rustTarget == "aarch64-unknown-linux-gnu" then ''
-              echo "  Native x86_64: cd backend && cargo build --release"
-              echo "  Cross ARM64:   cd backend && cargo build --release --target aarch64-unknown-linux-gnu"
-              echo ""
-              echo "📋 Cross-compilation notes:"
-              echo "  🎯 Nix cross-compilation toolchain pre-configured"
-              echo "  🔧 Cross-compilers and OpenSSL setup automatically"
-              echo "  ⚠️  mediasoup-sys may have build issues (known limitation)"
-            '' else ''
-              echo "  Backend:   cd backend && cargo build --release"
-            ''}
+            echo "  Backend:   cd backend && cargo build --release"
             echo "  Frontend:  cd frontend && pnpm dev"
             echo "  Watch:     cd backend && cargo watch -x run"
             echo ""
-            echo "Ports:"
-            echo "  Backend:   http://localhost:3000"
-            echo "  Frontend:  http://localhost:5173"
+            echo "📱 Raspberry Pi Optimization:"
+            echo "  # -C target-cpu=native: Tells LLVM to use every instruction set available on THIS cpu."
+            echo "  # For Pi 4, this enables NEON, VFPv4, CRC32, etc."
+            echo "  RUSTFLAGS=\"-C target-cpu=native\" cargo build --release"
+            echo ""
+            echo "🌐 Service Configuration:"
+            echo "  Backend:   http://localhost:$HUSHFM_BACKEND_PORT"
+            echo "  Frontend:  $HUSHFM_FRONTEND_URL"
+            echo "  WebRTC Ports: $HUSHFM_WORKER_PORT_MIN-$HUSHFM_WORKER_PORT_MAX"
+            echo "  TLS Enabled:  $HUSHFM_TLS_ENABLED"
             echo ""
           '';
         };
@@ -181,7 +159,7 @@
           
           # Default to current system architecture  
           hushfm-backend = if system == "x86_64-linux" then makePackage "x86_64-linux" "./backend/target/release/server"
-                          else if system == "aarch64-linux" then makePackage "aarch64-linux" "./backend/target/aarch64-unknown-linux-gnu/release/server"
+                          else if system == "aarch64-linux" then makePackage "aarch64-linux" "./backend/target/release/server"
                           else throw "Unsupported system: ${system}";
           
           inherit hushfm-frontend;
@@ -190,11 +168,7 @@
 
         # Development shells
         devShells = {
-          # Default shell for native development
-          default = makeDevShell pkgs "x86_64-unknown-linux-gnu";
-          
-          # Cross-compilation shell for ARM64
-          cross-aarch64 = makeDevShell pkgsAarch64 "aarch64-unknown-linux-gnu";
+          default = devShell;
         };
       }
     ) // {
@@ -279,7 +253,7 @@
           config = mkIf cfg.enable {
             # Open firewall ports
             networking.firewall = {
-              allowedTCPPorts = [ cfg.backend.port cfg.frontend.port ];
+              allowedTCPPorts = [ cfg.backend.port ] ++ (if cfg.tls.enable then [ 443 ] else [ 80 ]);
               allowedUDPPortRanges = [
                 { from = portRange.min; to = portRange.max; }
               ];
@@ -320,40 +294,86 @@
             services.nginx = {
               enable = true;
               virtualHosts."hushfm-frontend" = {
+                listen = [
+                  { 
+                    addr = "0.0.0.0"; 
+                    port = if cfg.tls.enable then 443 else 80; 
+                    ssl = cfg.tls.enable;
+                  }
+                ];
+                
+                # TLS configuration
+                sslCertificate = mkIf cfg.tls.enable cfg.tls.certFile;
+                sslCertificateKey = mkIf cfg.tls.enable cfg.tls.keyFile;
+                
+                # Serve frontend static files
+                root = self.packages.${pkgs.system}.hushfm-frontend;
+                
+                locations = {
+                  "/" = {
+                    tryFiles = "$uri $uri/ /index.html";
+                    extraConfig = ''
+                      # Enable gzip compression
+                      gzip on;
+                      gzip_types text/css application/javascript application/json;
+                      
+                      # Cache static assets
+                      location ~* \.(js|css|png|jpg|jpeg|gif|ico|svg)$ {
+                        expires 1y;
+                        add_header Cache-Control "public, immutable";
+                      }
+                    '';
+                  };
+                  
+                  # Proxy API requests to backend
+                  "/api/" = {
+                    proxyPass = "${if cfg.tls.enable then "https" else "http"}://localhost:${toString cfg.backend.port}/api/";
+                    extraConfig = ''
+                      proxy_set_header Host $host;
+                      proxy_set_header X-Real-IP $remote_addr;
+                      proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+                      proxy_set_header X-Forwarded-Proto $scheme;
+                    '';
+                  };
+                  
+                  # Proxy WebSocket connections to backend
+                  "/ws" = {
+                    proxyPass = "${if cfg.tls.enable then "wss" else "ws"}://localhost:${toString cfg.backend.port}/ws";
+                    extraConfig = ''
+                      proxy_http_version 1.1;
+                      proxy_set_header Upgrade $http_upgrade;
+                      proxy_set_header Connection "upgrade";
+                      proxy_set_header Host $host;
+                      proxy_set_header X-Real-IP $remote_addr;
+                      proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+                      proxy_set_header X-Forwarded-Proto $scheme;
+                    '';
+                  };
+                };
+              };
+            };
+            
+            # Development frontend service (using nginx on frontend port for dev)
+            services.nginx.virtualHosts."hushfm-dev" = mkIf (!cfg.tls.enable) {
               listen = [
                 { 
                   addr = "0.0.0.0"; 
-                  port = cfg.frontend.port; 
-                  ssl = cfg.tls.enable;
+                  port = cfg.frontend.port;
+                  ssl = false;
                 }
               ];
               
-              # TLS configuration
-              sslCertificate = mkIf cfg.tls.enable cfg.tls.certFile;
-              sslCertificateKey = mkIf cfg.tls.enable cfg.tls.keyFile;
-              
-              # Serve frontend static files
+              # Serve frontend static files for development
               root = self.packages.${pkgs.system}.hushfm-frontend;
               
               locations = {
                 "/" = {
                   tryFiles = "$uri $uri/ /index.html";
-                  extraConfig = ''
-                    # Enable gzip compression
-                    gzip on;
-                    gzip_types text/css application/javascript application/json;
-                    
-                    # Cache static assets
-                    location ~* \.(js|css|png|jpg|jpeg|gif|ico|svg)$ {
-                      expires 1y;
-                      add_header Cache-Control "public, immutable";
-                    }
-                  '';
                 };
                 
                 # Proxy API requests to backend
                 "/api/" = {
-                  proxyPass = "${if cfg.tls.enable then "https" else "http"}://localhost:${toString cfg.backend.port}/api/";
+                  proxyPass = "http://localhost:${toString cfg.backend.port}/api/";
                   extraConfig = ''
                     proxy_set_header Host $host;
                     proxy_set_header X-Real-IP $remote_addr;
@@ -364,7 +384,7 @@
                 
                 # Proxy WebSocket connections to backend
                 "/ws" = {
-                  proxyPass = "${if cfg.tls.enable then "https" else "http"}://localhost:${toString cfg.backend.port}/ws";
+                  proxyPass = "ws://localhost:${toString cfg.backend.port}/ws";
                   extraConfig = ''
                     proxy_http_version 1.1;
                     proxy_set_header Upgrade $http_upgrade;
@@ -375,7 +395,6 @@
                     proxy_set_header X-Forwarded-Proto $scheme;
                   '';
                 };
-              };
               };
             };
 
