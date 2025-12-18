@@ -70,3 +70,25 @@ chrono = { version = "0.4", features = ["serde"] }
 
 [dev-dependencies]
 tokio-test = "0.4"
+
+
+[profile.release]
+# Maximize runtime speed
+opt-level = 3
+
+# "Fat" LTO allows the compiler to optimize across all crate boundaries.
+# This provides the biggest performance boost by enabling cross-crate inlining.
+# Your 8GB RAM can easily handle this.
+lto = "fat"
+
+# maximize optimization opportunities by giving LLVM the whole crate at once.
+# This makes builds slower but runtime faster.
+codegen-units = 1
+
+# Keep unwinding for better error reporting/stability.
+# Only use "abort" if you absolutely don't care about clean shutdowns on panic.
+# Unwinding is slightly slower on panic, but has negligible impact on normal execution.
+panic = "unwind"
+
+# CPU-specific instructions (Critical for Pi 4)
+# You can't set this in Cargo.toml directly, see RUSTFLAGS below.
