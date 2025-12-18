@@ -373,7 +373,6 @@
                   };
                 };
               };
-            };
 
             # Create hushfm user and group
             users.users.hushfm = {
@@ -395,4 +394,5 @@
             ];
           };
         };
-    }
+    };
+}
