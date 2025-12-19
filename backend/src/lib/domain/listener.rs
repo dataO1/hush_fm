@@ -100,8 +100,9 @@ impl Listener {
 
         let mut listen_infos = WebRtcTransportListenInfos::new(ListenInfo {
             protocol: Protocol::Udp,
-            ip: IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)),
-            announced_address: Some(self.announced_ip.clone()),
+            // ip: self.announced_ip.parse()?,
+            ip: IpAddr::V4(Ipv4Addr::new(192, 168, 178, 105)),
+            announced_address: None,
             expose_internal_ip: false,
             port: None,
             port_range: Some(self.port_range.clone()),
@@ -109,27 +110,27 @@ impl Listener {
             send_buffer_size: None,
             recv_buffer_size: None,
         });
-        if self.announced_ip == "localhost"{
-            listen_infos = listen_infos
-            // Add TCP fallback, only for localhost, since this seems to be required!
-            .insert(ListenInfo {
-                protocol: Protocol::Tcp,
-                ip: IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)),
-                announced_address: Some(self.announced_ip.clone()),
-                expose_internal_ip: false,
-                port: None,
-                port_range: Some(self.port_range.clone()),
-                flags: None,
-                send_buffer_size: None,
-                recv_buffer_size: None,
-            });
-        }
+        // if self.announced_ip == "localhost"{
+        //     listen_infos = listen_infos
+        //     // Add TCP fallback, only for localhost, since this seems to be required!
+        //     .insert(ListenInfo {
+        //         protocol: Protocol::Tcp,
+        //         ip: self.announced_ip.parse()?,
+        //         announced_address: None,
+        //         expose_internal_ip: false,
+        //         port: None,
+        //         port_range: Some(self.port_range.clone()),
+        //         flags: None,
+        //         send_buffer_size: None,
+        //         recv_buffer_size: None,
+        //     });
+        // }
 
         let mut transport_options = WebRtcTransportOptions::new(listen_infos);
 
         // Optimize for local WiFi network sending
         transport_options.enable_udp = true;
-        // transport_options.enable_tcp = true;
+        transport_options.enable_tcp = false;
         transport_options.prefer_udp = true;
         // transport_options.initial_available_outgoing_bitrate = 600000; // DJ sends audio
         // transport_options.ice_consent_timeout = 30;
