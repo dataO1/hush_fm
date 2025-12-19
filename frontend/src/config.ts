@@ -36,6 +36,11 @@ const getEnvNumber = (key: string, defaultValue: number): number => {
   return isNaN(parsed) ? defaultValue : parsed
 }
 
+// Helper function to normalize hostname (127.0.0.1 → localhost)
+const normalizeHostName = (hostName: string): string => {
+  return hostName === '127.0.0.1' ? 'localhost' : hostName
+}
+
 // Helper function to check if hostname is for local development
 const isLocalDevelopment = (hostName: string): boolean => {
   return hostName === 'localhost' || hostName === '127.0.0.1'
@@ -45,24 +50,33 @@ const isLocalDevelopment = (hostName: string): boolean => {
 export const config: Config = {
   api: {
     baseUrl: (() => {
-      const hostName = getEnvVar('HUSHFM_HOST_NAME', 'localhost')
+      const rawHostName = getEnvVar('HUSHFM_HOST_NAME', 'localhost')
+      const hostName = normalizeHostName(rawHostName)
       // Use HTTPS for production (non-localhost), HTTP for development
-      const protocol = isLocalDevelopment(hostName) ? 'http' : 'https'
-      return `${protocol}://${hostName}`
+      const protocol = isLocalDevelopment(rawHostName) ? 'http' : 'https'
+      
+      // Include backend port for local development, exclude for production (nginx proxy)
+      if (isLocalDevelopment(rawHostName)) {
+        const backendPort = getEnvNumber('HUSHFM_BACKEND_PORT', 3000)
+        return `${protocol}://${hostName}:${backendPort}`
+      } else {
+        return `${protocol}://${hostName}`
+      }
     })()
   },
   websocket: {
     protocol: (() => {
-      const hostName = getEnvVar('HUSHFM_HOST_NAME', 'localhost')
+      const rawHostName = getEnvVar('HUSHFM_HOST_NAME', 'localhost')
       // Use WSS for production (non-localhost/127.0.0.1), WS for development
-      return isLocalDevelopment(hostName) ? 'ws' : 'wss'
+      return isLocalDevelopment(rawHostName) ? 'ws' : 'wss'
     })() as 'ws' | 'wss',
     baseUrl: (() => {
-      const hostName = getEnvVar('HUSHFM_HOST_NAME', 'localhost')
-      const protocol = isLocalDevelopment(hostName) ? 'ws' : 'wss'
+      const rawHostName = getEnvVar('HUSHFM_HOST_NAME', 'localhost')
+      const hostName = normalizeHostName(rawHostName)
+      const protocol = isLocalDevelopment(rawHostName) ? 'ws' : 'wss'
       
       // Include backend port for local development, exclude for production (nginx proxy)
-      if (isLocalDevelopment(hostName)) {
+      if (isLocalDevelopment(rawHostName)) {
         const backendPort = getEnvNumber('HUSHFM_BACKEND_PORT', 3000)
         return `${protocol}://${hostName}:${backendPort}`
       } else {
@@ -77,7 +91,7 @@ export const config: Config = {
     backend: getEnvNumber('HUSHFM_BACKEND_PORT', 3000),
     frontend: getEnvNumber('HUSHFM_FRONTEND_PORT', 8080)
   },
-  hostName: getEnvVar('HUSHFM_HOST_NAME', 'localhost')
+  hostName: normalizeHostName(getEnvVar('HUSHFM_HOST_NAME', 'localhost'))
 }
 
 // Export individual config sections for convenience

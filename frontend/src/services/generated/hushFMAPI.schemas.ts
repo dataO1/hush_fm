@@ -171,25 +171,6 @@ export interface RoomInfo {
 }
 
 /**
- * Producer ID (if streaming)
- */
-export type RoomInfoResponseProducerId = string | null;
-
-/**
- * Room info response (without consumer creation)
- */
-export interface RoomInfoResponse {
-  /** Producer ID (if streaming) */
-  producerId?: RoomInfoResponseProducerId;
-  /** Room information (clean client model) */
-  room: RoomInfo;
-  /** Router RTP capabilities for device initialization */
-  rtpCapabilities: RtpCapabilitiesWrapper;
-  /** WebRTC transport options for listener (to get DTLS parameters) */
-  transportOptions: TransportOptions;
-}
-
-/**
  * Optional parameter (most feedback types don't need this)
  */
 export type RtcpFeedbackWrapperParameter = string | null;

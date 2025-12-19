@@ -326,11 +326,6 @@ async fn handle_lobby_command(
                         room_uuid,
                         serde_json::json!({}), // Placeholder device capabilities, will be updated later
                         event_tx,
-                        room_guard.port_range.clone(),
-                        room_guard.announced_ip.clone(),
-                        room_guard.listen_ip.clone(),
-                        room_guard.enable_tcp,
-                        room_guard.expose_internal_ip,
                     );
 
                     // Store listener in room
@@ -563,7 +558,7 @@ async fn handle_listener_socket(socket: WebSocket, room_id_str: String, session_
         
         if listener_exists {
             // Use room's update method to start disconnect timer
-            let timeout = lobby.stale_listener_timeout();
+            let timeout = crate::lib::config::Config::global().stale_listener_timeout();
             let room_guard_for_update = room_state.read().await;
             room_guard_for_update.update_listener(&session_id, |listener| {
                 listener.start_disconnect_cleanup_timer(room_id, session_id.clone(), lobby.clone(), timeout);

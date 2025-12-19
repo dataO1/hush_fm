@@ -1,7 +1,7 @@
 use dashmap::DashMap;
 use mediasoup::{
     prelude::*,
-    worker::{WorkerLogLevel, WorkerLogTag, WorkerSettings, WorkerDtlsFiles},
+    worker::{WorkerLogLevel, WorkerLogTag, WorkerSettings},
     worker_manager::WorkerManager
 };
 use std::sync::{Arc, atomic::{AtomicUsize, Ordering}};
@@ -10,6 +10,7 @@ use uuid::Uuid;
 use anyhow::Result;
 
 use crate::lib::models::{Room, LobbyEvent};
+use crate::lib::config::Config;
 
 /// Main application state - manages rooms and MediaSoup workers
 #[derive(Clone)]
@@ -25,41 +26,12 @@ pub struct Lobby {
 
     /// Lobby events broadcast channel (room list updates)
     broadcast_tx: broadcast::Sender<LobbyEvent>,
-
-    /// WebRTC configuration
-    port_range: std::ops::RangeInclusive<u16>,
-    announced_ip: String,
-    
-    /// MediaSoup configuration
-    listen_ip: String,
-    enable_tcp: bool,
-    expose_internal_ip: bool,
-    
-    /// Monitoring configuration
-    stale_listener_timeout: std::time::Duration,
 }
 
 impl Lobby {
     /// Create new Lobby with pre-allocated MediaSoup workers
     pub async fn new() -> anyhow::Result<Self> {
-        Self::with_config(10000, 59999, "localhost", "0.0.0.0", false, false, 0).await
-    }
-    
-    /// Create new Lobby with custom worker port range (deprecated - use with_config)
-    pub async fn with_port_range(port_min: u16, port_max: u16) -> anyhow::Result<Self> {
-        Self::with_config(port_min, port_max, "localhost", "0.0.0.0", false, false, 0).await
-    }
-
-    /// Create new Lobby with full configuration
-    pub async fn with_config(
-        port_min: u16, 
-        port_max: u16, 
-        announced_ip: &str,
-        listen_ip: &str,
-        enable_tcp: bool,
-        expose_internal_ip: bool,
-        stale_listener_timeout_seconds: u64
-    ) -> anyhow::Result<Self> {
+        let config = Config::global();
         let (broadcast_tx, _) = broadcast::channel(1024);
 
         // Create worker pool (8 workers for good concurrency)
@@ -87,7 +59,7 @@ impl Lobby {
             ]; // Enable all available log tags for debugging
 
             // Set configurable port range for WebRTC transport
-            worker_settings.rtc_port_range = port_min..=port_max;
+            worker_settings.rtc_port_range = config.worker_port_range();
 
             // Configure custom DTLS certificates with SHA-256 fingerprints
             // Compute absolute paths relative to the server binary location
@@ -116,12 +88,6 @@ impl Lobby {
             workers: Arc::new(workers),
             worker_index: Arc::new(AtomicUsize::new(0)),
             broadcast_tx,
-            port_range: port_min..=port_max,
-            announced_ip: announced_ip.to_string(),
-            listen_ip: listen_ip.to_string(),
-            enable_tcp,
-            expose_internal_ip,
-            stale_listener_timeout: std::time::Duration::from_secs(stale_listener_timeout_seconds),
         })
     }
 
@@ -131,35 +97,6 @@ impl Lobby {
         self.workers[index].clone()
     }
 
-    /// Get the configured port range
-    pub fn port_range(&self) -> std::ops::RangeInclusive<u16> {
-        self.port_range.clone()
-    }
-
-    /// Get the configured announced IP
-    pub fn announced_ip(&self) -> &str {
-        &self.announced_ip
-    }
-
-    /// Get the configured MediaSoup listen IP
-    pub fn listen_ip(&self) -> &str {
-        &self.listen_ip
-    }
-
-    /// Get whether TCP is enabled
-    pub fn enable_tcp(&self) -> bool {
-        self.enable_tcp
-    }
-
-    /// Get whether to expose internal IP
-    pub fn expose_internal_ip(&self) -> bool {
-        self.expose_internal_ip
-    }
-    
-    /// Get the configured stale listener timeout
-    pub fn stale_listener_timeout(&self) -> std::time::Duration {
-        self.stale_listener_timeout
-    }
 
     /// Create a new room with MediaSoup infrastructure
     pub async fn create_room(
@@ -177,12 +114,7 @@ impl Lobby {
             dj_name, 
             description, 
             tags, 
-            &worker, 
-            self.port_range.clone(), 
-            self.announced_ip.clone(),
-            self.listen_ip.clone(),
-            self.enable_tcp,
-            self.expose_internal_ip
+            &worker
         ).await?;
         let room_arc = Arc::new(RwLock::new(room));
 

@@ -184,7 +184,13 @@ class MediaSoupTransportServiceImpl implements MediaSoupTransportService {
             console.info('✅ Created send transport successfully', {
               transport_id: transport.id,
               direction: 'send',
-              ice_role: 'controlling'
+              ice_role: 'controlling',
+              id: nativeOptions.id,
+              iceParameters: nativeOptions.iceParameters,
+              iceCandidates: nativeOptions.iceCandidates,
+              dtlsParameters: nativeOptions.dtlsParameters,
+              sctpParameters: nativeOptions.sctpParameters,
+              // Use backend-provided ICE configuration (no override)
             })
 
             return transport
@@ -397,7 +403,7 @@ class MediaSoupTransportServiceImpl implements MediaSoupTransportService {
 
         const updateWebRTCState = (eventType: string) => {
           if (resolved) return
-          
+
           if (hasError) {
             resolved = true
             cleanup()
@@ -428,13 +434,13 @@ class MediaSoupTransportServiceImpl implements MediaSoupTransportService {
         // Event handlers
         const iceGatheringHandler = (iceGatheringState: string) => {
           console.info(`🧊 WebRTC validation: ICE gathering state: ${iceGatheringState}`)
-          
+
           if (iceGatheringState === 'complete') {
             iceGatheringCompleted = true
           } else if (iceGatheringState === 'gathering') {
             iceGatheringCompleted = false
           }
-          
+
           updateWebRTCState('icegatheringstatechange')
         }
 
@@ -446,7 +452,7 @@ class MediaSoupTransportServiceImpl implements MediaSoupTransportService {
 
         const connectionStateHandler = (connectionState: string) => {
           console.info(`🔄 WebRTC validation: connection state: ${connectionState}`)
-          
+
           if (connectionState === 'connected') {
             connectionEstablished = true
           } else if (connectionState === 'failed' || connectionState === 'disconnected') {
@@ -454,7 +460,7 @@ class MediaSoupTransportServiceImpl implements MediaSoupTransportService {
           } else {
             connectionEstablished = false
           }
-          
+
           updateWebRTCState('connectionstatechange')
         }
 
@@ -477,7 +483,7 @@ class MediaSoupTransportServiceImpl implements MediaSoupTransportService {
           if (resolved) return
           resolved = true
           cleanup()
-          
+
           const finalState = {
             connection_state: transport.connectionState,
             ice_gathering_state: (transport as any).iceGatheringState,
@@ -485,13 +491,13 @@ class MediaSoupTransportServiceImpl implements MediaSoupTransportService {
             connection_established: connectionEstablished,
             has_error: hasError
           }
-          
+
           console.error(`⏰ WebRTC validation timeout after ${timeoutMs}ms`, finalState)
           resume(Effect.fail(new TransportConnectionError(
             `WebRTC connection timeout after ${timeoutMs}ms. Final state: ${JSON.stringify(finalState)}`
           )))
         }, timeoutMs)
-        
+
         return Effect.sync(cleanup)
       }),
       Effect.tap(() => Effect.logInfo(`WebRTC connection validation completed for transport: ${transport.id}`))
@@ -532,7 +538,7 @@ class MediaSoupTransportServiceImpl implements MediaSoupTransportService {
         ice_state: (transport as any).iceState,
         dtls_state: (transport as any).dtlsState
       })
-      
+
       callbacks?.onConnectionStateChange?.(state)
     })
 

@@ -6,10 +6,10 @@
  * OpenAPI spec version: 0.1.0
  */
 import type {
-  RoomInfo,
-  RoomInfoResponse
+  RoomInfo
 } from '../hushFMAPI.schemas';
 
+import { apiMutator } from '../../../config';
 
 /**
  * @summary List all rooms
@@ -36,67 +36,13 @@ export const getListRoomsUrl = () => {
 
 export const listRooms = async ( options?: RequestInit): Promise<listRoomsResponse> => {
   
-  const res = await fetch(getListRoomsUrl(),
+  return apiMutator<listRoomsResponse>(getListRoomsUrl(),
   {      
     ...options,
     method: 'GET'
     
     
   }
-)
-
-  const body = [204, 205, 304].includes(res.status) ? null : await res.text();
-  
-  const data: listRoomsResponse['data'] = body ? JSON.parse(body) : {}
-  return { data, status: res.status, headers: res.headers } as listRoomsResponse
-}
-
-
-/**
- * @summary Get room information and router RTP capabilities (for device initialization)
- */
-export type getRoomInfoResponse200 = {
-  data: RoomInfoResponse
-  status: 200
-}
-
-export type getRoomInfoResponse404 = {
-  data: void
-  status: 404
-}
-    
-export type getRoomInfoResponseSuccess = (getRoomInfoResponse200) & {
-  headers: Headers;
-};
-export type getRoomInfoResponseError = (getRoomInfoResponse404) & {
-  headers: Headers;
-};
-
-export type getRoomInfoResponse = (getRoomInfoResponseSuccess | getRoomInfoResponseError)
-
-export const getGetRoomInfoUrl = (roomId: string,) => {
-
-
-  
-
-  return `/api/rooms/${roomId}`
-}
-
-export const getRoomInfo = async (roomId: string, options?: RequestInit): Promise<getRoomInfoResponse> => {
-  
-  const res = await fetch(getGetRoomInfoUrl(roomId),
-  {      
-    ...options,
-    method: 'GET'
-    
-    
-  }
-)
-
-  const body = [204, 205, 304].includes(res.status) ? null : await res.text();
-  
-  const data: getRoomInfoResponse['data'] = body ? JSON.parse(body) : {}
-  return { data, status: res.status, headers: res.headers } as getRoomInfoResponse
-}
+);}
 
 

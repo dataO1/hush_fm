@@ -1,12 +1,10 @@
 // src/services/api.ts - API client with internal type conversions
 import { Effect, pipe } from 'effect'
 import {
-  listRooms as listRoomsGenerated,
-  getRoomInfo as getRoomInfoGenerated
+  listRooms as listRoomsGenerated
 } from './generated/rooms/rooms'
 import type {
-  RoomInfo,
-  RoomInfoResponse
+  RoomInfo
 } from './generated/hushFMAPI.schemas'
 
 
@@ -40,20 +38,4 @@ export const listRooms = (): Effect.Effect<RoomInfo[], ApiError> =>
   )
 
 
-export const getRoomInfo = (roomId: string): Effect.Effect<RoomInfoResponse, ApiError> =>
-  pipe(
-    Effect.tryPromise({
-      try: () => getRoomInfoGenerated(roomId),
-      catch: error => new ApiError('Network error', 0, error)
-    }),
-    Effect.flatMap((response: any) => {
-      if (response.status === 200 && response.data) {
-        return Effect.succeed(response.data)
-      }
-      return Effect.fail(new ApiError(
-        `Get room info failed: ${response.status}`,
-        response.status
-      ))
-    })
-  )
 

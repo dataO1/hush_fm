@@ -348,7 +348,26 @@ export const TransportOptionsFromApi = {
     id: api.id,
     dtlsParameters: api.dtlsParameters,
     iceParameters: api.iceParameters,
-    iceCandidates: api.iceCandidates,
+    iceCandidates: api.iceCandidates.map(candidate => {
+      const mediasoupCandidate: any = {
+        foundation: candidate.foundation,
+        priority: candidate.priority,
+        address: candidate.address,
+        ip: candidate.address, // deprecated but required by mediasoup-client
+        protocol: candidate.protocol, // already lowercase from backend
+        port: candidate.port,
+        type: candidate.type // already lowercase from backend
+      }
+      
+      // Only set tcpType if tcp_type is not null (TCP candidates only)
+      // Convert: tcp_type → tcpType, "Passive" → "passive" 
+      if (candidate.tcp_type !== null && candidate.tcp_type !== undefined) {
+        mediasoupCandidate.tcpType = candidate.tcp_type.toLowerCase() as 'passive'
+      }
+      // For UDP candidates (tcp_type is null), we omit tcpType entirely
+      
+      return mediasoupCandidate
+    }),
     sctpParameters: api.sctpParameters
   }),
   encode: (native: InternalTransportOptions): ApiTransportOptions => ({

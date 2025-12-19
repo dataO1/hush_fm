@@ -206,7 +206,7 @@ pub struct TransportOptions {
 }
 
 /// RTP codec capability wrapper with proper typing
-/// 
+///
 /// Strongly typed representation of MediaSoup's RtpCodecCapability::Audio variant
 /// ensuring no undefined/unknown fields in frontend.
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, ToSchema)]
@@ -229,7 +229,7 @@ pub struct RtpCodecCapabilityWrapper {
 }
 
 /// RTP header extension wrapper with proper typing
-/// 
+///
 /// Strongly typed representation of MediaSoup's RtpHeaderExtension
 /// for audio streaming extensions like audio level and transport-wide CC.
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, ToSchema)]
@@ -248,7 +248,7 @@ pub struct RtpHeaderExtensionWrapper {
 }
 
 /// RTCP feedback mechanism wrapper
-/// 
+///
 /// Represents transport and codec feedback for network adaptation
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, ToSchema)]
 #[serde(rename_all = "camelCase")]
@@ -275,7 +275,7 @@ pub struct RtpCapabilitiesWrapper {
 /// Helper function to convert MediaSoup RTP parameters to strongly typed map
 fn convert_rtp_parameters(params: mediasoup::prelude::RtpCodecParametersParameters) -> std::collections::BTreeMap<String, String> {
     let mut result = std::collections::BTreeMap::new();
-    
+
     for (key, value) in params.iter() {
         let string_value = match value {
             RtpCodecParametersParametersValue::String(s) => s.to_string(),
@@ -427,22 +427,6 @@ impl TryFrom<RtpCapabilitiesWrapper> for mediasoup::prelude::RtpCapabilities {
     }
 }
 
-/// Room info response (without consumer creation)
-#[derive(Debug, Clone, Serialize, JsonSchema, ToSchema)]
-#[serde(rename_all = "camelCase")]
-pub struct RoomInfoResponse {
-    /// Room information (clean client model)
-    pub room: RoomInfo,
-
-    /// Router RTP capabilities for device initialization
-    pub rtp_capabilities: RtpCapabilitiesWrapper,
-
-    /// Producer ID (if streaming)
-    pub producer_id: Option<String>,
-
-    /// WebRTC transport options for listener (to get DTLS parameters)
-    pub transport_options: TransportOptions,
-}
 
 
 /// RTP parameters wrapper for proper API serialization
@@ -583,53 +567,9 @@ pub struct Room {
     #[serde(skip)]
     #[schemars(skip)]
     pub last_activity_atomic: Arc<ArcSwap<chrono::DateTime<chrono::Utc>>>,
-    
-    // Configuration (not serialized to API)
-    /// WebRTC port range configuration
-    #[serde(skip)]
-    #[serde(default = "default_port_range")]
-    #[schemars(skip)]
-    pub port_range: std::ops::RangeInclusive<u16>,
-    
-    /// Announced IP address configuration
-    #[serde(skip)]
-    #[serde(default = "default_announced_ip")]
-    #[schemars(skip)]  
-    pub announced_ip: String,
-    
-    /// MediaSoup listen IP configuration
-    #[serde(skip)]
-    #[serde(default = "default_listen_ip")]
-    #[schemars(skip)]
-    pub listen_ip: String,
-    
-    /// MediaSoup TCP enable configuration
-    #[serde(skip)]
-    #[serde(default)]
-    #[schemars(skip)]
-    pub enable_tcp: bool,
-    
-    /// MediaSoup expose internal IP configuration
-    #[serde(skip)]
-    #[serde(default)]
-    #[schemars(skip)]
-    pub expose_internal_ip: bool,
+
 }
 
-/// Default port range for Room configuration
-fn default_port_range() -> std::ops::RangeInclusive<u16> {
-    10000..=59999
-}
-
-/// Default announced IP for Room configuration  
-fn default_announced_ip() -> String {
-    "localhost".to_string()
-}
-
-/// Default listen IP for Room configuration
-fn default_listen_ip() -> String {
-    "0.0.0.0".to_string()
-}
 
 /// Custom serialization for ISO8601 datetime
 pub mod iso8601_datetime {

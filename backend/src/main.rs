@@ -21,6 +21,7 @@ mod lib;
 use api::api::rooms::rooms_router;
 use api::api::openapi::ApiDoc;
 use lib::domain::Lobby;
+use lib::config::Config;
 use api::ws::{ws_handler, listener_handler, lobby_handler};
 
 #[tokio::main]
@@ -34,73 +35,44 @@ async fn main() -> anyhow::Result<()> {
         return Ok(());
     }
 
-    // Read configuration from environment variables
-    let backend_port = std::env::var("HUSHFM_BACKEND_PORT")
-        .unwrap_or_else(|_| "3000".to_string())
-        .parse::<u16>()
-        .unwrap_or(3000);
-    
-    let host_name = std::env::var("HUSHFM_HOST_NAME")
-        .unwrap_or_else(|_| "localhost".to_string());
-    
-    let worker_port_min = std::env::var("HUSHFM_WORKER_PORT_MIN")
-        .unwrap_or_else(|_| "40000".to_string())
-        .parse::<u16>()
-        .unwrap_or(40000);
-    
-    let worker_port_max = std::env::var("HUSHFM_WORKER_PORT_MAX")
-        .unwrap_or_else(|_| "49999".to_string())
-        .parse::<u16>()
-        .unwrap_or(49999);
-
-    // MediaSoup configuration
-    let mediasoup_listen_ip = std::env::var("HUSHFM_MEDIASOUP_LISTEN_IP")
-        .unwrap_or_else(|_| "0.0.0.0".to_string());
-    
-    let mediasoup_enable_tcp = std::env::var("HUSHFM_MEDIASOUP_ENABLE_TCP")
-        .unwrap_or_else(|_| "false".to_string())
-        .parse::<bool>()
-        .unwrap_or(false);
-    
-    let mediasoup_expose_internal_ip = std::env::var("HUSHFM_MEDIASOUP_EXPOSE_INTERNAL_IP")
-        .unwrap_or_else(|_| "false".to_string())
-        .parse::<bool>()
-        .unwrap_or(false);
-    
-    let stale_listener_timeout = std::env::var("HUSHFM_STALE_LISTENER_TIMEOUT")
-        .unwrap_or_else(|_| "0".to_string())
-        .parse::<u64>()
-        .unwrap_or(0);
-
     // Initialize simple console logging
     tracing_subscriber::fmt::init();
 
-    // Initialize application state with configured worker port range and hostname
-    let lobby = Lobby::with_config(
-        worker_port_min, 
-        worker_port_max, 
-        &host_name,
-        &mediasoup_listen_ip,
-        mediasoup_enable_tcp,
-        mediasoup_expose_internal_ip,
-        stale_listener_timeout
-    ).await?;
-    tracing::info!("🎵 MediaSoup Configuration:");
-    tracing::info!("  - Worker port range: {}-{}", worker_port_min, worker_port_max);
-    tracing::info!("  - Announced hostname: {}", host_name);
-    tracing::info!("  - Backend bind port: {}", backend_port);
+    // Initialize configuration singleton
+    let config = Config::init()?;
 
-    // Setup CORS based on configuration - backend only serves nginx proxy
-    let protocol = if host_name == "localhost" { "http" } else { "https" };
-    let allowed_origins = vec![
-        format!("{}://{}", protocol, host_name).parse::<HeaderValue>()?,
+    // Initialize application state with configuration
+    let lobby = Lobby::new().await?;
+
+    // Setup CORS based on configuration
+    let is_local_dev = config.host_name() == "localhost" || config.host_name() == "127.0.0.1";
+    let protocol = if is_local_dev { "http" } else { "https" };
+    let mut allowed_origins = vec![
+        // Production origin (nginx proxy)
+        format!("{}://{}", protocol, config.host_name()).parse::<HeaderValue>()?,
     ];
+    
+    // For local development, also allow frontend origin
+    if is_local_dev {
+        let frontend_origin = format!("{}://{}:{}", protocol, config.host_name(), config.frontend_port());
+        tracing::info!("🔗 Adding frontend origin to CORS: {}", frontend_origin);
+        allowed_origins.push(frontend_origin.parse::<HeaderValue>()?);
+        
+        // Also allow localhost variant if hostname is 127.0.0.1 and vice versa
+        let alt_hostname = if config.host_name() == "127.0.0.1" { "localhost" } else { "127.0.0.1" };
+        let alt_frontend_origin = format!("{}://{}:{}", protocol, alt_hostname, config.frontend_port());
+        tracing::info!("🔗 Adding alternative frontend origin to CORS: {}", alt_frontend_origin);
+        allowed_origins.push(alt_frontend_origin.parse::<HeaderValue>()?);
+    }
+    
+    tracing::info!("🌐 CORS allowed origins: {:?}", allowed_origins);
     
     let cors = CorsLayer::new()
         .allow_origin(allowed_origins)
         .allow_methods([Method::GET, Method::POST, Method::DELETE, Method::OPTIONS])
         .allow_credentials(true)
-        .allow_headers([AUTHORIZATION, ACCEPT, CONTENT_TYPE]);
+        .allow_headers([AUTHORIZATION, ACCEPT, CONTENT_TYPE])
+        .max_age(std::time::Duration::from_secs(86400)); // 24 hours
 
     // Build application router
     let stateless_routes = Router::new()
@@ -121,9 +93,9 @@ async fn main() -> anyhow::Result<()> {
         );
 
     // Configure server address - backend runs HTTP only (nginx handles TLS)
-    let addr = SocketAddr::from(([0, 0, 0, 0], backend_port));
+    let addr = SocketAddr::from(([0, 0, 0, 0], config.backend_port()));
     
-    tracing::info!("🌐 HushFM Backend starting on http://{} (hostname: {})", addr, host_name);
+    tracing::info!("🌐 HushFM Backend starting on http://{} (hostname: {})", addr, config.host_name());
     let listener = tokio::net::TcpListener::bind(addr).await?;
     axum::serve(listener, app).await?;
 

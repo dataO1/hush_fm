@@ -3,7 +3,8 @@ info:
   title: HushFM API
   description: Live audio streaming platform API
   license:
-    name: ''
+    name: MIT
+    identifier: MIT
   version: 0.1.0
 paths:
   /api/rooms:
@@ -21,29 +22,6 @@ paths:
                 type: array
                 items:
                   $ref: '#/components/schemas/RoomInfo'
-  /api/rooms/{room_id}:
-    get:
-      tags:
-      - rooms
-      summary: Get room information and router RTP capabilities (for device initialization)
-      operationId: get_room_info
-      parameters:
-      - name: room_id
-        in: path
-        description: Room ID
-        required: true
-        schema:
-          type: string
-          format: uuid
-      responses:
-        '200':
-          description: Room info retrieved successfully
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/RoomInfoResponse'
-        '404':
-          description: Room not found
 components:
   schemas:
     ConsumerParameters:
@@ -258,28 +236,6 @@ components:
           items:
             type: string
           description: Room tags for categorization
-    RoomInfoResponse:
-      type: object
-      description: Room info response (without consumer creation)
-      required:
-      - room
-      - rtpCapabilities
-      - transportOptions
-      properties:
-        producerId:
-          type:
-          - string
-          - 'null'
-          description: Producer ID (if streaming)
-        room:
-          $ref: '#/components/schemas/RoomInfo'
-          description: Room information (clean client model)
-        rtpCapabilities:
-          $ref: '#/components/schemas/RtpCapabilitiesWrapper'
-          description: Router RTP capabilities for device initialization
-        transportOptions:
-          $ref: '#/components/schemas/TransportOptions'
-          description: WebRTC transport options for listener (to get DTLS parameters)
     RtcpFeedbackWrapper:
       type: object
       description: |-

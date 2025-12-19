@@ -15,6 +15,7 @@ use std::num::NonZero;
 use tokio::sync::mpsc;
 use crate::lib::models::ListenerEvent;
 use crate::lib::models::schemas::TransportOptions;
+use crate::lib::config::Config;
 
 /// DJ state containing all WebRTC resources and metadata for audio streaming
 #[derive(Debug, Clone)]
@@ -37,18 +38,6 @@ pub struct DJ {
     pub connected_at: chrono::DateTime<chrono::Utc>,
     /// Event channel for sending WebSocket events to DJ
     pub event_tx: Option<mpsc::UnboundedSender<ListenerEvent>>,
-
-    // Configuration
-    /// WebRTC port range configuration
-    pub port_range: std::ops::RangeInclusive<u16>,
-    /// Announced IP address configuration
-    pub announced_ip: String,
-    /// MediaSoup listen IP configuration  
-    pub listen_ip: String,
-    /// MediaSoup TCP enable configuration
-    pub enable_tcp: bool,
-    /// MediaSoup expose internal IP configuration
-    pub expose_internal_ip: bool,
 }
 
 impl DJ {
@@ -57,11 +46,6 @@ impl DJ {
         dj_id: String,
         room_id: Uuid,
         event_tx: Option<mpsc::UnboundedSender<ListenerEvent>>,
-        port_range: std::ops::RangeInclusive<u16>,
-        announced_ip: String,
-        listen_ip: String,
-        enable_tcp: bool,
-        expose_internal_ip: bool,
     ) -> Self {
         Self {
             dj_id,
@@ -73,17 +57,13 @@ impl DJ {
             is_paused: false,
             connected_at: chrono::Utc::now(),
             event_tx,
-            port_range,
-            announced_ip,
-            listen_ip,
-            enable_tcp,
-            expose_internal_ip,
         }
     }
 
     /// Step 6: Create sender transport for DJ using room's router
     #[tracing::instrument(skip(self, router), fields(dj_id = %self.dj_id, room_id = %self.room_id))]
     pub async fn create_sender_transport(&mut self, router: &Router) -> Result<TransportOptions> {
+        let config = Config::global();
         // Use stored configuration - bind to correct interface for environment
         // let bind_ip = if self.announced_ip == "localhost" { "127.0.0.1" } else { "0.0.0.0" };
         // let announced_address = if self.announced_ip == "localhost" {  Some("127.0.0.1".to_string())  } else { Some(self.announced_ip.clone()) };
@@ -96,26 +76,26 @@ impl DJ {
         // Create transport with configured settings
         let mut listen_infos = WebRtcTransportListenInfos::new(ListenInfo {
             protocol: Protocol::Udp,
-            ip: self.listen_ip.parse()?,
-            announced_address: Some(self.announced_ip.clone()),
-            expose_internal_ip: self.expose_internal_ip,
+            ip: config.mediasoup_listen_ip().parse()?,
+            announced_address: Some(config.announced_ip().to_string()),
+            expose_internal_ip: config.mediasoup_expose_internal_ip(),
             port: None,
-            port_range: Some(self.port_range.clone()),
+            port_range: Some(config.worker_port_range()),
             flags: None,
             send_buffer_size: None,
             recv_buffer_size: None,
         });
-        
+
         // Conditionally add TCP fallback if enabled
-        if self.enable_tcp {
+        if config.mediasoup_enable_tcp() {
             listen_infos = listen_infos
                 .insert(ListenInfo {
                     protocol: Protocol::Tcp,
-                    ip: self.listen_ip.parse()?,
-                    announced_address: Some(self.announced_ip.clone()),
-                    expose_internal_ip: self.expose_internal_ip,
+                    ip: config.mediasoup_listen_ip().parse()?,
+                    announced_address: Some(config.announced_ip().to_string()),
+                    expose_internal_ip: config.mediasoup_expose_internal_ip(),
                     port: None,
-                    port_range: Some(self.port_range.clone()),
+                    port_range: Some(config.worker_port_range()),
                     flags: None,
                     send_buffer_size: None,
                     recv_buffer_size: None,
@@ -141,7 +121,7 @@ impl DJ {
 
         // Configure UDP/TCP based on configuration
         transport_options.enable_udp = true;
-        transport_options.enable_tcp = self.enable_tcp;
+        transport_options.enable_tcp = config.mediasoup_enable_tcp();
         transport_options.prefer_udp = true;
         // transport_options.initial_available_outgoing_bitrate = 600000; // DJ sends audio
         // transport_options.ice_consent_timeout = 30;
@@ -422,7 +402,10 @@ impl DJ {
                     },
                     port: candidate.port,
                     candidate_type: crate::lib::models::schemas::IceCandidateTypeSchema::Host, // Default to Host
-                    tcp_type: candidate.tcp_type.map(|_| crate::lib::models::schemas::IceCandidateTcpTypeSchema::Passive),
+                    tcp_type: match candidate.protocol {
+                        mediasoup::prelude::Protocol::Tcp => Some(crate::lib::models::schemas::IceCandidateTcpTypeSchema::Passive),
+                        mediasoup::prelude::Protocol::Udp => None,
+                    },
                 }
             }).collect(),
             dtls_parameters: crate::lib::models::schemas::DtlsParametersWrapper {

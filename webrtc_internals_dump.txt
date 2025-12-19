@@ -1,0 +1,1057 @@
+{
+ "getUserMedia": [
+  {
+   "audio": "",
+   "origin": "http://localhost:8080",
+   "pid": 3507492,
+   "request_id": 0,
+   "request_type": "getUserMedia",
+   "rid": 5,
+   "timestamp": 1766185859953.627
+  },
+  {
+   "audio_track_info": "{\"id\":\"28f7637c-b712-4227-8d09-c12e693f83c0\",\"label\":\"Family 17h/19h/1ah HD Audio Controller Digital Microphone\"}",
+   "pid": 3507492,
+   "request_id": 0,
+   "request_type": "getUserMedia",
+   "rid": 5,
+   "stream_id": "d95c784b-4cd1-43e6-b383-825c65b8bb26",
+   "timestamp": 1766185862302.889,
+   "video_track_info": "null"
+  },
+  {
+   "audio": "{\"echoCancellation\": {\"ideal\": false}, \"autoGainControl\": {\"ideal\": false}, \"noiseSuppression\": {\"ideal\": false}, \"channelCount\": {\"min\": 1, \"ideal\": 2}, \"deviceId\": {\"exact\": [\"bb79b6ec364bd6928c25373bf5e3f8d582abf3aa31dc6f725c5ec2951d3fcb04\"]}}",
+   "origin": "http://localhost:8080",
+   "pid": 3507492,
+   "request_id": 1,
+   "request_type": "getUserMedia",
+   "rid": 5,
+   "timestamp": 1766185862316.909
+  },
+  {
+   "audio_track_info": "{\"id\":\"2903d7a1-5ee5-4bda-9738-3d35db09e9a9\",\"label\":\"Family 17h/19h/1ah HD Audio Controller Digital Microphone\"}",
+   "pid": 3507492,
+   "request_id": 1,
+   "request_type": "getUserMedia",
+   "rid": 5,
+   "stream_id": "4d2ee22c-2b5a-40c8-89f1-5f9a0fe4a2ca",
+   "timestamp": 1766185862376.465,
+   "video_track_info": "null"
+  },
+  {
+   "audio": "{\"echoCancellation\": {\"ideal\": false}, \"autoGainControl\": {\"ideal\": false}, \"noiseSuppression\": {\"ideal\": false}, \"channelCount\": {\"min\": 1, \"ideal\": 2}, \"deviceId\": {\"exact\": [\"bb79b6ec364bd6928c25373bf5e3f8d582abf3aa31dc6f725c5ec2951d3fcb04\"]}}",
+   "origin": "http://localhost:8080",
+   "pid": 3507492,
+   "request_id": 2,
+   "request_type": "getUserMedia",
+   "rid": 5,
+   "timestamp": 1766185864573.075
+  },
+  {
+   "audio_track_info": "{\"id\":\"a7860069-ab3a-48fe-a33d-121f682a615c\",\"label\":\"Family 17h/19h/1ah HD Audio Controller Digital Microphone\"}",
+   "pid": 3507492,
+   "request_id": 2,
+   "request_type": "getUserMedia",
+   "rid": 5,
+   "stream_id": "81f07948-5563-4fb0-bf9b-996ffe4408e5",
+   "timestamp": 1766185864675.458,
+   "video_track_info": "null"
+  },
+  {
+   "audio": "",
+   "origin": "http://localhost:8080",
+   "pid": 3507492,
+   "request_id": 3,
+   "request_type": "getUserMedia",
+   "rid": 5,
+   "timestamp": 1766185874816.805
+  },
+  {
+   "audio_track_info": "{\"id\":\"1c6a603e-a8de-491c-9fd4-6b1a22795cc5\",\"label\":\"Family 17h/19h/1ah HD Audio Controller Digital Microphone\"}",
+   "pid": 3507492,
+   "request_id": 3,
+   "request_type": "getUserMedia",
+   "rid": 5,
+   "stream_id": "4f380211-2466-4d9b-9c8c-89107b79b90c",
+   "timestamp": 1766185874955.132,
+   "video_track_info": "null"
+  },
+  {
+   "audio": "{\"echoCancellation\": {\"ideal\": false}, \"autoGainControl\": {\"ideal\": false}, \"noiseSuppression\": {\"ideal\": false}, \"channelCount\": {\"min\": 1, \"ideal\": 2}, \"deviceId\": {\"exact\": [\"bb79b6ec364bd6928c25373bf5e3f8d582abf3aa31dc6f725c5ec2951d3fcb04\"]}}",
+   "origin": "http://localhost:8080",
+   "pid": 3507492,
+   "request_id": 4,
+   "request_type": "getUserMedia",
+   "rid": 5,
+   "timestamp": 1766185875172.852
+  },
+  {
+   "audio_track_info": "{\"id\":\"09860eb5-2864-4b24-a622-74bc415055d9\",\"label\":\"Family 17h/19h/1ah HD Audio Controller Digital Microphone\"}",
+   "pid": 3507492,
+   "request_id": 4,
+   "request_type": "getUserMedia",
+   "rid": 5,
+   "stream_id": "6c2d45ac-67bb-44b2-984a-2c36545881f4",
+   "timestamp": 1766185875422.49,
+   "video_track_info": "null"
+  },
+  {
+   "audio": "",
+   "origin": "http://localhost:8080",
+   "pid": 3507492,
+   "request_id": 5,
+   "request_type": "getUserMedia",
+   "rid": 5,
+   "timestamp": 1766186065335.537
+  },
+  {
+   "audio_track_info": "{\"id\":\"3aa3192d-fbbc-4d11-be07-6f0730a96f98\",\"label\":\"Family 17h/19h/1ah HD Audio Controller Digital Microphone\"}",
+   "pid": 3507492,
+   "request_id": 5,
+   "request_type": "getUserMedia",
+   "rid": 5,
+   "stream_id": "d8d1a18f-b97e-4d96-b565-5260ed344fa3",
+   "timestamp": 1766186065867.433,
+   "video_track_info": "null"
+  },
+  {
+   "audio": "{\"echoCancellation\": {\"ideal\": false}, \"autoGainControl\": {\"ideal\": false}, \"noiseSuppression\": {\"ideal\": false}, \"channelCount\": {\"min\": 1, \"ideal\": 2}, \"deviceId\": {\"exact\": [\"bb79b6ec364bd6928c25373bf5e3f8d582abf3aa31dc6f725c5ec2951d3fcb04\"]}}",
+   "origin": "http://localhost:8080",
+   "pid": 3507492,
+   "request_id": 6,
+   "request_type": "getUserMedia",
+   "rid": 5,
+   "timestamp": 1766186066195.717
+  },
+  {
+   "audio_track_info": "{\"id\":\"43dd4415-8360-4e1c-9c73-329c6e0af1b6\",\"label\":\"Family 17h/19h/1ah HD Audio Controller Digital Microphone\"}",
+   "pid": 3507492,
+   "request_id": 6,
+   "request_type": "getUserMedia",
+   "rid": 5,
+   "stream_id": "6d90bdcf-1682-4022-8310-647bb52648ea",
+   "timestamp": 1766186066485.937,
+   "video_track_info": "null"
+  },
+  {
+   "audio": "",
+   "origin": "http://localhost:8080",
+   "pid": 3507492,
+   "request_id": 7,
+   "request_type": "getUserMedia",
+   "rid": 5,
+   "timestamp": 1766186170470.053
+  },
+  {
+   "audio_track_info": "{\"id\":\"46c47e81-f8e9-4346-9bb9-ab9fe5746989\",\"label\":\"Family 17h/19h/1ah HD Audio Controller Digital Microphone\"}",
+   "pid": 3507492,
+   "request_id": 7,
+   "request_type": "getUserMedia",
+   "rid": 5,
+   "stream_id": "8191c89f-3969-4962-a0ab-c3b6307e9d3c",
+   "timestamp": 1766186170552.934,
+   "video_track_info": "null"
+  },
+  {
+   "audio": "{\"echoCancellation\": {\"ideal\": false}, \"autoGainControl\": {\"ideal\": false}, \"noiseSuppression\": {\"ideal\": false}, \"channelCount\": {\"min\": 1, \"ideal\": 2}, \"deviceId\": {\"exact\": [\"bb79b6ec364bd6928c25373bf5e3f8d582abf3aa31dc6f725c5ec2951d3fcb04\"]}}",
+   "origin": "http://localhost:8080",
+   "pid": 3507492,
+   "request_id": 8,
+   "request_type": "getUserMedia",
+   "rid": 5,
+   "timestamp": 1766186170673.649
+  },
+  {
+   "audio_track_info": "{\"id\":\"f798955a-dce4-4c42-90b4-72cf4278f20a\",\"label\":\"Family 17h/19h/1ah HD Audio Controller Digital Microphone\"}",
+   "pid": 3507492,
+   "request_id": 8,
+   "request_type": "getUserMedia",
+   "rid": 5,
+   "stream_id": "5378571a-cce4-429f-94ae-968047d2f958",
+   "timestamp": 1766186170812.333,
+   "video_track_info": "null"
+  },
+  {
+   "audio": "{\"echoCancellation\": {\"ideal\": false}, \"autoGainControl\": {\"ideal\": false}, \"noiseSuppression\": {\"ideal\": false}, \"channelCount\": {\"min\": 1, \"ideal\": 2}, \"deviceId\": {\"exact\": [\"bb79b6ec364bd6928c25373bf5e3f8d582abf3aa31dc6f725c5ec2951d3fcb04\"]}}",
+   "origin": "http://localhost:8080",
+   "pid": 3507492,
+   "request_id": 9,
+   "request_type": "getUserMedia",
+   "rid": 5,
+   "timestamp": 1766186172738.873
+  },
+  {
+   "audio_track_info": "{\"id\":\"36fa32cd-7b2e-40d4-8c25-f148546a2444\",\"label\":\"Family 17h/19h/1ah HD Audio Controller Digital Microphone\"}",
+   "pid": 3507492,
+   "request_id": 9,
+   "request_type": "getUserMedia",
+   "rid": 5,
+   "stream_id": "9ec0487c-f372-4df1-96b5-11666cd83ddb",
+   "timestamp": 1766186172842.385,
+   "video_track_info": "null"
+  },
+  {
+   "audio": "",
+   "origin": "http://localhost:8080",
+   "pid": 3507492,
+   "request_id": 10,
+   "request_type": "getUserMedia",
+   "rid": 5,
+   "timestamp": 1766186183021.196
+  },
+  {
+   "audio_track_info": "{\"id\":\"40b4397b-6334-4530-9b5d-c91e45925c71\",\"label\":\"Family 17h/19h/1ah HD Audio Controller Digital Microphone\"}",
+   "pid": 3507492,
+   "request_id": 10,
+   "request_type": "getUserMedia",
+   "rid": 5,
+   "stream_id": "4c5ff4eb-b511-4553-b3c1-76ba4cf68ced",
+   "timestamp": 1766186183182.749,
+   "video_track_info": "null"
+  },
+  {
+   "audio": "{\"echoCancellation\": {\"ideal\": false}, \"autoGainControl\": {\"ideal\": false}, \"noiseSuppression\": {\"ideal\": false}, \"channelCount\": {\"min\": 1, \"ideal\": 2}, \"deviceId\": {\"exact\": [\"bb79b6ec364bd6928c25373bf5e3f8d582abf3aa31dc6f725c5ec2951d3fcb04\"]}}",
+   "origin": "http://localhost:8080",
+   "pid": 3507492,
+   "request_id": 11,
+   "request_type": "getUserMedia",
+   "rid": 5,
+   "timestamp": 1766186183500.043
+  },
+  {
+   "audio_track_info": "{\"id\":\"ddc6773f-7db9-48f0-a2f5-75e8726687d7\",\"label\":\"Family 17h/19h/1ah HD Audio Controller Digital Microphone\"}",
+   "pid": 3507492,
+   "request_id": 11,
+   "request_type": "getUserMedia",
+   "rid": 5,
+   "stream_id": "f73b8797-ff8c-4ab0-b323-9f926fa7a134",
+   "timestamp": 1766186183843.73,
+   "video_track_info": "null"
+  },
+  {
+   "audio": "",
+   "origin": "http://localhost:8080",
+   "pid": 3507492,
+   "request_id": 12,
+   "request_type": "getUserMedia",
+   "rid": 5,
+   "timestamp": 1766186519306.689
+  },
+  {
+   "audio_track_info": "{\"id\":\"5014a0a3-831b-4ad4-8b4e-034aacac2048\",\"label\":\"Family 17h/19h/1ah HD Audio Controller Digital Microphone\"}",
+   "pid": 3507492,
+   "request_id": 12,
+   "request_type": "getUserMedia",
+   "rid": 5,
+   "stream_id": "f26e4b26-9e25-46e3-b757-2fadc55fbf48",
+   "timestamp": 1766186519546.028,
+   "video_track_info": "null"
+  },
+  {
+   "audio": "{\"echoCancellation\": {\"ideal\": false}, \"autoGainControl\": {\"ideal\": false}, \"noiseSuppression\": {\"ideal\": false}, \"channelCount\": {\"min\": 1, \"ideal\": 2}, \"deviceId\": {\"exact\": [\"bb79b6ec364bd6928c25373bf5e3f8d582abf3aa31dc6f725c5ec2951d3fcb04\"]}}",
+   "origin": "http://localhost:8080",
+   "pid": 3507492,
+   "request_id": 13,
+   "request_type": "getUserMedia",
+   "rid": 5,
+   "timestamp": 1766186519736.083
+  },
+  {
+   "audio_track_info": "{\"id\":\"79328a59-3816-4742-9b0d-a8f11247a529\",\"label\":\"Family 17h/19h/1ah HD Audio Controller Digital Microphone\"}",
+   "pid": 3507492,
+   "request_id": 13,
+   "request_type": "getUserMedia",
+   "rid": 5,
+   "stream_id": "ec86ffdb-c0bb-494f-8f7e-d5fbc8595b09",
+   "timestamp": 1766186519991.228,
+   "video_track_info": "null"
+  },
+  {
+   "audio": "{\"echoCancellation\": {\"ideal\": false}, \"autoGainControl\": {\"ideal\": false}, \"noiseSuppression\": {\"ideal\": false}, \"channelCount\": {\"min\": 1, \"ideal\": 2}, \"deviceId\": {\"exact\": [\"bb79b6ec364bd6928c25373bf5e3f8d582abf3aa31dc6f725c5ec2951d3fcb04\"]}}",
+   "origin": "http://localhost:8080",
+   "pid": 3507492,
+   "request_id": 14,
+   "request_type": "getUserMedia",
+   "rid": 5,
+   "timestamp": 1766186522224.124
+  },
+  {
+   "audio_track_info": "{\"id\":\"f52f391d-9696-4499-a464-ff8db479efe9\",\"label\":\"Family 17h/19h/1ah HD Audio Controller Digital Microphone\"}",
+   "pid": 3507492,
+   "request_id": 14,
+   "request_type": "getUserMedia",
+   "rid": 5,
+   "stream_id": "a5c31155-a9e4-4550-858b-32d918b1c23c",
+   "timestamp": 1766186522326.703,
+   "video_track_info": "null"
+  },
+  {
+   "audio": "",
+   "origin": "http://localhost:8080",
+   "pid": 3507492,
+   "request_id": 15,
+   "request_type": "getUserMedia",
+   "rid": 5,
+   "timestamp": 1766186532791.024
+  },
+  {
+   "audio_track_info": "{\"id\":\"5d6de0e9-ff7c-4b65-9c62-732e547a0bad\",\"label\":\"Family 17h/19h/1ah HD Audio Controller Digital Microphone\"}",
+   "pid": 3507492,
+   "request_id": 15,
+   "request_type": "getUserMedia",
+   "rid": 5,
+   "stream_id": "9203ddd8-9e0b-40b6-8cb2-2d46f9b5adbc",
+   "timestamp": 1766186533213.855,
+   "video_track_info": "null"
+  },
+  {
+   "audio": "{\"echoCancellation\": {\"ideal\": false}, \"autoGainControl\": {\"ideal\": false}, \"noiseSuppression\": {\"ideal\": false}, \"channelCount\": {\"min\": 1, \"ideal\": 2}, \"deviceId\": {\"exact\": [\"bb79b6ec364bd6928c25373bf5e3f8d582abf3aa31dc6f725c5ec2951d3fcb04\"]}}",
+   "origin": "http://localhost:8080",
+   "pid": 3507492,
+   "request_id": 16,
+   "request_type": "getUserMedia",
+   "rid": 5,
+   "timestamp": 1766186533546.777
+  },
+  {
+   "audio_track_info": "{\"id\":\"8601eba7-2b4d-4649-9798-da0f981126b3\",\"label\":\"Family 17h/19h/1ah HD Audio Controller Digital Microphone\"}",
+   "pid": 3507492,
+   "request_id": 16,
+   "request_type": "getUserMedia",
+   "rid": 5,
+   "stream_id": "55a5d4b6-f9e4-4781-8e8d-1d6bc2000794",
+   "timestamp": 1766186533885.137,
+   "video_track_info": "null"
+  }
+ ],
+ "PeerConnections": {
+  "5-6": {
+   "pid": 3507492,
+   "rtcConfiguration": "{\"bundlePolicy\":\"max-bundle\"}",
+   "stats": {
+    "OT01A1434211061-active": {
+     "startTime": "2025-12-19T23:22:02.781Z",
+     "endTime": "2025-12-19T23:22:17.789Z",
+     "statsType": "outbound-rtp",
+     "values": "[true,true,true,true,true,true,true,true,true,true,true,true,true,true,true,true]"
+    },
+    "OT01A1434211061-bytesSent": {
+     "startTime": "2025-12-19T23:22:02.781Z",
+     "endTime": "2025-12-19T23:22:17.789Z",
+     "statsType": "outbound-rtp",
+     "values": "[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]"
+    },
+    "OT01A1434211061-codecId": {
+     "startTime": "2025-12-19T23:22:02.781Z",
+     "endTime": "2025-12-19T23:22:17.789Z",
+     "statsType": "outbound-rtp",
+     "values": "[\"COT01_111_maxaveragebitrate=320000;maxplaybackrate=48000;minptime=3;sprop-stereo=1;stereo=1;useinbandfec=1\",\"COT01_111_maxaveragebitrate=320000;maxplaybackrate=48000;minptime=3;sprop-stereo=1;stereo=1;useinbandfec=1\",\"COT01_111_maxaveragebitrate=320000;maxplaybackrate=48000;minptime=3;sprop-stereo=1;stereo=1;useinbandfec=1\",\"COT01_111_maxaveragebitrate=320000;maxplaybackrate=48000;minptime=3;sprop-stereo=1;stereo=1;useinbandfec=1\",\"COT01_111_maxaveragebitrate=320000;maxplaybackrate=48000;minptime=3;sprop-stereo=1;stereo=1;useinbandfec=1\",\"COT01_111_maxaveragebitrate=320000;maxplaybackrate=48000;minptime=3;sprop-stereo=1;stereo=1;useinbandfec=1\",\"COT01_111_maxaveragebitrate=320000;maxplaybackrate=48000;minptime=3;sprop-stereo=1;stereo=1;useinbandfec=1\",\"COT01_111_maxaveragebitrate=320000;maxplaybackrate=48000;minptime=3;sprop-stereo=1;stereo=1;useinbandfec=1\",\"COT01_111_maxaveragebitrate=320000;maxplaybackrate=48000;minptime=3;sprop-stereo=1;stereo=1;useinbandfec=1\",\"COT01_111_maxaveragebitrate=320000;maxplaybackrate=48000;minptime=3;sprop-stereo=1;stereo=1;useinbandfec=1\",\"COT01_111_maxaveragebitrate=320000;maxplaybackrate=48000;minptime=3;sprop-stereo=1;stereo=1;useinbandfec=1\",\"COT01_111_maxaveragebitrate=320000;maxplaybackrate=48000;minptime=3;sprop-stereo=1;stereo=1;useinbandfec=1\",\"COT01_111_maxaveragebitrate=320000;maxplaybackrate=48000;minptime=3;sprop-stereo=1;stereo=1;useinbandfec=1\",\"COT01_111_maxaveragebitrate=320000;maxplaybackrate=48000;minptime=3;sprop-stereo=1;stereo=1;useinbandfec=1\",\"COT01_111_maxaveragebitrate=320000;maxplaybackrate=48000;minptime=3;sprop-stereo=1;stereo=1;useinbandfec=1\",\"COT01_111_maxaveragebitrate=320000;maxplaybackrate=48000;minptime=3;sprop-stereo=1;stereo=1;useinbandfec=1\"]"
+    },
+    "OT01A1434211061-headerBytesSent": {
+     "startTime": "2025-12-19T23:22:02.781Z",
+     "endTime": "2025-12-19T23:22:17.789Z",
+     "statsType": "outbound-rtp",
+     "values": "[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]"
+    },
+    "OT01A1434211061-kind": {
+     "startTime": "2025-12-19T23:22:02.781Z",
+     "endTime": "2025-12-19T23:22:17.789Z",
+     "statsType": "outbound-rtp",
+     "values": "[\"audio\",\"audio\",\"audio\",\"audio\",\"audio\",\"audio\",\"audio\",\"audio\",\"audio\",\"audio\",\"audio\",\"audio\",\"audio\",\"audio\",\"audio\",\"audio\"]"
+    },
+    "OT01A1434211061-mediaSourceId": {
+     "startTime": "2025-12-19T23:22:02.781Z",
+     "endTime": "2025-12-19T23:22:17.789Z",
+     "statsType": "outbound-rtp",
+     "values": "[\"SA3\",\"SA3\",\"SA3\",\"SA3\",\"SA3\",\"SA3\",\"SA3\",\"SA3\",\"SA3\",\"SA3\",\"SA3\",\"SA3\",\"SA3\",\"SA3\",\"SA3\",\"SA3\"]"
+    },
+    "OT01A1434211061-mid": {
+     "startTime": "2025-12-19T23:22:02.781Z",
+     "endTime": "2025-12-19T23:22:17.789Z",
+     "statsType": "outbound-rtp",
+     "values": "[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]"
+    },
+    "OT01A1434211061-nackCount": {
+     "startTime": "2025-12-19T23:22:02.781Z",
+     "endTime": "2025-12-19T23:22:17.789Z",
+     "statsType": "outbound-rtp",
+     "values": "[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]"
+    },
+    "OT01A1434211061-packetsSent": {
+     "startTime": "2025-12-19T23:22:02.781Z",
+     "endTime": "2025-12-19T23:22:17.789Z",
+     "statsType": "outbound-rtp",
+     "values": "[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]"
+    },
+    "OT01A1434211061-packetsSentWithEct1": {
+     "startTime": "2025-12-19T23:22:02.781Z",
+     "endTime": "2025-12-19T23:22:17.789Z",
+     "statsType": "outbound-rtp",
+     "values": "[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]"
+    },
+    "OT01A1434211061-retransmittedBytesSent": {
+     "startTime": "2025-12-19T23:22:02.781Z",
+     "endTime": "2025-12-19T23:22:17.789Z",
+     "statsType": "outbound-rtp",
+     "values": "[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]"
+    },
+    "OT01A1434211061-retransmittedPacketsSent": {
+     "startTime": "2025-12-19T23:22:02.781Z",
+     "endTime": "2025-12-19T23:22:17.789Z",
+     "statsType": "outbound-rtp",
+     "values": "[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]"
+    },
+    "OT01A1434211061-ssrc": {
+     "startTime": "2025-12-19T23:22:02.781Z",
+     "endTime": "2025-12-19T23:22:17.789Z",
+     "statsType": "outbound-rtp",
+     "values": "[1434211061,1434211061,1434211061,1434211061,1434211061,1434211061,1434211061,1434211061,1434211061,1434211061,1434211061,1434211061,1434211061,1434211061,1434211061,1434211061]"
+    },
+    "OT01A1434211061-totalPacketSendDelay": {
+     "startTime": "2025-12-19T23:22:02.781Z",
+     "endTime": "2025-12-19T23:22:17.789Z",
+     "statsType": "outbound-rtp",
+     "values": "[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]"
+    },
+    "OT01A1434211061-transportId": {
+     "startTime": "2025-12-19T23:22:02.781Z",
+     "endTime": "2025-12-19T23:22:17.789Z",
+     "statsType": "outbound-rtp",
+     "values": "[\"T01\",\"T01\",\"T01\",\"T01\",\"T01\",\"T01\",\"T01\",\"T01\",\"T01\",\"T01\",\"T01\",\"T01\",\"T01\",\"T01\",\"T01\",\"T01\"]"
+    },
+    "OT01A1434211061-type": {
+     "startTime": "2025-12-19T23:22:02.781Z",
+     "endTime": "2025-12-19T23:22:17.789Z",
+     "statsType": "outbound-rtp",
+     "values": "[\"outbound-rtp\",\"outbound-rtp\",\"outbound-rtp\",\"outbound-rtp\",\"outbound-rtp\",\"outbound-rtp\",\"outbound-rtp\",\"outbound-rtp\",\"outbound-rtp\",\"outbound-rtp\",\"outbound-rtp\",\"outbound-rtp\",\"outbound-rtp\",\"outbound-rtp\",\"outbound-rtp\",\"outbound-rtp\"]"
+    },
+    "OT01A1434211061-timestamp": {
+     "startTime": "2025-12-19T23:22:02.781Z",
+     "endTime": "2025-12-19T23:22:17.789Z",
+     "statsType": "outbound-rtp",
+     "values": "[1766186522781.357,1766186524364.468,1766186524789.275,1766186525789.08,1766186526789.162,1766186527789.23,1766186528789.172,1766186529789.048,1766186530789.126,1766186531789.171,1766186532826.845,1766186534735.444,1766186534791.191,1766186535789.191,1766186536789.08,1766186537789.164]"
+    },
+    "AP-kind": {
+     "startTime": "2025-12-19T23:22:02.781Z",
+     "endTime": "2025-12-19T23:22:17.789Z",
+     "statsType": "media-playout",
+     "values": "[\"audio\",\"audio\",\"audio\",\"audio\",\"audio\",\"audio\",\"audio\",\"audio\",\"audio\",\"audio\",\"audio\",\"audio\",\"audio\",\"audio\",\"audio\",\"audio\"]"
+    },
+    "AP-synthesizedSamplesDuration": {
+     "startTime": "2025-12-19T23:22:02.781Z",
+     "endTime": "2025-12-19T23:22:17.789Z",
+     "statsType": "media-playout",
+     "values": "[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]"
+    },
+    "AP-synthesizedSamplesEvents": {
+     "startTime": "2025-12-19T23:22:02.781Z",
+     "endTime": "2025-12-19T23:22:17.789Z",
+     "statsType": "media-playout",
+     "values": "[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]"
+    },
+    "AP-totalPlayoutDelay": {
+     "startTime": "2025-12-19T23:22:02.781Z",
+     "endTime": "2025-12-19T23:22:17.789Z",
+     "statsType": "media-playout",
+     "values": "[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]"
+    },
+    "AP-totalSamplesCount": {
+     "startTime": "2025-12-19T23:22:02.781Z",
+     "endTime": "2025-12-19T23:22:17.789Z",
+     "statsType": "media-playout",
+     "values": "[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]"
+    },
+    "AP-totalSamplesDuration": {
+     "startTime": "2025-12-19T23:22:02.781Z",
+     "endTime": "2025-12-19T23:22:17.789Z",
+     "statsType": "media-playout",
+     "values": "[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]"
+    },
+    "AP-type": {
+     "startTime": "2025-12-19T23:22:02.781Z",
+     "endTime": "2025-12-19T23:22:17.789Z",
+     "statsType": "media-playout",
+     "values": "[\"media-playout\",\"media-playout\",\"media-playout\",\"media-playout\",\"media-playout\",\"media-playout\",\"media-playout\",\"media-playout\",\"media-playout\",\"media-playout\",\"media-playout\",\"media-playout\",\"media-playout\",\"media-playout\",\"media-playout\",\"media-playout\"]"
+    },
+    "AP-timestamp": {
+     "startTime": "2025-12-19T23:22:02.781Z",
+     "endTime": "2025-12-19T23:22:17.789Z",
+     "statsType": "media-playout",
+     "values": "[1766186522781.357,1766186524364.468,1766186524789.275,1766186525789.08,1766186526789.162,1766186527789.23,1766186528789.172,1766186529789.048,1766186530789.126,1766186531789.171,1766186532826.845,1766186534735.444,1766186534791.191,1766186535789.191,1766186536789.08,1766186537789.164]"
+    },
+    "CFD4:7E:E7:86:5B:69:BB:15:9C:F3:D0:91:29:82:3F:10:A1:83:B2:B2:2A:30:7C:A7:FB:5D:A8:4C:AA:BE:01:1A-base64Certificate": {
+     "startTime": "2025-12-19T23:22:02.781Z",
+     "endTime": "2025-12-19T23:22:17.789Z",
+     "statsType": "certificate",
+     "values": "[\"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\"]"
+    },
+    "CFD4:7E:E7:86:5B:69:BB:15:9C:F3:D0:91:29:82:3F:10:A1:83:B2:B2:2A:30:7C:A7:FB:5D:A8:4C:AA:BE:01:1A-fingerprint": {
+     "startTime": "2025-12-19T23:22:02.781Z",
+     "endTime": "2025-12-19T23:22:17.789Z",
+     "statsType": "certificate",
+     "values": "[\"D4:7E:E7:86:5B:69:BB:15:9C:F3:D0:91:29:82:3F:10:A1:83:B2:B2:2A:30:7C:A7:FB:5D:A8:4C:AA:BE:01:1A\",\"D4:7E:E7:86:5B:69:BB:15:9C:F3:D0:91:29:82:3F:10:A1:83:B2:B2:2A:30:7C:A7:FB:5D:A8:4C:AA:BE:01:1A\",\"D4:7E:E7:86:5B:69:BB:15:9C:F3:D0:91:29:82:3F:10:A1:83:B2:B2:2A:30:7C:A7:FB:5D:A8:4C:AA:BE:01:1A\",\"D4:7E:E7:86:5B:69:BB:15:9C:F3:D0:91:29:82:3F:10:A1:83:B2:B2:2A:30:7C:A7:FB:5D:A8:4C:AA:BE:01:1A\",\"D4:7E:E7:86:5B:69:BB:15:9C:F3:D0:91:29:82:3F:10:A1:83:B2:B2:2A:30:7C:A7:FB:5D:A8:4C:AA:BE:01:1A\",\"D4:7E:E7:86:5B:69:BB:15:9C:F3:D0:91:29:82:3F:10:A1:83:B2:B2:2A:30:7C:A7:FB:5D:A8:4C:AA:BE:01:1A\",\"D4:7E:E7:86:5B:69:BB:15:9C:F3:D0:91:29:82:3F:10:A1:83:B2:B2:2A:30:7C:A7:FB:5D:A8:4C:AA:BE:01:1A\",\"D4:7E:E7:86:5B:69:BB:15:9C:F3:D0:91:29:82:3F:10:A1:83:B2:B2:2A:30:7C:A7:FB:5D:A8:4C:AA:BE:01:1A\",\"D4:7E:E7:86:5B:69:BB:15:9C:F3:D0:91:29:82:3F:10:A1:83:B2:B2:2A:30:7C:A7:FB:5D:A8:4C:AA:BE:01:1A\",\"D4:7E:E7:86:5B:69:BB:15:9C:F3:D0:91:29:82:3F:10:A1:83:B2:B2:2A:30:7C:A7:FB:5D:A8:4C:AA:BE:01:1A\",\"D4:7E:E7:86:5B:69:BB:15:9C:F3:D0:91:29:82:3F:10:A1:83:B2:B2:2A:30:7C:A7:FB:5D:A8:4C:AA:BE:01:1A\",\"D4:7E:E7:86:5B:69:BB:15:9C:F3:D0:91:29:82:3F:10:A1:83:B2:B2:2A:30:7C:A7:FB:5D:A8:4C:AA:BE:01:1A\",\"D4:7E:E7:86:5B:69:BB:15:9C:F3:D0:91:29:82:3F:10:A1:83:B2:B2:2A:30:7C:A7:FB:5D:A8:4C:AA:BE:01:1A\",\"D4:7E:E7:86:5B:69:BB:15:9C:F3:D0:91:29:82:3F:10:A1:83:B2:B2:2A:30:7C:A7:FB:5D:A8:4C:AA:BE:01:1A\",\"D4:7E:E7:86:5B:69:BB:15:9C:F3:D0:91:29:82:3F:10:A1:83:B2:B2:2A:30:7C:A7:FB:5D:A8:4C:AA:BE:01:1A\",\"D4:7E:E7:86:5B:69:BB:15:9C:F3:D0:91:29:82:3F:10:A1:83:B2:B2:2A:30:7C:A7:FB:5D:A8:4C:AA:BE:01:1A\"]"
+    },
+    "CFD4:7E:E7:86:5B:69:BB:15:9C:F3:D0:91:29:82:3F:10:A1:83:B2:B2:2A:30:7C:A7:FB:5D:A8:4C:AA:BE:01:1A-fingerprintAlgorithm": {
+     "startTime": "2025-12-19T23:22:02.781Z",
+     "endTime": "2025-12-19T23:22:17.789Z",
+     "statsType": "certificate",
+     "values": "[\"sha-256\",\"sha-256\",\"sha-256\",\"sha-256\",\"sha-256\",\"sha-256\",\"sha-256\",\"sha-256\",\"sha-256\",\"sha-256\",\"sha-256\",\"sha-256\",\"sha-256\",\"sha-256\",\"sha-256\",\"sha-256\"]"
+    },
+    "CFD4:7E:E7:86:5B:69:BB:15:9C:F3:D0:91:29:82:3F:10:A1:83:B2:B2:2A:30:7C:A7:FB:5D:A8:4C:AA:BE:01:1A-type": {
+     "startTime": "2025-12-19T23:22:02.781Z",
+     "endTime": "2025-12-19T23:22:17.789Z",
+     "statsType": "certificate",
+     "values": "[\"certificate\",\"certificate\",\"certificate\",\"certificate\",\"certificate\",\"certificate\",\"certificate\",\"certificate\",\"certificate\",\"certificate\",\"certificate\",\"certificate\",\"certificate\",\"certificate\",\"certificate\",\"certificate\"]"
+    },
+    "CFD4:7E:E7:86:5B:69:BB:15:9C:F3:D0:91:29:82:3F:10:A1:83:B2:B2:2A:30:7C:A7:FB:5D:A8:4C:AA:BE:01:1A-timestamp": {
+     "startTime": "2025-12-19T23:22:02.781Z",
+     "endTime": "2025-12-19T23:22:17.789Z",
+     "statsType": "certificate",
+     "values": "[1766186522781.357,1766186524364.468,1766186524789.275,1766186525789.08,1766186526789.162,1766186527789.23,1766186528789.172,1766186529789.048,1766186530789.126,1766186531789.171,1766186532826.845,1766186534735.444,1766186534791.191,1766186535789.191,1766186536789.08,1766186537789.164]"
+    },
+    "COT01_111_maxaveragebitrate=320000;maxplaybackrate=48000;minptime=3;sprop-stereo=1;stereo=1;useinbandfec=1-channels": {
+     "startTime": "2025-12-19T23:22:02.781Z",
+     "endTime": "2025-12-19T23:22:17.789Z",
+     "statsType": "codec",
+     "values": "[2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2]"
+    },
+    "COT01_111_maxaveragebitrate=320000;maxplaybackrate=48000;minptime=3;sprop-stereo=1;stereo=1;useinbandfec=1-clockRate": {
+     "startTime": "2025-12-19T23:22:02.781Z",
+     "endTime": "2025-12-19T23:22:17.789Z",
+     "statsType": "codec",
+     "values": "[48000,48000,48000,48000,48000,48000,48000,48000,48000,48000,48000,48000,48000,48000,48000,48000]"
+    },
+    "COT01_111_maxaveragebitrate=320000;maxplaybackrate=48000;minptime=3;sprop-stereo=1;stereo=1;useinbandfec=1-mimeType": {
+     "startTime": "2025-12-19T23:22:02.781Z",
+     "endTime": "2025-12-19T23:22:17.789Z",
+     "statsType": "codec",
+     "values": "[\"audio/opus\",\"audio/opus\",\"audio/opus\",\"audio/opus\",\"audio/opus\",\"audio/opus\",\"audio/opus\",\"audio/opus\",\"audio/opus\",\"audio/opus\",\"audio/opus\",\"audio/opus\",\"audio/opus\",\"audio/opus\",\"audio/opus\",\"audio/opus\"]"
+    },
+    "COT01_111_maxaveragebitrate=320000;maxplaybackrate=48000;minptime=3;sprop-stereo=1;stereo=1;useinbandfec=1-payloadType": {
+     "startTime": "2025-12-19T23:22:02.781Z",
+     "endTime": "2025-12-19T23:22:17.789Z",
+     "statsType": "codec",
+     "values": "[111,111,111,111,111,111,111,111,111,111,111,111,111,111,111,111]"
+    },
+    "COT01_111_maxaveragebitrate=320000;maxplaybackrate=48000;minptime=3;sprop-stereo=1;stereo=1;useinbandfec=1-sdpFmtpLine": {
+     "startTime": "2025-12-19T23:22:02.781Z",
+     "endTime": "2025-12-19T23:22:17.789Z",
+     "statsType": "codec",
+     "values": "[\"maxaveragebitrate=320000;maxplaybackrate=48000;minptime=3;sprop-stereo=1;stereo=1;useinbandfec=1\",\"maxaveragebitrate=320000;maxplaybackrate=48000;minptime=3;sprop-stereo=1;stereo=1;useinbandfec=1\",\"maxaveragebitrate=320000;maxplaybackrate=48000;minptime=3;sprop-stereo=1;stereo=1;useinbandfec=1\",\"maxaveragebitrate=320000;maxplaybackrate=48000;minptime=3;sprop-stereo=1;stereo=1;useinbandfec=1\",\"maxaveragebitrate=320000;maxplaybackrate=48000;minptime=3;sprop-stereo=1;stereo=1;useinbandfec=1\",\"maxaveragebitrate=320000;maxplaybackrate=48000;minptime=3;sprop-stereo=1;stereo=1;useinbandfec=1\",\"maxaveragebitrate=320000;maxplaybackrate=48000;minptime=3;sprop-stereo=1;stereo=1;useinbandfec=1\",\"maxaveragebitrate=320000;maxplaybackrate=48000;minptime=3;sprop-stereo=1;stereo=1;useinbandfec=1\",\"maxaveragebitrate=320000;maxplaybackrate=48000;minptime=3;sprop-stereo=1;stereo=1;useinbandfec=1\",\"maxaveragebitrate=320000;maxplaybackrate=48000;minptime=3;sprop-stereo=1;stereo=1;useinbandfec=1\",\"maxaveragebitrate=320000;maxplaybackrate=48000;minptime=3;sprop-stereo=1;stereo=1;useinbandfec=1\",\"maxaveragebitrate=320000;maxplaybackrate=48000;minptime=3;sprop-stereo=1;stereo=1;useinbandfec=1\",\"maxaveragebitrate=320000;maxplaybackrate=48000;minptime=3;sprop-stereo=1;stereo=1;useinbandfec=1\",\"maxaveragebitrate=320000;maxplaybackrate=48000;minptime=3;sprop-stereo=1;stereo=1;useinbandfec=1\",\"maxaveragebitrate=320000;maxplaybackrate=48000;minptime=3;sprop-stereo=1;stereo=1;useinbandfec=1\",\"maxaveragebitrate=320000;maxplaybackrate=48000;minptime=3;sprop-stereo=1;stereo=1;useinbandfec=1\"]"
+    },
+    "COT01_111_maxaveragebitrate=320000;maxplaybackrate=48000;minptime=3;sprop-stereo=1;stereo=1;useinbandfec=1-transportId": {
+     "startTime": "2025-12-19T23:22:02.781Z",
+     "endTime": "2025-12-19T23:22:17.789Z",
+     "statsType": "codec",
+     "values": "[\"T01\",\"T01\",\"T01\",\"T01\",\"T01\",\"T01\",\"T01\",\"T01\",\"T01\",\"T01\",\"T01\",\"T01\",\"T01\",\"T01\",\"T01\",\"T01\"]"
+    },
+    "COT01_111_maxaveragebitrate=320000;maxplaybackrate=48000;minptime=3;sprop-stereo=1;stereo=1;useinbandfec=1-type": {
+     "startTime": "2025-12-19T23:22:02.781Z",
+     "endTime": "2025-12-19T23:22:17.789Z",
+     "statsType": "codec",
+     "values": "[\"codec\",\"codec\",\"codec\",\"codec\",\"codec\",\"codec\",\"codec\",\"codec\",\"codec\",\"codec\",\"codec\",\"codec\",\"codec\",\"codec\",\"codec\",\"codec\"]"
+    },
+    "COT01_111_maxaveragebitrate=320000;maxplaybackrate=48000;minptime=3;sprop-stereo=1;stereo=1;useinbandfec=1-timestamp": {
+     "startTime": "2025-12-19T23:22:02.781Z",
+     "endTime": "2025-12-19T23:22:17.789Z",
+     "statsType": "codec",
+     "values": "[1766186522781.357,1766186524364.468,1766186524789.275,1766186525789.08,1766186526789.162,1766186527789.23,1766186528789.172,1766186529789.048,1766186530789.126,1766186531789.171,1766186532826.845,1766186534735.444,1766186534791.191,1766186535789.191,1766186536789.08,1766186537789.164]"
+    },
+    "IsT7/Zmh7-address": {
+     "startTime": "2025-12-19T23:22:02.781Z",
+     "endTime": "2025-12-19T23:22:17.789Z",
+     "statsType": "local-candidate",
+     "values": "[\"0.0.0.0\",\"0.0.0.0\",\"0.0.0.0\",\"0.0.0.0\",\"0.0.0.0\",\"0.0.0.0\",\"0.0.0.0\",\"0.0.0.0\",\"0.0.0.0\",\"0.0.0.0\",\"0.0.0.0\",\"0.0.0.0\",\"0.0.0.0\",\"0.0.0.0\",\"0.0.0.0\",\"0.0.0.0\"]"
+    },
+    "IsT7/Zmh7-candidateType": {
+     "startTime": "2025-12-19T23:22:02.781Z",
+     "endTime": "2025-12-19T23:22:17.789Z",
+     "statsType": "local-candidate",
+     "values": "[\"host\",\"host\",\"host\",\"host\",\"host\",\"host\",\"host\",\"host\",\"host\",\"host\",\"host\",\"host\",\"host\",\"host\",\"host\",\"host\"]"
+    },
+    "IsT7/Zmh7-foundation": {
+     "startTime": "2025-12-19T23:22:02.781Z",
+     "endTime": "2025-12-19T23:22:17.789Z",
+     "statsType": "local-candidate",
+     "values": "[1090524403,1090524403,1090524403,1090524403,1090524403,1090524403,1090524403,1090524403,1090524403,1090524403,1090524403,1090524403,1090524403,1090524403,1090524403,1090524403]"
+    },
+    "IsT7/Zmh7-ip": {
+     "startTime": "2025-12-19T23:22:02.781Z",
+     "endTime": "2025-12-19T23:22:17.789Z",
+     "statsType": "local-candidate",
+     "values": "[\"0.0.0.0\",\"0.0.0.0\",\"0.0.0.0\",\"0.0.0.0\",\"0.0.0.0\",\"0.0.0.0\",\"0.0.0.0\",\"0.0.0.0\",\"0.0.0.0\",\"0.0.0.0\",\"0.0.0.0\",\"0.0.0.0\",\"0.0.0.0\",\"0.0.0.0\",\"0.0.0.0\",\"0.0.0.0\"]"
+    },
+    "IsT7/Zmh7-isRemote": {
+     "startTime": "2025-12-19T23:22:02.781Z",
+     "endTime": "2025-12-19T23:22:17.789Z",
+     "statsType": "local-candidate",
+     "values": "[false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false]"
+    },
+    "IsT7/Zmh7-networkAdapterType": {
+     "startTime": "2025-12-19T23:22:02.781Z",
+     "endTime": "2025-12-19T23:22:17.789Z",
+     "statsType": "local-candidate",
+     "values": "[\"any\",\"any\",\"any\",\"any\",\"any\",\"any\",\"any\",\"any\",\"any\",\"any\",\"any\",\"any\",\"any\",\"any\",\"any\",\"any\"]"
+    },
+    "IsT7/Zmh7-networkType": {
+     "startTime": "2025-12-19T23:22:02.781Z",
+     "endTime": "2025-12-19T23:22:17.789Z",
+     "statsType": "local-candidate",
+     "values": "[\"unknown\",\"unknown\",\"unknown\",\"unknown\",\"unknown\",\"unknown\",\"unknown\",\"unknown\",\"unknown\",\"unknown\",\"unknown\",\"unknown\",\"unknown\",\"unknown\",\"unknown\",\"unknown\"]"
+    },
+    "IsT7/Zmh7-port": {
+     "startTime": "2025-12-19T23:22:02.781Z",
+     "endTime": "2025-12-19T23:22:17.789Z",
+     "statsType": "local-candidate",
+     "values": "[9,9,9,9,9,9,9,9,9,9,9,9,9,9,9,9]"
+    },
+    "IsT7/Zmh7-priority": {
+     "startTime": "2025-12-19T23:22:02.781Z",
+     "endTime": "2025-12-19T23:22:17.789Z",
+     "statsType": "local-candidate",
+     "values": "[1509957375,1509957375,1509957375,1509957375,1509957375,1509957375,1509957375,1509957375,1509957375,1509957375,1509957375,1509957375,1509957375,1509957375,1509957375,1509957375]"
+    },
+    "IsT7/Zmh7-protocol": {
+     "startTime": "2025-12-19T23:22:02.781Z",
+     "endTime": "2025-12-19T23:22:17.789Z",
+     "statsType": "local-candidate",
+     "values": "[\"tcp\",\"tcp\",\"tcp\",\"tcp\",\"tcp\",\"tcp\",\"tcp\",\"tcp\",\"tcp\",\"tcp\",\"tcp\",\"tcp\",\"tcp\",\"tcp\",\"tcp\",\"tcp\"]"
+    },
+    "IsT7/Zmh7-tcpType": {
+     "startTime": "2025-12-19T23:22:02.781Z",
+     "endTime": "2025-12-19T23:22:17.789Z",
+     "statsType": "local-candidate",
+     "values": "[\"active\",\"active\",\"active\",\"active\",\"active\",\"active\",\"active\",\"active\",\"active\",\"active\",\"active\",\"active\",\"active\",\"active\",\"active\",\"active\"]"
+    },
+    "IsT7/Zmh7-transportId": {
+     "startTime": "2025-12-19T23:22:02.781Z",
+     "endTime": "2025-12-19T23:22:17.789Z",
+     "statsType": "local-candidate",
+     "values": "[\"T01\",\"T01\",\"T01\",\"T01\",\"T01\",\"T01\",\"T01\",\"T01\",\"T01\",\"T01\",\"T01\",\"T01\",\"T01\",\"T01\",\"T01\",\"T01\"]"
+    },
+    "IsT7/Zmh7-type": {
+     "startTime": "2025-12-19T23:22:02.781Z",
+     "endTime": "2025-12-19T23:22:17.789Z",
+     "statsType": "local-candidate",
+     "values": "[\"local-candidate\",\"local-candidate\",\"local-candidate\",\"local-candidate\",\"local-candidate\",\"local-candidate\",\"local-candidate\",\"local-candidate\",\"local-candidate\",\"local-candidate\",\"local-candidate\",\"local-candidate\",\"local-candidate\",\"local-candidate\",\"local-candidate\",\"local-candidate\"]"
+    },
+    "IsT7/Zmh7-usernameFragment": {
+     "startTime": "2025-12-19T23:22:02.781Z",
+     "endTime": "2025-12-19T23:22:17.789Z",
+     "statsType": "local-candidate",
+     "values": "[\"6wrW\",\"6wrW\",\"6wrW\",\"6wrW\",\"6wrW\",\"6wrW\",\"6wrW\",\"6wrW\",\"6wrW\",\"6wrW\",\"6wrW\",\"6wrW\",\"6wrW\",\"6wrW\",\"6wrW\",\"6wrW\"]"
+    },
+    "IsT7/Zmh7-vpn": {
+     "startTime": "2025-12-19T23:22:02.781Z",
+     "endTime": "2025-12-19T23:22:17.789Z",
+     "statsType": "local-candidate",
+     "values": "[false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false]"
+    },
+    "IsT7/Zmh7-timestamp": {
+     "startTime": "2025-12-19T23:22:02.781Z",
+     "endTime": "2025-12-19T23:22:17.789Z",
+     "statsType": "local-candidate",
+     "values": "[1766186522781.357,1766186524364.468,1766186524789.275,1766186525789.08,1766186526789.162,1766186527789.23,1766186528789.172,1766186529789.048,1766186530789.126,1766186531789.171,1766186532826.845,1766186534735.444,1766186534791.191,1766186535789.191,1766186536789.08,1766186537789.164]"
+    },
+    "Iunrmx7S1-address": {
+     "startTime": "2025-12-19T23:22:02.781Z",
+     "endTime": "2025-12-19T23:22:17.789Z",
+     "statsType": "local-candidate",
+     "values": "[\"::\",\"::\",\"::\",\"::\",\"::\",\"::\",\"::\",\"::\",\"::\",\"::\",\"::\",\"::\",\"::\",\"::\",\"::\",\"::\"]"
+    },
+    "Iunrmx7S1-candidateType": {
+     "startTime": "2025-12-19T23:22:02.781Z",
+     "endTime": "2025-12-19T23:22:17.789Z",
+     "statsType": "local-candidate",
+     "values": "[\"host\",\"host\",\"host\",\"host\",\"host\",\"host\",\"host\",\"host\",\"host\",\"host\",\"host\",\"host\",\"host\",\"host\",\"host\",\"host\"]"
+    },
+    "Iunrmx7S1-foundation": {
+     "startTime": "2025-12-19T23:22:02.781Z",
+     "endTime": "2025-12-19T23:22:17.789Z",
+     "statsType": "local-candidate",
+     "values": "[1143992328,1143992328,1143992328,1143992328,1143992328,1143992328,1143992328,1143992328,1143992328,1143992328,1143992328,1143992328,1143992328,1143992328,1143992328,1143992328]"
+    },
+    "Iunrmx7S1-ip": {
+     "startTime": "2025-12-19T23:22:02.781Z",
+     "endTime": "2025-12-19T23:22:17.789Z",
+     "statsType": "local-candidate",
+     "values": "[\"::\",\"::\",\"::\",\"::\",\"::\",\"::\",\"::\",\"::\",\"::\",\"::\",\"::\",\"::\",\"::\",\"::\",\"::\",\"::\"]"
+    },
+    "Iunrmx7S1-isRemote": {
+     "startTime": "2025-12-19T23:22:02.781Z",
+     "endTime": "2025-12-19T23:22:17.789Z",
+     "statsType": "local-candidate",
+     "values": "[false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false]"
+    },
+    "Iunrmx7S1-networkAdapterType": {
+     "startTime": "2025-12-19T23:22:02.781Z",
+     "endTime": "2025-12-19T23:22:17.789Z",
+     "statsType": "local-candidate",
+     "values": "[\"any\",\"any\",\"any\",\"any\",\"any\",\"any\",\"any\",\"any\",\"any\",\"any\",\"any\",\"any\",\"any\",\"any\",\"any\",\"any\"]"
+    },
+    "Iunrmx7S1-networkType": {
+     "startTime": "2025-12-19T23:22:02.781Z",
+     "endTime": "2025-12-19T23:22:17.789Z",
+     "statsType": "local-candidate",
+     "values": "[\"unknown\",\"unknown\",\"unknown\",\"unknown\",\"unknown\",\"unknown\",\"unknown\",\"unknown\",\"unknown\",\"unknown\",\"unknown\",\"unknown\",\"unknown\",\"unknown\",\"unknown\",\"unknown\"]"
+    },
+    "Iunrmx7S1-port": {
+     "startTime": "2025-12-19T23:22:02.781Z",
+     "endTime": "2025-12-19T23:22:17.789Z",
+     "statsType": "local-candidate",
+     "values": "[9,9,9,9,9,9,9,9,9,9,9,9,9,9,9,9]"
+    },
+    "Iunrmx7S1-priority": {
+     "startTime": "2025-12-19T23:22:02.781Z",
+     "endTime": "2025-12-19T23:22:17.789Z",
+     "statsType": "local-candidate",
+     "values": "[1509949951,1509949951,1509949951,1509949951,1509949951,1509949951,1509949951,1509949951,1509949951,1509949951,1509949951,1509949951,1509949951,1509949951,1509949951,1509949951]"
+    },
+    "Iunrmx7S1-protocol": {
+     "startTime": "2025-12-19T23:22:02.781Z",
+     "endTime": "2025-12-19T23:22:17.789Z",
+     "statsType": "local-candidate",
+     "values": "[\"tcp\",\"tcp\",\"tcp\",\"tcp\",\"tcp\",\"tcp\",\"tcp\",\"tcp\",\"tcp\",\"tcp\",\"tcp\",\"tcp\",\"tcp\",\"tcp\",\"tcp\",\"tcp\"]"
+    },
+    "Iunrmx7S1-tcpType": {
+     "startTime": "2025-12-19T23:22:02.781Z",
+     "endTime": "2025-12-19T23:22:17.789Z",
+     "statsType": "local-candidate",
+     "values": "[\"active\",\"active\",\"active\",\"active\",\"active\",\"active\",\"active\",\"active\",\"active\",\"active\",\"active\",\"active\",\"active\",\"active\",\"active\",\"active\"]"
+    },
+    "Iunrmx7S1-transportId": {
+     "startTime": "2025-12-19T23:22:02.781Z",
+     "endTime": "2025-12-19T23:22:17.789Z",
+     "statsType": "local-candidate",
+     "values": "[\"T01\",\"T01\",\"T01\",\"T01\",\"T01\",\"T01\",\"T01\",\"T01\",\"T01\",\"T01\",\"T01\",\"T01\",\"T01\",\"T01\",\"T01\",\"T01\"]"
+    },
+    "Iunrmx7S1-type": {
+     "startTime": "2025-12-19T23:22:02.781Z",
+     "endTime": "2025-12-19T23:22:17.789Z",
+     "statsType": "local-candidate",
+     "values": "[\"local-candidate\",\"local-candidate\",\"local-candidate\",\"local-candidate\",\"local-candidate\",\"local-candidate\",\"local-candidate\",\"local-candidate\",\"local-candidate\",\"local-candidate\",\"local-candidate\",\"local-candidate\",\"local-candidate\",\"local-candidate\",\"local-candidate\",\"local-candidate\"]"
+    },
+    "Iunrmx7S1-usernameFragment": {
+     "startTime": "2025-12-19T23:22:02.781Z",
+     "endTime": "2025-12-19T23:22:17.789Z",
+     "statsType": "local-candidate",
+     "values": "[\"6wrW\",\"6wrW\",\"6wrW\",\"6wrW\",\"6wrW\",\"6wrW\",\"6wrW\",\"6wrW\",\"6wrW\",\"6wrW\",\"6wrW\",\"6wrW\",\"6wrW\",\"6wrW\",\"6wrW\",\"6wrW\"]"
+    },
+    "Iunrmx7S1-vpn": {
+     "startTime": "2025-12-19T23:22:02.781Z",
+     "endTime": "2025-12-19T23:22:17.789Z",
+     "statsType": "local-candidate",
+     "values": "[false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false]"
+    },
+    "Iunrmx7S1-timestamp": {
+     "startTime": "2025-12-19T23:22:02.781Z",
+     "endTime": "2025-12-19T23:22:17.789Z",
+     "statsType": "local-candidate",
+     "values": "[1766186522781.357,1766186524364.468,1766186524789.275,1766186525789.08,1766186526789.162,1766186527789.23,1766186528789.172,1766186529789.048,1766186530789.126,1766186531789.171,1766186532826.845,1766186534735.444,1766186534791.191,1766186535789.191,1766186536789.08,1766186537789.164]"
+    },
+    "P-dataChannelsClosed": {
+     "startTime": "2025-12-19T23:22:02.781Z",
+     "endTime": "2025-12-19T23:22:17.789Z",
+     "statsType": "peer-connection",
+     "values": "[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]"
+    },
+    "P-dataChannelsOpened": {
+     "startTime": "2025-12-19T23:22:02.781Z",
+     "endTime": "2025-12-19T23:22:17.789Z",
+     "statsType": "peer-connection",
+     "values": "[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]"
+    },
+    "P-type": {
+     "startTime": "2025-12-19T23:22:02.781Z",
+     "endTime": "2025-12-19T23:22:17.789Z",
+     "statsType": "peer-connection",
+     "values": "[\"peer-connection\",\"peer-connection\",\"peer-connection\",\"peer-connection\",\"peer-connection\",\"peer-connection\",\"peer-connection\",\"peer-connection\",\"peer-connection\",\"peer-connection\",\"peer-connection\",\"peer-connection\",\"peer-connection\",\"peer-connection\",\"peer-connection\",\"peer-connection\"]"
+    },
+    "P-timestamp": {
+     "startTime": "2025-12-19T23:22:02.781Z",
+     "endTime": "2025-12-19T23:22:17.789Z",
+     "statsType": "peer-connection",
+     "values": "[1766186522781.357,1766186524364.468,1766186524789.275,1766186525789.08,1766186526789.162,1766186527789.23,1766186528789.172,1766186529789.048,1766186530789.126,1766186531789.171,1766186532826.845,1766186534735.444,1766186534791.191,1766186535789.191,1766186536789.08,1766186537789.164]"
+    },
+    "SA3-audioLevel": {
+     "startTime": "2025-12-19T23:22:02.781Z",
+     "endTime": "2025-12-19T23:22:17.789Z",
+     "statsType": "media-source",
+     "values": "[0.00640888698995941,0.006927701651051363,0.008941923276467178,0.007263405255287332,0.008026367992187262,0.005462813196203497,0.005035554063539537,0.005249183629871517,0.005645924253059481,0.005066072573015534,0.00466933194982757,0.012970366527298808,0.012970366527298808,0.012970366527298808,0.012970366527298808,0.012970366527298808]"
+    },
+    "SA3-kind": {
+     "startTime": "2025-12-19T23:22:02.781Z",
+     "endTime": "2025-12-19T23:22:17.789Z",
+     "statsType": "media-source",
+     "values": "[\"audio\",\"audio\",\"audio\",\"audio\",\"audio\",\"audio\",\"audio\",\"audio\",\"audio\",\"audio\",\"audio\",\"audio\",\"audio\",\"audio\",\"audio\",\"audio\"]"
+    },
+    "SA3-totalAudioEnergy": {
+     "startTime": "2025-12-19T23:22:02.781Z",
+     "endTime": "2025-12-19T23:22:17.789Z",
+     "statsType": "media-source",
+     "values": "[0.000008415711600016528,0.00007236664420741424,0.038597350937681046,0.03864852239463034,0.03874093712988759,0.03884778403632967,0.0390428128472901,0.039079085474709584,0.039099745519293905,0.03912506101734335,0.03920342608031633,0.03923565422054306,0.03923565422054306,0.03923565422054306,0.03923565422054306,0.03923565422054306]"
+    },
+    "SA3-totalSamplesDuration": {
+     "startTime": "2025-12-19T23:22:02.781Z",
+     "endTime": "2025-12-19T23:22:17.789Z",
+     "statsType": "media-source",
+     "values": "[0.34000000000000014,1.9400000000000015,2.339999999999994,3.3499999999999726,4.349999999999952,5.34999999999993,6.359999999999909,7.3599999999998875,8.359999999999866,9.359999999999845,10.389999999999823,11.089999999999808,11.089999999999808,11.089999999999808,11.089999999999808,11.089999999999808]"
+    },
+    "SA3-trackIdentifier": {
+     "startTime": "2025-12-19T23:22:02.781Z",
+     "endTime": "2025-12-19T23:22:17.789Z",
+     "statsType": "media-source",
+     "values": "[\"f52f391d-9696-4499-a464-ff8db479efe9\",\"f52f391d-9696-4499-a464-ff8db479efe9\",\"f52f391d-9696-4499-a464-ff8db479efe9\",\"f52f391d-9696-4499-a464-ff8db479efe9\",\"f52f391d-9696-4499-a464-ff8db479efe9\",\"f52f391d-9696-4499-a464-ff8db479efe9\",\"f52f391d-9696-4499-a464-ff8db479efe9\",\"f52f391d-9696-4499-a464-ff8db479efe9\",\"f52f391d-9696-4499-a464-ff8db479efe9\",\"f52f391d-9696-4499-a464-ff8db479efe9\",\"f52f391d-9696-4499-a464-ff8db479efe9\",\"f52f391d-9696-4499-a464-ff8db479efe9\",\"f52f391d-9696-4499-a464-ff8db479efe9\",\"f52f391d-9696-4499-a464-ff8db479efe9\",\"f52f391d-9696-4499-a464-ff8db479efe9\",\"f52f391d-9696-4499-a464-ff8db479efe9\"]"
+    },
+    "SA3-type": {
+     "startTime": "2025-12-19T23:22:02.781Z",
+     "endTime": "2025-12-19T23:22:17.789Z",
+     "statsType": "media-source",
+     "values": "[\"media-source\",\"media-source\",\"media-source\",\"media-source\",\"media-source\",\"media-source\",\"media-source\",\"media-source\",\"media-source\",\"media-source\",\"media-source\",\"media-source\",\"media-source\",\"media-source\",\"media-source\",\"media-source\"]"
+    },
+    "SA3-timestamp": {
+     "startTime": "2025-12-19T23:22:02.781Z",
+     "endTime": "2025-12-19T23:22:17.789Z",
+     "statsType": "media-source",
+     "values": "[1766186522781.357,1766186524364.468,1766186524789.275,1766186525789.08,1766186526789.162,1766186527789.23,1766186528789.172,1766186529789.048,1766186530789.126,1766186531789.171,1766186532826.845,1766186534735.444,1766186534791.191,1766186535789.191,1766186536789.08,1766186537789.164]"
+    },
+    "T01-bytesReceived": {
+     "startTime": "2025-12-19T23:22:02.781Z",
+     "endTime": "2025-12-19T23:22:17.789Z",
+     "statsType": "transport",
+     "values": "[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]"
+    },
+    "T01-bytesSent": {
+     "startTime": "2025-12-19T23:22:02.781Z",
+     "endTime": "2025-12-19T23:22:17.789Z",
+     "statsType": "transport",
+     "values": "[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]"
+    },
+    "T01-dtlsRole": {
+     "startTime": "2025-12-19T23:22:02.781Z",
+     "endTime": "2025-12-19T23:22:17.789Z",
+     "statsType": "transport",
+     "values": "[\"client\",\"client\",\"client\",\"client\",\"client\",\"client\",\"client\",\"client\",\"client\",\"client\",\"client\",\"client\",\"client\",\"client\",\"client\",\"client\"]"
+    },
+    "T01-dtlsState": {
+     "startTime": "2025-12-19T23:22:02.781Z",
+     "endTime": "2025-12-19T23:22:17.789Z",
+     "statsType": "transport",
+     "values": "[\"new\",\"new\",\"new\",\"new\",\"new\",\"new\",\"new\",\"new\",\"new\",\"new\",\"new\",\"new\",\"new\",\"new\",\"new\",\"new\"]"
+    },
+    "T01-iceLocalUsernameFragment": {
+     "startTime": "2025-12-19T23:22:02.781Z",
+     "endTime": "2025-12-19T23:22:17.789Z",
+     "statsType": "transport",
+     "values": "[\"6wrW\",\"6wrW\",\"6wrW\",\"6wrW\",\"6wrW\",\"6wrW\",\"6wrW\",\"6wrW\",\"6wrW\",\"6wrW\",\"6wrW\",\"6wrW\",\"6wrW\",\"6wrW\",\"6wrW\",\"6wrW\"]"
+    },
+    "T01-iceRole": {
+     "startTime": "2025-12-19T23:22:02.781Z",
+     "endTime": "2025-12-19T23:22:17.789Z",
+     "statsType": "transport",
+     "values": "[\"controlling\",\"controlling\",\"controlling\",\"controlling\",\"controlling\",\"controlling\",\"controlling\",\"controlling\",\"controlling\",\"controlling\",\"controlling\",\"controlling\",\"controlling\",\"controlling\",\"controlling\",\"controlling\"]"
+    },
+    "T01-iceState": {
+     "startTime": "2025-12-19T23:22:02.781Z",
+     "endTime": "2025-12-19T23:22:17.789Z",
+     "statsType": "transport",
+     "values": "[\"new\",\"new\",\"new\",\"new\",\"new\",\"new\",\"new\",\"new\",\"new\",\"new\",\"new\",\"new\",\"new\",\"new\",\"new\",\"new\"]"
+    },
+    "T01-localCertificateId": {
+     "startTime": "2025-12-19T23:22:02.781Z",
+     "endTime": "2025-12-19T23:22:17.789Z",
+     "statsType": "transport",
+     "values": "[\"CFD4:7E:E7:86:5B:69:BB:15:9C:F3:D0:91:29:82:3F:10:A1:83:B2:B2:2A:30:7C:A7:FB:5D:A8:4C:AA:BE:01:1A\",\"CFD4:7E:E7:86:5B:69:BB:15:9C:F3:D0:91:29:82:3F:10:A1:83:B2:B2:2A:30:7C:A7:FB:5D:A8:4C:AA:BE:01:1A\",\"CFD4:7E:E7:86:5B:69:BB:15:9C:F3:D0:91:29:82:3F:10:A1:83:B2:B2:2A:30:7C:A7:FB:5D:A8:4C:AA:BE:01:1A\",\"CFD4:7E:E7:86:5B:69:BB:15:9C:F3:D0:91:29:82:3F:10:A1:83:B2:B2:2A:30:7C:A7:FB:5D:A8:4C:AA:BE:01:1A\",\"CFD4:7E:E7:86:5B:69:BB:15:9C:F3:D0:91:29:82:3F:10:A1:83:B2:B2:2A:30:7C:A7:FB:5D:A8:4C:AA:BE:01:1A\",\"CFD4:7E:E7:86:5B:69:BB:15:9C:F3:D0:91:29:82:3F:10:A1:83:B2:B2:2A:30:7C:A7:FB:5D:A8:4C:AA:BE:01:1A\",\"CFD4:7E:E7:86:5B:69:BB:15:9C:F3:D0:91:29:82:3F:10:A1:83:B2:B2:2A:30:7C:A7:FB:5D:A8:4C:AA:BE:01:1A\",\"CFD4:7E:E7:86:5B:69:BB:15:9C:F3:D0:91:29:82:3F:10:A1:83:B2:B2:2A:30:7C:A7:FB:5D:A8:4C:AA:BE:01:1A\",\"CFD4:7E:E7:86:5B:69:BB:15:9C:F3:D0:91:29:82:3F:10:A1:83:B2:B2:2A:30:7C:A7:FB:5D:A8:4C:AA:BE:01:1A\",\"CFD4:7E:E7:86:5B:69:BB:15:9C:F3:D0:91:29:82:3F:10:A1:83:B2:B2:2A:30:7C:A7:FB:5D:A8:4C:AA:BE:01:1A\",\"CFD4:7E:E7:86:5B:69:BB:15:9C:F3:D0:91:29:82:3F:10:A1:83:B2:B2:2A:30:7C:A7:FB:5D:A8:4C:AA:BE:01:1A\",\"CFD4:7E:E7:86:5B:69:BB:15:9C:F3:D0:91:29:82:3F:10:A1:83:B2:B2:2A:30:7C:A7:FB:5D:A8:4C:AA:BE:01:1A\",\"CFD4:7E:E7:86:5B:69:BB:15:9C:F3:D0:91:29:82:3F:10:A1:83:B2:B2:2A:30:7C:A7:FB:5D:A8:4C:AA:BE:01:1A\",\"CFD4:7E:E7:86:5B:69:BB:15:9C:F3:D0:91:29:82:3F:10:A1:83:B2:B2:2A:30:7C:A7:FB:5D:A8:4C:AA:BE:01:1A\",\"CFD4:7E:E7:86:5B:69:BB:15:9C:F3:D0:91:29:82:3F:10:A1:83:B2:B2:2A:30:7C:A7:FB:5D:A8:4C:AA:BE:01:1A\",\"CFD4:7E:E7:86:5B:69:BB:15:9C:F3:D0:91:29:82:3F:10:A1:83:B2:B2:2A:30:7C:A7:FB:5D:A8:4C:AA:BE:01:1A\"]"
+    },
+    "T01-packetsReceived": {
+     "startTime": "2025-12-19T23:22:02.781Z",
+     "endTime": "2025-12-19T23:22:17.789Z",
+     "statsType": "transport",
+     "values": "[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]"
+    },
+    "T01-packetsSent": {
+     "startTime": "2025-12-19T23:22:02.781Z",
+     "endTime": "2025-12-19T23:22:17.789Z",
+     "statsType": "transport",
+     "values": "[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]"
+    },
+    "T01-selectedCandidatePairChanges": {
+     "startTime": "2025-12-19T23:22:02.781Z",
+     "endTime": "2025-12-19T23:22:17.789Z",
+     "statsType": "transport",
+     "values": "[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]"
+    },
+    "T01-type": {
+     "startTime": "2025-12-19T23:22:02.781Z",
+     "endTime": "2025-12-19T23:22:17.789Z",
+     "statsType": "transport",
+     "values": "[\"transport\",\"transport\",\"transport\",\"transport\",\"transport\",\"transport\",\"transport\",\"transport\",\"transport\",\"transport\",\"transport\",\"transport\",\"transport\",\"transport\",\"transport\",\"transport\"]"
+    },
+    "T01-timestamp": {
+     "startTime": "2025-12-19T23:22:02.781Z",
+     "endTime": "2025-12-19T23:22:17.789Z",
+     "statsType": "transport",
+     "values": "[1766186522781.357,1766186524364.468,1766186524789.275,1766186525789.08,1766186526789.162,1766186527789.23,1766186528789.172,1766186529789.048,1766186530789.126,1766186531789.171,1766186532826.845,1766186534735.444,1766186534791.191,1766186535789.191,1766186536789.08,1766186537789.164]"
+    },
+    "OT01A1434211061-[bytesSent_in_bits/s]": {
+     "startTime": "2025-12-19T23:22:04.364Z",
+     "endTime": "2025-12-19T23:22:17.789Z",
+     "statsType": "outbound-rtp",
+     "values": "[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]"
+    },
+    "OT01A1434211061-[headerBytesSent_in_bits/s]": {
+     "startTime": "2025-12-19T23:22:04.364Z",
+     "endTime": "2025-12-19T23:22:17.789Z",
+     "statsType": "outbound-rtp",
+     "values": "[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]"
+    },
+    "OT01A1434211061-[retransmittedBytesSent_in_bits/s]": {
+     "startTime": "2025-12-19T23:22:04.364Z",
+     "endTime": "2025-12-19T23:22:17.789Z",
+     "statsType": "outbound-rtp",
+     "values": "[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]"
+    },
+    "OT01A1434211061-[packetsSent/s]": {
+     "startTime": "2025-12-19T23:22:04.364Z",
+     "endTime": "2025-12-19T23:22:17.789Z",
+     "statsType": "outbound-rtp",
+     "values": "[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]"
+    },
+    "OT01A1434211061-[retransmittedPacketsSent/s]": {
+     "startTime": "2025-12-19T23:22:04.364Z",
+     "endTime": "2025-12-19T23:22:17.789Z",
+     "statsType": "outbound-rtp",
+     "values": "[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]"
+    },
+    "SA3-[Audio_Level_in_RMS]": {
+     "startTime": "2025-12-19T23:22:04.364Z",
+     "endTime": "2025-12-19T23:22:14.735Z",
+     "statsType": "media-source",
+     "values": "[0.006322130406723949,0.3103424894107893,0.007117921667220548,0.009613258305967433,0.010336677727494657,0.013895964616898456,0.0060226761011598585,0.0045453321753554515,0.00503145088910221,0.008722533199172119,0.006785292943115905]"
+    },
+    "T01-[bytesSent_in_bits/s]": {
+     "startTime": "2025-12-19T23:22:04.364Z",
+     "endTime": "2025-12-19T23:22:17.789Z",
+     "statsType": "transport",
+     "values": "[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]"
+    },
+    "T01-[bytesReceived_in_bits/s]": {
+     "startTime": "2025-12-19T23:22:04.364Z",
+     "endTime": "2025-12-19T23:22:17.789Z",
+     "statsType": "transport",
+     "values": "[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]"
+    },
+    "T01-[packetsSent/s]": {
+     "startTime": "2025-12-19T23:22:04.364Z",
+     "endTime": "2025-12-19T23:22:17.789Z",
+     "statsType": "transport",
+     "values": "[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]"
+    },
+    "T01-[packetsReceived/s]": {
+     "startTime": "2025-12-19T23:22:04.364Z",
+     "endTime": "2025-12-19T23:22:17.789Z",
+     "statsType": "transport",
+     "values": "[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]"
+    }
+   },
+   "updateLog": [
+    {
+     "timestamp": 1766186522404.216,
+     "time": "12/20/2025, 12:22:02 AM",
+     "type": "transceiverAdded",
+     "value": "{\"mid\":null,\"kind\":\"audio\",\"sender\":{\"track\":\"f52f391d-9696-4499-a464-ff8db479efe9\",\"streams\":[\"da3b9533-e88e-4e0b-87c2-e8c09fbd063c\"],\"encodings\":[{\"active\":true}]},\"receiver\":{\"track\":\"446b0621-9b1e-4c89-a276-b1d477a82397\",\"streams\":[]},\"direction\":\"sendonly\",\"currentDirection\":null,\"reason\":\"addTransceiver\",\"transceiverIndex\":0}"
+    },
+    {
+     "timestamp": 1766186522405.16,
+     "time": "12/20/2025, 12:22:02 AM",
+     "type": "createOffer",
+     "value": "{\"offerToReceiveAudio\":true,\"offerToReceiveVideo\":true,\"voiceActivityDetection\":true}"
+    },
+    {
+     "timestamp": 1766186522411.26,
+     "time": "12/20/2025, 12:22:02 AM",
+     "type": "negotiationneeded",
+     "value": ""
+    },
+    {
+     "timestamp": 1766186522411.406,
+     "time": "12/20/2025, 12:22:02 AM",
+     "type": "createOfferOnSuccess",
+     "value": "{\"type\":\"offer\",\"sdp\":\"v=0\\r\\no=- 8293273782206777780 2 IN IP4 127.0.0.1\\r\\ns=-\\r\\nt=0 0\\r\\na=group:BUNDLE 0\\r\\na=extmap-allow-mixed\\r\\na=msid-semantic: WMS da3b9533-e88e-4e0b-87c2-e8c09fbd063c\\r\\nm=audio 9 UDP/TLS/RTP/SAVPF 111 63 9 0 8 13 110 126\\r\\nc=IN IP4 0.0.0.0\\r\\na=rtcp:9 IN IP4 0.0.0.0\\r\\na=ice-ufrag:6wrW\\r\\na=ice-pwd:LeijdPwqlzqAw2/wb4b1ZXLc\\r\\na=ice-options:trickle\\r\\na=fingerprint:sha-256 D4:7E:E7:86:5B:69:BB:15:9C:F3:D0:91:29:82:3F:10:A1:83:B2:B2:2A:30:7C:A7:FB:5D:A8:4C:AA:BE:01:1A\\r\\na=setup:actpass\\r\\na=mid:0\\r\\na=extmap:1 urn:ietf:params:rtp-hdrext:ssrc-audio-level\\r\\na=extmap:2 http://www.webrtc.org/experiments/rtp-hdrext/abs-send-time\\r\\na=extmap:3 http://www.ietf.org/id/draft-holmer-rmcat-transport-wide-cc-extensions-01\\r\\na=extmap:4 urn:ietf:params:rtp-hdrext:sdes:mid\\r\\na=sendonly\\r\\na=msid:da3b9533-e88e-4e0b-87c2-e8c09fbd063c f52f391d-9696-4499-a464-ff8db479efe9\\r\\na=rtcp-mux\\r\\na=rtcp-rsize\\r\\na=rtpmap:111 opus/48000/2\\r\\na=rtcp-fb:111 transport-cc\\r\\na=fmtp:111 minptime=10;useinbandfec=1\\r\\na=rtpmap:63 red/48000/2\\r\\na=fmtp:63 111/111\\r\\na=rtpmap:9 G722/8000\\r\\na=rtpmap:0 PCMU/8000\\r\\na=rtpmap:8 PCMA/8000\\r\\na=rtpmap:13 CN/8000\\r\\na=rtpmap:110 telephone-event/48000\\r\\na=rtpmap:126 telephone-event/8000\\r\\na=ssrc:1434211061 cname:eM7HZChN+mhBXOc3\\r\\na=ssrc:1434211061 msid:da3b9533-e88e-4e0b-87c2-e8c09fbd063c f52f391d-9696-4499-a464-ff8db479efe9\\r\\n\"}"
+    },
+    {
+     "timestamp": 1766186522436.835,
+     "time": "12/20/2025, 12:22:02 AM",
+     "type": "setLocalDescription",
+     "value": "{\"type\":\"offer\",\"sdp\":\"v=0\\r\\no=- 8293273782206777780 2 IN IP4 127.0.0.1\\r\\ns=-\\r\\nt=0 0\\r\\na=group:BUNDLE 0\\r\\na=extmap-allow-mixed\\r\\na=msid-semantic: WMS da3b9533-e88e-4e0b-87c2-e8c09fbd063c\\r\\nm=audio 9 UDP/TLS/RTP/SAVPF 111 63 9 0 8 13 110 126\\r\\nc=IN IP4 0.0.0.0\\r\\na=rtcp:9 IN IP4 0.0.0.0\\r\\na=ice-ufrag:6wrW\\r\\na=ice-pwd:LeijdPwqlzqAw2/wb4b1ZXLc\\r\\na=ice-options:trickle\\r\\na=fingerprint:sha-256 D4:7E:E7:86:5B:69:BB:15:9C:F3:D0:91:29:82:3F:10:A1:83:B2:B2:2A:30:7C:A7:FB:5D:A8:4C:AA:BE:01:1A\\r\\na=setup:actpass\\r\\na=mid:0\\r\\na=extmap:1 urn:ietf:params:rtp-hdrext:ssrc-audio-level\\r\\na=extmap:2 http://www.webrtc.org/experiments/rtp-hdrext/abs-send-time\\r\\na=extmap:3 http://www.ietf.org/id/draft-holmer-rmcat-transport-wide-cc-extensions-01\\r\\na=extmap:4 urn:ietf:params:rtp-hdrext:sdes:mid\\r\\na=sendonly\\r\\na=msid:da3b9533-e88e-4e0b-87c2-e8c09fbd063c f52f391d-9696-4499-a464-ff8db479efe9\\r\\na=rtcp-mux\\r\\na=rtcp-rsize\\r\\na=rtpmap:111 opus/48000/2\\r\\na=rtcp-fb:111 transport-cc\\r\\na=fmtp:111 minptime=10;useinbandfec=1\\r\\na=rtpmap:63 red/48000/2\\r\\na=fmtp:63 111/111\\r\\na=rtpmap:9 G722/8000\\r\\na=rtpmap:0 PCMU/8000\\r\\na=rtpmap:8 PCMA/8000\\r\\na=rtpmap:13 CN/8000\\r\\na=rtpmap:110 telephone-event/48000\\r\\na=rtpmap:126 telephone-event/8000\\r\\na=ssrc:1434211061 cname:eM7HZChN+mhBXOc3\\r\\na=ssrc:1434211061 msid:da3b9533-e88e-4e0b-87c2-e8c09fbd063c f52f391d-9696-4499-a464-ff8db479efe9\\r\\n\"}"
+    },
+    {
+     "timestamp": 1766186522445.135,
+     "time": "12/20/2025, 12:22:02 AM",
+     "type": "setLocalDescriptionOnSuccess",
+     "value": ""
+    },
+    {
+     "timestamp": 1766186522446.794,
+     "time": "12/20/2025, 12:22:02 AM",
+     "type": "signalingstatechange",
+     "value": "\"have-local-offer\""
+    },
+    {
+     "timestamp": 1766186522446.967,
+     "time": "12/20/2025, 12:22:02 AM",
+     "type": "transceiverModified",
+     "value": "{\"mid\":\"0\",\"kind\":\"audio\",\"sender\":{\"track\":\"f52f391d-9696-4499-a464-ff8db479efe9\",\"streams\":[\"da3b9533-e88e-4e0b-87c2-e8c09fbd063c\"],\"encodings\":[{\"active\":true}]},\"receiver\":{\"track\":\"446b0621-9b1e-4c89-a276-b1d477a82397\",\"streams\":[]},\"direction\":\"sendonly\",\"currentDirection\":null,\"reason\":\"setLocalDescription\",\"transceiverIndex\":0}"
+    },
+    {
+     "timestamp": 1766186522465.047,
+     "time": "12/20/2025, 12:22:02 AM",
+     "type": "setRemoteDescription",
+     "value": "{\"type\":\"answer\",\"sdp\":\"v=0\\r\\no=mediasoup-client 10000 1 IN IP4 0.0.0.0\\r\\ns=-\\r\\nt=0 0\\r\\na=extmap-allow-mixed\\r\\na=ice-lite\\r\\na=fingerprint:sha-224 93:BB:28:FE:FD:F9:CC:38:6C:9C:64:7E:EB:6B:74:8B:26:47:C9:B0:38:C4:C7:83:EF:34:68:91\\r\\na=ice-options:ice2\\r\\na=msid-semantic: WMS *\\r\\na=group:BUNDLE 0\\r\\nm=audio 7 UDP/TLS/RTP/SAVPF 111\\r\\nc=IN IP4 127.0.0.1\\r\\na=rtpmap:111 opus/48000/2\\r\\na=fmtp:111 maxaveragebitrate=320000;maxplaybackrate=48000;maxptime=60;minptime=3;ptime=20;sprop-stereo=1;stereo=1;useinbandfec=1\\r\\na=rtcp-fb:111 transport-cc \\r\\na=rtcp-fb:111 nack \\r\\na=extmap:4 urn:ietf:params:rtp-hdrext:sdes:mid\\r\\na=extmap:2 http://www.webrtc.org/experiments/rtp-hdrext/abs-send-time\\r\\na=extmap:3 http://www.ietf.org/id/draft-holmer-rmcat-transport-wide-cc-extensions-01\\r\\na=extmap:1 urn:ietf:params:rtp-hdrext:ssrc-audio-level\\r\\na=setup:passive\\r\\na=mid:0\\r\\na=recvonly\\r\\na=ice-ufrag:baolf1bebstc0475czxu8qczctathh4y\\r\\na=ice-pwd:9oqv5bp01ujumyxfulb86syx6z8rfvmg\\r\\na=candidate:udpcandidate 1 udp 1076302079 127.0.0.1 45159 typ host\\r\\na=end-of-candidates\\r\\na=ice-options:renomination\\r\\na=rtcp-mux\\r\\na=rtcp-rsize\\r\\n\"}"
+    },
+    {
+     "timestamp": 1766186522466.043,
+     "time": "12/20/2025, 12:22:02 AM",
+     "type": "icegatheringstatechange",
+     "value": "\"gathering\""
+    },
+    {
+     "timestamp": 1766186522470.997,
+     "time": "12/20/2025, 12:22:02 AM",
+     "type": "setRemoteDescriptionOnSuccess",
+     "value": ""
+    },
+    {
+     "timestamp": 1766186522471.106,
+     "time": "12/20/2025, 12:22:02 AM",
+     "type": "signalingstatechange",
+     "value": "\"stable\""
+    },
+    {
+     "timestamp": 1766186522472.089,
+     "time": "12/20/2025, 12:22:02 AM",
+     "type": "transceiverModified",
+     "value": "{\"mid\":\"0\",\"kind\":\"audio\",\"sender\":{\"track\":\"f52f391d-9696-4499-a464-ff8db479efe9\",\"streams\":[\"da3b9533-e88e-4e0b-87c2-e8c09fbd063c\"],\"encodings\":[{\"active\":true}]},\"receiver\":{\"track\":\"446b0621-9b1e-4c89-a276-b1d477a82397\",\"streams\":[]},\"direction\":\"sendonly\",\"currentDirection\":\"sendonly\",\"reason\":\"setRemoteDescription\",\"transceiverIndex\":0}"
+    },
+    {
+     "timestamp": 1766186522563.317,
+     "time": "12/20/2025, 12:22:02 AM",
+     "type": "icegatheringstatechange",
+     "value": "\"complete\""
+    }
+   ],
+   "url": "http://localhost:8080/dj/d6de2f71-d555-47a5-8b04-e5f30b768a32"
+  }
+ },
+ "UserAgent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/142.0.0.0 Safari/537.36",
+ "UserAgentData": [
+  {
+   "brand": "Not_A Brand",
+   "version": "99.0.0.0"
+  },
+  {
+   "brand": "Chromium",
+   "version": "142.0.7444.162"
+  }
+ ]
+}
