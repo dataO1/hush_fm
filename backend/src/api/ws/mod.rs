@@ -563,9 +563,10 @@ async fn handle_listener_socket(socket: WebSocket, room_id_str: String, session_
         
         if listener_exists {
             // Use room's update method to start disconnect timer
+            let timeout = lobby.stale_listener_timeout();
             let room_guard_for_update = room_state.read().await;
             room_guard_for_update.update_listener(&session_id, |listener| {
-                listener.start_disconnect_cleanup_timer(room_id, session_id.clone(), lobby.clone());
+                listener.start_disconnect_cleanup_timer(room_id, session_id.clone(), lobby.clone(), timeout);
             });
         }
     }

@@ -34,17 +34,20 @@ pub struct Lobby {
     listen_ip: String,
     enable_tcp: bool,
     expose_internal_ip: bool,
+    
+    /// Monitoring configuration
+    stale_listener_timeout: std::time::Duration,
 }
 
 impl Lobby {
     /// Create new Lobby with pre-allocated MediaSoup workers
     pub async fn new() -> anyhow::Result<Self> {
-        Self::with_config(10000, 59999, "localhost", "0.0.0.0", false, false).await
+        Self::with_config(10000, 59999, "localhost", "0.0.0.0", false, false, 0).await
     }
     
     /// Create new Lobby with custom worker port range (deprecated - use with_config)
     pub async fn with_port_range(port_min: u16, port_max: u16) -> anyhow::Result<Self> {
-        Self::with_config(port_min, port_max, "localhost", "0.0.0.0", false, false).await
+        Self::with_config(port_min, port_max, "localhost", "0.0.0.0", false, false, 0).await
     }
 
     /// Create new Lobby with full configuration
@@ -54,7 +57,8 @@ impl Lobby {
         announced_ip: &str,
         listen_ip: &str,
         enable_tcp: bool,
-        expose_internal_ip: bool
+        expose_internal_ip: bool,
+        stale_listener_timeout_seconds: u64
     ) -> anyhow::Result<Self> {
         let (broadcast_tx, _) = broadcast::channel(1024);
 
@@ -117,6 +121,7 @@ impl Lobby {
             listen_ip: listen_ip.to_string(),
             enable_tcp,
             expose_internal_ip,
+            stale_listener_timeout: std::time::Duration::from_secs(stale_listener_timeout_seconds),
         })
     }
 
@@ -149,6 +154,11 @@ impl Lobby {
     /// Get whether to expose internal IP
     pub fn expose_internal_ip(&self) -> bool {
         self.expose_internal_ip
+    }
+    
+    /// Get the configured stale listener timeout
+    pub fn stale_listener_timeout(&self) -> std::time::Duration {
+        self.stale_listener_timeout
     }
 
     /// Create a new room with MediaSoup infrastructure

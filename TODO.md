@@ -1,3 +1,3 @@
-- [ ] fix WaveVisualizer component (currently commented out, since it breaks compilation)
-- [ ] certificate management for workers(currently fixed certs in the backend)
-
+- [ ] remote connection only works for tcp not udp
+- [ ] joining with a second listener destroys the ice connection for the first
+  one.

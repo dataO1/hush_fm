@@ -6,7 +6,6 @@
 use mediasoup::prelude::*;
 use mediasoup::transport::{TransportTraceEventType, TransportTraceEventData};
 use mediasoup_types::data_structures::DtlsRole;
-use std::net::{IpAddr, Ipv4Addr};
 use std::sync::Arc;
 use anyhow::Result;
 use serde_json::Value;
@@ -550,18 +549,34 @@ impl Listener {
         room_id: uuid::Uuid,
         session_id: String,
         lobby: crate::lib::domain::Lobby,
+        timeout: std::time::Duration,
     ) {
         // Cancel any existing timer
         if let Some(timer) = self.cleanup_timer.take() {
             timer.abort();
         }
 
+        // If timeout is zero, cleanup is disabled
+        if timeout.is_zero() {
+            tracing::debug!(
+                listener_id = %self.listener_id,
+                "Stale listener cleanup disabled (timeout = 0)"
+            );
+            return;
+        }
+
         // Record disconnect time
         self.last_disconnected_at = Some(chrono::Utc::now());
 
-        // Start new cleanup timer (1 minute timeout)
+        tracing::info!(
+            listener_id = %self.listener_id,
+            timeout_seconds = timeout.as_secs(),
+            "Starting stale listener cleanup timer"
+        );
+
+        // Start new cleanup timer with configurable timeout
         let cleanup_timer = tokio::spawn(async move {
-            tokio::time::sleep(tokio::time::Duration::from_secs(60)).await;
+            tokio::time::sleep(timeout).await;
 
             // Check if listener is still disconnected and remove if so
             if let Some(room_state) = lobby.get_room(&room_id) {

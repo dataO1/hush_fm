@@ -66,6 +66,11 @@ async fn main() -> anyhow::Result<()> {
         .unwrap_or_else(|_| "false".to_string())
         .parse::<bool>()
         .unwrap_or(false);
+    
+    let stale_listener_timeout = std::env::var("HUSHFM_STALE_LISTENER_TIMEOUT")
+        .unwrap_or_else(|_| "0".to_string())
+        .parse::<u64>()
+        .unwrap_or(0);
 
     // Initialize simple console logging
     tracing_subscriber::fmt::init();
@@ -77,7 +82,8 @@ async fn main() -> anyhow::Result<()> {
         &host_name,
         &mediasoup_listen_ip,
         mediasoup_enable_tcp,
-        mediasoup_expose_internal_ip
+        mediasoup_expose_internal_ip,
+        stale_listener_timeout
     ).await?;
     tracing::info!("🎵 MediaSoup Configuration:");
     tracing::info!("  - Worker port range: {}-{}", worker_port_min, worker_port_max);

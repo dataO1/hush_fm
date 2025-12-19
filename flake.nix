@@ -78,6 +78,9 @@
           HUSHFM_MEDIASOUP_LISTEN_IP = "127.0.0.1";
           HUSHFM_MEDIASOUP_ENABLE_TCP = "true";
           HUSHFM_MEDIASOUP_EXPOSE_INTERNAL_IP = "false";
+          
+          # Monitoring configuration for localhost development
+          HUSHFM_STALE_LISTENER_TIMEOUT = "0";
 
           shellHook = ''
             echo "🎵 HushFM Development Environment"
@@ -259,6 +262,9 @@
             HUSHFM_MEDIASOUP_ENABLE_TCP = if cfg.mediasoup.enableTcp then "true" else "false";
             HUSHFM_MEDIASOUP_EXPOSE_INTERNAL_IP = if cfg.mediasoup.exposeInternalIp then "true" else "false";
             
+            # Monitoring configuration
+            HUSHFM_STALE_LISTENER_TIMEOUT = toString cfg.monitoring.staleListenerTimeout;
+            
             # Enable trace level logging for production debugging
             RUST_LOG = "trace";
           };
@@ -317,6 +323,14 @@
                 type = types.bool;
                 default = false;
                 description = "Expose internal IP in MediaSoup ICE candidates";
+              };
+            };
+
+            monitoring = {
+              staleListenerTimeout = mkOption {
+                type = types.int;
+                default = 0;
+                description = "Timeout in seconds for cleaning up stale listeners (0 = disabled)";
               };
             };
 

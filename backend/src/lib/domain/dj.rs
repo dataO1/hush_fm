@@ -7,7 +7,6 @@ use mediasoup::prelude::*;
 use mediasoup::transport::{TransportTraceEventType, TransportTraceEventData};
 use mediasoup_types::data_structures::DtlsRole;
 use mediasoup_types::rtp_parameters::{RtpHeaderExtensionDirection, RtpHeaderExtension};
-use std::net::{IpAddr, Ipv4Addr};
 use std::sync::Arc;
 use anyhow::Result;
 use serde_json::Value;
@@ -294,12 +293,8 @@ impl DJ {
             "Audio producer created successfully for DJ"
         );
 
-        // Setup producer monitoring
-        let producer_arc = Arc::new(producer);
-        self.setup_producer_monitoring(producer_arc.clone()).await;
-
         // Store producer and update state
-        self.producer = Some(producer_arc);
+        self.producer = Some(Arc::new(producer));
         self.producer_id = Some(producer_id.clone());
         self.is_streaming = true;
         self.is_paused = false;
@@ -467,78 +462,6 @@ impl DJ {
     }
 
 
-    /// Setup enhanced producer monitoring for transmission health
-    async fn setup_producer_monitoring(&self, producer: Arc<Producer>) {
-        let dj_id = self.dj_id.clone();
-        let room_id = self.room_id;
-        let producer_id = producer.id();
-
-        tracing::info!(
-            producer_id = %producer_id,
-            dj_id = %dj_id,
-            "Setting up enhanced producer monitoring"
-        );
-
-        tokio::spawn(async move {
-            let mut interval = tokio::time::interval(std::time::Duration::from_secs(5));
-            let mut stats_check_count = 0;
-
-            loop {
-                interval.tick().await;
-                stats_check_count += 1;
-
-                match producer.get_stats().await {
-                    Ok(stats) => {
-                        let stats_value = serde_json::to_value(&stats).unwrap_or_default();
-
-                        // Monitor packet transmission for health
-                        if let Some(stats_array) = stats_value.as_array() {
-                            let mut total_packets_sent = 0u64;
-
-                            for stat in stats_array {
-                                if let Some(stat_obj) = stat.as_object() {
-                                    if let Some(packets) = stat_obj.get("packetsSent").and_then(|v| v.as_u64()) {
-                                        total_packets_sent += packets;
-                                    }
-                                }
-                            }
-
-                            // Alert on zero transmission after reasonable startup time
-                            if stats_check_count >= 3 && total_packets_sent == 0 {
-                                tracing::error!(
-                                    producer_id = %producer_id,
-                                    dj_id = %dj_id,
-                                    room_id = %room_id,
-                                    checks_performed = stats_check_count,
-                                    "🚨 ZERO PACKET TRANSMISSION DETECTED - Producer binding failure"
-                                );
-                            } else if total_packets_sent > 0 {
-                                tracing::debug!(
-                                    producer_id = %producer_id,
-                                    dj_id = %dj_id,
-                                    packets_sent = total_packets_sent,
-                                    "Producer transmitting successfully"
-                                );
-                            }
-                        }
-                    }
-                    Err(e) => {
-                        tracing::warn!(
-                            producer_id = %producer_id,
-                            dj_id = %dj_id,
-                            error = %e,
-                            "Failed to get producer stats during monitoring"
-                        );
-                    }
-                }
-
-                // Stop monitoring after reasonable time
-                if stats_check_count > 12 { // 1 minute
-                    break;
-                }
-            }
-        });
-    }
 
     /// Get preferred audio codec capabilities for MediaSoup routers
     /// Optimized for high-quality music streaming with low latency
