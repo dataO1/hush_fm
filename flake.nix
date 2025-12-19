@@ -329,11 +329,14 @@
           };
 
           config = mkIf cfg.enable {
-            # Open firewall ports (reverse proxy on 443, WebRTC UDP range)
+            # Open firewall ports (reverse proxy on 443, WebRTC UDP range, optional TCP range)
             networking.firewall = {
-              allowedTCPPorts = [ 443 ];  # Only nginx reverse proxy exposed
+              allowedTCPPorts = [ 443 ];  # nginx reverse proxy exposed
+              allowedTCPPortRanges = lib.optionals cfg.mediasoup.enableTcp [
+                { from = portRange.min; to = portRange.max; }  # WebRTC TCP fallback when enabled
+              ];
               allowedUDPPortRanges = [
-                { from = portRange.min; to = portRange.max; }  # WebRTC direct access
+                { from = portRange.min; to = portRange.max; }  # WebRTC direct access (always enabled)
               ];
             };
 
