@@ -1,5 +1,5 @@
 /// DJ Business Logic Module
-/// 
+///
 /// Handles all DJ-specific WebRTC operations including sender transport creation,
 /// producer management, and DJ lifecycle according to the reference implementation.
 
@@ -7,6 +7,7 @@ use mediasoup::prelude::*;
 use mediasoup::transport::{TransportTraceEventType, TransportTraceEventData};
 use mediasoup_types::data_structures::DtlsRole;
 use mediasoup_types::rtp_parameters::{RtpHeaderExtensionDirection, RtpHeaderExtension};
+use std::net::{IpAddr, Ipv4Addr};
 use std::sync::Arc;
 use anyhow::Result;
 use serde_json::Value;
@@ -37,7 +38,7 @@ pub struct DJ {
     pub connected_at: chrono::DateTime<chrono::Utc>,
     /// Event channel for sending WebSocket events to DJ
     pub event_tx: Option<mpsc::UnboundedSender<ListenerEvent>>,
-    
+
     // Configuration
     /// WebRTC port range configuration
     pub port_range: std::ops::RangeInclusive<u16>,
@@ -73,31 +74,19 @@ impl DJ {
     #[tracing::instrument(skip(self, router), fields(dj_id = %self.dj_id, room_id = %self.room_id))]
     pub async fn create_sender_transport(&mut self, router: &Router) -> Result<TransportOptions> {
         // Use stored configuration - bind to correct interface for environment
-        let bind_ip = if self.announced_ip == "localhost" { "127.0.0.1" } else { "0.0.0.0" };
-        let announced_address = if self.announced_ip == "localhost" { None } else { Some(self.announced_ip.clone()) };
-        
-        tracing::info!("Creating DJ sender transport with configured settings");
-        tracing::info!("  - Bind IP: {} ({})", bind_ip, if self.announced_ip == "localhost" { "localhost only" } else { "all interfaces" });
-        tracing::info!("  - Announced IP: {} (for ICE candidates)", self.announced_ip);
-        tracing::info!("  - Port range: {:?}", self.port_range);
+        // let bind_ip = if self.announced_ip == "localhost" { "127.0.0.1" } else { "0.0.0.0" };
+        // let announced_address = if self.announced_ip == "localhost" {  Some("127.0.0.1".to_string())  } else { Some(self.announced_ip.clone()) };
+
+        // tracing::info!("Creating DJ sender transport with configured settings");
+        // tracing::info!("  - Bind IP: {} ({})", bind_ip, if self.announced_ip == "localhost" { "localhost only" } else { "all interfaces" });
+        // tracing::info!("  - Announced IP: {} (for ICE candidates)", self.announced_ip);
+        // tracing::info!("  - Port range: {:?}", self.port_range);
 
         // Create transport with configured settings
-        let listen_infos = WebRtcTransportListenInfos::new(ListenInfo {
+        let mut listen_infos = WebRtcTransportListenInfos::new(ListenInfo {
             protocol: Protocol::Udp,
-            ip: bind_ip.parse()?,
-            announced_address: announced_address.clone(),
-            expose_internal_ip: false,
-            port: None,
-            port_range: Some(self.port_range.clone()),
-            flags: None,
-            send_buffer_size: None,
-            recv_buffer_size: None,
-        })
-        // Add TCP fallback
-        .insert(ListenInfo {
-            protocol: Protocol::Tcp,
-            ip: bind_ip.parse()?,
-            announced_address: announced_address,
+            ip: IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)),
+            announced_address: Some(self.announced_ip.clone()),
             expose_internal_ip: false,
             port: None,
             port_range: Some(self.port_range.clone()),
@@ -105,15 +94,30 @@ impl DJ {
             send_buffer_size: None,
             recv_buffer_size: None,
         });
+        if self.announced_ip == "localhost"{
+            listen_infos = listen_infos
+            // Add TCP fallback, only for localhost, since this seems to be required!
+            .insert(ListenInfo {
+                protocol: Protocol::Tcp,
+                ip: IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)),
+                announced_address: Some(self.announced_ip.clone()),
+                expose_internal_ip: false,
+                port: None,
+                port_range: Some(self.port_range.clone()),
+                flags: None,
+                send_buffer_size: None,
+                recv_buffer_size: None,
+            });
+        }
 
         let mut transport_options = WebRtcTransportOptions::new(listen_infos);
 
         // Optimize for local WiFi network sending
         transport_options.enable_udp = true;
-        transport_options.enable_tcp = true;
+        // transport_options.enable_tcp = true;
         transport_options.prefer_udp = true;
-        transport_options.initial_available_outgoing_bitrate = 600000; // DJ sends audio
-        transport_options.ice_consent_timeout = 30;
+        // transport_options.initial_available_outgoing_bitrate = 600000; // DJ sends audio
+        // transport_options.ice_consent_timeout = 30;
 
         let transport = router.create_webrtc_transport(transport_options).await?;
         let transport_id = transport.id().to_string();
@@ -132,8 +136,8 @@ impl DJ {
             TransportTraceEventType::Probation,
             TransportTraceEventType::Bwe
         ]).await?;
-        
-        // Add transport event listener for connection monitoring  
+
+        // Add transport event listener for connection monitoring
         let transport_id_for_events = transport_id.clone();
         let dj_id_for_events = self.dj_id.clone();
         let _trace_handler = transport.on_trace(Arc::new(move |trace_event: &TransportTraceEventData| {
@@ -163,14 +167,14 @@ impl DJ {
 
         // Generate transport options for client
         let client_transport_options = self.generate_transport_options(&transport).await?;
-        
+
         tracing::info!(
             transport_id = %transport.id(),
             dj_id = %self.dj_id,
             room_id = %self.room_id,
             "DJ sender transport created successfully - ready for DTLS connection"
         );
-        
+
         // Store transport
         self.transport = Some(Arc::new(transport));
 
@@ -190,7 +194,7 @@ impl DJ {
         let original_role = dtls_parameters.role;
         let mut dtls_parameters = dtls_parameters;
         dtls_parameters.role = DtlsRole::Server;
-        
+
         tracing::info!(
             transport_id = %transport_id,
             dj_id = %self.dj_id,
@@ -342,7 +346,7 @@ impl DJ {
             transport_cleaned = transport_cleaned,
             "Complete DJ cleanup finished"
         );
-        
+
         Ok(())
     }
 
@@ -458,11 +462,11 @@ impl DJ {
                 match producer.get_stats().await {
                     Ok(stats) => {
                         let stats_value = serde_json::to_value(&stats).unwrap_or_default();
-                        
+
                         // Monitor packet transmission for health
                         if let Some(stats_array) = stats_value.as_array() {
                             let mut total_packets_sent = 0u64;
-                            
+
                             for stat in stats_array {
                                 if let Some(stat_obj) = stat.as_object() {
                                     if let Some(packets) = stat_obj.get("packetsSent").and_then(|v| v.as_u64()) {
@@ -470,7 +474,7 @@ impl DJ {
                                     }
                                 }
                             }
-                            
+
                             // Alert on zero transmission after reasonable startup time
                             if stats_check_count >= 3 && total_packets_sent == 0 {
                                 tracing::error!(
@@ -513,7 +517,7 @@ impl DJ {
     pub fn get_preferred_audio_capabilities() -> Vec<RtpCodecCapability> {
         // Create music-optimized Opus parameters
         let mut opus_params = RtpCodecParametersParameters::default();
-        
+
         // Essential Opus parameters for high-quality music streaming
         opus_params.insert("useinbandfec", "1");  // Forward Error Correction for packet loss
         opus_params.insert("stereo", "1");        // Enable stereo encoding
@@ -523,7 +527,7 @@ impl DJ {
         opus_params.insert("ptime", "20");        // 20ms frame size for low latency
         opus_params.insert("minptime", "3");      // Allow down to 3ms for ultra-low latency
         opus_params.insert("maxptime", "60");     // Allow up to 60ms if needed
-        
+
         vec![
             // Opus - optimized for high-quality music streaming
             RtpCodecCapability::Audio {

@@ -1,11 +1,12 @@
 /// Listener Business Logic Module
-/// 
+///
 /// Handles all listener-specific WebRTC operations including receiver transport creation,
 /// consumer management, and listener lifecycle according to the reference implementation.
 
 use mediasoup::prelude::*;
 use mediasoup::transport::{TransportTraceEventType, TransportTraceEventData};
 use mediasoup_types::data_structures::DtlsRole;
+use std::net::{IpAddr, Ipv4Addr};
 use std::sync::Arc;
 use anyhow::Result;
 use serde_json::Value;
@@ -40,7 +41,7 @@ pub struct Listener {
     pub cleanup_timer: Option<tokio::task::JoinHandle<()>>,
     /// Event channel for sending WebSocket events to listener
     pub event_tx: mpsc::UnboundedSender<ListenerEvent>,
-    
+
     // Configuration
     /// WebRTC port range configuration
     pub port_range: std::ops::RangeInclusive<u16>,
@@ -89,31 +90,18 @@ impl Listener {
             // Transport will be cleaned up when Arc is dropped
         }
         // Use stored configuration - bind to correct interface for environment
-        let bind_ip = if self.announced_ip == "localhost" { "127.0.0.1" } else { "0.0.0.0" };
-        let announced_address = if self.announced_ip == "localhost" { None } else { Some(self.announced_ip.clone()) };
-        
-        tracing::info!("Creating listener receiver transport with configured settings");
-        tracing::info!("  - Bind IP: {} ({})", bind_ip, if self.announced_ip == "localhost" { "localhost only" } else { "all interfaces" });
-        tracing::info!("  - Announced IP: {} (for ICE candidates)", self.announced_ip);
-        tracing::info!("  - Port range: {:?}", self.port_range);
+        // let bind_ip = if self.announced_ip == "localhost" { "127.0.0.1" } else { "0.0.0.0" };
+        // let announced_address = if self.announced_ip == "localhost" { Some("127.0.0.1".to_string()) } else { Some(self.announced_ip.clone()) };
+        //
+        // tracing::info!("Creating listener receiver transport with configured settings");
+        // tracing::info!("  - Bind IP: {} ({})", bind_ip, if self.announced_ip == "localhost" { "localhost only" } else { "all interfaces" });
+        // tracing::info!("  - Announced IP: {} (for ICE candidates)", self.announced_ip);
+        // tracing::info!("  - Port range: {:?}", self.port_range);
 
-        // Create transport with configured settings
-        let listen_infos = WebRtcTransportListenInfos::new(ListenInfo {
+        let mut listen_infos = WebRtcTransportListenInfos::new(ListenInfo {
             protocol: Protocol::Udp,
-            ip: bind_ip.parse()?,
-            announced_address: announced_address.clone(),
-            expose_internal_ip: false,
-            port: None,
-            port_range: Some(self.port_range.clone()),
-            flags: None,
-            send_buffer_size: None,
-            recv_buffer_size: None,
-        })
-        // Add TCP fallback
-        .insert(ListenInfo {
-            protocol: Protocol::Tcp,
-            ip: bind_ip.parse()?,
-            announced_address: announced_address,
+            ip: IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)),
+            announced_address: Some(self.announced_ip.clone()),
             expose_internal_ip: false,
             port: None,
             port_range: Some(self.port_range.clone()),
@@ -121,15 +109,30 @@ impl Listener {
             send_buffer_size: None,
             recv_buffer_size: None,
         });
+        if self.announced_ip == "localhost"{
+            listen_infos = listen_infos
+            // Add TCP fallback, only for localhost, since this seems to be required!
+            .insert(ListenInfo {
+                protocol: Protocol::Tcp,
+                ip: IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)),
+                announced_address: Some(self.announced_ip.clone()),
+                expose_internal_ip: false,
+                port: None,
+                port_range: Some(self.port_range.clone()),
+                flags: None,
+                send_buffer_size: None,
+                recv_buffer_size: None,
+            });
+        }
 
         let mut transport_options = WebRtcTransportOptions::new(listen_infos);
 
-        // Optimize for local WiFi network receiving
+        // Optimize for local WiFi network sending
         transport_options.enable_udp = true;
-        transport_options.enable_tcp = true;
+        // transport_options.enable_tcp = true;
         transport_options.prefer_udp = true;
-        transport_options.initial_available_outgoing_bitrate = 0; // Listener doesn't send
-        transport_options.ice_consent_timeout = 30;
+        // transport_options.initial_available_outgoing_bitrate = 600000; // DJ sends audio
+        // transport_options.ice_consent_timeout = 30;
 
         let transport = router.create_webrtc_transport(transport_options).await?;
         let transport_id = transport.id().to_string();
@@ -148,7 +151,7 @@ impl Listener {
             TransportTraceEventType::Probation,
             TransportTraceEventType::Bwe
         ]).await?;
-        
+
         // Add transport event listener for connection monitoring
         let transport_id_for_events = transport_id.clone();
         let listener_id_for_events = self.listener_id.clone();
@@ -179,14 +182,14 @@ impl Listener {
 
         // Generate transport options for client
         let client_transport_options = self.generate_transport_options(&transport).await?;
-        
+
         tracing::info!(
             transport_id = %transport.id(),
             listener_id = %self.listener_id,
             room_id = %self.room_id,
             "Listener receiver transport created successfully - ready for DTLS connection"
         );
-        
+
         // Store transport
         self.transport = Some(Arc::new(transport));
 
@@ -206,7 +209,7 @@ impl Listener {
         let original_role = dtls_parameters.role;
         let mut dtls_parameters = dtls_parameters;
         dtls_parameters.role = DtlsRole::Server;
-        
+
         tracing::info!(
             transport_id = %transport_id,
             listener_id = %self.listener_id,
@@ -364,7 +367,7 @@ impl Listener {
             transport_cleaned = transport_cleaned,
             "Complete listener cleanup finished"
         );
-        
+
         Ok(())
     }
 
@@ -531,7 +534,7 @@ impl Listener {
         // Start new cleanup timer (1 minute timeout)
         let cleanup_timer = tokio::spawn(async move {
             tokio::time::sleep(tokio::time::Duration::from_secs(60)).await;
-            
+
             // Check if listener is still disconnected and remove if so
             if let Some(room_state) = lobby.get_room(&room_id) {
                 // First check if cleanup is needed
@@ -540,7 +543,7 @@ impl Listener {
                     let listener_ref = room_guard.get_listener(&session_id);
                     listener_ref.map_or(false, |l| l.last_disconnected_at.is_some())
                 };
-                
+
                 if should_cleanup {
                     // Perform cleanup using existing domain method
                     let mut room_write_guard = room_state.write().await;
@@ -557,12 +560,12 @@ impl Listener {
                             room_id = %room_id,
                             "Cleaned up abandoned listener after timeout"
                         );
-                        
+
                         // Update lobby state to reflect listener count change
                         // This ensures the public room list shows the correct listener count
                         if room_write_guard.is_public() {
                             drop(room_write_guard); // Release write lock before lobby call
-                            
+
                             lobby.update_room(&room_id).await;
                             tracing::debug!(
                                 session_id = %session_id,
@@ -587,7 +590,7 @@ impl Listener {
                 "Cancelled disconnect cleanup timer due to reconnection"
             );
         }
-        
+
         // Clear disconnect timestamp since listener is now connected
         self.last_disconnected_at = None;
     }

@@ -42,3 +42,4 @@ yarn-error.log*
 frontend/node_modules
 node_modules
 core
+target/rust-analyzer/flycheck0
