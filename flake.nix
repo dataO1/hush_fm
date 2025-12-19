@@ -76,7 +76,7 @@
 
           # MediaSoup configuration for localhost development
           HUSHFM_MEDIASOUP_LISTEN_IP = "127.0.0.1";
-          HUSHFM_MEDIASOUP_ENABLE_TCP = "false";
+          HUSHFM_MEDIASOUP_ENABLE_TCP = "true";
           HUSHFM_MEDIASOUP_EXPOSE_INTERNAL_IP = "false";
 
           shellHook = ''
