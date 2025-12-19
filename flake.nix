@@ -258,6 +258,9 @@
             HUSHFM_MEDIASOUP_LISTEN_IP = cfg.mediasoup.listenIp;
             HUSHFM_MEDIASOUP_ENABLE_TCP = if cfg.mediasoup.enableTcp then "true" else "false";
             HUSHFM_MEDIASOUP_EXPOSE_INTERNAL_IP = if cfg.mediasoup.exposeInternalIp then "true" else "false";
+            
+            # Enable trace level logging for production debugging
+            RUST_LOG = "trace";
           };
 
           # Build frontend with only frontend-relevant environment variables
