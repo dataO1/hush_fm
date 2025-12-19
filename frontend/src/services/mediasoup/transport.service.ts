@@ -1,12 +1,12 @@
 /**
  * MediaSoup Transport Service
- * 
+ *
  * Extracted service for managing MediaSoup Transport lifecycle:
  * - Send/Receive transport creation
  * - Transport connection and state management
  * - ICE/DTLS state tracking
  * - Transport statistics and diagnostics
- * 
+ *
  * Pure Effect-TS service with minimal WebSocket dependencies.
  */
 
@@ -20,7 +20,7 @@ import { TransportOptionsFromApi, type InternalTransportOptions } from '../webso
  */
 export class TransportError extends Error {
   public readonly cause?: unknown
-  
+
   constructor(message: string, cause?: unknown) {
     super(message)
     this.name = 'TransportError'
@@ -90,11 +90,11 @@ export interface MediaSoupTransportService {
    * Create send transport
    */
   readonly createSendTransport: (
-    device: Device, 
+    device: Device,
     options: ApiTransportOptions,
     callbacks?: TransportCallbacks
   ) => Effect.Effect<types.Transport, TransportCreationError>
-  
+
   /**
    * Create receive transport
    */
@@ -103,7 +103,7 @@ export interface MediaSoupTransportService {
     options: ApiTransportOptions,
     callbacks?: TransportCallbacks
   ) => Effect.Effect<types.Transport, TransportCreationError>
-  
+
   /**
    * Connect transport with DTLS parameters
    */
@@ -111,12 +111,12 @@ export interface MediaSoupTransportService {
     transport: types.Transport,
     dtlsParameters: any
   ) => Effect.Effect<void, TransportConnectionError>
-  
+
   /**
    * Get transport statistics
    */
   readonly getTransportStats: (transport: types.Transport) => Effect.Effect<any, TransportError>
-  
+
   /**
    * Restart ICE for transport
    */
@@ -124,17 +124,17 @@ export interface MediaSoupTransportService {
     transport: types.Transport,
     iceParameters?: any
   ) => Effect.Effect<void, TransportError>
-  
+
   /**
    * Close transport
    */
   readonly closeTransport: (transport: types.Transport) => Effect.Effect<void, never>
-  
+
   /**
    * Get transport state
    */
   readonly getTransportState: (transport: types.Transport) => Effect.Effect<TransportState, never>
-  
+
   /**
    * Setup transport event handlers
    */
@@ -143,7 +143,7 @@ export interface MediaSoupTransportService {
     direction: 'send' | 'receive',
     callbacks?: TransportCallbacks
   ) => Effect.Effect<void, never>
-  
+
   /**
    * Validate transport options
    */
@@ -154,12 +154,12 @@ export interface MediaSoupTransportService {
  * Transport Service Implementation
  */
 class MediaSoupTransportServiceImpl implements MediaSoupTransportService {
-  
+
   /**
    * Create send transport
    */
   createSendTransport = (
-    device: Device, 
+    device: Device,
     options: ApiTransportOptions,
     callbacks?: TransportCallbacks
   ): Effect.Effect<types.Transport, TransportCreationError> =>
@@ -179,13 +179,15 @@ class MediaSoupTransportServiceImpl implements MediaSoupTransportService {
               dtlsParameters: nativeOptions.dtlsParameters,
               sctpParameters: nativeOptions.sctpParameters,
               // Local network optimization
-              iceServers: [],
+              iceServers: [
+                { urls: 'stun:stun.l.google.com:19302' }
+              ],
               iceTransportPolicy: 'all',
             })
 
             // Set up event handlers
             await this.setupTransportEventHandlers(transport, 'send', callbacks)
-            
+
             console.info('✅ Created send transport successfully', {
               transport_id: transport.id,
               direction: 'send',
@@ -227,13 +229,15 @@ class MediaSoupTransportServiceImpl implements MediaSoupTransportService {
               dtlsParameters: nativeOptions.dtlsParameters,
               sctpParameters: nativeOptions.sctpParameters,
               // Local network optimization
-              iceServers: [],
+              iceServers: [
+                { urls: 'stun:stun.l.google.com:19302' }
+              ],
               iceTransportPolicy: 'all',
             })
 
             // Set up event handlers
             await this.setupTransportEventHandlers(transport, 'receive', callbacks)
-            
+
             console.info('✅ Created receive transport successfully', {
               transport_id: transport.id,
               direction: 'receive',
@@ -268,7 +272,7 @@ class MediaSoupTransportServiceImpl implements MediaSoupTransportService {
 
           // Note: connect method signature may vary by mediasoup-client version
           await (transport as any).connect({ dtlsParameters })
-          
+
           console.info('✅ Transport connected successfully', {
             transport_id: transport.id,
             connection_state: transport.connectionState
@@ -419,7 +423,7 @@ class MediaSoupTransportServiceImpl implements MediaSoupTransportService {
           transport_id: transport.id,
           dtls_parameters: dtlsParameters
         })
-        
+
         if (callbacks?.onConnect) {
           await callbacks.onConnect(dtlsParameters)
         }
@@ -438,7 +442,7 @@ class MediaSoupTransportServiceImpl implements MediaSoupTransportService {
             transport_id: transport.id,
             rtp_parameters: parameters.rtpParameters
           })
-          
+
           if (callbacks?.onProduce) {
             callbacks.onProduce(parameters, callback, errback)
           } else {
@@ -478,7 +482,7 @@ export const createSendTransportWithEvents = (
 ): Effect.Effect<types.Transport, TransportCreationError, never> =>
   pipe(
     MediaSoupTransportService,
-    Effect.andThen(service => 
+    Effect.andThen(service =>
       service.createSendTransport(device, options, callbacks)
     ),
     Effect.provide(MediaSoupTransportServiceLive)
@@ -494,7 +498,7 @@ export const createReceiveTransportWithEvents = (
 ): Effect.Effect<types.Transport, TransportCreationError, never> =>
   pipe(
     MediaSoupTransportService,
-    Effect.andThen(service => 
+    Effect.andThen(service =>
       service.createReceiveTransport(device, options, callbacks)
     ),
     Effect.provide(MediaSoupTransportServiceLive)
@@ -527,7 +531,7 @@ export const getTransportStatsWithRetry = (
 ): Effect.Effect<any, TransportError, never> =>
   pipe(
     MediaSoupTransportService,
-    Effect.andThen(service => 
+    Effect.andThen(service =>
       pipe(
         service.getTransportStats(transport),
         Effect.retry({ times: maxRetries })
