@@ -97,6 +97,39 @@ export const RoomMetadata = S.Struct({
 export type RoomMetadata = S.Schema.Type<typeof RoomMetadata>
 
 /**
+ * WebRTC Connection Status
+ * 
+ * Unified status that encompasses transport and DTLS state
+ */
+export enum WebRTCConnectionState {
+  DISCONNECTED = 'disconnected',
+  CONNECTING = 'connecting', 
+  CONNECTED = 'connected',
+  FAILED = 'failed'
+}
+
+export const WebRTCConnectionStateSchema = S.Literal(
+  'disconnected',
+  'connecting',
+  'connected', 
+  'failed'
+)
+
+export const WebRTCError = S.Struct({
+  type: S.Literal('transport_connection', 'producer_creation', 'device_initialization', 'unknown'),
+  message: S.String,
+  originalError: S.Option(S.Unknown)
+})
+export type WebRTCError = S.Schema.Type<typeof WebRTCError>
+
+export const WebRTCStatus = S.Struct({
+  status: WebRTCConnectionStateSchema,
+  lastConnectedAt: S.Option(S.Date),
+  error: S.Option(WebRTCError)
+})
+export type WebRTCStatus = S.Schema.Type<typeof WebRTCStatus>
+
+/**
  * Room participants with embedded domain state
  * 
  * Direct embedding of DJ and Listeners with their complete MediaSoup state
@@ -143,6 +176,9 @@ export const RoomState = S.Struct({
     lastError: S.Option(S.String)
   }),
   
+  // WebRTC connection status
+  webrtcStatus: WebRTCStatus,
+  
   // Message history (for debugging)
   messageHistory: S.Array(S.Struct({
     timestamp: S.Date,
@@ -180,6 +216,11 @@ export const createInitialRoomState = (): RoomState => ({
     startedAt: Option.none(),
     pausedAt: Option.none(),
     lastError: Option.none()
+  },
+  webrtcStatus: {
+    status: WebRTCConnectionState.DISCONNECTED,
+    lastConnectedAt: Option.none(),
+    error: Option.none()
   },
   messageHistory: [],
   lastActivityAt: new Date()

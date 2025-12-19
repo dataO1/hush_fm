@@ -23,11 +23,11 @@ const getEnvVar = (key: string, defaultValue: string): string => {
   return (import.meta.env[key as keyof ImportMetaEnv] as string) || defaultValue
 }
 
-// Parse boolean environment variables
-const getEnvBool = (key: string, defaultValue: boolean): boolean => {
-  const value = getEnvVar(key, defaultValue.toString())
-  return value.toLowerCase() === 'true'
-}
+// Parse boolean environment variables (unused for now)
+// const getEnvBool = (key: string, defaultValue: boolean): boolean => {
+//   const value = getEnvVar(key, defaultValue.toString())
+//   return value.toLowerCase() === 'true'
+// }
 
 // Parse numeric environment variables
 const getEnvNumber = (key: string, defaultValue: number): number => {

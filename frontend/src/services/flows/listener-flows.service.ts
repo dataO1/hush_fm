@@ -15,6 +15,7 @@ import {
 } from '../../domain/schemas/listener.schema'
 import {
   type RoomMetadata,
+  WebRTCConnectionState
 } from '../../domain/schemas/room.schema'
 import type {
   ListenerEvent,
@@ -26,7 +27,12 @@ import {
   AudioPlaybackError
 } from '../../domain/errors'
 import { createAndLoadDevice } from '../mediasoup/device.service'
-import { createReceiveTransportWithEvents } from '../mediasoup/transport.service'
+import { 
+  createReceiveTransportWithEvents, 
+  mapTransportStateToWebRTCStatus,
+  MediaSoupTransportService,
+  MediaSoupTransportServiceLive 
+} from '../mediasoup/transport.service'
 import { createAudioConsumer } from '../mediasoup/consumer.service'
 import {
   connectToListener,
@@ -77,6 +83,7 @@ export interface ListenerJoinResult {
   roomMetadata: RoomMetadata
   audioStream: MediaStream
 }
+
 
 
 /**
@@ -131,6 +138,30 @@ export const getOrCreateListenerWebSocket = (
 
       console.info('✅ Listener WebSocket connected successfully via service')
 
+      // Set up persistent listeners for transport and consumer confirmations (no Effect logic, just pure state updates)
+      console.info('🎯 Setting up persistent listener confirmation listeners...')
+      const setupListenerConfirmationListeners = (ws: WebSocket, listenerId: string) => {
+        ws.addEventListener('message', (event) => {
+          try {
+            const data = JSON.parse(event.data)
+            
+            if (data.type === 'transportConnected') {
+              console.info('✅ Transport confirmed by backend for listener:', listenerId)
+              roomStore.actions.setListenerTransportConfirmation(listenerId)
+            }
+            
+            if (data.type === 'consumerCreated') {
+              console.info('✅ Consumer confirmed by backend:', data.consumerId, 'for listener:', listenerId)
+              roomStore.actions.setListenerConsumerConfirmation(listenerId, data.consumerId, data.producerId, data.consumerParameters)
+            }
+          } catch (error) {
+            console.error('❌ Failed to parse listener confirmation message:', error)
+          }
+        })
+      }
+      
+      setupListenerConfirmationListeners(listenerWebSocket, sessionId)
+
       // Set up stream event listeners for pause/resume
       console.log(`🔧 [Listener ${sessionId}] Setting up stream event handlers for pause/resume`)
       setupListenerStreamEventHandlers(listenerWebSocket, roomStore, sessionId)
@@ -168,6 +199,69 @@ export const getOrCreateListenerWebSocket = (
  * 9a. Backend connects receiver transport with DTLS params
  * 10a. Media streaming starts
  */
+
+/**
+ * Cleanup listener room on error
+ * 
+ * Modular cleanup function that handles all error scenarios during listener join flow.
+ * Sets error state in store and sends backend cleanup command for server-side cleanup.
+ * 
+ * Similar to cleanupDJRoomOnError but uses leaveRoom command for listeners.
+ * 
+ * - Sets flow step to error  
+ * - Updates WebRTC status to failed with error details
+ * - Sends leaveRoom command to backend for cleanup
+ * - Prepares for user retry or navigation
+ */
+const cleanupListenerOnError = (
+  roomStore: RoomStore,
+  listenerId: string,
+  error: Error | ListenerFlowError | unknown
+): Effect.Effect<void, never> =>
+  pipe(
+    Effect.gen(function* (_) {
+      console.info('🧹 Starting listener room cleanup on error:', error)
+      
+      // Set flow step to error
+      roomStore.actions.setListenerFlowStep(listenerId, 'error')
+      
+      // Set WebRTC status to failed with error details  
+      const errorMessage = error instanceof Error ? error.message : String(error)
+      roomStore.actions.setWebRTCStatus(WebRTCConnectionState.FAILED, {
+        type: 'transport_connection',
+        message: `Listener WebRTC connection failed: ${errorMessage}`,
+        originalError: Option.some(error)
+      })
+      
+      // Send leaveRoom command to backend for comprehensive server-side cleanup
+      // This handles all cleanup scenarios: transport, consumer, and listener cleanup
+      const listenerState = roomStore.getListener(listenerId)
+      
+      if (listenerState && Option.isSome(listenerState.websocket.websocket)) {
+        const listenerWebSocket = listenerState.websocket.websocket
+        console.info('📤 Sending leaveRoom command to backend for cleanup...')
+        
+        // Send leaveRoom command using the existing listener WebSocket  
+        yield* _(pipe(
+          sendListenerCommand(listenerWebSocket.value as WebSocket, { type: 'leaveRoom' }),
+          Effect.mapError(err => {
+            console.warn('⚠️ Failed to send leaveRoom command (non-critical):', err)
+            return err // Log but don't fail the cleanup
+          }),
+          Effect.catchAll(() => Effect.void) // Don't let cleanup command failures break the cleanup flow
+        ))
+        
+        console.info('✅ leaveRoom command sent to backend (cleanup initiated)')
+      } else {
+        console.info('ℹ️ No listener WebSocket available for backend cleanup - listener may not have been created')
+      }
+      
+      console.info('✅ Listener room cleanup completed')
+    }),
+    // Never fail cleanup - always succeed to allow error propagation
+    Effect.catchAll(() => Effect.void)
+  )
+
 export const joinRoomAsListener = (
   roomStore: RoomStore,
   request: JoinRoomRequest
@@ -270,12 +364,35 @@ export const joinRoomAsListener = (
         const receiveTransport = yield* _(createReceiveTransportWithEvents(device, transportParams, {
           onConnect: async (dtlsParameters) => {
             console.info('✅ Step 8a: Transport connect event - sending DTLS params')
+            
+            // Set WebRTC status to connecting when DTLS starts
+            roomStore.actions.setWebRTCStatus('connecting')
+            
             const dtlsCommand: ListenerCommand = {
               type: 'connectListenerTransport',
               transportId: transportParams.id,
               dtlsParameters
             }
             listenerWebSocket.send(JSON.stringify(dtlsCommand))
+          },
+          
+          // Monitor connection state changes for WebRTC status
+          onConnectionStateChange: (state) => {
+            const webrtcStatus = mapTransportStateToWebRTCStatus(state)
+            console.info(`🔄 Listener transport WebRTC status updated: ${webrtcStatus}`, {
+              transport_state: state,
+              webrtc_status: webrtcStatus
+            })
+            
+            if (webrtcStatus === 'failed') {
+              roomStore.actions.setWebRTCStatus('failed', {
+                type: 'transport_connection',
+                message: `Listener transport connection failed: ${state}`,
+                originalError: Option.none()
+              })
+            } else {
+              roomStore.actions.setWebRTCStatus(webrtcStatus)
+            }
           }
         }).pipe(
           Effect.mapError(error => new ListenerFlowError({
@@ -309,10 +426,10 @@ export const joinRoomAsListener = (
           }
         })
 
-        console.info('Device and transport created successfully')
+        console.info('✅ Step 6: Device and transport created successfully')
 
-        // Step 4: Frontend sends device RTP capabilities to backend
-        console.info('✅ Step 4: Sending device RTP capabilities to backend')
+        // Step 7: Frontend sends device RTP capabilities to backend (per reference flow)
+        console.info('✅ Step 7: Sending device RTP capabilities to backend')
         roomStore.actions.setListenerFlowStep(listenerId, 'sending_capabilities')
 
         const rtpCapabilitiesCommand: ListenerCommand = {
@@ -321,35 +438,74 @@ export const joinRoomAsListener = (
         }
         listenerWebSocket.send(JSON.stringify(rtpCapabilitiesCommand))
 
-        // Step 5: Backend checks canConsume() → creates consumer if compatible
-        console.info('✅ Step 5: Waiting for backend consumer compatibility check')
+        // Step 8: Backend checks canConsume() → creates consumer if compatible (step 6a/6b in reference)
+        console.info('✅ Step 8: Waiting for backend consumer compatibility check')
         roomStore.actions.setListenerFlowStep(listenerId, 'waiting_consumer')
 
-        // Wait for either consumer params (6a) or error (6b)
-        const consumerResult = yield* _(waitForConsumerResult(listenerWebSocket))
+        // Wait for consumer confirmation using store-based reactive approach (persistent listener already set up)
+        const waitForListenerConsumerConfirmation = (): Effect.Effect<{consumerId: string, producerId: string, consumerParameters: any}, Error> =>
+          Effect.async<{consumerId: string, producerId: string, consumerParameters: any}, Error>((resume) => {
+            const checkConsumer = () => {
+              const confirmation = roomStore.getListenerConsumerConfirmation(listenerId)
+              if (confirmation.hasConsumer && confirmation.consumerId && confirmation.producerId && 
+                  confirmation.consumerParameters && typeof confirmation.consumerId === 'string' && 
+                  typeof confirmation.producerId === 'string') {
+                return { 
+                  consumerId: confirmation.consumerId, 
+                  producerId: confirmation.producerId, 
+                  consumerParameters: confirmation.consumerParameters 
+                }
+              }
+              return null
+            }
+            
+            // Check store first - if consumer already confirmed, return immediately
+            const existingConsumer = checkConsumer()
+            if (existingConsumer) {
+              console.info('✅ Consumer already confirmed in store:', existingConsumer.consumerId, 'for listener:', listenerId)
+              resume(Effect.succeed(existingConsumer))
+              return Effect.void
+            }
+            
+            // Wait reactively for store update (all Effect logic in service)
+            console.info('⏳ Waiting for consumer confirmation from backend...')
+            const checkInterval = setInterval(() => {
+              const consumer = checkConsumer()
+              if (consumer) {
+                clearInterval(checkInterval)
+                console.info('✅ Consumer confirmation received:', consumer.consumerId, 'for listener:', listenerId)
+                resume(Effect.succeed(consumer))
+              }
+            }, 100) // Check every 100ms
+            
+            const timeout = setTimeout(() => {
+              clearInterval(checkInterval)
+              resume(Effect.fail(new Error('Consumer confirmation timeout after 10 seconds')))
+            }, 10000) // 10 second timeout
+            
+            // Cleanup function
+            return Effect.sync(() => {
+              clearInterval(checkInterval)
+              clearTimeout(timeout)
+            })
+          })
 
-        if (consumerResult.type === 'error') {
-          // Step 6b + 7b: Backend returns error → show error, cancel joining, return to lobby
-          console.error('❌ Step 6b/7b: Router incompatible, canceling join')
-          roomStore.actions.setListenerError(listenerId, consumerResult.error, 'error')
+        const consumerConfirmation = yield* _(pipe(
+          waitForListenerConsumerConfirmation(),
+          Effect.mapError(error => new ListenerFlowError({
+            cause: error.message,
+            step: 'waiting_consumer_check',
+            stepNumber: 5,
+            recoverable: true,
+            context: { timestamp: new Date(), operation: 'consumer_confirmation_timeout', details: { error, listenerId } }
+          }))
+        ))
 
-          // Cleanup and return to lobby - store action is now synchronous
-          roomStore.actions.disconnectFromRoom()
-
-          yield* _(Effect.fail(new ListenerFlowError({
-            cause: `Room join failed: ${consumerResult.error}`,
-            step: 'error',
-            stepNumber: 6,
-            recoverable: false,
-            context: { timestamp: new Date(), operation: 'consumer_check', details: { listenerId, roomIncompatible: true } }
-          })))
-        }
-
-        // Step 6a: Backend sends consumer params (id, kind, rtp) → continue to 7a
-        if (consumerResult.type !== 'success') {
-          throw new Error('Unexpected consumer result type')
-        }
-        const consumerParams = consumerResult.params
+        // Consumer confirmation received - continue with creation
+        console.info('✅ Step 6a: Consumer confirmed by backend with ID:', consumerConfirmation.consumerId)
+        
+        // Use the full consumer parameters from the store
+        const consumerParams = consumerConfirmation.consumerParameters
         console.info('✅ Step 6a: Received consumer params from backend')
 
         // Step 7a: Frontend creates client consumer → fires connect event
@@ -376,6 +532,64 @@ export const joinRoomAsListener = (
             context: { timestamp: new Date(), operation: 'create_consumer', details: { listenerId, error } }
           }))
         ))
+
+        
+        // Step 8.5: Validate WebRTC connection after consumer creation (connection triggered)
+        console.info('🔄 Step 8.5: Validating WebRTC connection after consumer creation...')
+        roomStore.actions.setListenerFlowStep(listenerId, 'validating_connection')
+        
+        // Wait for WebRTC connection using transport service (same pattern as DJ flow)
+        const connectionResult = yield* _(pipe(
+          MediaSoupTransportService,
+          Effect.andThen(service => service.waitForWebRTCConnection(receiveTransport, 10000)),
+          Effect.provide(MediaSoupTransportServiceLive),
+          Effect.mapError(error => new ListenerFlowError({
+            cause: `WebRTC connection validation failed: ${error.message}`,
+            step: 'validating_connection',
+            stepNumber: 8.5,
+            recoverable: false,
+            context: { 
+              timestamp: new Date(),
+              operation: 'webrtc_validation_failed',
+              details: { 
+                listenerId, 
+                transport_state: receiveTransport.connectionState,
+                timeout_ms: 10000,
+                error
+              }
+            }
+          }))
+        ))
+        
+        // Handle connection result
+        if (connectionResult === WebRTCConnectionState.FAILED) {
+          // Set WebRTC status to failed
+          roomStore.actions.setWebRTCStatus(WebRTCConnectionState.FAILED, {
+            type: 'transport_connection',
+            message: 'Listener WebRTC transport connection failed during validation',
+            originalError: Option.none()
+          })
+          
+          yield* _(Effect.fail(new ListenerFlowError({
+            cause: 'Listener WebRTC transport connection failed during validation',
+            step: 'validating_connection',
+            stepNumber: 8.5,
+            recoverable: false,
+            context: { 
+              timestamp: new Date(),
+              operation: 'webrtc_validation_failed',
+              details: { 
+                listenerId, 
+                transport_state: receiveTransport.connectionState,
+                connection_result: connectionResult
+              }
+            }
+          })))
+        }
+        
+        // Mark WebRTC as successfully connected
+        roomStore.actions.setWebRTCStatus(WebRTCConnectionState.CONNECTED)
+        console.info('✅ Step 8.5: WebRTC connection validated successfully:', connectionResult)
 
         // Step 10a: Media streaming starts
         console.info('✅ Step 10a: Media streaming should start now')
@@ -441,6 +655,22 @@ export const joinRoomAsListener = (
         )
         throw error
       }
+    }),
+    // Add cleanup error handling similar to DJ flow
+    Effect.catchAll((error) => {
+      console.error('❌ Listener Flow Error - Cleanup required', error)
+      
+      // Use modular cleanup function
+      return pipe(
+        cleanupListenerOnError(roomStore, request.sessionId, error),
+        Effect.andThen(() => Effect.fail(error instanceof ListenerFlowError ? error : new ListenerFlowError({
+          cause: error instanceof Error ? error.message : String(error),
+          step: 'error',
+          stepNumber: 99,
+          recoverable: false,
+          context: { timestamp: new Date(), operation: 'cleanup', details: { error } }
+        })))
+      )
     })
   )
 
@@ -688,38 +918,4 @@ function waitForTransportParams(listenerWebSocket: WebSocket): Effect.Effect<any
 /**
  * Wait for consumer result (success with params or error)
  */
-function waitForConsumerResult(
-  listenerWebSocket: WebSocket
-): Effect.Effect<{ type: 'success'; params: any } | { type: 'error'; error: string }, ListenerFlowError> {
-  return Effect.async<{ type: 'success'; params: any } | { type: 'error'; error: string }, ListenerFlowError>((resolve) => {
-    const handleMessage = (event: MessageEvent) => {
-      try {
-        const message = JSON.parse(event.data) as ListenerEvent
-        if (message.type === 'consumerCreated') {
-          listenerWebSocket.removeEventListener('message', handleMessage)
-          resolve(Effect.succeed({ type: 'success', params: message.consumerParameters }))
-        } else if (message.type === 'commandFailed') {
-          listenerWebSocket.removeEventListener('message', handleMessage)
-          resolve(Effect.succeed({ type: 'error', error: message.error }))
-        }
-      } catch (error) {
-        // Continue listening for other messages
-      }
-    }
-
-    listenerWebSocket.addEventListener('message', handleMessage)
-
-    // Timeout after 10 seconds
-    setTimeout(() => {
-      listenerWebSocket.removeEventListener('message', handleMessage)
-      resolve(Effect.fail(new ListenerFlowError({
-        cause: 'Timeout waiting for consumer result',
-        step: 'waiting_consumer_check',
-        stepNumber: 5,
-        recoverable: true,
-        context: { timestamp: new Date(), operation: 'wait_consumer', details: {} }
-      })))
-    }, 10000)
-  })
-}
 

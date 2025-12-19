@@ -4,10 +4,11 @@ import { Effect, Option } from 'effect'
 import { DeviceSelector } from '../components/controls/DeviceSelector'
 import { getRoomStore } from '../../stores/room.store'
 import { publishDJRoom, toggleDJStream, closeDJRoom } from '../../services/flows/dj-flows.service'
-import { ConnectionState } from '../../domain/schemas/room.schema'
+import { ConnectionState, type WebRTCError } from '../../domain/schemas/room.schema'
 import type { DJState } from '../../domain/schemas/dj.schema'
 import ConnectionStatusDot from '../components/ConnectionStatusDot'
 import { Oscilloscope } from '../components/shared/Oscilloscope'
+import { WebRTCErrorHandler } from '../components/WebRTCErrorHandler'
 
 export default function DJRoom() {
   const params = useParams()
@@ -57,6 +58,10 @@ export default function DJRoom() {
   const isConnecting = () => roomStore.isConnecting
   const isPaused = () => roomStore.isPaused
   const selectedDeviceId = () => roomStore.selectedDeviceId
+  
+  // WebRTC error state
+  const webrtcError = () => roomStore.webrtcError
+  const hasWebRTCError = () => roomStore.hasWebRTCError
   
   // Room information - get room ID from store metadata or fallback to params
   const roomMetadata = () => roomStore.roomMetadata
@@ -208,6 +213,14 @@ export default function DJRoom() {
             <button class="btn btn-sm btn-circle" onClick={() => roomStore.actions.clearDJError()}>✕</button>
           </div>
         </Show>
+
+        {/* WebRTC Error Handler */}
+        <WebRTCErrorHandler 
+          error={webrtcError() as WebRTCError | null}
+          show={hasWebRTCError()}
+          onDismiss={() => roomStore.actions.clearWebRTCStatus()}
+          onCancel={() => navigate('/')}
+        />
 
         <Show when={!isRedirecting() && !isConnecting()}>
           <div class="card bg-white/10 backdrop-blur-sm border border-white/20">

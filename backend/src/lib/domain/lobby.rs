@@ -256,12 +256,21 @@ impl Lobby {
     /// Remove room from lobby
     pub async fn remove_room(&self, room_id: &Uuid) -> Option<Arc<RwLock<Room>>> {
         if let Some((_, room_arc)) = self.rooms.remove(room_id) {
-            // Broadcast room removal
-            let _ = self.broadcast_tx.send(LobbyEvent::RoomRemoved {
-                room_id: room_id.to_string(),
-            });
-
-            tracing::info!("Removed room with ID {}", room_id);
+            // Only broadcast room removal if the room was public (visible to lobby clients)
+            // This prevents broadcasts for unfinished rooms that failed during setup
+            let room_guard = room_arc.read().await;
+            let was_public = room_guard.is_public();
+            drop(room_guard);
+            
+            if was_public {
+                let _ = self.broadcast_tx.send(LobbyEvent::RoomRemoved {
+                    room_id: room_id.to_string(),
+                });
+                tracing::info!("Removed public room with ID {} and broadcasted to lobby", room_id);
+            } else {
+                tracing::info!("Removed unfinished room with ID {} (no broadcast - room was not public)", room_id);
+            }
+            
             Some(room_arc)
         } else {
             None

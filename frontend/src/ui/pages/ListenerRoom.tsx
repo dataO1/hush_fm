@@ -5,9 +5,10 @@ import { getRoomStore } from '../../stores/room.store'
 import { createLobbyStore } from '../../stores/lobby.store'
 import { joinRoomAsListener, leaveRoomAsListener } from '../../services/flows/listener-flows.service'
 import { leaveLobby } from '../../services/flows/lobby-flows.service'
-import { ConnectionState } from '../../domain/schemas/room.schema'
+import { ConnectionState, type WebRTCError } from '../../domain/schemas/room.schema'
 import ConnectionStatusDot from '../components/ConnectionStatusDot'
 import { Oscilloscope } from '../components/shared/Oscilloscope'
+import { WebRTCErrorHandler } from '../components/WebRTCErrorHandler'
 
 export default function ListenerRoom() {
   const params = useParams()
@@ -58,6 +59,10 @@ export default function ListenerRoom() {
   // Use unified connection state from store as single source of truth
   const connectionState = () => roomStore.connectionState
   const isConnecting = () => connectionState() === ConnectionState.CONNECTING
+  
+  // WebRTC error state
+  const webrtcError = () => roomStore.webrtcError
+  const hasWebRTCError = () => roomStore.hasWebRTCError
 
   // Helper to convert ConnectionState to dot status
   const getDotStatus = () => {
@@ -287,6 +292,14 @@ const handleManualPlay = () => {
         autoplay
         // playsinline
         controls={false} // Hidden controls, managed by UI below
+      />
+
+      {/* WebRTC Error Handler */}
+      <WebRTCErrorHandler 
+        error={webrtcError() as WebRTCError | null}
+        show={hasWebRTCError()}
+        onDismiss={() => roomStore.actions.clearWebRTCStatus()}
+        onCancel={() => navigate('/')}
       />
 
       <Show when={isConnecting()}>

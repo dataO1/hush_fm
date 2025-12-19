@@ -1,10 +1,10 @@
 /**
  * DJ Flows Service
  * 
- * Implements the exact 18-step DJ room creation flow from DJ_ROOM_CREATION_FLOW_HOW_ITS_SUPPOSED_TO_BE.md
+ * Implements optimized DJ room creation flow with early WebRTC validation.
  * Integrates with the room store to update DJ state with embedded MediaSoup state.
  * 
- * Flow Steps (18 total):
+ * Flow Steps (13 total):
  * 1. Announce room creation in lobby websocket → DJ websocket (handled by lobby-flows.service)
  * 2. Connect to room, send room init → receive rtpCapabilities  
  * 3. Create device + call load() with received rtpCapabilities
@@ -12,16 +12,11 @@
  * 5. Request WebRTC transport from backend
  * 6-7. Backend creates transport + returns params
  * 8. Use device to create send transport
- * 9. Use send transport + call produce() (fires connect & produce events)
- * 10. Connect handler returns dtlsParams
- * 11. Send dtls to backend
- * 12. Backend calls connect() on send transport
- * 13. Produce handler returns parameters
- * 14. Send parameters to backend
- * 15. Backend calls produce() + creates server-side producer
- * 16. Backend saves producerId, marks room public, sends producerId to DJ
- * 17. Frontend calls callback with producerId (local producer ready)
- * 18. Handle errback for cleanup if errors
+ * 9. **WebRTC connection validation** (moved here for early failure detection)
+ * 10. Use send transport + call produce() (only after WebRTC validation)
+ * 11. Backend producer creation and confirmation
+ * 12. Room becomes public and streaming
+ * 13. Error handling and cleanup
  */
 
 import { Effect, pipe, Option } from 'effect'
@@ -51,8 +46,11 @@ import {
 } from '../mediasoup/device.service'
 import {
   createSendTransportWithEvents,
+  mapTransportStateToWebRTCStatus,
+  MediaSoupTransportService,
   MediaSoupTransportServiceLive
 } from '../mediasoup/transport.service'
+import { WebRTCConnectionState } from '../../domain/schemas/room.schema'
 import {
   createAudioProducer,
   MediaSoupProducerServiceLive
@@ -151,6 +149,7 @@ const dtlsParamsToJson = (params: any): DtlsParametersJson => ({
   fingerprints: params.fingerprints,
   role: params.role
 })
+
 
 /**
  * Device Preview Flow - Create preview stream for device selection
@@ -257,9 +256,83 @@ export const stopDevicePreview = (
   )
 
 /**
- * DJ Room Publishing Flow (18 Steps) - follows specification exactly
+ * Cleanup DJ Room on Error - Modular cleanup function
+ * 
+ * Handles comprehensive cleanup when DJ flow fails:
+ * - Updates UI error states (flow step, DJ error, WebRTC status)
+ * - Sends backend cleanup commands
+ * - Prepares for user retry or navigation
+ * 
+ * TODO: Add backend cleanup event for server-side resource deallocation
+ *       when frontend flow fails (transport cleanup, producer cleanup, etc.)
+ */
+const cleanupDJRoomOnError = (
+  roomStore: RoomStore,
+  error: Error | DJFlowError | unknown
+): Effect.Effect<void, never> =>
+  pipe(
+    Effect.gen(function* (_) {
+      console.info('🧹 Starting DJ room cleanup on error:', error)
+      
+      // Set flow step to error
+      roomStore.actions.setDJFlowStep('error')
+      
+      // Set DJ error in store
+      roomStore.actions.setDJError(
+        error instanceof Error ? error.message : String(error),
+        'error'
+      )
+      
+      // Set WebRTC status to failed with error details
+      const errorMessage = error instanceof Error ? error.message : String(error)
+      roomStore.actions.setWebRTCStatus(WebRTCConnectionState.FAILED, {
+        type: 'transport_connection',
+        message: `WebRTC connection failed: ${errorMessage}`,
+        originalError: Option.some(error)
+      })
+      
+      // Send CloseRoom command to backend for comprehensive server-side cleanup
+      // This handles all cleanup scenarios: transport, producer, and router cleanup
+      const djState = roomStore.state.participants.dj
+      
+      if (Option.isSome(djState)) {
+        const djWebSocketOption = djState.value.websocket.websocket
+        
+        if (Option.isSome(djWebSocketOption)) {
+          const djWebSocket = djWebSocketOption.value as WebSocket
+          console.info('📤 Sending CloseRoom command to backend for cleanup...')
+          
+          // Send CloseRoom command using the existing DJ WebSocket
+          yield* _(pipe(
+            sendDjCommand(djWebSocket, { type: 'closeRoom' }),
+            Effect.mapError(err => {
+              console.warn('⚠️ Failed to send CloseRoom command (non-critical):', err)
+              return err // Log but don't fail the cleanup
+            }),
+            Effect.catchAll(() => Effect.void) // Don't let cleanup command failures break the cleanup flow
+          ))
+          
+          console.info('✅ CloseRoom command sent to backend (cleanup initiated)')
+        } else {
+          console.info('ℹ️ No DJ WebSocket connection available for backend cleanup')
+        }
+      } else {
+        console.info('ℹ️ No DJ state available for backend cleanup - room may not have been created')
+      }
+      
+      console.info('✅ DJ room cleanup completed')
+    }),
+    // Never fail cleanup - always succeed to allow error propagation
+    Effect.catchAll(() => Effect.void)
+  )
+
+/**
+ * DJ Room Publishing Flow (13 Steps) - optimized with early WebRTC validation
  * 
  * Prerequisites: Room already announced in lobby (Step 1 done by lobby-flows.service)
+ * 
+ * Key improvement: WebRTC validation moved to Step 9 (before producer creation)
+ * to ensure connection is established before any backend producer operations.
  * 
  * Integrates with room store to update DJ state throughout the flow.
  */
@@ -310,6 +383,24 @@ export const publishDJRoom = (
       })
       
       console.info('✅ Connected to DJ WebSocket')
+      
+      // Set up persistent producerCreated listener (no Effect logic, just pure state updates)
+      console.info('🎯 Setting up persistent producerCreated listener...')
+      const setupProducerListener = (ws: WebSocket) => {
+        ws.addEventListener('message', (event) => {
+          try {
+            const data = JSON.parse(event.data)
+            if (data.type === 'producerCreated') {
+              console.info('✅ Producer confirmed by backend:', data.producerId)
+              roomStore.actions.setProducerConfirmation(data.producerId)
+            }
+          } catch (error) {
+            console.error('❌ Failed to parse producer confirmation message:', error)
+          }
+        })
+      }
+      
+      setupProducerListener(djWebSocket)
       
       // Step 2: Send room init message, receive rtpCapabilities
       console.info('🔄 Step 2: Sending room init message...')
@@ -532,6 +623,9 @@ export const publishDJRoom = (
             console.info('🔄 Steps 10-11: Transport connect event, sending DTLS params...')
             roomStore.actions.setDJFlowStep('connecting_transport')
             
+            // Set WebRTC status to connecting when DTLS starts
+            roomStore.actions.setWebRTCStatus(WebRTCConnectionState.CONNECTING)
+            
             const dtlsCommand: DjCommand = {
               type: 'connectDjTransport',
               transportId: transportOptions.id,
@@ -541,6 +635,25 @@ export const publishDJRoom = (
             // Step 11: Send dtls to backend
             await Effect.runPromise(sendDjCommand(djWebSocket, dtlsCommand))
             console.info('✅ Steps 11-12: DTLS parameters sent, backend connecting transport')
+          },
+          
+          // Monitor connection state changes for WebRTC status
+          onConnectionStateChange: (state) => {
+            const webrtcStatus = mapTransportStateToWebRTCStatus(state)
+            console.info(`🔄 DJ transport WebRTC status updated: ${webrtcStatus}`, {
+              transport_state: state,
+              webrtc_status: webrtcStatus
+            })
+            
+            if (webrtcStatus === WebRTCConnectionState.FAILED) {
+              roomStore.actions.setWebRTCStatus(WebRTCConnectionState.FAILED, {
+                type: 'transport_connection',
+                message: `Transport connection failed: ${state}`,
+                originalError: Option.none()
+              })
+            } else {
+              roomStore.actions.setWebRTCStatus(webrtcStatus)
+            }
           },
           
           // Step 13-17: Produce event handler
@@ -595,10 +708,11 @@ export const publishDJRoom = (
       
       console.info('✅ Step 8: Send transport created')
       
-      // Step 9: Use send transport and call produce() (which fires connect & produce events)
-      console.info('🔄 Step 9: Calling produce() - will trigger connect and produce events...')
+      // Step 9: Create producer (triggers WebRTC connection process)
+      console.info('🔄 Step 9: Creating producer (this triggers WebRTC connection)...')
       roomStore.actions.setDJFlowStep('creating_producer')
       
+      // Call produce() - this will trigger connect & produce events and backend will send producerCreated
       const producer = yield* _(pipe(
         createAudioProducer(sendTransport, audioTrack, {
           onTrackEnded: (_producer) => {
@@ -614,7 +728,7 @@ export const publishDJRoom = (
         Effect.mapError(error => new DJFlowError({
           cause: 'Failed to create producer',
           step: 'create_producer',
-          stepNumber: 15,
+          stepNumber: 10,
           recoverable: false,
           context: { 
             timestamp: new Date(),
@@ -640,22 +754,123 @@ export const publishDJRoom = (
         })
       })
       
-      // Wait for backend to confirm producer creation and send final producerId
-      console.info('🔄 Step 16: Waiting for backend producer confirmation...')
-      const producerCreatedResponse = yield* _(
-        waitForDjEvent<DjEvent & { type: 'producerCreated' }>(djWebSocket, 'producerCreated', 10000).pipe(
-          Effect.mapError(error => new DJFlowError({
-            cause: error.message,
-            step: 'publishing',
-            stepNumber: 16,
-            recoverable: false,
-            context: { timestamp: new Date(), operation: 'producer_created', details: { error } }
-          }))
-        )
-      )
+      console.info('✅ Step 10: Producer created successfully after WebRTC validation')
       
-      // Step 16-18: Room is now public and streaming
-      console.info('✅ Steps 16-18: Producer created, room is public and streaming!')
+      // Wait for backend to confirm producer creation and send final producerId
+      console.info('🔄 Step 11: Waiting for backend producer confirmation...')
+      const waitForProducerConfirmation = (): Effect.Effect<string, Error> => 
+        Effect.async<string, Error>((resume) => {
+          const checkProducer = () => {
+            if (roomStore.hasProducerConfirmation) {
+              const producerId = roomStore.confirmedProducerId
+              if (producerId && typeof producerId === 'string') {
+                return producerId
+              }
+            }
+            return null
+          }
+          
+          // Check store first - if producer already confirmed, return immediately
+          const existingProducerId = checkProducer()
+          if (existingProducerId) {
+            console.info('✅ Producer already confirmed in store:', existingProducerId)
+            resume(Effect.succeed(existingProducerId))
+            return Effect.void
+          }
+          
+          // Wait reactively for store update (all Effect logic in service)
+          console.info('⏳ Waiting for producer confirmation from backend...')
+          const checkInterval = setInterval(() => {
+            const producerId = checkProducer()
+            if (producerId) {
+              clearInterval(checkInterval)
+              console.info('✅ Producer confirmation received:', producerId)
+              resume(Effect.succeed(producerId))
+            }
+          }, 100) // Check every 100ms
+          
+          const timeout = setTimeout(() => {
+            clearInterval(checkInterval)
+            resume(Effect.fail(new Error('Producer confirmation timeout after 5 seconds')))
+          }, 5000) // 5 second timeout
+          
+          // Cleanup function
+          return Effect.sync(() => {
+            clearInterval(checkInterval)
+            clearTimeout(timeout)
+          })
+        })
+      
+      const confirmedProducerId = yield* _(pipe(
+        waitForProducerConfirmation(),
+        Effect.mapError(error => new DJFlowError({
+          cause: error.message,
+          step: 'producer_confirmation',
+          stepNumber: 11,
+          recoverable: false,
+          context: { timestamp: new Date(), operation: 'producer_confirmation_timeout', details: { error } }
+        }))
+      ))
+      
+      // Step 10: WebRTC connection validation (after producer creation triggered connection)
+      console.info('🔄 Step 10: Validating WebRTC connection after producer creation...')
+      roomStore.actions.setDJFlowStep('validating_connection')
+      
+      // Wait for WebRTC connection using transport service
+      const connectionResult = yield* _(pipe(
+        MediaSoupTransportService,
+        Effect.andThen(service => service.waitForWebRTCConnection(sendTransport, 10000)),
+        Effect.provide(MediaSoupTransportServiceLive),
+        Effect.mapError(error => new DJFlowError({
+          cause: `WebRTC connection validation failed: ${error.message}`,
+          step: 'validating_connection',
+          stepNumber: 10.1,
+          recoverable: false,
+          context: { 
+            timestamp: new Date(),
+            operation: 'webrtc_validation_failed',
+            details: { 
+              roomId, 
+              transport_state: sendTransport.connectionState,
+              timeout_ms: 10000,
+              error
+            }
+          }
+        }))
+      ))
+      
+      // Handle connection result
+      if (connectionResult === WebRTCConnectionState.FAILED) {
+        // Set WebRTC status to failed
+        roomStore.actions.setWebRTCStatus(WebRTCConnectionState.FAILED, {
+          type: 'transport_connection',
+          message: 'WebRTC transport connection failed during validation',
+          originalError: Option.none()
+        })
+        
+        yield* _(Effect.fail(new DJFlowError({
+          cause: 'WebRTC transport connection failed during validation',
+          step: 'validating_connection',
+          stepNumber: 10.1,
+          recoverable: false,
+          context: { 
+            timestamp: new Date(),
+            operation: 'webrtc_validation_failed',
+            details: { 
+              roomId, 
+              transport_state: sendTransport.connectionState,
+              connection_result: connectionResult
+            }
+          }
+        })))
+      }
+      
+      // Mark WebRTC as successfully connected
+      roomStore.actions.setWebRTCStatus(WebRTCConnectionState.CONNECTED)
+      console.info('✅ Step 10: WebRTC connection validated successfully')
+      
+      // Step 11-12: Room is now public and streaming
+      console.info('✅ Steps 11-12: Producer created, room is public and streaming!')
       roomStore.actions.setDJFlowStep('streaming')
       roomStore.actions.updateDJState({
         flowCompletedAt: Option.some(new Date()),
@@ -667,7 +882,7 @@ export const publishDJRoom = (
       
       return {
         roomId,
-        producerId: producerCreatedResponse.producerId,
+        producerId: confirmedProducerId,
         device,
         sendTransport,
         producer,
@@ -675,38 +890,21 @@ export const publishDJRoom = (
       }
     }),
     
-    // Step 18: Error handling and cleanup
+    // Step 13: Error handling and cleanup
     Effect.catchAll((error) => {
-      console.error('❌ DJ Flow Error - Step 18: Cleanup required', error)
-      roomStore.actions.setDJFlowStep('error')
-      roomStore.actions.setDJError(
-        error instanceof Error ? error.message : String(error),
-        'error'
+      console.error('❌ DJ Flow Error - Step 13: Cleanup required', error)
+      
+      // Use modular cleanup function
+      return pipe(
+        cleanupDJRoomOnError(roomStore, error),
+        Effect.andThen(() => Effect.fail(error instanceof DJFlowError ? error : new DJFlowError({
+          cause: error instanceof Error ? error.message : String(error),
+          step: 'error',
+          stepNumber: 13,
+          recoverable: false,
+          context: { timestamp: new Date(), operation: 'cleanup', details: { error } }
+        })))
       )
-      
-      // Send cleanup command if needed
-      if (roomStore.roomId) {
-        const djState = roomStore.djState as DJState | null
-        if (djState) {
-          Option.match(djState.websocket.websocket, {
-            onSome: (ws: WebSocket) => {
-              const cleanupCommand: DjCommand = {
-                type: 'closeRoom'
-              }
-              Effect.runSync(sendDjCommand(ws, cleanupCommand))
-            },
-            onNone: () => {}
-          })
-        }
-      }
-      
-      return Effect.fail(error instanceof DJFlowError ? error : new DJFlowError({
-        cause: error instanceof Error ? error.message : String(error),
-        step: 'error',
-        stepNumber: 18,
-        recoverable: false,
-        context: { timestamp: new Date(), operation: 'cleanup', details: { error } }
-      }))
     })
   )
 

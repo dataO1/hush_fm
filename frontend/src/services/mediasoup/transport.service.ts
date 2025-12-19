@@ -14,6 +14,7 @@ import { Effect, pipe, Option, Context, Layer } from 'effect'
 import { Device, types } from 'mediasoup-client'
 import type { TransportOptions as ApiTransportOptions } from '../generated/hushFMAPI.schemas'
 import { TransportOptionsFromApi, type InternalTransportOptions } from '../websocket/schemas/websocket'
+import { WebRTCConnectionState } from '../../domain/schemas/room.schema'
 
 /**
  * Transport Service Errors
@@ -43,17 +44,12 @@ export class TransportCreationError extends TransportError {
 }
 
 /**
- * Transport Connection States
- */
-export type ConnectionState = 'new' | 'connecting' | 'connected' | 'disconnecting' | 'disconnected' | 'failed'
-
-/**
  * Transport State Information
  */
 export interface TransportState {
   id: string
   direction: 'send' | 'receive'
-  connectionState: ConnectionState
+  connectionState: string // Raw MediaSoup transport connection state
   iceState: Option.Option<RTCIceConnectionState>
   dtlsState: Option.Option<RTCDtlsTransportState>
   transport: Option.Option<types.Transport>
@@ -78,7 +74,8 @@ export interface TransportStats {
  */
 export interface TransportCallbacks {
   onConnect?: (dtlsParameters: any) => Promise<void>
-  onConnectionStateChange?: (state: ConnectionState) => void
+  onConnectionStateChange?: (state: string) => void
+  onWebRTCStateChange?: (state: WebRTCConnectionState, details?: { error?: Error, iceState?: string, connectionState?: string }) => void
   onProduce?: (parameters: any, callback: (params: { id: string }) => void, errback: (error: Error) => void) => void
 }
 
@@ -118,14 +115,6 @@ export interface MediaSoupTransportService {
   readonly getTransportStats: (transport: types.Transport) => Effect.Effect<any, TransportError>
 
   /**
-   * Restart ICE for transport
-   */
-  readonly restartIce: (
-    transport: types.Transport,
-    iceParameters?: any
-  ) => Effect.Effect<void, TransportError>
-
-  /**
    * Close transport
    */
   readonly closeTransport: (transport: types.Transport) => Effect.Effect<void, never>
@@ -148,6 +137,14 @@ export interface MediaSoupTransportService {
    * Validate transport options
    */
   readonly validateTransportOptions: (options: ApiTransportOptions) => Effect.Effect<InternalTransportOptions, TransportError>
+
+  /**
+   * Wait for WebRTC connection using comprehensive event monitoring
+   */
+  readonly waitForWebRTCConnection: (
+    transport: types.Transport,
+    timeoutMs?: number
+  ) => Effect.Effect<WebRTCConnectionState, TransportConnectionError>
 }
 
 /**
@@ -178,11 +175,7 @@ class MediaSoupTransportServiceImpl implements MediaSoupTransportService {
               iceCandidates: nativeOptions.iceCandidates,
               dtlsParameters: nativeOptions.dtlsParameters,
               sctpParameters: nativeOptions.sctpParameters,
-              // Local network optimization
-              iceServers: [
-                { urls: 'stun:stun.l.google.com:19302' }
-              ],
-              iceTransportPolicy: 'all',
+              // Use backend-provided ICE configuration (no override)
             })
 
             // Set up event handlers
@@ -228,11 +221,7 @@ class MediaSoupTransportServiceImpl implements MediaSoupTransportService {
               iceCandidates: nativeOptions.iceCandidates,
               dtlsParameters: nativeOptions.dtlsParameters,
               sctpParameters: nativeOptions.sctpParameters,
-              // Local network optimization
-              iceServers: [
-                { urls: 'stun:stun.l.google.com:19302' }
-              ],
-              iceTransportPolicy: 'all',
+              // Use backend-provided ICE configuration (no override)
             })
 
             // Set up event handlers
@@ -302,32 +291,6 @@ class MediaSoupTransportServiceImpl implements MediaSoupTransportService {
     )
 
   /**
-   * Restart ICE for transport
-   */
-  restartIce = (
-    transport: types.Transport,
-    iceParameters?: any
-  ): Effect.Effect<void, TransportError> =>
-    pipe(
-      Effect.tryPromise({
-        try: () => {
-          const params = iceParameters || {
-            iceParameters: {
-              usernameFragment: 'local',
-              password: 'localpass'
-            }
-          }
-          return transport.restartIce(params)
-        },
-        catch: (error) => new TransportError(
-          `Failed to restart ICE for transport ${transport.id}: ${error}`,
-          error
-        )
-      }),
-      Effect.tap(() => Effect.logInfo(`Restarted ICE for transport: ${transport.id}`))
-    )
-
-  /**
    * Close transport
    */
   closeTransport = (transport: types.Transport): Effect.Effect<void, never> =>
@@ -349,7 +312,7 @@ class MediaSoupTransportServiceImpl implements MediaSoupTransportService {
     Effect.sync(() => ({
       id: transport.id,
       direction: transport.constructor.name.includes('Send') ? 'send' : 'receive',
-      connectionState: transport.connectionState as ConnectionState,
+      connectionState: transport.connectionState,
       iceState: Option.fromNullable((transport as any).iceState),
       dtlsState: Option.fromNullable((transport as any).dtlsState),
       transport: Option.some(transport)
@@ -382,6 +345,159 @@ class MediaSoupTransportServiceImpl implements MediaSoupTransportService {
     )
 
   /**
+   * Wait for WebRTC connection using comprehensive event monitoring
+   */
+  waitForWebRTCConnection = (
+    transport: types.Transport,
+    timeoutMs: number = 10000
+  ): Effect.Effect<WebRTCConnectionState, TransportConnectionError> =>
+    pipe(
+      Effect.async<WebRTCConnectionState, TransportConnectionError>((resume) => {
+        let resolved = false
+        let timeoutHandle: NodeJS.Timeout
+
+        // Comprehensive WebRTC state tracking
+        let iceGatheringCompleted = false
+        let connectionEstablished = false
+        let hasError = false
+
+        const checkCurrentState = () => {
+          const currentConnectionState = transport.connectionState
+          const currentIceState = (transport as any).iceGatheringState
+
+          console.info(`🔍 WebRTC validation: current states`, {
+            connection_state: currentConnectionState,
+            ice_gathering_state: currentIceState,
+            transport_id: transport.id
+          })
+
+          // Check if already connected
+          if (currentConnectionState === 'connected' && currentIceState === 'complete') {
+            iceGatheringCompleted = true
+            connectionEstablished = true
+            return WebRTCConnectionState.CONNECTED
+          }
+
+          // Check if already failed
+          if (currentConnectionState === 'failed' || currentConnectionState === 'disconnected') {
+            hasError = true
+            return WebRTCConnectionState.FAILED
+          }
+
+          // Initialize state tracking based on current state
+          if (currentIceState === 'complete') {
+            iceGatheringCompleted = true
+          }
+          if (currentConnectionState === 'connected') {
+            connectionEstablished = true
+          }
+
+          return null
+        }
+
+        const updateWebRTCState = (eventType: string) => {
+          if (resolved) return
+          
+          if (hasError) {
+            resolved = true
+            cleanup()
+            console.info(`❌ WebRTC connection failed (${eventType})`)
+            resume(Effect.succeed(WebRTCConnectionState.FAILED))
+            return
+          }
+
+          // Connection is only considered 'connected' when BOTH ICE gathering completes AND connection is established
+          if (iceGatheringCompleted && connectionEstablished) {
+            resolved = true
+            cleanup()
+            console.info(`✅ WebRTC connection established (${eventType})`)
+            resume(Effect.succeed(WebRTCConnectionState.CONNECTED))
+          }
+          // Otherwise stay in connecting state
+        }
+
+        const cleanup = () => {
+          if (timeoutHandle) {
+            clearTimeout(timeoutHandle)
+          }
+          transport.removeListener('icegatheringstatechange', iceGatheringHandler)
+          transport.removeListener('icecandidateerror', iceCandidateErrorHandler)
+          transport.removeListener('connectionstatechange', connectionStateHandler)
+        }
+
+        // Event handlers
+        const iceGatheringHandler = (iceGatheringState: string) => {
+          console.info(`🧊 WebRTC validation: ICE gathering state: ${iceGatheringState}`)
+          
+          if (iceGatheringState === 'complete') {
+            iceGatheringCompleted = true
+          } else if (iceGatheringState === 'gathering') {
+            iceGatheringCompleted = false
+          }
+          
+          updateWebRTCState('icegatheringstatechange')
+        }
+
+        const iceCandidateErrorHandler = (event: any) => {
+          console.error(`❌ WebRTC validation: ICE candidate error:`, event)
+          hasError = true
+          updateWebRTCState('icecandidateerror')
+        }
+
+        const connectionStateHandler = (connectionState: string) => {
+          console.info(`🔄 WebRTC validation: connection state: ${connectionState}`)
+          
+          if (connectionState === 'connected') {
+            connectionEstablished = true
+          } else if (connectionState === 'failed' || connectionState === 'disconnected') {
+            hasError = true
+          } else {
+            connectionEstablished = false
+          }
+          
+          updateWebRTCState('connectionstatechange')
+        }
+
+        // Check current state first
+        const initialState = checkCurrentState()
+        if (initialState) {
+          console.info(`🔍 WebRTC validation: returning initial state: ${initialState}`)
+          resume(Effect.succeed(initialState))
+          return Effect.void
+        }
+
+        // Set up event listeners for comprehensive monitoring
+        console.info(`⏳ WebRTC validation: setting up comprehensive event monitoring...`)
+        transport.on('icegatheringstatechange', iceGatheringHandler)
+        transport.on('icecandidateerror', iceCandidateErrorHandler)
+        transport.on('connectionstatechange', connectionStateHandler)
+
+        // Set up timeout
+        timeoutHandle = setTimeout(() => {
+          if (resolved) return
+          resolved = true
+          cleanup()
+          
+          const finalState = {
+            connection_state: transport.connectionState,
+            ice_gathering_state: (transport as any).iceGatheringState,
+            ice_completed: iceGatheringCompleted,
+            connection_established: connectionEstablished,
+            has_error: hasError
+          }
+          
+          console.error(`⏰ WebRTC validation timeout after ${timeoutMs}ms`, finalState)
+          resume(Effect.fail(new TransportConnectionError(
+            `WebRTC connection timeout after ${timeoutMs}ms. Final state: ${JSON.stringify(finalState)}`
+          )))
+        }, timeoutMs)
+        
+        return Effect.sync(cleanup)
+      }),
+      Effect.tap(() => Effect.logInfo(`WebRTC connection validation completed for transport: ${transport.id}`))
+    )
+
+  /**
    * Setup transport event handlers (private method)
    */
   private setupTransportEventHandlers = async (
@@ -389,7 +505,26 @@ class MediaSoupTransportServiceImpl implements MediaSoupTransportService {
     direction: 'send' | 'receive',
     callbacks?: TransportCallbacks
   ) => {
-    // Connection state change events
+    // Set up WebRTC state monitoring if callback is provided
+    if (callbacks?.onWebRTCStateChange) {
+      // Use the unified WebRTC monitoring - run in background, don't wait for it
+      Effect.runFork(
+        pipe(
+          this.waitForWebRTCConnection(transport, Infinity), // No timeout for persistent monitoring
+          Effect.andThen(state => Effect.sync(() => {
+            callbacks.onWebRTCStateChange?.(state, {
+              iceState: (transport as any).iceGatheringState,
+              connectionState: transport.connectionState
+            })
+          })),
+          Effect.catchAll(error => Effect.sync(() => {
+            console.warn(`WebRTC monitoring ended for transport ${transport.id}:`, error)
+          }))
+        )
+      )
+    }
+
+    // Legacy connection state change callback for backward compatibility
     transport.on('connectionstatechange', (state) => {
       console.info(`🔄 ${direction} transport connection state changed: ${state}`, {
         transport_id: transport.id,
@@ -397,24 +532,9 @@ class MediaSoupTransportServiceImpl implements MediaSoupTransportService {
         ice_state: (transport as any).iceState,
         dtls_state: (transport as any).dtlsState
       })
-      callbacks?.onConnectionStateChange?.(state as ConnectionState)
+      
+      callbacks?.onConnectionStateChange?.(state)
     })
-
-    // ICE state change events (may not be available in all versions)
-    // transport.on('icestatechange', (iceState) => {
-    //   console.info(`🧊 ${direction} transport ICE state changed: ${iceState}`, {
-    //     transport_id: transport.id,
-    //     ice_state: iceState
-    //   })
-    // })
-
-    // DTLS state change events (may not be available in all versions)
-    // transport.on('dtlsstatechange', (dtlsState) => {
-    //   console.info(`🔐 ${direction} transport DTLS state changed: ${dtlsState}`, {
-    //     transport_id: transport.id,
-    //     dtls_state: dtlsState
-    //   })
-    // })
 
     // Connect event
     transport.on('connect', async ({ dtlsParameters }, callback, errback) => {
@@ -539,3 +659,33 @@ export const getTransportStatsWithRetry = (
     ),
     Effect.provide(MediaSoupTransportServiceLive)
   )
+
+/**
+ * Map MediaSoup transport connection state to WebRTC status for room store
+ */
+export const mapTransportStateToWebRTCStatus = (
+  transportState: string
+): 'disconnected' | 'connecting' | 'connected' | 'failed' => {
+  switch (transportState) {
+    case 'new':
+    case 'connecting':
+      return 'connecting'
+    case 'connected':
+      return 'connected'
+    case 'failed':
+      return 'failed'
+    case 'disconnected':
+    case 'disconnecting':
+    default:
+      return 'disconnected'
+  }
+}
+
+/**
+ * Get WebRTC status from transport for room store
+ */
+export const getTransportWebRTCStatus = (
+  transport: types.Transport
+): 'disconnected' | 'connecting' | 'connected' | 'failed' => {
+  return mapTransportStateToWebRTCStatus(transport.connectionState)
+}

@@ -4,6 +4,24 @@ import './index.css'
 import App from './App'
 import 'solid-devtools'
 
+// Enable MediaSoup client debug logging in development
+if ((import.meta as any).env?.DEV) {
+  try {
+    // Import debug module from mediasoup-client for comprehensive logging
+    import('mediasoup-client').then(({ debug }) => {
+      if (debug && debug.enable) {
+        // Enable all MediaSoup client debug categories
+        debug.enable('mediasoup-client:*')
+        console.info('🔧 MediaSoup client debug logging enabled')
+      }
+    }).catch((error) => {
+      console.warn('⚠️ Failed to enable MediaSoup debug logging:', error)
+    })
+  } catch (error) {
+    console.warn('⚠️ MediaSoup debug module not available:', error)
+  }
+}
+
 const root = document.getElementById('root')
 
 if ((import.meta as any).env?.DEV && !(root instanceof HTMLElement)) {

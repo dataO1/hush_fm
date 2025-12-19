@@ -39,6 +39,7 @@ export const DJFlowStep = S.Literal(
   'creating_transport', // Step 8: Create send transport locally  
   'connecting_transport', // Steps 9-12: Transport connect flow
   'creating_producer', // Steps 13-15: Producer creation
+  'validating_connection', // Step 15a: WebRTC connection validation
   'publishing',        // Step 16: Room published and producer ID received
   'streaming',         // Step 17: Successfully streaming
   'error',             // Step 18: Error occurred, cleanup needed

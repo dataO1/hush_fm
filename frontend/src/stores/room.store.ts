@@ -16,6 +16,7 @@ import {
   type RoomState,
   type RoomMetadata,
   type StreamingStatus,
+  type WebRTCError,
   ConnectionState,
   createInitialRoomState
 } from '../domain/schemas/room.schema'
@@ -91,6 +92,17 @@ export interface RoomStoreActions {
   // Error management (replacing webrtc-error-store)
   setGlobalRoomError: (error: string, recoverable?: boolean) => void
   clearGlobalRoomError: () => void
+  
+  // WebRTC status management
+  setWebRTCStatus: (status: 'disconnected' | 'connecting' | 'connected' | 'failed', error?: WebRTCError) => void
+  clearWebRTCStatus: () => void
+  
+  // Producer confirmation management
+  setProducerConfirmation: (producerId: string) => void
+  
+  // Listener confirmation management (pure state only)
+  setListenerTransportConfirmation: (listenerId: string) => void
+  setListenerConsumerConfirmation: (listenerId: string, consumerId: string, producerId: string, consumerParameters: any) => void
 }
 
 /**
@@ -112,6 +124,7 @@ const mapDJFlowStepToConnectionState = (step: DJFlowStep): ConnectionState => {
     case 'creating_transport':
     case 'connecting_transport':
     case 'creating_producer':
+    case 'validating_connection':
     case 'publishing':
       return ConnectionState.CONNECTING
     case 'streaming':
@@ -542,6 +555,95 @@ export const createRoomStore = () => {
 
     clearGlobalRoomError: () => {
       setState('connection', 'lastError', Option.none())
+    },
+
+    /**
+     * WebRTC status management
+     */
+    setWebRTCStatus: (status: 'disconnected' | 'connecting' | 'connected' | 'failed', error?: WebRTCError) => {
+      setState('webrtcStatus', {
+        status,
+        lastConnectedAt: status === 'connected' ? Option.some(new Date()) : state.webrtcStatus.lastConnectedAt,
+        error: error ? Option.some(error) : Option.none()
+      })
+    },
+
+    clearWebRTCStatus: () => {
+      setState('webrtcStatus', {
+        status: 'disconnected',
+        lastConnectedAt: Option.none(),
+        error: Option.none()
+      })
+    },
+
+    /**
+     * Producer confirmation management (pure state only)
+     */
+    setProducerConfirmation: (producerId: string) => {
+      actions.updateDJState({
+        producer: Option.match(state.participants.dj?.producer || Option.none(), {
+          onSome: (currentProducer) => Option.some({
+            ...currentProducer as any,
+            id: Option.some(producerId)
+          }),
+          onNone: () => Option.some({
+            producer: Option.none(),
+            id: Option.some(producerId),
+            kind: 'audio' as const,
+            paused: false,
+            rtpParameters: Option.none(),
+            track: Option.none(),
+            appData: Option.none(),
+            stats: Option.none(),
+            createdAt: Option.some(new Date()),
+            error: Option.none()
+          })
+        })
+      })
+    },
+
+    /**
+     * Listener confirmation management (pure state only)
+     */
+    setListenerTransportConfirmation: (listenerId: string) => {
+      const existingListener = state.participants.listeners[listenerId]
+      if (existingListener && existingListener.receiveTransport) {
+        const currentTransport = existingListener.receiveTransport as any
+        actions.updateListener(listenerId, {
+          receiveTransport: {
+            ...currentTransport,
+            connected: true,
+            connectError: Option.none()
+          }
+        })
+      }
+    },
+
+    setListenerConsumerConfirmation: (listenerId: string, consumerId: string, producerId: string, consumerParameters: any) => {
+      const existingListener = state.participants.listeners[listenerId]
+      if (existingListener) {
+        const currentConsumer = existingListener.consumer ? existingListener.consumer as any : null
+        actions.updateListener(listenerId, {
+          consumer: currentConsumer ? {
+            ...currentConsumer,
+            id: Option.some(consumerId),
+            producerId: Option.some(producerId),
+            rtpParameters: Option.some(consumerParameters)
+          } : {
+            consumer: Option.none(),
+            id: Option.some(consumerId),
+            producerId: Option.some(producerId),
+            kind: 'audio' as const,
+            paused: false,
+            rtpParameters: Option.some(consumerParameters),
+            track: Option.none(),
+            appData: Option.none(),
+            stats: Option.none(),
+            createdAt: Option.some(new Date()),
+            error: Option.none()
+          }
+        })
+      }
     }
   }
   
@@ -670,6 +772,68 @@ export const createRoomStore = () => {
         onSome: (dj) => Option.getOrNull((dj as any).audioTrack?.deviceId),
         onNone: () => null
       })
+    },
+    
+    // WebRTC status getters
+    get webrtcStatus() {
+      return state.webrtcStatus.status
+    },
+    
+    get webrtcError() {
+      return Option.getOrNull(state.webrtcStatus.error)
+    },
+    
+    get isWebRTCConnected() {
+      return state.webrtcStatus.status === 'connected'
+    },
+    
+    get isWebRTCConnecting() {
+      return state.webrtcStatus.status === 'connecting'
+    },
+    
+    get hasWebRTCError() {
+      return state.webrtcStatus.status === 'failed'
+    },
+    
+    // Producer confirmation getters (pure state)
+    get hasProducerConfirmation() {
+      return Option.match(state.participants.dj, {
+        onSome: (dj) => Option.match((dj as any).producer || Option.none(), {
+          onSome: (producer: any) => Option.isSome(producer.id),
+          onNone: () => false
+        }),
+        onNone: () => false
+      })
+    },
+    
+    get confirmedProducerId() {
+      return Option.match(state.participants.dj, {
+        onSome: (dj) => Option.match((dj as any).producer || Option.none(), {
+          onSome: (producer: any) => Option.getOrNull(producer.id),
+          onNone: () => null
+        }),
+        onNone: () => null
+      })
+    },
+    
+    // Listener confirmation getters (pure state)
+    getListenerTransportConfirmation: (listenerId: string) => {
+      const listener = state.participants.listeners[listenerId]
+      if (!listener || !listener.receiveTransport) return false
+      return listener.receiveTransport.connected === true
+    },
+    
+    getListenerConsumerConfirmation: (listenerId: string) => {
+      const listener = state.participants.listeners[listenerId]
+      if (!listener || !listener.consumer) return { hasConsumer: false, consumerId: null, producerId: null, consumerParameters: null }
+      
+      const consumer = listener.consumer
+      return {
+        hasConsumer: Option.isSome(consumer.id),
+        consumerId: Option.getOrNull(consumer.id),
+        producerId: Option.getOrNull(consumer.producerId),
+        consumerParameters: Option.getOrNull(consumer.rtpParameters)
+      }
     },
     
     // Utility getters

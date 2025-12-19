@@ -13,9 +13,13 @@
 import { Schema as S } from 'effect'
 import { Option } from 'effect'
 import { Device, types } from 'mediasoup-client'
+import type { 
+  RtpCapabilitiesWrapper, 
+  TransportOptions
+} from '../../services/generated/hushFMAPI.schemas'
 
 /**
- * Custom schemas for MediaSoup types
+ * MediaSoup type schemas using proper type guards (like in DJ schema)
  */
 const MediaSoupDevice = S.instanceOf(Device)
 const MediaSoupTransport = S.Unknown.pipe(S.filter((value): value is types.Transport => 
@@ -23,6 +27,37 @@ const MediaSoupTransport = S.Unknown.pipe(S.filter((value): value is types.Trans
 ))
 const MediaSoupConsumer = S.Unknown.pipe(S.filter((value): value is types.Consumer => 
   value != null && typeof value === 'object' && 'id' in value && 'kind' in value && 'paused' in value
+))
+
+/**
+ * Web API type schemas  
+ */
+const MediaStreamTrackSchema = S.instanceOf(MediaStreamTrack)
+const HTMLAudioElementSchema = S.instanceOf(HTMLAudioElement)
+
+/**
+ * Wrapper type schemas (for API data structures)
+ * These represent data from the backend API, not runtime objects
+ */
+const RtpCapabilitiesWrapperSchema = S.Unknown.pipe(S.filter((value): value is RtpCapabilitiesWrapper =>
+  value != null && typeof value === 'object' && 'codecs' in value && 'headerExtensions' in value
+))
+const TransportOptionsSchema = S.Unknown.pipe(S.filter((value): value is TransportOptions =>
+  value != null && typeof value === 'object' && 'id' in value && 'dtlsParameters' in value
+))
+
+/**
+ * MediaSoup native type schemas (for runtime MediaSoup objects)
+ * These use type guards since they're complex objects without instanceof
+ */
+const RtpCapabilitiesSchema = S.Unknown.pipe(S.filter((value): value is types.RtpCapabilities =>
+  value != null && typeof value === 'object' && 'codecs' in value && 'headerExtensions' in value
+))
+const RtpParametersSchema = S.Unknown.pipe(S.filter((value): value is types.RtpParameters =>
+  value != null && typeof value === 'object' && 'codecs' in value
+))
+const DtlsParametersSchema = S.Unknown.pipe(S.filter((value): value is types.DtlsParameters =>
+  value != null && typeof value === 'object' && 'fingerprints' in value
 ))
 
 /**
@@ -35,6 +70,7 @@ export const ListenerFlowStep = S.Literal(
   'requesting_capabilities', // Step 2: Request router RTP capabilities from backend
   'waiting_transport',   // Step 4: Waiting for transport params from backend
   'creating_transport',  // Step 6: Create receive transport locally
+  'validating_connection', // Step 6.5: Validate WebRTC connection before consumer creation
   'device_loading',      // Step 6: Loading MediaSoup device with RTP capabilities
   'sending_capabilities', // Step 7: Send device RTP capabilities to backend
   'waiting_consumer',    // Step 8: Backend checking canConsume
@@ -52,8 +88,8 @@ export type ListenerFlowStep = S.Schema.Type<typeof ListenerFlowStep>
 export const ListenerMediaSoupDeviceState = S.Struct({
   device: S.Option(MediaSoupDevice), // mediasoup-client Device instance
   loaded: S.Boolean,
-  rtpCapabilities: S.Option(S.Unknown), // Device RTP capabilities (Step 4)
-  routerRtpCapabilities: S.Option(S.Unknown), // Router capabilities for loading device
+  rtpCapabilities: S.Option(RtpCapabilitiesSchema), // Device RTP capabilities (native MediaSoup)
+  routerRtpCapabilities: S.Option(RtpCapabilitiesWrapperSchema), // Router capabilities from API
   loadError: S.Option(S.String),
   handlerName: S.Option(S.String),
   canProduce: S.Boolean,
@@ -71,8 +107,8 @@ export const ReceiveTransportState = S.Struct({
   iceGatheringState: S.Option(S.String),
   iceConnectionState: S.Option(S.String),
   dtlsState: S.Option(S.String),
-  transportOptions: S.Option(S.Unknown), // Transport params from backend (Step 2)
-  dtlsParameters: S.Option(S.Unknown), // DTLS params for connection (Step 8a)
+  transportOptions: S.Option(TransportOptionsSchema), // Transport params from API
+  dtlsParameters: S.Option(DtlsParametersSchema), // DTLS params (native MediaSoup)
   connected: S.Boolean,
   connectError: S.Option(S.String)
 })
@@ -87,9 +123,9 @@ export const ConsumerState = S.Struct({
   producerId: S.Option(S.String), // Producer ID from room
   kind: S.Literal('audio', 'video'),
   paused: S.Boolean,
-  rtpParameters: S.Option(S.Unknown), // RTP params from consumer creation
-  track: S.Option(S.Unknown), // MediaStreamTrack from consumer
-  appData: S.Option(S.Unknown),
+  rtpParameters: S.Option(RtpParametersSchema), // RTP params (native MediaSoup)
+  track: S.Option(MediaStreamTrackSchema), // MediaStreamTrack from consumer
+  appData: S.Option(S.Record({ key: S.String, value: S.Any })), // Generic app data object
   stats: S.Option(S.Struct({
     timestamp: S.Date,
     bytesReceived: S.Number,
@@ -106,8 +142,8 @@ export type ConsumerState = S.Schema.Type<typeof ConsumerState>
  * Audio Playback State (for consumer audio)
  */
 export const AudioPlaybackState = S.Struct({
-  audioElement: S.Option(S.Unknown), // HTMLAudioElement instance
-  mediaStream: S.Option(S.Unknown), // MediaStream from consumer
+  audioElement: S.Option(HTMLAudioElementSchema), // HTMLAudioElement instance
+  mediaStream: S.Option(S.instanceOf(MediaStream)), // MediaStream from consumer
   volume: S.Number,
   muted: S.Boolean,
   playing: S.Boolean,

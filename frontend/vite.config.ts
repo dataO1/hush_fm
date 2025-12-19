@@ -19,6 +19,9 @@ export default defineConfig({
   resolve: {
     alias: { '@': '/src' },
   },
+  optimizeDeps: {
+    include: ['mediasoup-client']
+  },
   server: {
     port: parseInt(process.env.HUSHFM_FRONTEND_PORT || '8080'),
     host: true, // This listens on 0.0.0.0 (ALL interfaces)
