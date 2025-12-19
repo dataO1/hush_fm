@@ -72,7 +72,12 @@
           HUSHFM_FRONTEND_PORT = "8080";
           HUSHFM_WORKER_PORT_MIN = "40000";
           HUSHFM_WORKER_PORT_MAX = "49999";
-          HUSHFM_HOST_NAME = "localhost";
+          HUSHFM_HOST_NAME = "127.0.0.1";
+
+          # MediaSoup configuration for localhost development
+          HUSHFM_MEDIASOUP_LISTEN_IP = "127.0.0.1";
+          HUSHFM_MEDIASOUP_ENABLE_TCP = "false";
+          HUSHFM_MEDIASOUP_EXPOSE_INTERNAL_IP = "false";
 
           shellHook = ''
             echo "🎵 HushFM Development Environment"
@@ -88,10 +93,15 @@
             echo "  RUSTFLAGS=\"-C target-cpu=native\" cargo build --release"
             echo ""
             echo "🌐 Service Configuration:"
-            echo "  Backend:   http://localhost:$HUSHFM_BACKEND_PORT"  
+            echo "  Backend:   http://localhost:$HUSHFM_BACKEND_PORT"
             echo "  Frontend:  http://localhost:$HUSHFM_FRONTEND_PORT"
             echo "  Hostname:  $HUSHFM_HOST_NAME (nginx proxy on :443 for production)"
             echo "  WebRTC Ports: $HUSHFM_WORKER_PORT_MIN-$HUSHFM_WORKER_PORT_MAX"
+            echo ""
+            echo "📡 MediaSoup Configuration:"
+            echo "  Listen IP: $HUSHFM_MEDIASOUP_LISTEN_IP (localhost development)"
+            echo "  TCP Enabled: $HUSHFM_MEDIASOUP_ENABLE_TCP"
+            echo "  Expose Internal IP: $HUSHFM_MEDIASOUP_EXPOSE_INTERNAL_IP"
             echo ""
           '';
         };
@@ -243,6 +253,11 @@
             HUSHFM_WORKER_PORT_MIN = toString portRange.min;
             HUSHFM_WORKER_PORT_MAX = toString portRange.max;
             HUSHFM_HOST_NAME = cfg.hostName;  # Configurable hostname for nginx reverse proxy
+
+            # MediaSoup configuration
+            HUSHFM_MEDIASOUP_LISTEN_IP = cfg.mediasoup.listenIp;
+            HUSHFM_MEDIASOUP_ENABLE_TCP = if cfg.mediasoup.enableTcp then "true" else "false";
+            HUSHFM_MEDIASOUP_EXPOSE_INTERNAL_IP = if cfg.mediasoup.exposeInternalIp then "true" else "false";
           };
 
           # Build frontend with only frontend-relevant environment variables
@@ -251,7 +266,7 @@
             HUSHFM_FRONTEND_PORT = toString cfg.frontend.port;
             HUSHFM_HOST_NAME = cfg.hostName;
           };
-          
+
           frontendPackage = buildFrontend frontendEnv;
 
         in {
@@ -279,6 +294,26 @@
                 type = types.str;
                 default = "40000-49999";
                 description = "Port range for WebRTC worker processes (format: min-max)";
+              };
+            };
+
+            mediasoup = {
+              listenIp = mkOption {
+                type = types.str;
+                default = "0.0.0.0";
+                description = "IP address for MediaSoup transports to bind to (0.0.0.0 for all interfaces)";
+              };
+
+              enableTcp = mkOption {
+                type = types.bool;
+                default = false;
+                description = "Enable TCP fallback for MediaSoup transports (in addition to UDP)";
+              };
+
+              exposeInternalIp = mkOption {
+                type = types.bool;
+                default = false;
+                description = "Expose internal IP in MediaSoup ICE candidates";
               };
             };
 
@@ -339,10 +374,10 @@
                 cert_dir="/var/lib/nginx/certs"
                 cert_file="$cert_dir/cert.pem"
                 key_file="$cert_dir/key.pem"
-                
+
                 # Ensure directory exists
                 mkdir -p "$cert_dir"
-                
+
                 # Generate certificate if it doesn't exist
                 if [ ! -f "$cert_file" ]; then
                   echo "Generating new SSL certificate..."
@@ -356,13 +391,13 @@
                 else
                   echo "SSL certificate already exists"
                 fi
-                
+
                 # Always ensure correct ownership and permissions (idempotent)
                 echo "Setting correct ownership and permissions..."
                 chown nginx:nginx "$key_file" "$cert_file"
                 chmod 640 "$key_file"  # nginx group can read
                 chmod 644 "$cert_file"
-                
+
                 echo "Certificate setup complete"
               '';
               serviceConfig = {
@@ -377,20 +412,20 @@
               script = ''
                 cert_file="/var/lib/nginx/certs/cert.pem"
                 key_file="/var/lib/nginx/certs/key.pem"
-                
+
                 # Check if certificate exists and is close to expiry (less than 30 days)
                 if [ -f "$cert_file" ]; then
                   exp_date=$(${pkgs.openssl}/bin/openssl x509 -in "$cert_file" -noout -enddate | cut -d= -f2)
                   exp_epoch=$(date -d "$exp_date" +%s)
                   now_epoch=$(date +%s)
                   days_until_exp=$(( (exp_epoch - now_epoch) / 86400 ))
-                  
+
                   echo "Certificate expires in $days_until_exp days"
-                  
+
                   if [ $days_until_exp -lt 30 ]; then
                     echo "Certificate expiring soon, regenerating..."
                     rm -f "$cert_file" "$key_file"
-                    
+
                     # Generate new certificate
                     ${pkgs.openssl}/bin/openssl req -x509 -newkey rsa:2048 \
                       -keyout "$key_file" \
@@ -398,12 +433,12 @@
                       -days 365 -nodes \
                       -subj "/CN=hushfm.local" \
                       -addext "subjectAltName=IP:127.0.0.1,IP:192.168.178.105,DNS:hushfm.local,DNS:localhost"
-                    
+
                     # Set proper ownership and permissions (idempotent)
                     chown nginx:nginx "$key_file" "$cert_file"
                     chmod 640 "$key_file"  # nginx group can read
                     chmod 644 "$cert_file"
-                    
+
                     # Reload nginx to use new certificate
                     systemctl reload nginx
                     echo "Certificate renewed and nginx reloaded"
@@ -455,7 +490,7 @@
                       # Enable gzip compression
                       gzip on;
                       gzip_types text/css application/javascript application/json;
-                      
+
                       # Cache static assets
                       location ~* \.(js|css|png|jpg|jpeg|gif|ico|svg)$ {
                         expires 1y;

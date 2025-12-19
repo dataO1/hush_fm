@@ -9,10 +9,7 @@ use axum::{
 };
 use std::net::SocketAddr;
 use tower::ServiceBuilder;
-use tower_http::{
-    cors::CorsLayer,
-    trace::TraceLayer,
-};
+use tower_http::cors::CorsLayer;
 use tokio::signal;
 use utoipa::OpenApi;
 use utoipa_swagger_ui::SwaggerUi;
@@ -20,7 +17,6 @@ use utoipa_swagger_ui::SwaggerUi;
 
 mod api;
 mod lib;
-mod telemetry;
 
 use api::api::rooms::rooms_router;
 use api::api::openapi::ApiDoc;
@@ -57,14 +53,32 @@ async fn main() -> anyhow::Result<()> {
         .parse::<u16>()
         .unwrap_or(49999);
 
-    // Initialize tracing with OpenTelemetry
-    let log_level = std::env::var("RUST_LOG")
-        .unwrap_or_else(|_| "info".to_string());
+    // MediaSoup configuration
+    let mediasoup_listen_ip = std::env::var("HUSHFM_MEDIASOUP_LISTEN_IP")
+        .unwrap_or_else(|_| "0.0.0.0".to_string());
     
-    telemetry::init_tracing_with_level(&log_level)?;
+    let mediasoup_enable_tcp = std::env::var("HUSHFM_MEDIASOUP_ENABLE_TCP")
+        .unwrap_or_else(|_| "false".to_string())
+        .parse::<bool>()
+        .unwrap_or(false);
+    
+    let mediasoup_expose_internal_ip = std::env::var("HUSHFM_MEDIASOUP_EXPOSE_INTERNAL_IP")
+        .unwrap_or_else(|_| "false".to_string())
+        .parse::<bool>()
+        .unwrap_or(false);
+
+    // Initialize simple console logging
+    tracing_subscriber::fmt::init();
 
     // Initialize application state with configured worker port range and hostname
-    let lobby = Lobby::with_config(worker_port_min, worker_port_max, &host_name).await?;
+    let lobby = Lobby::with_config(
+        worker_port_min, 
+        worker_port_max, 
+        &host_name,
+        &mediasoup_listen_ip,
+        mediasoup_enable_tcp,
+        mediasoup_expose_internal_ip
+    ).await?;
     tracing::info!("🎵 MediaSoup Configuration:");
     tracing::info!("  - Worker port range: {}-{}", worker_port_min, worker_port_max);
     tracing::info!("  - Announced hostname: {}", host_name);
@@ -96,7 +110,6 @@ async fn main() -> anyhow::Result<()> {
     let app = stateless_routes.merge(stateful_routes)
         .layer(
             ServiceBuilder::new()
-                .layer(TraceLayer::new_for_http())
                 .layer(cors)
                 .layer(DefaultBodyLimit::disable()),
         );
@@ -108,8 +121,6 @@ async fn main() -> anyhow::Result<()> {
     let listener = tokio::net::TcpListener::bind(addr).await?;
     axum::serve(listener, app).await?;
 
-    // Shutdown telemetry
-    telemetry::shutdown_tracer();
     tracing::info!("🎵 HushFM Backend shutdown complete");
 
     Ok(())

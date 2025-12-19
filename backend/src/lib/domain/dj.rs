@@ -44,6 +44,12 @@ pub struct DJ {
     pub port_range: std::ops::RangeInclusive<u16>,
     /// Announced IP address configuration
     pub announced_ip: String,
+    /// MediaSoup listen IP configuration  
+    pub listen_ip: String,
+    /// MediaSoup TCP enable configuration
+    pub enable_tcp: bool,
+    /// MediaSoup expose internal IP configuration
+    pub expose_internal_ip: bool,
 }
 
 impl DJ {
@@ -54,6 +60,9 @@ impl DJ {
         event_tx: Option<mpsc::UnboundedSender<ListenerEvent>>,
         port_range: std::ops::RangeInclusive<u16>,
         announced_ip: String,
+        listen_ip: String,
+        enable_tcp: bool,
+        expose_internal_ip: bool,
     ) -> Self {
         Self {
             dj_id,
@@ -67,6 +76,9 @@ impl DJ {
             event_tx,
             port_range,
             announced_ip,
+            listen_ip,
+            enable_tcp,
+            expose_internal_ip,
         }
     }
 
@@ -85,16 +97,31 @@ impl DJ {
         // Create transport with configured settings
         let mut listen_infos = WebRtcTransportListenInfos::new(ListenInfo {
             protocol: Protocol::Udp,
-            // ip: self.announced_ip.parse()?,
-            ip: IpAddr::V4(Ipv4Addr::new(192, 168, 178, 105)),
-            announced_address: None,
-            expose_internal_ip: false,
+            ip: self.listen_ip.parse()?,
+            announced_address: Some(self.announced_ip.clone()),
+            expose_internal_ip: self.expose_internal_ip,
             port: None,
             port_range: Some(self.port_range.clone()),
             flags: None,
             send_buffer_size: None,
             recv_buffer_size: None,
         });
+        
+        // Conditionally add TCP fallback if enabled
+        if self.enable_tcp {
+            listen_infos = listen_infos
+                .insert(ListenInfo {
+                    protocol: Protocol::Tcp,
+                    ip: self.listen_ip.parse()?,
+                    announced_address: Some(self.announced_ip.clone()),
+                    expose_internal_ip: self.expose_internal_ip,
+                    port: None,
+                    port_range: Some(self.port_range.clone()),
+                    flags: None,
+                    send_buffer_size: None,
+                    recv_buffer_size: None,
+                });
+        }
         // if self.announced_ip == "localhost"{
         //     listen_infos = listen_infos
         //     // Add TCP fallback, only for localhost, since this seems to be required!
@@ -113,9 +140,9 @@ impl DJ {
 
         let mut transport_options = WebRtcTransportOptions::new(listen_infos);
 
-        // Optimize for local WiFi network sending
+        // Configure UDP/TCP based on configuration
         transport_options.enable_udp = true;
-        transport_options.enable_tcp = false;
+        transport_options.enable_tcp = self.enable_tcp;
         transport_options.prefer_udp = true;
         // transport_options.initial_available_outgoing_bitrate = 600000; // DJ sends audio
         // transport_options.ice_consent_timeout = 30;

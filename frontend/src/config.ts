@@ -36,28 +36,33 @@ const getEnvNumber = (key: string, defaultValue: number): number => {
   return isNaN(parsed) ? defaultValue : parsed
 }
 
+// Helper function to check if hostname is for local development
+const isLocalDevelopment = (hostName: string): boolean => {
+  return hostName === 'localhost' || hostName === '127.0.0.1'
+}
+
 // Create configuration from environment variables
 export const config: Config = {
   api: {
     baseUrl: (() => {
       const hostName = getEnvVar('HUSHFM_HOST_NAME', 'localhost')
       // Use HTTPS for production (non-localhost), HTTP for development
-      const protocol = hostName === 'localhost' ? 'http' : 'https'
+      const protocol = isLocalDevelopment(hostName) ? 'http' : 'https'
       return `${protocol}://${hostName}`
     })()
   },
   websocket: {
     protocol: (() => {
       const hostName = getEnvVar('HUSHFM_HOST_NAME', 'localhost')
-      // Use WSS for production (non-localhost), WS for development
-      return hostName === 'localhost' ? 'ws' : 'wss'
+      // Use WSS for production (non-localhost/127.0.0.1), WS for development
+      return isLocalDevelopment(hostName) ? 'ws' : 'wss'
     })() as 'ws' | 'wss',
     baseUrl: (() => {
       const hostName = getEnvVar('HUSHFM_HOST_NAME', 'localhost')
-      const protocol = hostName === 'localhost' ? 'ws' : 'wss'
+      const protocol = isLocalDevelopment(hostName) ? 'ws' : 'wss'
       
-      // Include backend port for localhost development, exclude for production (nginx proxy)
-      if (hostName === 'localhost') {
+      // Include backend port for local development, exclude for production (nginx proxy)
+      if (isLocalDevelopment(hostName)) {
         const backendPort = getEnvNumber('HUSHFM_BACKEND_PORT', 3000)
         return `${protocol}://${hostName}:${backendPort}`
       } else {

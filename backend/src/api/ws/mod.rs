@@ -328,6 +328,9 @@ async fn handle_lobby_command(
                         event_tx,
                         room_guard.port_range.clone(),
                         room_guard.announced_ip.clone(),
+                        room_guard.listen_ip.clone(),
+                        room_guard.enable_tcp,
+                        room_guard.expose_internal_ip,
                     );
 
                     // Store listener in room

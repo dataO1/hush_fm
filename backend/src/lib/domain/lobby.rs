@@ -29,21 +29,33 @@ pub struct Lobby {
     /// WebRTC configuration
     port_range: std::ops::RangeInclusive<u16>,
     announced_ip: String,
+    
+    /// MediaSoup configuration
+    listen_ip: String,
+    enable_tcp: bool,
+    expose_internal_ip: bool,
 }
 
 impl Lobby {
     /// Create new Lobby with pre-allocated MediaSoup workers
     pub async fn new() -> anyhow::Result<Self> {
-        Self::with_config(10000, 59999, "localhost").await
+        Self::with_config(10000, 59999, "localhost", "0.0.0.0", false, false).await
     }
     
     /// Create new Lobby with custom worker port range (deprecated - use with_config)
     pub async fn with_port_range(port_min: u16, port_max: u16) -> anyhow::Result<Self> {
-        Self::with_config(port_min, port_max, "localhost").await
+        Self::with_config(port_min, port_max, "localhost", "0.0.0.0", false, false).await
     }
 
     /// Create new Lobby with full configuration
-    pub async fn with_config(port_min: u16, port_max: u16, announced_ip: &str) -> anyhow::Result<Self> {
+    pub async fn with_config(
+        port_min: u16, 
+        port_max: u16, 
+        announced_ip: &str,
+        listen_ip: &str,
+        enable_tcp: bool,
+        expose_internal_ip: bool
+    ) -> anyhow::Result<Self> {
         let (broadcast_tx, _) = broadcast::channel(1024);
 
         // Create worker pool (8 workers for good concurrency)
@@ -55,11 +67,20 @@ impl Lobby {
             worker_settings.enable_liburing = false;
             worker_settings.log_level = WorkerLogLevel::Debug; // Enable debug logging
             worker_settings.log_tags = vec![
-                WorkerLogTag::Dtls,
-                WorkerLogTag::Ice,
-                WorkerLogTag::Rtp,
                 WorkerLogTag::Info,
-            ];
+                WorkerLogTag::Ice,
+                WorkerLogTag::Dtls,
+                WorkerLogTag::Rtp,
+                WorkerLogTag::Srtp,
+                WorkerLogTag::Rtcp,
+                WorkerLogTag::Rtx,
+                WorkerLogTag::Bwe,
+                WorkerLogTag::Score,
+                WorkerLogTag::Simulcast,
+                WorkerLogTag::Svc,
+                WorkerLogTag::Sctp,
+                WorkerLogTag::Message,
+            ]; // Enable all available log tags for debugging
 
             // Set configurable port range for WebRTC transport
             worker_settings.rtc_port_range = port_min..=port_max;
@@ -93,6 +114,9 @@ impl Lobby {
             broadcast_tx,
             port_range: port_min..=port_max,
             announced_ip: announced_ip.to_string(),
+            listen_ip: listen_ip.to_string(),
+            enable_tcp,
+            expose_internal_ip,
         })
     }
 
@@ -112,6 +136,21 @@ impl Lobby {
         &self.announced_ip
     }
 
+    /// Get the configured MediaSoup listen IP
+    pub fn listen_ip(&self) -> &str {
+        &self.listen_ip
+    }
+
+    /// Get whether TCP is enabled
+    pub fn enable_tcp(&self) -> bool {
+        self.enable_tcp
+    }
+
+    /// Get whether to expose internal IP
+    pub fn expose_internal_ip(&self) -> bool {
+        self.expose_internal_ip
+    }
+
     /// Create a new room with MediaSoup infrastructure
     pub async fn create_room(
         &self,
@@ -122,7 +161,19 @@ impl Lobby {
         tags: Option<Vec<String>>,
     ) -> anyhow::Result<Arc<RwLock<Room>>> {
         let worker = self.get_next_worker();
-        let room = Room::init(id, name.clone(), dj_name, description, tags, &worker, self.port_range.clone(), self.announced_ip.clone()).await?;
+        let room = Room::init(
+            id, 
+            name.clone(), 
+            dj_name, 
+            description, 
+            tags, 
+            &worker, 
+            self.port_range.clone(), 
+            self.announced_ip.clone(),
+            self.listen_ip.clone(),
+            self.enable_tcp,
+            self.expose_internal_ip
+        ).await?;
         let room_arc = Arc::new(RwLock::new(room));
 
         // Store room

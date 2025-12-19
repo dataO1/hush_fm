@@ -52,12 +52,6 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 anyhow = "1"
 hex = "0.4"
 
-# OpenTelemetry and OTLP (using exact versions from working example)
-opentelemetry = "0.31"
-opentelemetry_sdk = { version = "0.31", features = ["rt-tokio"] }
-opentelemetry-otlp = "0.31"
-opentelemetry-semantic-conventions = "0.31"
-tracing-opentelemetry = "0.32"
 
 # Enhanced state management
 arc-swap = "1"

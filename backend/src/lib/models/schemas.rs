@@ -596,6 +596,24 @@ pub struct Room {
     #[serde(default = "default_announced_ip")]
     #[schemars(skip)]  
     pub announced_ip: String,
+    
+    /// MediaSoup listen IP configuration
+    #[serde(skip)]
+    #[serde(default = "default_listen_ip")]
+    #[schemars(skip)]
+    pub listen_ip: String,
+    
+    /// MediaSoup TCP enable configuration
+    #[serde(skip)]
+    #[serde(default)]
+    #[schemars(skip)]
+    pub enable_tcp: bool,
+    
+    /// MediaSoup expose internal IP configuration
+    #[serde(skip)]
+    #[serde(default)]
+    #[schemars(skip)]
+    pub expose_internal_ip: bool,
 }
 
 /// Default port range for Room configuration
@@ -606,6 +624,11 @@ fn default_port_range() -> std::ops::RangeInclusive<u16> {
 /// Default announced IP for Room configuration  
 fn default_announced_ip() -> String {
     "localhost".to_string()
+}
+
+/// Default listen IP for Room configuration
+fn default_listen_ip() -> String {
+    "0.0.0.0".to_string()
 }
 
 /// Custom serialization for ISO8601 datetime
