@@ -2,11 +2,14 @@
 - [ ] Create a proper readme, with sections for architectur explanation, usage
   explanation, deploument (with the weird build steps we have to make due to
   aarch on pi etc). important settings for the flake
+# Performance
+- [ ] Frontend eats resources, check whether its the oscilloscope and if this is
+  due to signals/store updates?
 # Bugs
 ## Critical
-- [ ] the dj getusermedia is asking for video permissions both on firefox and
+- [x] the dj getusermedia is asking for video permissions both on firefox and
   chrome, we only want audio!
-- [ ] when a page in the frontend is requested make sure to properly initialize
+- [x] when a page in the frontend is requested make sure to properly initialize
   the store with an empty state. currently when connected as a listener with a
   succeeded active webrtc connection to the dj, then pressing back to the lobby,
   the webrtc connection is still active and i still hear audio (tested only on
@@ -19,10 +22,12 @@
 - [ ] on mobile the stream is running perfectly in the background, also in
   locked screen etc, but make sure we show a mediaplayer status or something
   that indicates that we are playing music on the lockscreen !.
+- [ ] ending the stream does not send lobby update to remove room from promoted
+  list.
 ## Whatever
 - [ ] remote connection works for udp! but somehow my chromium browser on
   wayland linux fails to create matching local ice candidate for udp!
-- [ ] play/pause events are either not sent out by the backend or handled in the frontend! muting does not work.
+- [x] play/pause events are either not sent out by the backend or handled in the frontend! muting does not work.
 
 # Architecture/Functionality
 ## Critical
