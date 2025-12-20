@@ -13,6 +13,7 @@
 import { Effect, pipe, Option, Context, Layer } from 'effect'
 import { Device, types } from 'mediasoup-client'
 import type { TransportOptions as ApiTransportOptions } from '../generated/hushFMAPI.schemas'
+import { getRoomStore } from '../../stores/room.store'
 import { TransportOptionsFromApi, type InternalTransportOptions } from '../websocket/schemas/websocket'
 import { WebRTCConnectionState } from '../../domain/schemas/room.schema'
 
@@ -362,7 +363,6 @@ class MediaSoupTransportServiceImpl implements MediaSoupTransportService {
     pipe(
       Effect.async<WebRTCConnectionState, TransportConnectionError>((resume) => {
         // Get room store for timeout tracking
-        const { getRoomStore } = require('../../stores/room.store')
         const roomStore = getRoomStore()
         
         // Check for existing timeout ID and clear it
