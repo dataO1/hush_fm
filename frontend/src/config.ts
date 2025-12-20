@@ -107,10 +107,16 @@ export const apiMutator = <T>(url: string, options?: RequestInit): Promise<T> =>
       'Content-Type': 'application/json',
       ...options?.headers,
     },
-  }).then((response) => {
+  }).then(async (response) => {
     if (!response.ok) {
       throw new Error(`HTTP ${response.status}: ${response.statusText}`)
     }
-    return response.json()
+    const data = await response.json()
+    // Wrap response to match Orval generated types: {data: T, status: number, headers: Headers}
+    return {
+      data,
+      status: response.status,
+      headers: response.headers
+    } as T
   })
 }
