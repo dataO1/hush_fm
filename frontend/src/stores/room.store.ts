@@ -23,6 +23,7 @@ import {
 import {
   type DJState,
   type DJFlowStep,
+  type SendTransportState,
   createInitialDJState
 } from '../domain/schemas/dj.schema'
 import {
@@ -75,6 +76,10 @@ export interface RoomStoreActions {
   updateListenerConsumerState: (listenerId: string, updates: Partial<ConsumerState>) => void
   updateListenerWebSocketState: (listenerId: string, updates: Partial<ListenerWebSocketState>) => void
   markListenerResourceClosed: (listenerId: string, resource: 'consumer' | 'transport' | 'websocket') => void
+  
+  // WebRTC connection timeout tracking (prevent duplicate timeouts)
+  getListenerConnectionTimeoutId: (listenerId: string) => number | null
+  getDJConnectionTimeoutId: () => number | null
   
   // Streaming status management
   setStreamingStatus: (status: StreamingStatus) => void
@@ -460,6 +465,21 @@ export const createRoomStore = () => {
           })
           break
       }
+    },
+
+    /**
+     * WebRTC connection timeout tracking (prevent duplicate timeouts)
+     */
+    getListenerConnectionTimeoutId: (listenerId: string): number | null => {
+      const listener = state.participants.listeners[listenerId]
+      if (!listener) return null
+      return Option.getOrNull(listener.receiveTransport.activeConnectionTimeoutId)
+    },
+
+    getDJConnectionTimeoutId: (): number | null => {
+      const transport = Option.getOrNull(state.participants.dj.sendTransport) as SendTransportState | null
+      if (!transport) return null
+      return Option.getOrNull(transport.activeConnectionTimeoutId)
     },
 
     /**

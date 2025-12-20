@@ -140,10 +140,12 @@ export interface MediaSoupTransportService {
 
   /**
    * Wait for WebRTC connection using comprehensive event monitoring
+   * Includes handler tracking to prevent duplicate connections
    */
   readonly waitForWebRTCConnection: (
     transport: types.Transport,
-    timeoutMs?: number
+    timeoutMs: number,
+    handlerContext: { type: 'listener'; listenerId: string } | { type: 'dj' }
   ) => Effect.Effect<WebRTCConnectionState, TransportConnectionError>
 }
 
@@ -352,13 +354,32 @@ class MediaSoupTransportServiceImpl implements MediaSoupTransportService {
 
   /**
    * Wait for WebRTC connection using comprehensive event monitoring
+   * Includes handler tracking to prevent duplicate connections
    */
   waitForWebRTCConnection = (
     transport: types.Transport,
-    timeoutMs: number = 10000
+    timeoutMs: number = 10000,
+    handlerContext: { type: 'listener'; listenerId: string } | { type: 'dj' }
   ): Effect.Effect<WebRTCConnectionState, TransportConnectionError> =>
     pipe(
       Effect.async<WebRTCConnectionState, TransportConnectionError>((resume) => {
+        // Get room store for handler tracking
+        const { getRoomStore } = require('../../stores/room.store')
+        const roomStore = getRoomStore()
+        
+        // Check for existing timeout ID and clear it
+        let existingTimeoutId: number | null = null
+        if (handlerContext.type === 'listener') {
+          existingTimeoutId = roomStore.actions.getListenerConnectionTimeoutId(handlerContext.listenerId)
+        } else {
+          existingTimeoutId = roomStore.actions.getDJConnectionTimeoutId()
+        }
+        
+        if (existingTimeoutId !== null) {
+          console.warn(`🧹 Clearing existing WebRTC timeout: ${existingTimeoutId} for transport: ${transport.id}`)
+          clearTimeout(existingTimeoutId)
+        }
+
         let resolved = false
         let timeoutHandle: NodeJS.Timeout
 
@@ -429,6 +450,23 @@ class MediaSoupTransportServiceImpl implements MediaSoupTransportService {
           transport.removeListener('icegatheringstatechange', iceGatheringHandler)
           transport.removeListener('icecandidateerror', iceCandidateErrorHandler)
           transport.removeListener('connectionstatechange', connectionStateHandler)
+          
+          // Clear timeout ID from store when done
+          if (handlerContext.type === 'listener') {
+            roomStore.actions.updateListenerTransportState(handlerContext.listenerId, {
+              activeConnectionTimeoutId: Option.none()
+            })
+          } else {
+            const currentTransport = Option.getOrNull(roomStore.state.participants.dj.sendTransport)
+            if (currentTransport) {
+              roomStore.actions.updateDJState({
+                sendTransport: Option.some({
+                  ...currentTransport,
+                  activeConnectionTimeoutId: Option.none()
+                })
+              })
+            }
+          }
         }
 
         // Event handlers
@@ -478,7 +516,7 @@ class MediaSoupTransportServiceImpl implements MediaSoupTransportService {
         transport.on('icecandidateerror', iceCandidateErrorHandler)
         transport.on('connectionstatechange', connectionStateHandler)
 
-        // Set up timeout
+        // Set up timeout and store ID in store
         timeoutHandle = setTimeout(() => {
           if (resolved) return
           resolved = true
@@ -498,6 +536,25 @@ class MediaSoupTransportServiceImpl implements MediaSoupTransportService {
           )))
         }, timeoutMs)
 
+        // Store timeout ID in store for cleanup tracking
+        const timeoutId = timeoutHandle as any as number // Node.js returns number
+        console.info(`🔄 Storing timeout ID: ${timeoutId} for transport: ${transport.id}`)
+        if (handlerContext.type === 'listener') {
+          roomStore.actions.updateListenerTransportState(handlerContext.listenerId, {
+            activeConnectionTimeoutId: Option.some(timeoutId)
+          })
+        } else {
+          const currentTransport = Option.getOrNull(roomStore.state.participants.dj.sendTransport)
+          if (currentTransport) {
+            roomStore.actions.updateDJState({
+              sendTransport: Option.some({
+                ...currentTransport,
+                activeConnectionTimeoutId: Option.some(timeoutId)
+              })
+            })
+          }
+        }
+
         return Effect.sync(cleanup)
       }),
       Effect.tap(() => Effect.logInfo(`WebRTC connection validation completed for transport: ${transport.id}`))
@@ -516,7 +573,7 @@ class MediaSoupTransportServiceImpl implements MediaSoupTransportService {
       // Use the unified WebRTC monitoring - run in background, don't wait for it
       Effect.runFork(
         pipe(
-          this.waitForWebRTCConnection(transport, Infinity), // No timeout for persistent monitoring
+          this.waitForWebRTCConnection(transport, Infinity, { type: 'dj' }), // No timeout for persistent monitoring
           Effect.andThen(state => Effect.sync(() => {
             callbacks.onWebRTCStateChange?.(state, {
               iceState: (transport as any).iceGatheringState,
