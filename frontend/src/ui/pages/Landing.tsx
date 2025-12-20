@@ -154,10 +154,38 @@ export default function Landing() {
       if (isOwnRoom(room)) {
         console.info('🎧 Reconnecting to own DJ room:', { roomId, sessionId })
         
-        // Navigate directly to DJ room for reconnection
-        navigate(`/dj/${roomId}`, {
-          state: { isReconnection: true }
-        })
+        if (!currentWebSocket) {
+          lobbyStore.actions.setConnectionError('Not connected to lobby')
+          return
+        }
+
+        // Use the same announceRoom flow as creating a new room
+        // Backend will find the existing room and return it
+        const request: CreateRoomRequest = {
+          name: room.name,
+          djName: room.djName,
+          description: room.description,
+          tags: room.tags
+        }
+        
+        console.info('🔄 Using announceRoom flow for DJ reconnection')
+        
+        try {
+          lobbyStore.actions.setRoomCreating(true)
+          
+          const result = await Effect.runPromise(announceRoomCreation(currentWebSocket, request, roomStore))
+          
+          lobbyStore.actions.setLastCreatedRoom(result.roomId)
+          
+          // Navigation handled by announceRoomCreation flow
+          navigate(`/dj/${result.roomId}`, {
+            state: { djWebSocketUrl: result.djWebSocketUrl }
+          })
+        } catch (error) {
+          console.error('❌ Failed to reconnect to DJ room:', error)
+          const errorMessage = error instanceof Error ? error.message : 'Failed to reconnect to room'
+          lobbyStore.actions.setRoomCreationError(errorMessage)
+        }
         return
       }
       

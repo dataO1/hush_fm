@@ -47,6 +47,8 @@ export type LobbyCommand =
       name: string
       /** DJ name for the room */
       djName: string
+      /** DJ session ID for identification and reconnection */
+      sessionId: string
       /** Optional room description */
       description?: string
       /** Optional room tags */

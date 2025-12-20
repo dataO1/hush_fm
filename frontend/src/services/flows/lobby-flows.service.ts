@@ -99,11 +99,26 @@ export const announceRoomCreation = (
 ): Effect.Effect<{ roomId: string, djWebSocketUrl: string }, RoomCreationError> =>
   pipe(
     Effect.gen(function* (_) {
+      // Get current session ID
+      const userStore = getUserStore()
+      const sessionId = userStore.sessionId
+      
+      if (!sessionId) {
+        return yield* _(Effect.fail(new RoomCreationError({
+          cause: 'Session ID not available - cannot create room',
+          context: {
+            timestamp: new Date(),
+            operation: 'announceRoomCreation'
+          }
+        })))
+      }
+      
       // Send announce room command (no trace context)
       const command: LobbyCommand = {
         type: 'announceRoom',
         name: request.name,
         djName: request.djName,
+        sessionId: sessionId as string, // Type assertion since we checked for null above
         description: request.description,
         tags: request.tags || []
       }

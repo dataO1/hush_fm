@@ -104,6 +104,7 @@ impl Lobby {
         id: Uuid,
         name: String,
         dj_name: String,
+        session_id: String,
         description: Option<String>,
         tags: Option<Vec<String>>,
     ) -> anyhow::Result<Arc<RwLock<Room>>> {
@@ -112,6 +113,7 @@ impl Lobby {
             id, 
             name.clone(), 
             dj_name, 
+            session_id, 
             description, 
             tags, 
             &worker
@@ -142,6 +144,21 @@ impl Lobby {
             if room_guard.get_listener(session_id).is_some() {
                 drop(room_guard); // Release the read lock
                 return Some((room_id, room_arc));
+            }
+        }
+        None
+    }
+
+    /// Find room with a DJ that has the given session_id
+    pub async fn find_room_by_dj_session_id(&self, session_id: &str) -> Option<Arc<RwLock<Room>>> {
+        for entry in self.rooms.iter() {
+            let room_arc = entry.value().clone();
+            let room_guard = room_arc.read().await;
+            if let Some(dj) = &room_guard.dj {
+                if dj.dj_id == session_id {
+                    drop(room_guard); // Release the read lock
+                    return Some(room_arc);
+                }
             }
         }
         None

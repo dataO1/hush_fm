@@ -33,7 +33,7 @@ impl From<super::Room> for RoomInfo {
     fn from(room: super::Room) -> Self {
         // Get DJ name and ID from DJ struct
         let (dj_name, dj_id) = room.dj.as_ref()
-            .map(|dj| (dj.dj_id.clone(), dj.dj_id.clone()))
+            .map(|dj| (dj.display_name.clone(), dj.dj_id.clone()))
             .unwrap_or_else(|| ("Unknown DJ".to_string(), "".to_string()));
             
         Self {

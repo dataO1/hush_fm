@@ -16,6 +16,7 @@ impl Room {
         id: uuid::Uuid, 
         name: String, 
         dj_name: String, 
+        session_id: String,
         description: Option<String>, 
         tags: Option<Vec<String>>,
         worker: &Arc<Worker>,
@@ -40,7 +41,7 @@ impl Room {
             
             // WebRTC Infrastructure (not serialized)
             router: Some(Arc::new(router)),
-            dj: Some(DJ::new(dj_name, id, None)), // Create DJ with name during room init
+            dj: Some(DJ::new(session_id, dj_name, id, None)), // Create DJ with session ID and display name during room init
             listeners: Arc::new(dashmap::DashMap::new()),
             status: RoomStatus::Setup,
             last_activity_atomic: Arc::new(arc_swap::ArcSwap::new(Arc::new(now))),

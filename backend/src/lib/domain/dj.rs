@@ -20,8 +20,10 @@ use crate::lib::config::Config;
 /// DJ state containing all WebRTC resources and metadata for audio streaming
 #[derive(Debug, Clone)]
 pub struct DJ {
-    /// DJ identifier (usually their name or session ID)
+    /// DJ identifier (session ID for identification and reconnection)
     pub dj_id: String,
+    /// DJ display name (human-readable name for UI)
+    pub display_name: String,
     /// Room this DJ belongs to
     pub room_id: Uuid,
     /// WebRTC sender transport for media streaming
@@ -44,11 +46,13 @@ impl DJ {
     /// Create new DJ state with basic information
     pub fn new(
         dj_id: String,
+        display_name: String,
         room_id: Uuid,
         event_tx: Option<mpsc::UnboundedSender<ListenerEvent>>,
     ) -> Self {
         Self {
             dj_id,
+            display_name,
             room_id,
             transport: None,
             producer: None,

@@ -123,6 +123,9 @@ pub enum LobbyCommand {
         /// DJ name for the room
         #[serde(rename = "djName")]
         dj_name: String,
+        /// DJ session ID for identification and reconnection
+        #[serde(rename = "sessionId")]
+        session_id: String,
         /// Optional room description
         description: Option<String>,
         /// Optional room tags

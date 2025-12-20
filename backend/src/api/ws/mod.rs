@@ -146,7 +146,7 @@ async fn handle_lobby_command(
 
     match cmd {
         // Step 1 of DJ flow: Announce room creation in lobby
-        LobbyCommand::AnnounceRoom { name, dj_name, description, tags } => {
+        LobbyCommand::AnnounceRoom { name, dj_name, session_id, description, tags } => {
             // Create parent span for the complete DJ flow
             let dj_flow_span = tracing::info_span!(
                 "dj_room_creation_flow",
@@ -164,39 +164,59 @@ async fn handle_lobby_command(
                 "Step 1: DJ flow initiated - announcing room creation in lobby"
             );
 
-            // Create room in setup state (not public yet)
-            let room_id = uuid::Uuid::new_v4();
-            dj_flow_span.record("room.id", room_id.to_string());
+            // Check if DJ already has an existing room
+            let room_state = if let Some(existing_room) = lobby.find_room_by_dj_session_id(&session_id).await {
+                let existing_room_guard = existing_room.read().await;
+                let existing_room_id = existing_room_guard.id;
+                dj_flow_span.record("room.id", existing_room_id.to_string());
+                
+                tracing::info!(
+                    room_id = %existing_room_id,
+                    session_id = %session_id,
+                    "Step 1: Found existing room for DJ session - returning existing room"
+                );
+                
+                drop(existing_room_guard); // Release read lock
+                existing_room
+            } else {
+                // Create new room in setup state (not public yet)
+                let room_id = uuid::Uuid::new_v4();
+                dj_flow_span.record("room.id", room_id.to_string());
+
+                tracing::info!(
+                    room_id = %room_id,
+                    session_id = %session_id,
+                    "Step 1: No existing room found - creating new room with MediaSoup worker"
+                );
+
+                // Create room using lobby's worker pool
+                let new_room = lobby.create_room(room_id, name.clone(), dj_name.clone(), session_id.clone(), description, tags).await?;
+
+                tracing::info!(
+                    room_id = %room_id,
+                    "Step 1: Room created successfully with MediaSoup router and worker"
+                );
+                
+                new_room
+            };
+
+            // Generate DJ WebSocket URL from the room state
+            let room_guard = room_state.read().await;
+            let actual_room_id = room_guard.id;
+            let ws_url = format!("/ws/room/{}", actual_room_id);
 
             tracing::info!(
-                room_id = %room_id,
-                "Step 1: Generated room ID, creating room with MediaSoup worker"
-            );
-
-            // Create room using lobby's worker pool
-            let room_state = lobby.create_room(room_id, name.clone(), dj_name.clone(), description, tags).await?;
-
-            tracing::info!(
-                room_id = %room_id,
-                "Step 1: Room created successfully with MediaSoup router and worker"
-            );
-
-            // Generate DJ WebSocket URL
-            let ws_url = format!("/ws/room/{}", room_id);
-
-            tracing::info!(
-                room_id = %room_id,
+                room_id = %actual_room_id,
                 ws_url = %ws_url,
                 "Step 1: Generated DJ WebSocket URL for room connection"
             );
 
             // Send RoomAnnounced event with connection details
-            let room = room_state.read().await;
             let room_announced_event = DjEvent::RoomAnnounced {
-                room: room.clone().into(),
+                room: room_guard.clone().into(),
                 ws_url: ws_url.clone(),
             };
-            drop(room);
+            drop(room_guard);
 
             match serde_json::to_string(&room_announced_event) {
                 Ok(msg) => {
@@ -204,7 +224,7 @@ async fn handle_lobby_command(
                         Ok(_) => {
                             dj_flow_span.record("flow.phase", "step1_completed");
                             tracing::info!(
-                                room_id = %room_id,
+                                room_id = %actual_room_id,
                                 ws_url = %ws_url,
                                 "Step 1: COMPLETED - RoomAnnounced event sent to frontend. Frontend should now connect to DJ WebSocket."
                             );
@@ -212,7 +232,7 @@ async fn handle_lobby_command(
                         Err(e) => {
                             dj_flow_span.record("flow.phase", "failed");
                             tracing::error!(
-                                room_id = %room_id,
+                                room_id = %actual_room_id,
                                 error = %e,
                                 "Step 1: FAILED - Could not send RoomAnnounced event to frontend"
                             );
@@ -222,7 +242,7 @@ async fn handle_lobby_command(
                 Err(e) => {
                     dj_flow_span.record("flow.phase", "failed");
                     tracing::error!(
-                        room_id = %room_id,
+                        room_id = %actual_room_id,
                         error = %e,
                         "Step 1: FAILED - Could not serialize RoomAnnounced event"
                     );
@@ -230,7 +250,7 @@ async fn handle_lobby_command(
             }
 
             tracing::info!(
-                room_id = %room_id,
+                room_id = %actual_room_id,
                 room_name = %name,
                 dj_name = %dj_name,
                 "Room announced successfully in lobby"
