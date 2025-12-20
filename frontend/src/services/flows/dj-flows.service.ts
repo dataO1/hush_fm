@@ -717,8 +717,7 @@ export const publishDJRoom = (
           transportOptions: Option.some(transportOptions),
           dtlsParameters: Option.none(),
           connected: false,
-          connectError: Option.none(),
-          activeConnectionTimeoutId: Option.none()
+          connectError: Option.none()
         })
       })
       
@@ -853,11 +852,7 @@ export const publishDJRoom = (
       // Wait for WebRTC connection using transport service
       const connectionResult = yield* _(pipe(
         MediaSoupTransportService,
-        Effect.andThen(service => service.waitForWebRTCConnection(
-          sendTransport, 
-          10000, 
-          { type: 'dj' }
-        )),
+        Effect.andThen(service => service.waitForWebRTCConnection(sendTransport, 10000)),
         Effect.provide(MediaSoupTransportServiceLive),
         Effect.mapError(error => new DJFlowError({
           cause: `WebRTC connection validation failed: ${error.message}`,

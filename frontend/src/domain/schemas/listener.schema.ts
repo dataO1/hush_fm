@@ -110,8 +110,7 @@ export const ReceiveTransportState = S.Struct({
   transportOptions: S.Option(TransportOptionsSchema), // Transport params from API
   dtlsParameters: S.Option(DtlsParametersSchema), // DTLS params (native MediaSoup)
   connected: S.Boolean,
-  connectError: S.Option(S.String),
-  activeConnectionTimeoutId: S.Option(S.Number) // Timeout ID for active WebRTC connection handler
+  connectError: S.Option(S.String)
 })
 export type ReceiveTransportState = S.Schema.Type<typeof ReceiveTransportState>
 
@@ -276,8 +275,7 @@ export const createInitialListenerState = (): ListenerState => ({
     transportOptions: Option.none(),
     dtlsParameters: Option.none(),
     connected: false,
-    connectError: Option.none(),
-    activeConnectionTimeoutId: Option.none()
+    connectError: Option.none()
   },
   
   consumer: {

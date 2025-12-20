@@ -541,11 +541,7 @@ export const joinRoomAsListener = (
         // Wait for WebRTC connection using transport service (same pattern as DJ flow)
         const connectionResult = yield* _(pipe(
           MediaSoupTransportService,
-          Effect.andThen(service => service.waitForWebRTCConnection(
-            receiveTransport, 
-            10000, 
-            { type: 'listener', listenerId }
-          )),
+          Effect.andThen(service => service.waitForWebRTCConnection(receiveTransport, 10000)),
           Effect.provide(MediaSoupTransportServiceLive),
           Effect.mapError(error => new ListenerFlowError({
             cause: `WebRTC connection validation failed: ${error.message}`,

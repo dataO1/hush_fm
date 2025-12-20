@@ -179,6 +179,9 @@ export const RoomState = S.Struct({
   // WebRTC connection status
   webrtcStatus: WebRTCStatus,
   
+  // Active WebRTC connection timeout ID (only one per room)
+  activeWebRTCTimeoutId: S.Option(S.Number),
+  
   // Message history (for debugging)
   messageHistory: S.Array(S.Struct({
     timestamp: S.Date,
@@ -222,6 +225,7 @@ export const createInitialRoomState = (): RoomState => ({
     lastConnectedAt: Option.none(),
     error: Option.none()
   },
+  activeWebRTCTimeoutId: Option.none(),
   messageHistory: [],
   lastActivityAt: new Date()
 })

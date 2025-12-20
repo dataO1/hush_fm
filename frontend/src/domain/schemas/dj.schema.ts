@@ -85,8 +85,7 @@ export const SendTransportState = S.Struct({
   transportOptions: S.Option(S.Unknown), // Transport params from backend (Step 7)
   dtlsParameters: S.Option(S.Unknown), // DTLS params for connection (Step 10)
   connected: S.Boolean,
-  connectError: S.Option(S.String),
-  activeConnectionTimeoutId: S.Option(S.Number) // Timeout ID for active WebRTC connection handler
+  connectError: S.Option(S.String)
 })
 export type SendTransportState = S.Schema.Type<typeof SendTransportState>
 
