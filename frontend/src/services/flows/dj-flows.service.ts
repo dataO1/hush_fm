@@ -69,22 +69,37 @@ export interface DJPublishResult {
 }
 
 /**
- * Audio constraints optimized for music streaming (no processing)
+ * Audio constraints optimized for low-latency music streaming over local LAN
+ * Researched for Chrome, Firefox, Safari compatibility (2025)
  */
 const getAudioConstraints = (deviceId?: string): MediaStreamConstraints => ({
   audio: {
     deviceId: deviceId ? { exact: deviceId } : undefined,
-    channelCount: { ideal: 2, min: 1 },
-    // Disable all audio processing for music
-    echoCancellation: false,
-    noiseSuppression: false,
-    autoGainControl: false,
-    googEchoCancellation: false,
-    googAutoGainControl: false,
-    googNoiseSuppression: false,
-    googHighpassFilter: false
+    
+    // Audio Quality - Opus codec at 48kHz (Chrome/Firefox), fallback 44.1kHz (Safari)
+    sampleRate: { ideal: 48000, min: 44100, max: 48000 },
+    channelCount: { ideal: 2, exact: 2 }, // Force stereo for music
+    sampleSize: { ideal: 16 }, // 16-bit audio
+    
+    // Low Latency - Minimize processing delay
+    latency: { ideal: 0 }, // Ultra-low latency hint (Chrome/Firefox)
+    
+    // Disable Audio Processing - Critical for music quality
+    echoCancellation: { exact: false }, // No echo cancellation for music
+    noiseSuppression: { exact: false }, // Preserve natural audio
+    autoGainControl: { exact: false }, // Prevent dynamic volume changes
+    
+    // Chrome-specific legacy constraints (backward compatibility)
+    googEchoCancellation: { exact: false },
+    googAutoGainControl: { exact: false },
+    googNoiseSuppression: { exact: false },
+    googHighpassFilter: { exact: false },
+    googTypingNoiseDetection: { exact: false },
+    
+    // Firefox/Chrome additional constraints
+    suppressLocalAudioPlayback: { exact: false } // Prevent audio feedback suppression
   } as MediaTrackConstraints,
-  video: false
+  video: { exact: false } // Explicitly disable video for performance
 })
 
 /**
