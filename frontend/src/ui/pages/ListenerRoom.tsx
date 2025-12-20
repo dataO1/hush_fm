@@ -1,6 +1,6 @@
 import { createSignal, onMount, onCleanup, Show, createEffect } from 'solid-js'
 import { useParams, useNavigate, useLocation } from '@solidjs/router'
-import { Effect, Option } from 'effect'
+import { Effect, Option, pipe } from 'effect'
 import { getRoomStore } from '../../stores/room.store'
 import { createLobbyStore } from '../../stores/lobby.store'
 import { joinRoomAsListener, leaveRoomAsListener } from '../../services/flows/listener-flows.service'
@@ -150,9 +150,31 @@ export default function ListenerRoom() {
       
       // Create cleanup effect for this specific listener room
       const listenerId = currentListenerId()
-      const cleanupEffect = listenerId 
+      const baseCleanupEffect = listenerId 
         ? navigationService.cleanupListenerAndInitStore(listenerId)
         : navigationService.initLocalStore()
+      
+      // Enhance with HTMLAudioElement cleanup
+      const cleanupEffect = pipe(
+        baseCleanupEffect,
+        Effect.andThen(() => 
+          Effect.sync(() => {
+            // Component-specific HTMLAudioElement cleanup
+            if (audioRef) {
+              console.info('🔊 ListenerRoom: Cleaning up HTMLAudioElement...')
+              try {
+                audioRef.pause()
+                audioRef.srcObject = null
+                audioRef.removeAttribute('src')
+                audioRef.load() // Force cleanup
+                console.info('✅ ListenerRoom: HTMLAudioElement cleaned up')
+              } catch (error) {
+                console.warn('⚠️ ListenerRoom: Audio element cleanup failed:', error)
+              }
+            }
+          })
+        )
+      )
       
       // Register component with global service (route-based cleanup)
       await Effect.runPromise(

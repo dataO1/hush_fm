@@ -13,11 +13,16 @@
  * - Automatic cleanup on navigation and page unload
  */
 
-import { Effect, pipe } from 'effect'
+import { Effect, pipe, Option } from 'effect'
 import { getRoomStore } from '../stores/room.store'
 import { createLobbyStore } from '../stores/lobby.store'
 import { connectToLobbyWebSocket, discoverRooms } from './flows/lobby-flows.service'
 import { leaveRoomAsListener } from './flows/listener-flows.service'
+import { 
+  cleanupConsumerWithStore,
+  cleanupTransportWithStore,
+  cleanupWebSocketWithStore 
+} from './flows/cleanup-flows.service'
 
 /**
  * Navigation cleanup error types
@@ -76,6 +81,12 @@ export interface NavigationCleanupService {
    * Cleanup all registered components (for page unload events)
    */
   cleanupAllComponents: () => Effect.Effect<void, never>
+  
+  /**
+   * Local-only MediaSoup cleanup - no backend commands
+   * Cleans up any existing MediaSoup transport/consumer/websocket locally
+   */
+  cleanupLocalMediaSoupResources: () => Effect.Effect<void, never>
   
   /**
    * Universal store reset - used by ALL pages on navigation
@@ -296,6 +307,86 @@ export const createNavigationCleanupService = (): NavigationCleanupService => {
       ),
 
     /**
+     * Local-only MediaSoup cleanup - no backend commands
+     * Cleans up any existing MediaSoup transport/consumer/websocket locally
+     */
+    cleanupLocalMediaSoupResources: (): Effect.Effect<void, never> =>
+      pipe(
+        Effect.gen(function* (_) {
+          const roomStore = getRoomStore()
+          
+          // Find any active listeners that need cleanup
+          const allListeners = Object.keys(roomStore.state.participants.listeners as Record<string, any>)
+          
+          if (allListeners.length > 0) {
+            console.info(`🧹 Local MediaSoup cleanup for ${allListeners.length} active listeners`)
+            
+            for (const listenerId of allListeners) {
+              try {
+                // Get listener for audio stream cleanup
+                const listener = roomStore.getListener(listenerId)
+                
+                // 0. Stop MediaStream tracks FIRST (before MediaSoup cleanup)
+                if (listener) {
+                  const mediaStreamOption = listener.audioPlayback.mediaStream
+                  if (Option.isSome(mediaStreamOption)) {
+                    const mediaStream = Option.getOrNull(mediaStreamOption) as MediaStream | null
+                    if (mediaStream) {
+                      console.info(`🔊 Stopping audio stream tracks for ${listenerId}`)
+                      mediaStream.getTracks().forEach(track => {
+                        try {
+                          track.stop()
+                          console.info(`🔊 Stopped ${track.kind} track: ${track.id}`)
+                        } catch (error) {
+                          console.warn(`⚠️ Failed to stop track ${track.id}:`, error)
+                        }
+                      })
+                    }
+                  }
+                }
+                
+                // Use leaving mode (true) to skip backend events and force immediate cleanup
+                
+                // 1. Consumer cleanup (local only)
+                yield* _(cleanupConsumerWithStore(roomStore, listenerId, 2000, true).pipe(
+                  Effect.catchAll(error => {
+                    console.warn(`⚠️ Local consumer cleanup failed for ${listenerId}:`, error.message)
+                    return Effect.void
+                  })
+                ))
+                
+                // 2. Transport cleanup (local only) 
+                yield* _(cleanupTransportWithStore(roomStore, listenerId, 2000, true).pipe(
+                  Effect.catchAll(error => {
+                    console.warn(`⚠️ Local transport cleanup failed for ${listenerId}:`, error.message)
+                    return Effect.void
+                  })
+                ))
+                
+                // 3. WebSocket cleanup (local only)
+                yield* _(cleanupWebSocketWithStore(roomStore, listenerId, 1000).pipe(
+                  Effect.catchAll(error => {
+                    console.warn(`⚠️ Local WebSocket cleanup failed for ${listenerId}:`, error.message)
+                    return Effect.void
+                  })
+                ))
+                
+                console.info(`✅ Local MediaSoup cleanup completed for ${listenerId}`)
+              } catch (error) {
+                console.error(`❌ Unexpected error during local cleanup for ${listenerId}:`, error)
+              }
+            }
+          } else {
+            console.info('ℹ️ No active listeners found - skipping MediaSoup cleanup')
+          }
+        }),
+        Effect.catchAll(error => {
+          console.error('❌ Local MediaSoup cleanup failed:', error)
+          return Effect.void
+        })
+      ),
+
+    /**
      * Universal store reset - used by ALL pages
      */
     initLocalStore: (): Effect.Effect<void, NavigationCleanupError> =>
@@ -306,7 +397,16 @@ export const createNavigationCleanupService = (): NavigationCleanupService => {
           const roomStore = getRoomStore()
           const lobbyStore = createLobbyStore()
           
-          // 1. Pure state resets (no side effects)
+          // 1. MediaSoup local cleanup FIRST (before state reset)
+          console.info('🧹 Performing local MediaSoup cleanup...')
+          yield* _(service.cleanupLocalMediaSoupResources().pipe(
+            Effect.catchAll(error => {
+              console.error('❌ Local MediaSoup cleanup failed during init:', error)
+              return Effect.void
+            })
+          ))
+          
+          // 2. Pure state resets (no side effects)
           yield* _(Effect.sync(() => {
             console.info('📦 Resetting room store to initial state')
             roomStore.actions.resetToInitialState() // Use our new pure reset action
@@ -318,7 +418,7 @@ export const createNavigationCleanupService = (): NavigationCleanupService => {
             lobbyStore.actions.clearRooms() // Clear room list
           }))
           
-          // 2. Effects: reconnect lobby and reload rooms
+          // 3. Effects: reconnect lobby and reload rooms
           console.info('🔌 Reconnecting to lobby WebSocket...')
           const ws = yield* _(connectToLobbyWebSocket())
           lobbyStore.actions.setConnected(ws)

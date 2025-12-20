@@ -1,3 +1,7 @@
+# TODOS
+- [ ] Create a proper readme, with sections for architectur explanation, usage
+  explanation, deploument (with the weird build steps we have to make due to
+  aarch on pi etc). important settings for the flake
 # Bugs
 ## Critical
 - [ ] the dj getusermedia is asking for video permissions both on firefox and
@@ -12,6 +16,9 @@
   and reset room state with all listener and dj states) or unload.
 - [ ] waveform oscilloscope only works on chrome based browsers but not for
   firefox based browsers! research why.
+- [ ] on mobile the stream is running perfectly in the background, also in
+  locked screen etc, but make sure we show a mediaplayer status or something
+  that indicates that we are playing music on the lockscreen !.
 ## Whatever
 - [ ] remote connection works for udp! but somehow my chromium browser on
   wayland linux fails to create matching local ice candidate for udp!
