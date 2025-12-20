@@ -41,6 +41,9 @@ export interface LobbyStoreActions {
   updateRoom: (room: RoomInfo) => void
   removeRoom: (roomId: string) => void
   
+  // Page lifecycle reset actions (pure state only - called by services)
+  clearRooms: () => void
+  
   // General error management
   clearError: () => void
 }
@@ -166,6 +169,17 @@ export const createLobbyStore = () => {
         const newMap = { ...roomsMap }
         delete newMap[roomId]  // O(1) deletion
         return newMap
+      })
+    },
+    
+    // Page lifecycle reset actions (pure state only - called by services)
+    clearRooms: () => {
+      console.info('🧹 Lobby store: Clearing all rooms')
+      setState('discovery', {
+        availableRooms: {},
+        loading: false,
+        lastRefreshAt: Option.none(),
+        refreshError: Option.none()
       })
     },
     

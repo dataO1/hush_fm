@@ -15,6 +15,7 @@ import {
 } from '../../services/flows/lobby-flows.service'
 import type { LobbyEvent } from '../../services/websocket/schemas/websocket'
 import ConnectionStatusDot from '../components/ConnectionStatusDot'
+import { getNavigationCleanupService } from '../../services/navigation-cleanup.service'
 
 export default function Landing() {
   const navigate = useNavigate()
@@ -27,8 +28,20 @@ export default function Landing() {
   // Track WebSocket for cleanup
   let currentWebSocket: WebSocket | null = null
 
-  // Connect to lobby on mount
+  // Initialize store state and connect to lobby on mount
   onMount(async () => {
+    // 1. Initialize clean local store state using NavigationCleanupService
+    try {
+      console.info('🏠 Landing: Initializing clean local store state')
+      const navigationService = getNavigationCleanupService()
+      await Effect.runPromise(navigationService.initLocalStore())
+      console.info('✅ Landing: Store state initialized successfully')
+    } catch (error) {
+      console.error('❌ Landing: Failed to initialize store state:', error)
+      // Continue with lobby connection even if initialization fails
+    }
+    
+    // 2. Connect to lobby and load rooms
     try {
       lobbyStore.actions.setConnecting(true)
       

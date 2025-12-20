@@ -9,6 +9,7 @@ import type { DJState } from '../../domain/schemas/dj.schema'
 import ConnectionStatusDot from '../components/ConnectionStatusDot'
 import { Oscilloscope } from '../components/shared/Oscilloscope'
 import { WebRTCErrorHandler } from '../components/WebRTCErrorHandler'
+import { getNavigationCleanupService } from '../../services/navigation-cleanup.service'
 
 export default function DJRoom() {
   const params = useParams()
@@ -36,10 +37,24 @@ export default function DJRoom() {
   })
 
 
-  // Initialize room as ready on mount
+  // Register with global navigation service and initialize room
   onMount(async () => {
+    // 1. Register component with global navigation cleanup service
+    // Note: DJ cleanup only resets local state (preserves backend room for other listeners)
     try {
-      // Room is ready for streaming setup
+      const navigationService = getNavigationCleanupService()
+      
+      // Register with initLocalStore only (NO backend cleanup for DJ navigation)
+      await Effect.runPromise(
+        navigationService.registerComponent('dj-room', navigationService.initLocalStore(), location.pathname)
+      )
+      console.info('🔧 DJRoom: Component registered with global navigation service (local reset only)')
+    } catch (error) {
+      console.error('❌ Failed to register with navigation service:', error)
+    }
+    
+    // 2. Initialize room as ready for streaming setup
+    try {
       roomStore.actions.setConnectionState(ConnectionState.IDLE)
     } catch (err: any) {
       console.error('Failed to initialize DJ room:', err)
@@ -47,8 +62,15 @@ export default function DJRoom() {
     }
   })
 
-  onCleanup(() => {
-    // Cleanup handled by store
+  onCleanup(async () => {
+    // Unregister from global navigation service
+    try {
+      const navigationService = getNavigationCleanupService()
+      await Effect.runPromise(navigationService.unregisterComponent('dj-room'))
+      console.info('🧹 DJRoom: Component unregistered from global navigation service')
+    } catch (error) {
+      console.error('❌ Failed to unregister from navigation service:', error)
+    }
   })
 
   // Computed values from store

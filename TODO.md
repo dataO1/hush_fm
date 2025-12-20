@@ -15,6 +15,7 @@
 ## Whatever
 - [ ] remote connection works for udp! but somehow my chromium browser on
   wayland linux fails to create matching local ice candidate for udp!
+- [ ] play/pause events are either not sent out by the backend or handled in the frontend! muting does not work.
 
 # Architecture/Functionality
 ## Critical

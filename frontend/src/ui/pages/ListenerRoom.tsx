@@ -9,6 +9,7 @@ import { ConnectionState, type WebRTCError } from '../../domain/schemas/room.sch
 import ConnectionStatusDot from '../components/ConnectionStatusDot'
 import { Oscilloscope } from '../components/shared/Oscilloscope'
 import { WebRTCErrorHandler } from '../components/WebRTCErrorHandler'
+import { getNavigationCleanupService } from '../../services/navigation-cleanup.service'
 
 export default function ListenerRoom() {
   const params = useParams()
@@ -141,8 +142,28 @@ export default function ListenerRoom() {
 
 
 
-  // Start join room flow on mount (create WebSocket connection for listeners)
+  // Register with global navigation service and start join room flow
   onMount(async () => {
+    // 1. Register component with global navigation cleanup service
+    try {
+      const navigationService = getNavigationCleanupService()
+      
+      // Create cleanup effect for this specific listener room
+      const listenerId = currentListenerId()
+      const cleanupEffect = listenerId 
+        ? navigationService.cleanupListenerAndInitStore(listenerId)
+        : navigationService.initLocalStore()
+      
+      // Register component with global service (route-based cleanup)
+      await Effect.runPromise(
+        navigationService.registerComponent('listener-room', cleanupEffect, location.pathname)
+      )
+      console.info('🔧 ListenerRoom: Component registered with global navigation service')
+    } catch (error) {
+      console.error('❌ Failed to register with navigation service:', error)
+    }
+    
+    // 2. Start join room flow
     try {
       await joinRoom()
     } catch (err: any) {
@@ -152,22 +173,13 @@ export default function ListenerRoom() {
   })
 
   onCleanup(async () => {
-    // Cleanup using room store
+    // Unregister from global navigation service
     try {
-      roomStore.actions.disconnectFromRoom()
+      const navigationService = getNavigationCleanupService()
+      await Effect.runPromise(navigationService.unregisterComponent('listener-room'))
+      console.info('🧹 ListenerRoom: Component unregistered from global navigation service')
     } catch (error) {
-      console.error('Error during cleanup:', error)
-    }
-    
-    // Disconnect from lobby
-    const lobbyWs = Option.getOrNull(lobbyStore.state.connection.websocket)
-    if (lobbyWs) {
-      try {
-        await Effect.runPromise(leaveLobby(lobbyWs))
-        lobbyStore.actions.setDisconnected()
-      } catch (error) {
-        console.error('Error disconnecting from lobby:', error)
-      }
+      console.error('❌ Failed to unregister from navigation service:', error)
     }
   })
 

@@ -103,6 +103,11 @@ export interface RoomStoreActions {
   // Listener confirmation management (pure state only)
   setListenerTransportConfirmation: (listenerId: string) => void
   setListenerConsumerConfirmation: (listenerId: string, consumerId: string, producerId: string, consumerParameters: any) => void
+  
+  // Page lifecycle reset actions (pure state only - called by services)
+  resetToInitialState: () => void
+  clearAllConnections: () => void
+  clearAudioResources: () => void
 }
 
 /**
@@ -644,6 +649,65 @@ export const createRoomStore = () => {
           }
         })
       }
+    },
+
+    /**
+     * Page lifecycle reset actions (pure state only - called by PageLifecycleService)
+     */
+    resetToInitialState: () => {
+      console.info('🔄 Room store: Resetting to initial state')
+      const initialState = createInitialRoomState()
+      setState(initialState as any)
+    },
+
+    clearAllConnections: () => {
+      console.info('🔌 Room store: Clearing all connections')
+      // Close WebSocket if exists
+      Option.match(roomWebSocket, {
+        onSome: (ws) => {
+          if (ws.readyState === WebSocket.OPEN) {
+            ws.close()
+          }
+        },
+        onNone: () => {}
+      })
+      roomWebSocket = Option.none()
+      
+      // Reset connection state
+      setState('connection', {
+        websocket: Option.none(),
+        state: ConnectionState.DISCONNECTED,
+        roomId: Option.none(),
+        connectionType: Option.none(),
+        connectionAttempts: 0,
+        lastError: Option.none(),
+        lastConnectedAt: Option.none()
+      })
+    },
+
+    clearAudioResources: () => {
+      console.info('🔊 Room store: Clearing audio resources')
+      // Clear DJ audio resources
+      setState('participants', 'dj', Option.none())
+      
+      // Clear listener audio resources
+      setState('participants', 'listeners', {})
+      setState('participants', 'totalCount', 0)
+      
+      // Reset WebRTC status
+      setState('webrtcStatus', {
+        status: 'disconnected',
+        lastConnectedAt: Option.none(),
+        error: Option.none()
+      })
+      
+      // Reset streaming status
+      setState('streaming', {
+        status: 'idle',
+        startedAt: Option.none(),
+        pausedAt: Option.none(),
+        lastError: Option.none()
+      })
     }
   }
   

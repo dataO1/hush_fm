@@ -99,7 +99,7 @@ const getAudioConstraints = (deviceId?: string): MediaStreamConstraints => ({
     // Firefox/Chrome additional constraints
     suppressLocalAudioPlayback: { exact: false } // Prevent audio feedback suppression
   } as MediaTrackConstraints,
-  video: { exact: false } // Explicitly disable video for performance
+  video: false // Explicitly disable video for performance
 })
 
 /**
