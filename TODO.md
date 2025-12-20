@@ -1,46 +1,24 @@
-- [ ] remote connection only works for tcp not udp
-- [ ] joining with a second listener destroys the ice connection for the first
-  one.
+# Bugs
+## Critical
+- [ ] the dj getusermedia is asking for video permissions both on firefox and
+  chrome, we only want audio!
+- [ ] when a page in the frontend is requested make sure to properly initialize
+  the store with an empty state. currently when connected as a listener with a
+  succeeded active webrtc connection to the dj, then pressing back to the lobby,
+  the webrtc connection is still active and i still hear audio (tested only on
+  firefox on linux and ios, but on mobile chrome it worked). check if this
+  should be done on page load (so when pressing back if page load should trigger
+  and reset to page specific state, ie in lobby only connect lobby websocket,
+  and reset room state with all listener and dj states) or unload.
+- [ ] waveform oscilloscope only works on chrome based browsers but not for
+  firefox based browsers! research why.
+## Whatever
+- [ ] remote connection works for udp! but somehow my chromium browser on
+  wayland linux fails to create matching local ice candidate for udp!
 
-### UDP Problems
-
-Based on the WebRTC 1.0 Candidate Recommendation and the previously analyzed logs, the UDP candidates from the backend were not used because they could not form a valid Candidate Pair with the client's available candidates.
-
-Here is the breakdown of why this occurred according to the standard:
-1. The RTCIceTransportPolicy Was Likely Correct ("all")
-
-The standard defines the RTCIceTransportPolicy enum with two values:
-
-    "relay": The ICE Agent uses only media relay candidates (TURN). This prevents the remote endpoint from learning the user's IP addresses.
-
-    "all" (Default): The ICE Agent can use any type of candidate (Host, Server Reflexive, Relay).
-
-Evidence: The logs showed the client gathering candidates with typ host (e.g., candidate:... typ host ...).
-
-    Conclusion: If the policy were set to "relay", these host candidates would have been suppressed entirely. Since host candidates were generated, the iceTransportPolicy was correctly set to "all" (or left as default). Therefore, an incorrect transport policy setting is not the cause of the UDP failure .
-
-2. Failure Mechanism: Candidate Pairing & Protocol Mismatch
-
-According to the specification, the ICE Agent is responsible for establishing connectivity by performing checks on Candidate Pairs (a local candidate paired with a remote candidate) .
-
-    The Constraint: A valid candidate pair must share the same transport protocol.
-
-        Client (Local): Gathered only TCP candidates (protocol: tcp).
-
-        Server (Remote): Provided only UDP candidates (protocol: udp).
-
-    The Result: The ICE Agent could not create a single valid pair (e.g., Local TCP + Remote UDP is invalid). Without a valid pair, the Connectivity Check phase cannot start, leading to the iceConnectionState remaining in checking or new until it eventually times out to failed.
-
-3. Why were Local UDP candidates missing?
-
-The standard notes: "The implementation can still use its own candidate filtering policy in order to limit the IP addresses exposed to the application." .
-
-Since the policy allowed "all" candidates, the absence of local UDP candidates indicates an Environmental or Administrative Restriction rather than a WebRTC configuration error. The browser's ICE Agent detected that UDP was blocked (e.g., by a firewall, OS permissions, or container network isolation) and effectively "pruned" UDP from the gathering process before presenting candidates to the application.
-Summary of Fix
-
-The standard confirms that the RTCIceTransportPolicy does not need to be changed. Instead, you must resolve the protocol mismatch by either:
-
-    Unblocking UDP on the client's network/container.
-
-    Enabling TCP on the Backend (MediaSoup), allowing the client's existing TCP candidates to pair with a Server TCP candidate.
-
+# Architecture/Functionality
+## Critical
+- [ ] How to properly handle dj disconnection while streaming. we need to be
+  able to keep the server room state and reconnect from the client using the
+  same sessionid and just reestablish a new producer, that is still connected to
+  the existing listeners/consumers/listen transports
