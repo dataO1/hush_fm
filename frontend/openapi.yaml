@@ -200,6 +200,7 @@ components:
       - id
       - name
       - djName
+      - djId
       - listenerCount
       - isStreaming
       - createdAt
@@ -213,6 +214,9 @@ components:
           - string
           - 'null'
           description: Optional room description
+        djId:
+          type: string
+          description: DJ's session ID for reconnection matching
         djName:
           type: string
           description: DJ's display name

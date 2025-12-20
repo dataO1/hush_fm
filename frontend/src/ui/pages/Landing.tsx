@@ -142,20 +142,32 @@ export default function Landing() {
     }
   }
 
-  // Join room as listener
-  const handleJoinRoom = async (roomId: string) => {
+  // Handle room interaction (join as listener or reconnect as DJ)
+  const handleRoomAction = async (roomId: string, room: any) => {
     try {
       lobbyStore.actions.clearError()
       
       // Ensure we have a session ID
       const sessionId = await Effect.runPromise(getSessionId(userStore))
       
+      // Check if this is the user's own room (DJ reconnection)
+      if (isOwnRoom(room)) {
+        console.info('🎧 Reconnecting to own DJ room:', { roomId, sessionId })
+        
+        // Navigate directly to DJ room for reconnection
+        navigate(`/dj/${roomId}`, {
+          state: { isReconnection: true }
+        })
+        return
+      }
+      
+      // Regular listener join flow
       if (!currentWebSocket) {
         lobbyStore.actions.setConnectionError('Not connected to lobby')
         return
       }
       
-      console.info('🎧 Requesting to join room:', { roomId, sessionId })
+      console.info('🎧 Requesting to join room as listener:', { roomId, sessionId })
       
       // Send requestJoin command to lobby WebSocket
       const requestJoinCommand = {
@@ -185,7 +197,7 @@ export default function Landing() {
       }
       
     } catch (error) {
-      console.error('❌ Failed to join room:', error)
+      console.error('❌ Failed to handle room action:', error)
       lobbyStore.actions.setConnectionError(error instanceof Error ? error.message : 'Failed to join room')
     }
   }
@@ -241,6 +253,44 @@ export default function Landing() {
   // Computed error state for UI display
   const displayError = createMemo(() => lobbyStore.connectionError || lobbyStore.creationError)
 
+  // Computed room list with DJ reconnection features
+  const sortedRooms = createMemo(() => {
+    const currentSessionId = userStore.sessionId
+    const rooms = lobbyStore.availableRooms
+    
+    if (!currentSessionId) {
+      // No session ID yet, just sort by listener count
+      return rooms.slice().sort((a, b) => (b.listenerCount || 0) - (a.listenerCount || 0))
+    }
+    
+    // Separate user's own rooms from others
+    const ownRooms: typeof rooms = []
+    const otherRooms: typeof rooms = []
+    
+    rooms.forEach(room => {
+      if (room.djId === currentSessionId) {
+        ownRooms.push(room)
+      } else {
+        otherRooms.push(room)
+      }
+    })
+    
+    // Sort own rooms by listener count (descending)
+    ownRooms.sort((a, b) => (b.listenerCount || 0) - (a.listenerCount || 0))
+    
+    // Sort other rooms by listener count (descending)  
+    otherRooms.sort((a, b) => (b.listenerCount || 0) - (a.listenerCount || 0))
+    
+    // Return own rooms first, then others
+    return [...ownRooms, ...otherRooms]
+  })
+  
+  // Helper to check if a room belongs to current user
+  const isOwnRoom = (room: any) => {
+    const currentSessionId = userStore.sessionId
+    return currentSessionId && room.djId === currentSessionId
+  }
+
   return (
     <div class="min-h-screen bg-gradient-to-br from-purple-900 via-blue-900 to-indigo-900 text-white">
       <div class="container mx-auto px-4 sm:px-6 lg:px-8 py-4 sm:py-6 lg:py-8">
@@ -290,7 +340,7 @@ export default function Landing() {
 
             <div class="space-y-2 sm:space-y-3 max-h-64 sm:max-h-80 lg:max-h-96 overflow-y-auto">
               <Show 
-                when={lobbyStore.availableRooms.length > 0}
+                when={sortedRooms().length > 0}
                 fallback={
                   <div class="text-center text-gray-400 py-6 sm:py-8">
                     <Show 
@@ -302,14 +352,23 @@ export default function Landing() {
                   </div>
                 }
               >
-                <For each={lobbyStore.availableRooms}>
+                <For each={sortedRooms()}>
                   {(room) => (
-                    <div class="bg-white/5 rounded-lg p-3 sm:p-4 border border-white/10 hover:border-white/20 transition-colors">
+                    <div class={`rounded-lg p-3 sm:p-4 transition-colors ${
+                      isOwnRoom(room) 
+                        ? 'bg-gradient-to-r from-pink-500/20 to-violet-500/20 border-2 border-pink-500/40 hover:border-pink-500/60' 
+                        : 'bg-white/5 border border-white/10 hover:border-white/20'
+                    }`}>
                       <div class="flex justify-between items-start mb-2 sm:mb-3">
                         <div class="flex-1 min-w-0">
                           <div class="flex items-center gap-2 mb-1">
                             <Show when={room.isStreaming}>
                               <ConnectionStatusDot size="sm" connectionState="connected" title="Live Stream" />
+                            </Show>
+                            <Show when={isOwnRoom(room)}>
+                              <div class="px-2 py-1 bg-pink-500/30 text-pink-200 text-xs rounded-full border border-pink-500/50">
+                                Your Room
+                              </div>
                             </Show>
                             <h3 class="font-bold text-base sm:text-lg truncate">{room.name}</h3>
                           </div>
@@ -327,10 +386,14 @@ export default function Landing() {
                       </Show>
                       
                       <button
-                        onClick={() => handleJoinRoom(room.id)}
-                        class="w-full bg-green-500 hover:bg-green-600 text-white font-medium py-2 px-3 sm:px-4 rounded transition-colors text-sm sm:text-base"
+                        onClick={() => handleRoomAction(room.id, room)}
+                        class={`w-full font-medium py-2 px-3 sm:px-4 rounded transition-colors text-sm sm:text-base ${
+                          isOwnRoom(room)
+                            ? 'bg-gradient-to-r from-pink-500 to-violet-500 hover:from-pink-600 hover:to-violet-600 text-white'
+                            : 'bg-green-500 hover:bg-green-600 text-white'
+                        }`}
                       >
-                        Join Room
+                        {isOwnRoom(room) ? 'Reconnect to Your Room' : 'Join Room'}
                       </button>
                     </div>
                   )}

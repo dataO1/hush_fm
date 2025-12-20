@@ -153,6 +153,8 @@ export interface RoomInfo {
   createdAt: string;
   /** Optional room description */
   description?: RoomInfoDescription;
+  /** DJ's session ID for reconnection matching */
+  djId: string;
   /** DJ's display name */
   djName: string;
   /** Unique room identifier */

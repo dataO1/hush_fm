@@ -15,6 +15,8 @@ pub struct RoomInfo {
     pub name: String,
     /// DJ's display name
     pub dj_name: String,
+    /// DJ's session ID for reconnection matching
+    pub dj_id: String,
     /// Current number of listeners
     pub listener_count: u32,
     /// Whether DJ is currently streaming
@@ -29,15 +31,16 @@ pub struct RoomInfo {
 
 impl From<super::Room> for RoomInfo {
     fn from(room: super::Room) -> Self {
-        // Get DJ name from DJ struct
-        let dj_name = room.dj.as_ref()
-            .map(|dj| dj.dj_id.clone())
-            .unwrap_or_else(|| "Unknown DJ".to_string());
+        // Get DJ name and ID from DJ struct
+        let (dj_name, dj_id) = room.dj.as_ref()
+            .map(|dj| (dj.dj_id.clone(), dj.dj_id.clone()))
+            .unwrap_or_else(|| ("Unknown DJ".to_string(), "".to_string()));
             
         Self {
             id: room.id,
             name: room.name,
             dj_name,
+            dj_id,
             listener_count: room.listener_count,
             is_streaming: room.dj_streaming,
             created_at: room.created_at.to_rfc3339(),

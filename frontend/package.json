@@ -8,7 +8,7 @@
     "build": "vite build",
     "preview": "vite preview",
     "type-check": "tsc --noEmit",
-    "generate:api": "orval",
+    "generate:api": "./scripts/generate-api.sh",
     "dev:api": "orval --watch"
   },
   "dependencies": {
