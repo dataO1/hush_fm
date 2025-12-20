@@ -375,8 +375,30 @@ class MediaSoupProducerServiceImpl implements MediaSoupProducerService {
         // Additional audio-specific validation
         if (track.kind === 'audio') {
           const audioSettings = track.getSettings()
-          if (!audioSettings.sampleRate || audioSettings.sampleRate < 8000) {
-            throw new TrackError(`Invalid audio sample rate: ${audioSettings.sampleRate}`)
+          
+          // Log audio settings for debugging
+          console.debug('🎵 Audio track settings validation:', {
+            sampleRate: audioSettings.sampleRate,
+            channelCount: audioSettings.channelCount,
+            echoCancellation: audioSettings.echoCancellation,
+            noiseSuppression: audioSettings.noiseSuppression,
+            autoGainControl: audioSettings.autoGainControl,
+            trackId: track.id,
+            trackLabel: track.label,
+            trackReadyState: track.readyState
+          })
+          
+          // Firefox may not populate sampleRate in getSettings() - this is a known limitation
+          // Only validate if sampleRate is present and invalid
+          if (audioSettings.sampleRate !== undefined) {
+            if (audioSettings.sampleRate < 8000) {
+              throw new TrackError(`Invalid audio sample rate: ${audioSettings.sampleRate}`)
+            }
+          } else {
+            // Firefox case: sampleRate is undefined, but track is still valid
+            // Warn but allow through since getUserMedia constraints should ensure proper rate
+            console.warn('⚠️ Firefox: sampleRate undefined in getSettings() - this is expected behavior')
+            console.info('✅ Proceeding with track validation despite undefined sampleRate (Firefox limitation)')
           }
         }
       })

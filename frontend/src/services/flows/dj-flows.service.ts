@@ -740,17 +740,35 @@ export const publishDJRoom = (
           }
         }),
         Effect.provide(MediaSoupProducerServiceLive),
-        Effect.mapError(error => new DJFlowError({
-          cause: 'Failed to create producer',
-          step: 'create_producer',
-          stepNumber: 10,
-          recoverable: false,
-          context: { 
-            timestamp: new Date(),
-            operation: 'create_producer',
-            details: { roomId, error }
+        Effect.mapError(error => {
+          // Handle specific error types with better messaging
+          if (error.name === 'TrackError') {
+            return new DJFlowError({
+              cause: `Audio track validation failed: ${error.message}`,
+              step: 'create_producer',
+              stepNumber: 10,
+              recoverable: true, // User can try with different audio device
+              context: { 
+                timestamp: new Date(),
+                operation: 'validate_audio_track',
+                details: { roomId, trackError: error.message }
+              }
+            })
           }
-        }))
+          
+          // Handle other producer creation errors
+          return new DJFlowError({
+            cause: `Failed to create producer: ${error.message || String(error)}`,
+            step: 'create_producer',
+            stepNumber: 10,
+            recoverable: false,
+            context: { 
+              timestamp: new Date(),
+              operation: 'create_producer',
+              details: { roomId, error }
+            }
+          })
+        })
       ))
       
       // Update room store with producer state
