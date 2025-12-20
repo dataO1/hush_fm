@@ -135,21 +135,12 @@ export const createNavigationCleanupService = (): NavigationCleanupService => {
     }
   }
   
-  const handleVisibilityChange = () => {
-    if (document.visibilityState === 'hidden') {
-      console.info('👀 Page hidden detected - triggering cleanup')
-      handlePageUnload()
-    }
-  }
-  
   // Setup global browser events
   const setupGlobalEvents = () => {
     if (globalTrackingActive) return
     
-    // Primary: visibilitychange (most reliable cross-platform 2024)
-    document.addEventListener('visibilitychange', handleVisibilityChange)
-    
-    // Secondary: pagehide (better than beforeunload/unload)
+    // Only use pagehide for actual navigation/unload events
+    // Removed visibilitychange to keep audio streaming when tab is hidden
     window.addEventListener('pagehide', handlePageUnload)
     
     globalTrackingActive = true
@@ -158,7 +149,6 @@ export const createNavigationCleanupService = (): NavigationCleanupService => {
   
   // Remove global browser events
   const removeGlobalEvents = () => {
-    document.removeEventListener('visibilitychange', handleVisibilityChange)
     window.removeEventListener('pagehide', handlePageUnload)
     globalTrackingActive = false
     console.info('🧹 Global navigation tracking stopped')
