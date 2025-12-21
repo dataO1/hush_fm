@@ -35,13 +35,18 @@ export default function AppLayout(props: RouteSectionProps) {
     const currentRoute = location.pathname
     
     if (previousRoute && previousRoute !== currentRoute) {
+      console.info(`🔄 AppLayout: Route change detected: ${previousRoute} → ${currentRoute}`)
+      
+      // DISABLED: Route-based cleanup to preserve active listener streams
+      // Cleanup now only happens on page unload (pagehide events)
+      /*
       try {
-        console.info(`🔄 AppLayout: Route change detected: ${previousRoute} → ${currentRoute}`)
         const navigationService = getNavigationCleanupService()
         Effect.runPromise(navigationService.handleRouteChange(currentRoute, previousRoute))
       } catch (error) {
         console.error('❌ AppLayout: Failed to handle route change:', error)
       }
+      */
     }
     
     previousRoute = currentRoute

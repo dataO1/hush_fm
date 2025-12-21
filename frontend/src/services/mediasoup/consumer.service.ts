@@ -43,6 +43,18 @@ export class ConsumerNotFoundError extends ConsumerError {
   }
 }
 
+/**
+ * Audio Playback Options
+ */
+export interface AudioPlaybackOptions {
+  autoplay?: boolean
+  volume?: number
+  muted?: boolean
+  loop?: boolean
+  onAutoplayBlocked?: () => void
+  onAutoplaySuccess?: () => void
+}
+
 export class AudioPlaybackError extends ConsumerError {
   constructor(message: string, cause?: unknown) {
     super(message, cause)
@@ -88,15 +100,6 @@ export interface ConsumerCallbacks {
   onResume?: (consumer: types.Consumer) => void
 }
 
-/**
- * Audio Playback Options
- */
-export interface AudioPlaybackOptions {
-  autoplay?: boolean
-  volume?: number
-  muted?: boolean
-  loop?: boolean
-}
 
 /**
  * Consumer Service Interface
@@ -376,13 +379,16 @@ class MediaSoupConsumerServiceImpl implements MediaSoupConsumerService {
               loop: options?.loop ?? false
             }
             
-            // Configure audio element
+            // Configure audio element for background streaming
             audioElement.srcObject = mediaStream
             audioElement.autoplay = config.autoplay
             audioElement.volume = config.volume
             audioElement.muted = config.muted
             audioElement.loop = config.loop
-            audioElement.controls = false // Usually hidden for streaming
+            audioElement.controls = false
+            audioElement.playsInline = true // Prevents fullscreen on mobile
+            audioElement.preload = 'auto'
+            audioElement.crossOrigin = 'anonymous'
             
             console.info('🔊 Created audio element for consumer', {
               consumer_id: consumer.id,
@@ -393,20 +399,28 @@ class MediaSoupConsumerServiceImpl implements MediaSoupConsumerService {
             
             // Set up event handlers
             audioElement.addEventListener('loadeddata', () => {
-              console.info(`Audio element loaded data for consumer: ${consumer.id}`)
+              console.info(`🎵 Audio element loaded data for consumer: ${consumer.id}`)
             })
             
             audioElement.addEventListener('error', (event) => {
-              console.error(`Audio element error for consumer ${consumer.id}:`, event)
+              console.error(`❌ Audio element error for consumer ${consumer.id}:`, event)
             })
             
             // Try to play if autoplay is enabled
             if (config.autoplay) {
               try {
                 await audioElement.play()
-                console.info(`Audio element playing for consumer: ${consumer.id}`)
+                console.info(`🎉 Audio element playing for consumer: ${consumer.id}`)
+                // Call success callback if provided
+                if (options?.onAutoplaySuccess) {
+                  options.onAutoplaySuccess()
+                }
               } catch (playError) {
-                console.warn(`Autoplay blocked for consumer ${consumer.id}:`, playError)
+                console.warn(`⚠️ Autoplay blocked for consumer ${consumer.id}:`, playError)
+                // Call blocked callback if provided
+                if (options?.onAutoplayBlocked) {
+                  options.onAutoplayBlocked()
+                }
                 // Don't throw error - autoplay blocking is common
               }
             }
@@ -531,31 +545,6 @@ export const MediaSoupConsumerServiceLive = Layer.succeed(
  * Helper functions for working with consumer service
  */
 
-/**
- * Create consumer with event setup and audio element
- */
-export const createConsumerWithAudio = (
-  transport: types.Transport,
-  options: ApiConsumerParameters,
-  callbacks?: ConsumerCallbacks,
-  audioOptions?: AudioPlaybackOptions
-): Effect.Effect<{ consumer: types.Consumer; audioElement: HTMLAudioElement }, ConsumerCreationError | AudioPlaybackError, never> =>
-  pipe(
-    MediaSoupConsumerService,
-    Effect.andThen(service => 
-      pipe(
-        service.createConsumer(transport, options),
-        Effect.tap(consumer => service.setupConsumerEvents(consumer, callbacks)),
-        Effect.andThen(consumer =>
-          pipe(
-            service.createAudioElement(consumer, audioOptions),
-            Effect.map(audioElement => ({ consumer, audioElement }))
-          )
-        )
-      )
-    ),
-    Effect.provide(MediaSoupConsumerServiceLive)
-  )
 
 /**
  * Pause consumer with validation
@@ -614,7 +603,7 @@ export const getConsumerStatsWithRetry = (
   )
 
 /**
- * Create audio consumer with full setup
+ * Create audio consumer with HTMLAudioElement (single source of truth)
  */
 export const createAudioConsumer = (
   transport: types.Transport,

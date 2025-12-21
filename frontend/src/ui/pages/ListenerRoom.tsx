@@ -1,10 +1,8 @@
-import { createSignal, onMount, onCleanup, Show, createEffect } from 'solid-js'
+import { onMount, onCleanup, Show } from 'solid-js'
 import { useParams, useNavigate, useLocation } from '@solidjs/router'
-import { Effect, Option, pipe } from 'effect'
+import { Effect, Option } from 'effect'
 import { getRoomStore } from '../../stores/room.store'
-import { createLobbyStore } from '../../stores/lobby.store'
 import { joinRoomAsListener, leaveRoomAsListener } from '../../services/flows/listener-flows.service'
-import { leaveLobby } from '../../services/flows/lobby-flows.service'
 import { ConnectionState, type WebRTCError } from '../../domain/schemas/room.schema'
 import ConnectionStatusDot from '../components/ConnectionStatusDot'
 import { Oscilloscope } from '../components/shared/Oscilloscope'
@@ -16,9 +14,8 @@ export default function ListenerRoom() {
   const navigate = useNavigate()
   const location = useLocation()
 
-  // Use room store and lobby store
+  // Use room store
   const roomStore = getRoomStore()
-  const lobbyStore = createLobbyStore()
 
   // Get data from navigation state (from Landing.tsx RequestJoin response)
   const navigationState = location.state as {
@@ -27,8 +24,11 @@ export default function ListenerRoom() {
     sessionId?: string
   } || {}
 
-  // Signal for autoplay blocked state instead of store
-  const [needsUserPlay, setNeedsUserPlay] = createSignal(false)
+  // Get autoplay blocked state from store
+  const needsUserPlay = () => {
+    const listener = currentListener()
+    return listener ? listener.audioPlayback.autoplayBlocked : false
+  }
 
   // Use session ID as the listener ID (single source of truth)  
   const currentListenerId = () => {
@@ -103,42 +103,7 @@ export default function ListenerRoom() {
     return Option.getOrNull(mediaStreamOption) as MediaStream | null
   }
 
-  // 1. Ensure audioRef is typed correctly
-  let audioRef: HTMLAudioElement | undefined
 
-  // 2. Updated Effect with logging
-  createEffect(() => {
-    const listener = currentListener()
-    if (!listener) return
-    const streamOption = listener.audioPlayback.mediaStream as Option.Option<MediaStream>
-
-    // Check both stream and ref presence
-    if (Option.isSome(streamOption)) {
-      if (audioRef) {
-        const stream = streamOption.value as MediaStream
-
-        // A. Set source
-        audioRef.srcObject = stream
-
-        // B. Set default volume
-        audioRef.volume = 0.8
-
-        // C. Explicit Play Attempt
-        audioRef.play()
-          .then(() => {
-             // Autoplay succeeded - use signal instead of store
-             setNeedsUserPlay(false)
-          })
-          .catch(e => {
-             console.warn("⚠️ Autoplay blocked or failed:", e)
-             // Autoplay was blocked - use signal instead of store
-             setNeedsUserPlay(true)
-          })
-      } else {
-        console.error("❌ Stream is ready but audioRef is undefined!")
-      }
-    }
-  })
 
 
 
@@ -148,37 +113,38 @@ export default function ListenerRoom() {
     try {
       const navigationService = getNavigationCleanupService()
       
+      // DISABLED: No cleanup effects during navigation to preserve connections
       // Create cleanup effect for this specific listener room
-      const listenerId = currentListenerId()
-      const baseCleanupEffect = listenerId 
-        ? navigationService.cleanupListenerAndInitStore(listenerId)
-        : navigationService.initLocalStore()
+      // const listenerId = currentListenerId()
+      // const baseCleanupEffect = listenerId 
+      //   ? navigationService.cleanupListenerAndInitStore(listenerId)
+      //   : navigationService.initLocalStore()
       
       // Enhance with HTMLAudioElement cleanup
-      const cleanupEffect = pipe(
-        baseCleanupEffect,
-        Effect.andThen(() => 
-          Effect.sync(() => {
-            // Component-specific HTMLAudioElement cleanup
-            if (audioRef) {
-              console.info('🔊 ListenerRoom: Cleaning up HTMLAudioElement...')
-              try {
-                audioRef.pause()
-                audioRef.srcObject = null
-                audioRef.removeAttribute('src')
-                audioRef.load() // Force cleanup
-                console.info('✅ ListenerRoom: HTMLAudioElement cleaned up')
-              } catch (error) {
-                console.warn('⚠️ ListenerRoom: Audio element cleanup failed:', error)
-              }
-            }
-          })
-        )
-      )
+      // const cleanupEffect = pipe(
+      //   baseCleanupEffect,
+      //   Effect.andThen(() => 
+      //     Effect.sync(() => {
+      //       // Component-specific HTMLAudioElement cleanup
+      //       if (audioRef) {
+      //         console.info('🔊 ListenerRoom: Cleaning up HTMLAudioElement...')
+      //         try {
+      //           audioRef.pause()
+      //           audioRef.srcObject = null
+      //           audioRef.removeAttribute('src')
+      //           audioRef.load() // Force cleanup
+      //           console.info('✅ ListenerRoom: HTMLAudioElement cleaned up')
+      //         } catch (error) {
+      //           console.warn('⚠️ ListenerRoom: Audio element cleanup failed:', error)
+      //         }
+      //       }
+      //     })
+      //   )
+      // )
       
-      // Register component with global service (route-based cleanup)
+      // Register component with global service (no cleanup effect)
       await Effect.runPromise(
-        navigationService.registerComponent('listener-room', cleanupEffect, location.pathname)
+        navigationService.registerComponent('listener-room', Effect.void, location.pathname)
       )
       console.info('🔧 ListenerRoom: Component registered with global navigation service')
     } catch (error) {
@@ -192,6 +158,7 @@ export default function ListenerRoom() {
       console.error('Failed to join room:', err)
       // Error state is handled by the store via the service
     }
+
   })
 
   onCleanup(async () => {
@@ -222,8 +189,9 @@ export default function ListenerRoom() {
       const listenerWebSocketUrl = navigationState.listenerWebSocketUrl
       const roomInfo = navigationState.roomInfo
 
+      
       if (!sessionId || !listenerWebSocketUrl) {
-        console.error('Missing required navigation state for listener join')
+        console.error('Missing required data for listener join:', { sessionId, listenerWebSocketUrl })
         navigate('/')
         return
       }
@@ -246,6 +214,7 @@ export default function ListenerRoom() {
         })
       )
 
+
     } catch (err: any) {
       console.error('Failed to join room:', err)
 
@@ -257,61 +226,45 @@ export default function ListenerRoom() {
   }
 
 const handleManualPlay = () => {
-    if (audioRef) {
-      audioRef.play().then(() => setNeedsUserPlay(false))
+    const listener = currentListener()
+    if (listener && Option.isSome(listener.audioPlayback.audioElement)) {
+      const audioElement = listener.audioPlayback.audioElement.value as HTMLAudioElement
+      audioElement.play().then(() => {
+        // Update store to clear autoplay blocked state
+        const listenerId = currentListenerId()
+        if (listenerId) {
+          roomStore.actions.setListenerAutoplayBlocked(listenerId, false)
+        }
+      })
     }
   }
 
   const leaveRoom = async () => {
     console.info('🚪 Initiating leave room flow')
     
-    // 1. Cleanup Audio immediately
-    if (audioRef) {
-      audioRef.pause()
-      audioRef.srcObject = null
-      console.info('🔇 Audio element cleaned up')
-    }
-
-    // 2. Leave room using proper service flow if we have a listener ID
+    // 1. Leave room using service (handles MediaSoup cleanup and backend notification)
     const listenerId = currentListenerId()
     if (listenerId) {
       try {
-        console.info('📡 Calling leaveRoomAsListener service with listenerId:', listenerId)
-        // This will: 
-        // 1. Send leaveRoom command to backend
-        // 2. Close MediaSoup consumer and transport
-        // 3. Close WebSocket connection  
-        // 4. Update room state to DISCONNECTED
-        // 5. Remove listener from store
+        console.info('📡 Calling leaveRoomAsListener service')
         await Effect.runPromise(leaveRoomAsListener(roomStore, listenerId))
-        console.info('✅ Leave room service flow completed')
+        console.info('✅ Leave room service completed')
       } catch (error) {
-        console.error('❌ Error in leave room service flow:', error)
-        // Fallback cleanup if service fails
-        try {
-          roomStore.actions.removeListener(listenerId)
-          roomStore.actions.setConnectionState(ConnectionState.DISCONNECTED)
-        } catch (fallbackError) {
-          console.error('❌ Fallback cleanup also failed:', fallbackError)
-        }
-      }
-    } else {
-      console.warn('⚠️ No listener ID found for leave room flow')
-    }
-
-    // 3. Cleanup lobby connection if exists
-    const lobbyWs = Option.getOrNull(lobbyStore.state.connection.websocket)
-    if (lobbyWs) {
-      try {
-        console.info('🏢 Disconnecting from lobby')
-        await Effect.runPromise(leaveLobby(lobbyWs))
-        lobbyStore.actions.setDisconnected()
-      } catch (error) {
-        console.error('❌ Error disconnecting from lobby:', error)
+        console.error('❌ Error in leave room service:', error)
       }
     }
 
-    // 4. Navigate back to lobby
+    // 2. Reset store state using navigation service
+    try {
+      console.info('🧹 Resetting store state')
+      const navigationService = getNavigationCleanupService()
+      await Effect.runPromise(navigationService.initLocalStore())
+      console.info('✅ Store state reset completed')
+    } catch (error) {
+      console.error('❌ Error resetting store state:', error)
+    }
+
+    // 3. Navigate back to lobby
     console.info('🔙 Navigating back to lobby')
     navigate('/')
   }
@@ -320,13 +273,7 @@ const handleManualPlay = () => {
   return (
     <div class="h-screen w-full bg-gradient-to-br from-purple-900 via-blue-900 to-indigo-900 text-white flex flex-col items-center justify-center p-4 sm:p-6">
 
-      {/* 1. The Audio Element (Essential!) */}
-      <audio
-        ref={audioRef}
-        autoplay
-        // playsinline
-        controls={false} // Hidden controls, managed by UI below
-      />
+      {/* Audio managed by consumer service - no DOM element needed here */}
 
       {/* WebRTC Error Handler */}
       <WebRTCErrorHandler 

@@ -35,3 +35,6 @@
   able to keep the server room state and reconnect from the client using the
   same sessionid and just reestablish a new producer, that is still connected to
   the existing listeners/consumers/listen transports
+
+# UI Update
+make list autosized, not scrollable

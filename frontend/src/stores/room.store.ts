@@ -32,9 +32,6 @@ import {
   type ConsumerState,
   type ListenerWebSocketState
 } from '../domain/schemas/listener.schema'
-import {
-  RoomConnectionError
-} from '../domain/errors'
 
 
 /**
@@ -46,7 +43,6 @@ export interface RoomStoreActions {
   getConnectionState: () => ConnectionState
   
   // Room connection management
-  setRoomWebSocket: (ws: WebSocket, roomId: string, connectionType: 'dj' | 'listener') => Effect.Effect<void, RoomConnectionError>
   disconnectFromRoom: () => void
   updateConnectionState: (state: ConnectionState) => void
   
@@ -182,7 +178,6 @@ export const createRoomStore = () => {
   
   // Effect runtime for service calls
   let effectRuntime: Option.Option<Runtime.Runtime<never>> = Option.none()
-  let roomWebSocket: Option.Option<WebSocket> = Option.none()
   
   // Initialize Effect runtime
   createEffect(() => {
@@ -197,10 +192,7 @@ export const createRoomStore = () => {
   
   // Cleanup on dispose
   onCleanup(() => {
-    Option.match(roomWebSocket, {
-      onSome: (ws) => ws.close(),
-      onNone: () => {}
-    })
+    // WebSocket cleanup now handled in DJ/Listener states
   })
   
   // Helper function to generate listener IDs
@@ -222,34 +214,12 @@ export const createRoomStore = () => {
     getConnectionState: (): ConnectionState => {
       return state.connection.state as ConnectionState
     },
-    /**
-     * Set room WebSocket connection
-     */
-    setRoomWebSocket: (ws: WebSocket, roomId: string, connType: 'dj' | 'listener') => {
-      return Effect.gen(function* (_) {
-        roomWebSocket = Option.some(ws)
-        
-        setState('connection', {
-          websocket: Option.some(ws),
-          state: ConnectionState.CONNECTED,
-          roomId: Option.some(roomId),
-          connectionType: Option.some(connType),
-          lastConnectedAt: Option.some(new Date()),
-          connectionAttempts: 0,
-          lastError: Option.none()
-        })
-        
-        // Event handling will be managed by flow services
-      })
-    },
 
     /**
      * Disconnect from room
      */
     disconnectFromRoom: () => {
-      // Store only updates state - WebSocket closing is handled by services
-      roomWebSocket = Option.none()
-      
+      // WebSocket management now handled in DJ/Listener states
       setState('connection', {
         websocket: Option.none(),
         state: ConnectionState.DISCONNECTED,
@@ -682,16 +652,7 @@ export const createRoomStore = () => {
 
     clearAllConnections: () => {
       console.info('🔌 Room store: Clearing all connections')
-      // Close WebSocket if exists
-      Option.match(roomWebSocket, {
-        onSome: (ws) => {
-          if (ws.readyState === WebSocket.OPEN) {
-            ws.close()
-          }
-        },
-        onNone: () => {}
-      })
-      roomWebSocket = Option.none()
+      // WebSocket cleanup now handled in DJ/Listener states
       
       // Reset connection state
       setState('connection', {
@@ -820,6 +781,32 @@ export const createRoomStore = () => {
     
     getListener(sessionId: string) {
       return (state.participants.listeners as Record<string, ListenerState>)[sessionId]
+    },
+    
+    // Active listener connection getter
+    get activeListenerRoomId(): string | null {
+      // Check if we have any active listeners with room connections
+      const listeners = Object.values(state.participants.listeners as Record<string, ListenerState>)
+      
+      console.debug('🔍 activeListenerRoomId debug:', {
+        listenersCount: listeners.length,
+        listeners: listeners.map(l => ({
+          hasWebsocket: !!l.websocket,
+          websocketRoomId: l.websocket?.roomId ? Option.getOrNull(l.websocket.roomId) : 'no-room-id'
+        }))
+      })
+      
+      for (const listener of listeners) {
+        const listenerRoomId = listener.websocket?.roomId
+        if (listenerRoomId && Option.isSome(listenerRoomId)) {
+          const roomId = Option.getOrNull(listenerRoomId) as string
+          console.debug('🎯 Found active listener room:', roomId)
+          return roomId
+        }
+      }
+      
+      console.debug('❌ No active listener rooms found')
+      return null
     },
     
     // Streaming status

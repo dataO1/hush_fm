@@ -18,6 +18,7 @@ import { getRoomStore } from '../stores/room.store'
 import { createLobbyStore } from '../stores/lobby.store'
 import { connectToLobbyWebSocket, discoverRooms } from './flows/lobby-flows.service'
 import { leaveRoomAsListener } from './flows/listener-flows.service'
+import { stopDevicePreview } from './flows/dj-flows.service'
 import { 
   cleanupConsumerWithStore,
   cleanupTransportWithStore,
@@ -305,7 +306,15 @@ export const createNavigationCleanupService = (): NavigationCleanupService => {
         Effect.gen(function* (_) {
           const roomStore = getRoomStore()
           
-          // Find any active listeners that need cleanup
+          // 1. Stop DJ device preview streams (if any)
+          yield* _(stopDevicePreview(roomStore).pipe(
+            Effect.catchAll(error => {
+              console.warn('⚠️ Failed to stop DJ device preview:', error)
+              return Effect.void
+            })
+          ))
+          
+          // 2. Find any active listeners that need cleanup
           const allListeners = Object.keys(roomStore.state.participants.listeners as Record<string, any>)
           
           if (allListeners.length > 0) {

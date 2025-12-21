@@ -15,7 +15,8 @@ import {
 } from '../../domain/schemas/listener.schema'
 import {
   type RoomMetadata,
-  WebRTCConnectionState
+  WebRTCConnectionState,
+  ConnectionState
 } from '../../domain/schemas/room.schema'
 import type {
   ListenerEvent,
@@ -40,7 +41,6 @@ import {
   subscribeToRouterCapabilities,
   sendListenerCommand
 } from '../websocket/websocket.service'
-import { ConnectionState } from '../../domain/schemas/room.schema'
 import {
   cleanupConsumerWithStore,
   cleanupTransportWithStore,
@@ -85,6 +85,98 @@ export interface ListenerJoinResult {
 }
 
 
+
+/**
+ * Check if listener has existing working resources and can skip full flow
+ */
+const checkExistingListenerResources = (
+  roomStore: RoomStore,
+  request: JoinRoomRequest
+): Effect.Effect<ListenerJoinResult | null, never> =>
+  pipe(
+    Effect.gen(function* (_) {
+      const listenerId = request.sessionId
+      
+      console.info('🔍 Checking for existing MediaSoup resources BEFORE any state changes...')
+      console.info('🔍 Looking for listener with ID:', listenerId)
+      
+      // Debug: Let's see all listeners in the store
+      const allListeners = Object.keys(roomStore.state.participants.listeners as Record<string, any>)
+      console.info('🔍 All listeners in store:', allListeners)
+      
+      const existingListener = roomStore.getListener(listenerId)
+      console.info('🔍 Existing listener found:', !!existingListener)
+      
+      if (existingListener) {
+        // Simple boolean checks for existing resources
+        const hasReceiveTransport = !!existingListener.receiveTransport
+        const hasConsumer = !!existingListener.consumer  
+        const hasAudioPlayback = !!existingListener.audioPlayback
+        const hasAudioElement = Option.isSome(existingListener.audioPlayback.audioElement)
+        const isStreaming = existingListener.currentStep === 'streaming'
+        
+        console.info('🔍 Listener resource check:', {
+          hasReceiveTransport,
+          hasConsumer, 
+          hasAudioPlayback,
+          hasAudioElement,
+          currentStep: existingListener.currentStep,
+          isStreaming
+        })
+        
+        // If we have all resources including audio element and are in streaming state, skip full flow
+        const hasWorkingResources = hasReceiveTransport && hasConsumer && hasAudioPlayback && hasAudioElement && isStreaming
+        
+        if (hasWorkingResources) {
+          console.info('✅ Found existing working MediaSoup resources, skipping full flow!')
+          
+          // Update connection state to reflect that we're back and listening
+          roomStore.actions.setConnectionState(ConnectionState.STREAMING)
+          roomStore.actions.setWebRTCStatus(WebRTCConnectionState.CONNECTED)
+          roomStore.actions.setListenerFlowStep(listenerId, 'streaming')
+          
+          // Get room metadata from store or create from request
+          const roomMetadata = roomStore.roomMetadata || {
+            id: request.roomId,
+            name: request.roomInfo?.name || `Room ${request.roomId}`,
+            description: Option.fromNullable(request.roomInfo?.description),
+            djName: request.roomInfo?.djName || 'DJ',
+            isPublic: true,
+            createdAt: new Date(),
+            tags: request.roomInfo?.tags || []
+          }
+          
+          // Get the actual MediaStream from the listener's audioPlayback state
+          const mediaStreamOption = existingListener.audioPlayback.mediaStream
+          const actualAudioStream = Option.isSome(mediaStreamOption) 
+            ? mediaStreamOption.value as MediaStream
+            : new MediaStream() // Fallback to empty stream if somehow missing
+          
+          console.info('📺 Returning actual stored MediaStream:', !!actualAudioStream, 'tracks:', actualAudioStream.getTracks().length)
+          console.info('🔊 Audio element is managed by consumer service - background streaming continues')
+          
+          return {
+            listenerId,
+            roomMetadata,
+            audioStream: actualAudioStream
+          }
+        } else {
+          console.info('⚠️ Found existing listener but resources are not working, proceeding with full flow')
+          console.info('📊 Resource status:', {
+            hasReceiveTransport,
+            hasConsumer,
+            hasAudioPlayback, 
+            currentStep: existingListener.currentStep
+          })
+        }
+      } else {
+        console.info('ℹ️ No existing listener found, proceeding with full flow')
+      }
+      
+      // Return null to indicate we need to proceed with full flow
+      return null
+    })
+  )
 
 /**
  * Get or create listener WebSocket connection for session
@@ -275,6 +367,14 @@ export const joinRoomAsListener = (
       const listenerId = request.sessionId
 
       try {
+        // STEP 0: Check for existing working resources FIRST, before any state changes
+        const existingResult = yield* _(checkExistingListenerResources(roomStore, request))
+        
+        if (existingResult !== null) {
+          // Found existing working resources, return early
+          return existingResult
+        }
+
         // Step 1: Get or create listener WebSocket connection
         console.info('✅ Step 1: Getting or creating listener WebSocket connection')
 
@@ -513,7 +613,7 @@ export const joinRoomAsListener = (
         roomStore.actions.setListenerFlowStep(listenerId, 'creating_consumer')
 
         // Create consumer using the audio consumer service
-        const { consumer } = yield* _(createAudioConsumer(
+        const { consumer, audioElement } = yield* _(createAudioConsumer(
           receiveTransport,
           consumerParams,
           {
@@ -522,7 +622,19 @@ export const joinRoomAsListener = (
               roomStore.actions.setListenerError(listenerId, 'Audio track ended', 'error')
             }
           },
-          { autoplay: true, volume: 0.8 }
+          { 
+            autoplay: true, 
+            volume: 0.8,
+            // Pass callback to update store on autoplay blocked
+            onAutoplayBlocked: () => {
+              console.info('🚫 Setting autoplay blocked state for listener:', listenerId)
+              roomStore.actions.setListenerAutoplayBlocked(listenerId, true)
+            },
+            onAutoplaySuccess: () => {
+              console.info('✅ Setting autoplay success state for listener:', listenerId)
+              roomStore.actions.setListenerAutoplayBlocked(listenerId, false)
+            }
+          }
         ).pipe(
           Effect.mapError(error => new ListenerFlowError({
             cause: `Failed to create consumer: ${String(error)}`,
@@ -600,6 +712,10 @@ export const joinRoomAsListener = (
 
         const audioStream = new MediaStream([consumer.track])
 
+        // Get current listener state to preserve autoplayBlocked status
+        const currentListener = roomStore.getListener(listenerId)
+        const currentAutoplayBlocked = currentListener?.audioPlayback.autoplayBlocked ?? false
+        
         // Update listener state with consumer and audio stream
         roomStore.actions.updateListener(listenerId, {
           consumer: {
@@ -615,10 +731,12 @@ export const joinRoomAsListener = (
           },
           audioPlayback: {
             ...createInitialListenerState().audioPlayback,
+            audioElement: Option.some(audioElement),
             mediaStream: Option.some(audioStream),
             volume: 0.8,
             muted: false,
-            playing: true
+            playing: true,
+            autoplayBlocked: currentAutoplayBlocked // Preserve the autoplay blocked state
           },
           flowCompletedAt: Option.some(new Date())
         })

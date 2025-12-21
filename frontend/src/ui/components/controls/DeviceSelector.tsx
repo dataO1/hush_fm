@@ -1,7 +1,7 @@
-import { createSignal, For, Show, onMount, onCleanup } from 'solid-js'
+import { createSignal, For, Show, onMount } from 'solid-js'
 import { Effect } from 'effect'
 import type { RoomStore } from '../../../stores/room.store'
-import { previewAudioDevice, stopDevicePreview } from '../../../services/flows/dj-flows.service'
+import { previewAudioDevice } from '../../../services/flows/dj-flows.service'
 
 type AudioDevice = {
   deviceId: string
@@ -25,11 +25,15 @@ export function DeviceSelector(props: Props) {
     loadAudioDevices()
   })
 
+  // DISABLED: Component-level cleanup to preserve streams during navigation
+  // This should only be called as part of explicit session cleanup, not route changes
+  /*
   onCleanup(() => {
     // Stop preview stream when component unmounts
     Effect.runPromise(stopDevicePreview(props.roomStore))
       .catch(err => console.error('Error stopping device preview:', err))
   })
+  */
 
   const loadAudioDevices = async () => {
     setIsLoading(true)

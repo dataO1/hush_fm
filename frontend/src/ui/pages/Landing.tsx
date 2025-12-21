@@ -30,14 +30,31 @@ export default function Landing() {
 
   // Initialize store state and connect to lobby on mount
   onMount(async () => {
-    // 1. Initialize clean local store state using NavigationCleanupService
+    // 1. Smart store initialization - preserve active streams
     try {
-      console.info('🏠 Landing: Initializing clean local store state')
-      const navigationService = getNavigationCleanupService()
-      await Effect.runPromise(navigationService.initLocalStore())
-      console.info('✅ Landing: Store state initialized successfully')
+      console.info('🏠 Landing: Checking for active connections before cleanup...')
+      
+      // Check if we have active DJ streaming or listener connections
+      const isDJStreaming = roomStore.isDJStreaming
+      const activeListenerRoomId = roomStore.activeListenerRoomId
+      const hasActiveListeners = activeListenerRoomId !== null
+      
+      console.info(`🔍 Landing: Connection state debug:`)
+      console.info(`  🎤 DJ streaming: ${isDJStreaming}`)
+      console.info(`  🎧 Active listener room: ${activeListenerRoomId}`)
+      console.info(`  🎧 Has active listeners: ${hasActiveListeners}`)
+      
+      if (isDJStreaming || hasActiveListeners) {
+        console.info('⚡ Landing: Preserving active connections (DJ streaming or active listener detected)')
+        // Don't perform cleanup - preserve existing connections
+      } else {
+        console.info('🏠 Landing: No active connections detected, performing clean initialization')
+        const navigationService = getNavigationCleanupService()
+        await Effect.runPromise(navigationService.initLocalStore())
+        console.info('✅ Landing: Store state initialized successfully')
+      }
     } catch (error) {
-      console.error('❌ Landing: Failed to initialize store state:', error)
+      console.error('❌ Landing: Failed to check/initialize store state:', error)
       // Continue with lobby connection even if initialization fails
     }
     
@@ -150,6 +167,31 @@ export default function Landing() {
       // Ensure we have a session ID
       const sessionId = await Effect.runPromise(getSessionId(userStore))
       
+      // Check if this is an active listener room (back to room)
+      if (isActiveListenerRoom(room)) {
+        console.info('🎧 Navigating back to active listener room:', { roomId, sessionId })
+        
+        // Navigate directly to listener room - connection should still be active
+        // Pass required navigation state for ListenerRoom component (only serializable data)
+        navigate(`/listen/${roomId}`, {
+          state: { 
+            isReturning: true,
+            sessionId: String(sessionId),
+            listenerWebSocketUrl: `wss://${window.location.hostname}:3443/ws/listener/${sessionId}`,
+            roomInfo: JSON.parse(JSON.stringify({
+              id: room.id || '',
+              name: room.name || '',
+              description: room.description || '',
+              djName: room.djName || 'DJ',
+              tags: room.tags || [],
+              listenerCount: room.listenerCount || 0,
+              isPublic: true
+            }))
+          }
+        })
+        return
+      }
+      
       // Check if this is the user's own room (DJ reconnection)
       if (isOwnRoom(room)) {
         console.info('🎧 Reconnecting to own DJ room:', { roomId, sessionId })
@@ -216,8 +258,16 @@ export default function Landing() {
         navigate(`/listen/${roomId}`, {
           state: { 
             listenerWebSocketUrl: joinResponse.listenerWebSocketUrl,
-            roomInfo: joinResponse.room,
-            sessionId
+            roomInfo: JSON.parse(JSON.stringify({
+              id: joinResponse.room?.id || roomId,
+              name: joinResponse.room?.name || `Room ${roomId}`,
+              description: joinResponse.room?.description || '',
+              djName: joinResponse.room?.djName || 'DJ',
+              tags: joinResponse.room?.tags || [],
+              listenerCount: joinResponse.room?.listenerCount || 0,
+              isPublic: true
+            })),
+            sessionId: String(sessionId)
           }
         })
       } else {
@@ -281,42 +331,51 @@ export default function Landing() {
   // Computed error state for UI display
   const displayError = createMemo(() => lobbyStore.connectionError || lobbyStore.creationError)
 
-  // Computed room list with DJ reconnection features
+  // Computed room list with DJ reconnection and active listener features
   const sortedRooms = createMemo(() => {
     const currentSessionId = userStore.sessionId
     const rooms = lobbyStore.availableRooms
+    const activeListenerRoomId = roomStore.activeListenerRoomId
     
     if (!currentSessionId) {
       // No session ID yet, just sort by listener count
       return rooms.slice().sort((a, b) => (b.listenerCount || 0) - (a.listenerCount || 0))
     }
     
-    // Separate user's own rooms from others
-    const ownRooms: typeof rooms = []
-    const otherRooms: typeof rooms = []
+    // Separate rooms by relationship to user
+    const djRooms: typeof rooms = []        // Rooms where user is DJ
+    const listenerRooms: typeof rooms = []  // Rooms where user is actively listening
+    const otherRooms: typeof rooms = []     // All other rooms
     
     rooms.forEach(room => {
       if (room.djId === currentSessionId) {
-        ownRooms.push(room)
+        djRooms.push(room)
+      } else if (activeListenerRoomId && room.id === activeListenerRoomId) {
+        listenerRooms.push(room)
       } else {
         otherRooms.push(room)
       }
     })
     
-    // Sort own rooms by listener count (descending)
-    ownRooms.sort((a, b) => (b.listenerCount || 0) - (a.listenerCount || 0))
-    
-    // Sort other rooms by listener count (descending)  
+    // Sort each category by listener count (descending)
+    djRooms.sort((a, b) => (b.listenerCount || 0) - (a.listenerCount || 0))
+    listenerRooms.sort((a, b) => (b.listenerCount || 0) - (a.listenerCount || 0))
     otherRooms.sort((a, b) => (b.listenerCount || 0) - (a.listenerCount || 0))
     
-    // Return own rooms first, then others
-    return [...ownRooms, ...otherRooms]
+    // Return in priority order: DJ rooms → Active listener rooms → Others
+    return [...djRooms, ...listenerRooms, ...otherRooms]
   })
   
-  // Helper to check if a room belongs to current user
+  // Helper to check if a room belongs to current user (DJ)
   const isOwnRoom = (room: any) => {
     const currentSessionId = userStore.sessionId
     return currentSessionId && room.djId === currentSessionId
+  }
+  
+  // Helper to check if a room is actively being listened to
+  const isActiveListenerRoom = (room: any) => {
+    const activeListenerRoomId = roomStore.activeListenerRoomId
+    return activeListenerRoomId && room.id === activeListenerRoomId
   }
 
   return (
@@ -385,6 +444,8 @@ export default function Landing() {
                     <div class={`rounded-lg p-3 sm:p-4 transition-colors ${
                       isOwnRoom(room) 
                         ? 'bg-gradient-to-r from-pink-500/20 to-violet-500/20 border-2 border-pink-500/40 hover:border-pink-500/60' 
+                        : isActiveListenerRoom(room)
+                        ? 'bg-gradient-to-r from-blue-500/20 to-green-500/20 border-2 border-blue-500/40 hover:border-blue-500/60'
                         : 'bg-white/5 border border-white/10 hover:border-white/20'
                     }`}>
                       <div class="flex justify-between items-start mb-2 sm:mb-3">
@@ -396,6 +457,11 @@ export default function Landing() {
                             <Show when={isOwnRoom(room)}>
                               <div class="px-2 py-1 bg-pink-500/30 text-pink-200 text-xs rounded-full border border-pink-500/50">
                                 Your Room
+                              </div>
+                            </Show>
+                            <Show when={isActiveListenerRoom(room)}>
+                              <div class="px-2 py-1 bg-blue-500/30 text-blue-200 text-xs rounded-full border border-blue-500/50">
+                                Currently Listening
                               </div>
                             </Show>
                             <h3 class="font-bold text-base sm:text-lg truncate">{room.name}</h3>
@@ -418,10 +484,14 @@ export default function Landing() {
                         class={`w-full font-medium py-2 px-3 sm:px-4 rounded transition-colors text-sm sm:text-base ${
                           isOwnRoom(room)
                             ? 'bg-gradient-to-r from-pink-500 to-violet-500 hover:from-pink-600 hover:to-violet-600 text-white'
+                            : isActiveListenerRoom(room)
+                            ? 'bg-gradient-to-r from-blue-500 to-green-500 hover:from-blue-600 hover:to-green-600 text-white'
                             : 'bg-green-500 hover:bg-green-600 text-white'
                         }`}
                       >
-                        {isOwnRoom(room) ? 'Reconnect to Your Room' : 'Join Room'}
+                        {isOwnRoom(room) ? 'Reconnect to Your Room' 
+                          : isActiveListenerRoom(room) ? 'Back to Room' 
+                          : 'Join Room'}
                       </button>
                     </div>
                   )}
