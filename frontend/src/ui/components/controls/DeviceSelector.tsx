@@ -1,45 +1,27 @@
-import { createSignal, For, Show, onMount } from 'solid-js'
-import { Effect } from 'effect'
-import type { RoomStore } from '../../../stores/room.store'
-import { previewAudioDevice } from '../../../services/flows/dj-flows.service'
+import { createSignal, For, Show, createResource } from 'solid-js'
+import type { DJStore } from '../../../stores/dj.store'
+import { useDJService } from '../../hooks/useEffectService'
 
-type AudioDevice = {
-  deviceId: string
-  label: string
-  groupId: string
-}
 
 type Props = {
   disabled?: boolean
-  roomStore: RoomStore
+  djStore: DJStore
   onDeviceSelected?: (deviceId: string) => void
 }
 
 export function DeviceSelector(props: Props) {
-  const [devices, setDevices] = createSignal<AudioDevice[]>([])
-  const [isLoading, setIsLoading] = createSignal(false)
-  const [error, setError] = createSignal<string | null>(null)
+  // SolidJS 2025: Use Application Service via Context
+  const djService = useDJService()
+  
   const [selectedDevice, setSelectedDevice] = createSignal<string>('')
+  const [devicePreviewRequest, setDevicePreviewRequest] = createSignal<string | null>(null)
+  const [deviceLoadTrigger, setDeviceLoadTrigger] = createSignal(0)
 
-  onMount(() => {
-    loadAudioDevices()
-  })
-
-  // DISABLED: Component-level cleanup to preserve streams during navigation
-  // This should only be called as part of explicit session cleanup, not route changes
-  /*
-  onCleanup(() => {
-    // Stop preview stream when component unmounts
-    Effect.runPromise(stopDevicePreview(props.roomStore))
-      .catch(err => console.error('Error stopping device preview:', err))
-  })
-  */
-
-  const loadAudioDevices = async () => {
-    setIsLoading(true)
-    setError(null)
-
+  // SolidJS 2025: Use createResource for device loading
+  const [audioDevices] = createResource(deviceLoadTrigger, async () => {
     try {
+      console.info('🎤 Loading audio devices...')
+      
       // Request audio input permission first
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
       
@@ -56,37 +38,51 @@ export function DeviceSelector(props: Props) {
           groupId: device.groupId,
         }))
 
-      setDevices(audioInputs)
-
-      // Auto-select first device if none selected
+      // Auto-select first device if none selected and devices are available
       if (audioInputs.length > 0 && !selectedDevice()) {
         const firstDevice = audioInputs[0].deviceId
         setSelectedDevice(firstDevice)
         
         // Start preview for first device and notify parent
-        await handleDeviceSelection(firstDevice)
-      }
-    } catch (err) {
-      setError('Audio input access denied')
-      console.error('Error loading audio devices:', err)
-    } finally {
-      setIsLoading(false)
-    }
-  }
-
-  const handleDeviceSelection = async (deviceId: string) => {
-    try {
-      // Only start preview if DJ is not currently streaming
-      if (!props.roomStore.isDJStreaming) {
-        // Start preview stream for the selected device
-        await Effect.runPromise(previewAudioDevice(props.roomStore, deviceId))
+        setDevicePreviewRequest(firstDevice)
+        props.onDeviceSelected?.(firstDevice)
       }
       
-      // Always notify parent component of device selection
-      props.onDeviceSelected?.(deviceId)
+      console.info('✅ Audio devices loaded successfully')
+      return audioInputs
+    } catch (err) {
+      console.error('Error loading audio devices:', err)
+      throw new Error('Audio input access denied')
+    }
+  })
+
+  // SolidJS 2025: Use createResource for device preview
+  const [devicePreviewOperation] = createResource(devicePreviewRequest, async (deviceId) => {
+    if (!deviceId || props.djStore.isStreaming()) {
+      return null // Skip preview if DJ is already streaming
+    }
+    
+    try {
+      console.info(`🎤 Starting preview for device: ${deviceId}`)
+      
+      const result = await djService.previewAudioDevice(deviceId)
+      
+      console.info('✅ Device preview started successfully')
+      return result
     } catch (err) {
       console.error('Failed to preview device:', err)
-      setError(`Failed to preview device: ${err instanceof Error ? err.message : 'Unknown error'}`)
+      throw new Error(`Failed to preview device: ${err instanceof Error ? err.message : 'Unknown error'}`)
+    }
+  })
+
+
+  const handleDeviceSelection = (deviceId: string) => {
+    // Always notify parent component of device selection
+    props.onDeviceSelected?.(deviceId)
+    
+    // Start preview only if DJ is not streaming
+    if (!props.djStore.isStreaming()) {
+      setDevicePreviewRequest(deviceId)
     }
   }
   
@@ -97,6 +93,12 @@ export function DeviceSelector(props: Props) {
     setSelectedDevice(deviceId)
     handleDeviceSelection(deviceId)
   }
+  
+  // Retry function for device loading
+  const retryDeviceLoading = () => {
+    // Trigger refetch by incrementing the trigger signal
+    setDeviceLoadTrigger(prev => prev + 1)
+  }
 
   return (
     <div class="form-control w-full">
@@ -105,7 +107,7 @@ export function DeviceSelector(props: Props) {
       </label>
       
       <Show
-        when={!isLoading()}
+        when={!audioDevices.loading}
         fallback={
           <div class="flex items-center gap-2">
             <span class="loading loading-spinner loading-sm"></span>
@@ -114,13 +116,13 @@ export function DeviceSelector(props: Props) {
         }
       >
         <Show
-          when={!error()}
+          when={!audioDevices.error}
           fallback={
             <div class="alert alert-error">
-              <span>{error()}</span>
+              <span>{audioDevices.error?.message || 'Failed to load devices'}</span>
               <button 
                 class="btn btn-sm" 
-                onClick={loadAudioDevices}
+                onClick={retryDeviceLoading}
                 disabled={props.disabled}
               >
                 Retry
@@ -132,12 +134,12 @@ export function DeviceSelector(props: Props) {
             class="select select-bordered w-full"
             value={selectedDevice()}
             onChange={handleDeviceChange}
-            disabled={props.disabled || isLoading()}
+            disabled={props.disabled || audioDevices.loading || devicePreviewOperation.loading}
           >
             <option disabled value="">
               Select audio source
             </option>
-            <For each={devices()}>
+            <For each={audioDevices() || []}>
               {(device) => (
                 <option value={device.deviceId}>
                   {device.label}
@@ -145,6 +147,21 @@ export function DeviceSelector(props: Props) {
               )}
             </For>
           </select>
+          
+          {/* Show device preview loading state */}
+          <Show when={devicePreviewOperation.loading}>
+            <div class="flex items-center gap-2 mt-2">
+              <span class="loading loading-spinner loading-sm"></span>
+              <span class="text-sm text-white/70">Starting preview...</span>
+            </div>
+          </Show>
+          
+          {/* Show device preview errors */}
+          <Show when={devicePreviewOperation.error}>
+            <div class="alert alert-warning mt-2">
+              <span class="text-sm">{devicePreviewOperation.error.message}</span>
+            </div>
+          </Show>
         </Show>
       </Show>
     </div>

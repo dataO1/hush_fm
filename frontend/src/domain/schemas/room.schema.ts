@@ -8,16 +8,30 @@
  * NO service calls or side effects - pure data models only.
  */
 
-import { Schema as S } from 'effect'
-import { Option } from 'effect'
-import { DJState } from './dj.schema'
-import { ListenerState } from './listener.schema'
+import { Schema as S, Option, Data } from 'effect'
 
 /**
- * Unified Connection State for Room
- * 
- * Replaces complex state derivation from DJ/Listener flow steps.
- * Single source of truth for all connection status display.
+ * Room Connection States (unified across DJ/Listener domains)
+ */
+export const RoomConnectionState = S.Literal(
+  'IDLE',
+  'CONNECTING', 
+  'CONNECTED',
+  'STREAMING',
+  'PAUSED',
+  'DISCONNECTING',
+  'DISCONNECTED',
+  'ERROR'
+)
+export type RoomConnectionStateType = S.Schema.Type<typeof RoomConnectionState>
+
+/**
+ * Connection State schema for Effect validation
+ */
+export const ConnectionStateSchema = RoomConnectionState
+
+/**
+ * Connection State enum for easy reference
  */
 export enum ConnectionState {
   IDLE = 'IDLE',
@@ -29,19 +43,6 @@ export enum ConnectionState {
   DISCONNECTED = 'DISCONNECTED',
   ERROR = 'ERROR'
 }
-
-/**
- * Connection State schema for Effect validation
- */
-export const ConnectionStateSchema = S.Literal(
-  'IDLE',
-  'CONNECTING', 
-  'CONNECTED',
-  'STREAMING',
-  'PAUSED',
-  'DISCONNECTED',
-  'ERROR'
-)
 
 /**
  * Room streaming status
@@ -71,7 +72,7 @@ export type RoomParticipant = S.Schema.Type<typeof RoomParticipant>
 /**
  * Room WebSocket connection state
  */
-export const RoomConnectionState = S.Struct({
+export const RoomConnectionStateSchema = S.Struct({
   state: ConnectionStateSchema, // Use unified connection state schema
   websocket: S.Option(S.Unknown), // WebSocket instance
   roomId: S.Option(S.String),
@@ -80,7 +81,7 @@ export const RoomConnectionState = S.Struct({
   connectionAttempts: S.Number,
   lastError: S.Option(S.String)
 })
-export type RoomConnectionState = S.Schema.Type<typeof RoomConnectionState>
+export type RoomConnectionStateSchemaType = S.Schema.Type<typeof RoomConnectionStateSchema>
 
 /**
  * Room metadata and status
@@ -94,7 +95,19 @@ export const RoomMetadata = S.Struct({
   createdAt: S.Date,
   tags: S.Array(S.String)
 })
-export type RoomMetadata = S.Schema.Type<typeof RoomMetadata>
+export type RoomMetadataType = S.Schema.Type<typeof RoomMetadata>
+
+// Export RoomInfo as UI-friendly type (flattened from Option types)
+export type RoomInfo = {
+  id: string
+  name: string
+  description?: string | null
+  djName: string
+  createdAt: Date
+  tags: string[]
+  listenerCount: number
+}
+
 
 /**
  * WebRTC Connection Status
@@ -137,10 +150,10 @@ export type WebRTCStatus = S.Schema.Type<typeof WebRTCStatus>
  */
 export const RoomParticipants = S.Struct({
   // Single DJ with complete MediaSoup state (device, transport, producer, streams, websocket)
-  dj: S.Option(DJState),
+  dj: S.Option(S.Unknown),
   
   // List of listeners with complete MediaSoup state (device, transport, consumer, streams, websocket)
-  listeners: S.Array(ListenerState),
+  listeners: S.Array(S.Unknown),
   
   // Aggregate counts for UI display
   totalCount: S.Number,
@@ -160,7 +173,7 @@ export type RoomParticipants = S.Schema.Type<typeof RoomParticipants>
  */
 export const RoomState = S.Struct({
   // Connection state (includes unified ConnectionState in connection.state)
-  connection: RoomConnectionState,
+  connection: RoomConnectionStateSchema,
   
   // Room information
   metadata: S.Option(RoomMetadata),
@@ -242,7 +255,7 @@ export const RoomStateValidators = {
   /**
    * Validate connection state only
    */
-  validateConnectionState: S.decodeUnknown(RoomConnectionState),
+  validateConnectionState: S.decodeUnknown(RoomConnectionStateSchema),
   
   /**
    * Validate room metadata only
@@ -259,3 +272,27 @@ export const RoomStateValidators = {
    */
   validateStreamingStatus: S.decodeUnknown(StreamingStatus)
 }
+
+/**
+ * Room Domain Errors  
+ */
+export class RoomConnectionError extends Data.TaggedError('RoomConnectionError')<{
+  readonly cause: string
+  readonly roomId?: string
+  readonly operation: string
+  readonly timestamp: Date
+}> {}
+
+export class RoomJoinError extends Data.TaggedError('RoomJoinError')<{
+  readonly cause: string
+  readonly roomId: string
+  readonly operation: string
+  readonly timestamp: Date
+}> {}
+
+export class StreamingError extends Data.TaggedError('StreamingError')<{
+  readonly cause: string
+  readonly roomId?: string
+  readonly operation: string
+  readonly timestamp: Date
+}> {}

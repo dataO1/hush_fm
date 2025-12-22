@@ -1,69 +1,55 @@
-import { onMount, onCleanup, Show } from 'solid-js'
+import { Show, createResource, createSignal } from 'solid-js'
 import { useParams, useNavigate, useLocation } from '@solidjs/router'
-import { Effect, Option } from 'effect'
-import { getRoomStore } from '../../stores/room.store'
-import { joinRoomAsListener, leaveRoomAsListener } from '../../services/flows/listener-flows.service'
+import { Option as O, pipe } from 'effect'
+import type { ListenerStateType } from '../../domain/schemas/listener.schema'
+import { useConnectionStore, useListenersStore, useWebRTCStore } from '../../stores/store-contexts'
+import { useListenerService } from '../hooks/useEffectService'
 import { ConnectionState, type WebRTCError } from '../../domain/schemas/room.schema'
-import ConnectionStatusDot from '../components/ConnectionStatusDot'
 import { Oscilloscope } from '../components/shared/Oscilloscope'
 import { WebRTCErrorHandler } from '../components/WebRTCErrorHandler'
-import { getNavigationCleanupService } from '../../services/navigation-cleanup.service'
+import { RoomHeader } from '../components/room/RoomHeader'
+import { ConnectionStatusGroup } from '../components/streaming/ConnectionStatusGroup'
+import { StreamError } from '../components/streaming/StreamError'
 
 export default function ListenerRoom() {
   const params = useParams()
   const navigate = useNavigate()
   const location = useLocation()
 
-  // Use room store
-  const roomStore = getRoomStore()
+  // SolidJS 2025: Use Effect services through hooks
+  const listenerService = useListenerService()
 
-  // Get data from navigation state (from Landing.tsx RequestJoin response)
+  // Use stores for reactive state (read-only)
+  const connectionStore = useConnectionStore()
+  const listenersStore = useListenersStore()
+  const webrtcStore = useWebRTCStore()
+
+  // Get data from navigation state (from Landing.tsx)
   const navigationState = location.state as {
     listenerWebSocketUrl?: string
-    roomInfo?: any
     sessionId?: string
+    isReturning?: boolean
+    roomInfo?: {
+      id: string
+      name: string
+      djName: string
+      description?: string
+      tags?: string[]
+      listenerCount?: number
+      isPublic?: boolean
+    }
   } || {}
 
-  // Get autoplay blocked state from store
-  const needsUserPlay = () => {
-    const listener = currentListener()
-    return listener ? listener.audioPlayback.autoplayBlocked : false
-  }
-
-  // Use session ID as the listener ID (single source of truth)  
-  const currentListenerId = () => {
-    // Try navigation state first (normal flow)
-    if (navigationState.sessionId) {
-      return navigationState.sessionId
-    }
-    
-    // For page reload scenarios, we'll get the session ID after successful join
-    // The join flow will populate the store with the listener using sessionId as key
-    const listeners = roomStore.listeners
-    if (listeners.length > 0) {
-      // In our architecture, the listener ID is the session ID
-      // We can extract it from the store keys (session IDs are used as listener IDs)
-      const listenerIds = Object.keys(roomStore.state.participants.listeners as Record<string, any>)
-      return listenerIds.length > 0 ? listenerIds[0] : null
-    }
-    
-    return null
-  }
-  
-  
-  const currentListener = () => {
-    const sessionId = navigationState.sessionId
-    if (!sessionId) return undefined
-    return roomStore.getListener(sessionId)
-  }
-
-  // Use unified connection state from store as single source of truth
-  const connectionState = () => roomStore.connectionState
+  // SolidJS 2025: Computed values from stores (read-only)
+  const connectionState = () => connectionStore.state.state
   const isConnecting = () => connectionState() === ConnectionState.CONNECTING
-  
-  // WebRTC error state
-  const webrtcError = () => roomStore.webrtcError
-  const hasWebRTCError = () => roomStore.hasWebRTCError
+  const webrtcError = () => webrtcStore.state.error
+  const hasWebRTCError = () => webrtcStore.hasError()
+
+  // Room information from params and navigation state
+  const roomId = () => params.roomId
+  const roomName = () => navigationState.roomInfo?.name || `Room ${roomId()}`
+  const djName = () => navigationState.roomInfo?.djName || 'DJ'
 
   // Helper to convert ConnectionState to dot status
   const getDotStatus = () => {
@@ -83,93 +69,79 @@ export default function ListenerRoom() {
     if (state === ConnectionState.PAUSED) return 'PAUSED'
     return state
   }
+
+  // SolidJS 2025: Simple accessor functions for property access (no memo needed)
+  const currentListenerId = () => roomId() // Use roomId as listener ID
+  
+  const currentListener = (): ListenerStateType | null => {
+    const listenerId = currentListenerId()
+    return listenerId ? listenersStore.getListener(listenerId) : null
+  }
+
+  // SolidJS 2025: Use Option for reactive error handling
   const currentError = () => {
     const listener = currentListener()
-    return listener ? Option.getOrNull(listener.stepError) : null
+    return listener?.stepError || O.none()
   }
-  
-  // Room information - get room ID from store metadata or fallback to params
-  const roomMetadata = () => roomStore.roomMetadata
-  const roomId = () => roomMetadata()?.id || params.roomId
-  const roomName = () => roomMetadata()?.name || `Room ${roomId()}`
-  const djName = () => roomMetadata()?.djName || 'DJ'
 
-  // Get listener audio stream from room store
+  // SolidJS 2025: Simplify Option handling for Show components
   const listenerAudioStream = () => {
     const listener = currentListener()
     if (!listener) return null
     
-    const mediaStreamOption = listener.audioPlayback.mediaStream as Option.Option<MediaStream>
-    return Option.getOrNull(mediaStreamOption) as MediaStream | null
+    return O.getOrNull(
+      pipe(
+        listener.audioPlayback,
+        O.flatMap((audioPlayback) => audioPlayback.mediaStream)
+      )
+    )
+  }
+
+  const needsUserPlay = () => {
+    const listener = currentListener()
+    if (!listener) return false
+    
+    // audioPlayback is an Option type, need to extract value first
+    return pipe(
+      listener.audioPlayback,
+      O.map((audioPlayback) => audioPlayback.autoplayBlocked),
+      O.getOrElse(() => false)
+    )
   }
 
 
 
 
 
-  // Register with global navigation service and start join room flow
-  onMount(async () => {
-    // 1. Register component with global navigation cleanup service
-    try {
-      const navigationService = getNavigationCleanupService()
-      
-      // DISABLED: No cleanup effects during navigation to preserve connections
-      // Create cleanup effect for this specific listener room
-      // const listenerId = currentListenerId()
-      // const baseCleanupEffect = listenerId 
-      //   ? navigationService.cleanupListenerAndInitStore(listenerId)
-      //   : navigationService.initLocalStore()
-      
-      // Enhance with HTMLAudioElement cleanup
-      // const cleanupEffect = pipe(
-      //   baseCleanupEffect,
-      //   Effect.andThen(() => 
-      //     Effect.sync(() => {
-      //       // Component-specific HTMLAudioElement cleanup
-      //       if (audioRef) {
-      //         console.info('🔊 ListenerRoom: Cleaning up HTMLAudioElement...')
-      //         try {
-      //           audioRef.pause()
-      //           audioRef.srcObject = null
-      //           audioRef.removeAttribute('src')
-      //           audioRef.load() // Force cleanup
-      //           console.info('✅ ListenerRoom: HTMLAudioElement cleaned up')
-      //         } catch (error) {
-      //           console.warn('⚠️ ListenerRoom: Audio element cleanup failed:', error)
-      //         }
-      //       }
-      //     })
-      //   )
-      // )
-      
-      // Register component with global service (no cleanup effect)
-      await Effect.runPromise(
-        navigationService.registerComponent('listener-room', Effect.void, location.pathname)
-      )
-      console.info('🔧 ListenerRoom: Component registered with global navigation service')
-    } catch (error) {
-      console.error('❌ Failed to register with navigation service:', error)
+  // SolidJS 2025: Use createResource for room joining
+  const [joinRoomOperation] = createResource(async () => {
+    const sessionId = navigationState.sessionId
+    const listenerWebSocketUrl = navigationState.listenerWebSocketUrl
+    const roomInfo = navigationState.roomInfo
+    const isReturning = navigationState.isReturning
+
+    if (!sessionId || !listenerWebSocketUrl) {
+      console.error('Missing required data for listener join:', { sessionId, listenerWebSocketUrl })
+      navigate('/')
+      return null
     }
     
-    // 2. Start join room flow
-    try {
-      await joinRoom()
-    } catch (err: any) {
-      console.error('Failed to join room:', err)
-      // Error state is handled by the store via the service
-    }
+    console.info('🎧 Starting listener join flow via Application Service:', {
+      roomId: roomId(),
+      sessionId: sessionId,
+      listenerWebSocketUrl: listenerWebSocketUrl,
+      hasRoomInfo: !!roomInfo,
+      isReturning: !!isReturning
+    })
+    
+    const result = await listenerService.joinRoom(
+      roomId(),
+      sessionId,
+      listenerWebSocketUrl
+    )
 
-  })
-
-  onCleanup(async () => {
-    // Unregister from global navigation service
-    try {
-      const navigationService = getNavigationCleanupService()
-      await Effect.runPromise(navigationService.unregisterComponent('listener-room'))
-      console.info('🧹 ListenerRoom: Component unregistered from global navigation service')
-    } catch (error) {
-      console.error('❌ Failed to unregister from navigation service:', error)
-    }
+    console.info('✅ Listener join flow completed successfully')
+    return result
   })
 
   // Effect to set up audio playback when stream changes
@@ -182,91 +154,61 @@ export default function ListenerRoom() {
   // })
 
 
-  const joinRoom = async () => {
-    try {
-      // Use navigation state (should be available from normal join flow via lobby)
-      const sessionId = navigationState.sessionId
-      const listenerWebSocketUrl = navigationState.listenerWebSocketUrl
-      const roomInfo = navigationState.roomInfo
 
-      
-      if (!sessionId || !listenerWebSocketUrl) {
-        console.error('Missing required data for listener join:', { sessionId, listenerWebSocketUrl })
-        navigate('/')
-        return
-      }
-      
-      console.info('🎧 Starting listener join flow:', {
-        roomId: roomId(),
-        sessionId: sessionId,
-        listenerWebSocketUrl: listenerWebSocketUrl,
-        hasRoomInfo: !!roomInfo
-      })
-      
-      // Start listener join flow - all state management handled by service and store
-      await Effect.runPromise(
-        joinRoomAsListener(roomStore, {
-          roomId: roomId(),
-          sessionId: sessionId,
-          listenerWebSocketUrl: listenerWebSocketUrl,
-          roomInfo: roomInfo,
-          listenerName: `Listener_${Math.random().toString(36).substr(2, 5)}`
-        })
-      )
-
-
-    } catch (err: any) {
-      console.error('Failed to join room:', err)
-
-      // Return to lobby on any join failure
-      setTimeout(() => {
-        navigate('/')
-      }, 3000) // Give user time to read the error message
-    }
-  }
-
-const handleManualPlay = () => {
-    const listener = currentListener()
-    if (listener && Option.isSome(listener.audioPlayback.audioElement)) {
-      const audioElement = listener.audioPlayback.audioElement.value as HTMLAudioElement
-      audioElement.play().then(() => {
-        // Update store to clear autoplay blocked state
-        const listenerId = currentListenerId()
-        if (listenerId) {
-          roomStore.actions.setListenerAutoplayBlocked(listenerId, false)
-        }
-      })
-    }
-  }
-
-  const leaveRoom = async () => {
-    console.info('🚪 Initiating leave room flow')
+  // SolidJS 2025: Use createResource for manual play
+  const [manualPlayRequest, setManualPlayRequest] = createSignal<boolean>(false)
+  
+  const [manualPlayOperation] = createResource(manualPlayRequest, async (shouldPlay) => {
+    if (!shouldPlay) return null
     
-    // 1. Leave room using service (handles MediaSoup cleanup and backend notification)
-    const listenerId = currentListenerId()
+    const listenerId = roomId()
+    if (!listenerId) {
+      console.error('No listener ID available for manual play')
+      return null
+    }
+    
+    console.info('▶️ Handling manual play via Application Service')
+    
+    const result = await listenerService.handleManualPlay(listenerId)
+    
+    console.info('✅ Manual play completed successfully')
+    return result
+  })
+  
+  const handleManualPlay = () => {
+    setManualPlayRequest(true)
+    // Reset the signal after triggering
+    setTimeout(() => setManualPlayRequest(false), 100)
+  }
+
+  // SolidJS 2025: Use createResource for leaving room
+  const [leaveRoomRequest, setLeaveRoomRequest] = createSignal<boolean>(false)
+  
+  const [leaveRoomOperation] = createResource(leaveRoomRequest, async (shouldLeave) => {
+    if (!shouldLeave) return null
+    
+    console.info('🚪 Initiating leave room flow via Application Service')
+    
+    const listenerId = roomId()
     if (listenerId) {
-      try {
-        console.info('📡 Calling leaveRoomAsListener service')
-        await Effect.runPromise(leaveRoomAsListener(roomStore, listenerId))
-        console.info('✅ Leave room service completed')
-      } catch (error) {
-        console.error('❌ Error in leave room service:', error)
-      }
+      console.info('📡 Calling leaveRoomAndNavigate Application Service')
+      const result = await listenerService.leaveRoomAndNavigate(listenerId)
+      console.info('✅ Leave room Application Service completed')
+      
+      // Navigate back to lobby after successful cleanup
+      console.info('🔙 Navigating back to lobby')
+      navigate('/')
+      
+      return result
     }
-
-    // 2. Reset store state using navigation service
-    try {
-      console.info('🧹 Resetting store state')
-      const navigationService = getNavigationCleanupService()
-      await Effect.runPromise(navigationService.initLocalStore())
-      console.info('✅ Store state reset completed')
-    } catch (error) {
-      console.error('❌ Error resetting store state:', error)
-    }
-
-    // 3. Navigate back to lobby
-    console.info('🔙 Navigating back to lobby')
+    
+    // Navigate anyway if no listener ID
     navigate('/')
+    return null
+  })
+  
+  const leaveRoom = () => {
+    setLeaveRoomRequest(true)
   }
 
   // Ensure this return block replaces your current broken return
@@ -279,11 +221,11 @@ const handleManualPlay = () => {
       <WebRTCErrorHandler 
         error={webrtcError() as WebRTCError | null}
         show={hasWebRTCError()}
-        onDismiss={() => roomStore.actions.clearWebRTCStatus()}
+        onDismiss={() => webrtcStore.actions.clearError()}
         onCancel={() => navigate('/')}
       />
 
-      <Show when={isConnecting()}>
+      <Show when={isConnecting() || joinRoomOperation.loading}>
         <div class="card bg-white/10 backdrop-blur-sm border border-white/20">
           <div class="card-body text-center py-8">
             <div class="loading loading-spinner loading-lg mx-auto mb-4"></div>
@@ -292,46 +234,64 @@ const handleManualPlay = () => {
         </div>
       </Show>
 
-      <Show when={currentError()}>
-         <div class="alert alert-error fixed top-4 right-4 left-4 sm:left-auto sm:w-auto shadow-lg z-50">
-            <span class="text-sm sm:text-base">{currentError()}</span>
-            <button onClick={() => {
+      {/* Stream Error Display - SolidJS 2025: Use Show for Option errors */}
+      <Show when={O.getOrNull(currentError())}>
+        {(error) => (
+          <StreamError 
+            error={() => error()}
+            onDismiss={() => {
               const listenerId = currentListenerId()
-              if (listenerId) roomStore.actions.clearListenerError(listenerId)
-            }} class="btn btn-sm btn-circle btn-ghost">✕</button>
-         </div>
+              if (listenerId) listenersStore.actions.clearListenerError(listenerId)
+            }}
+            variant="floating"
+          />
+        )}
+      </Show>
+      
+      {/* Join operation errors */}
+      <Show when={joinRoomOperation.error}>
+        <div class="fixed top-4 right-4 left-4 sm:left-auto sm:w-auto alert alert-error shadow-lg z-50">
+          <span>Failed to join room: {joinRoomOperation.error.message}</span>
+          <button 
+            class="btn btn-sm btn-circle btn-ghost"
+            onClick={() => navigate('/')}
+          >
+            ✕
+          </button>
+        </div>
       </Show>
 
-      <Show when={!isConnecting() && !currentError()}>
+      <Show when={!isConnecting() && !joinRoomOperation.loading && !O.getOrNull(currentError()) && !joinRoomOperation.error}>
         <div class="card bg-white/10 backdrop-blur-sm border border-white/20 shadow-xl max-w-sm sm:max-w-md w-full mx-4">
           <div class="card-body flex flex-col items-center gap-6 sm:gap-8 p-4 sm:p-6">
             
             {/* Room Header */}
-            <div class="text-center">
-              <h1 class="text-lg sm:text-xl font-semibold text-white/90 mb-1">{roomName()}</h1>
-              <p class="text-sm text-white/60">DJ: {djName()}</p>
-            </div>
+            <RoomHeader 
+              roomName={roomName}
+              djName={djName}
+              variant="center"
+            />
 
             {/* Status Indicator - single source of truth from connection state */}
-            <div class="flex flex-col items-center gap-2 sm:gap-3">
-                <ConnectionStatusDot 
-                  connectionState={getDotStatus()}
-                  size="lg"
-                  title={getStatusText()}
-                />
-                <span class="text-sm sm:text-base font-medium">{getStatusText()}</span>
-            </div>
+            <ConnectionStatusGroup 
+              status={getDotStatus}
+              statusText={getStatusText}
+              dotSize="lg"
+              layout="vertical"
+            />
 
-            {/* Audio Oscilloscope - show when we have audio stream */}
-            <Show when={listenerAudioStream()}>
-              <div class="w-full">
-                <Oscilloscope 
-                  stream={listenerAudioStream()!} 
-                  height={60} 
-                  class="mb-0"
-                  userGestureAvailable={!needsUserPlay()}
-                />
-              </div>
+            {/* Audio Oscilloscope - SolidJS 2025 Option pattern */}
+            <Show when={listenerAudioStream()} fallback={null}>
+              {(stream) => (
+                <div class="w-full">
+                  <Oscilloscope 
+                    stream={stream()}
+                    height={60} 
+                    class="mb-0"
+                    userGestureAvailable={!needsUserPlay()}
+                  />
+                </div>
+              )}
             </Show>
 
             {/* User Interaction Modal (Only if autoplay blocked) */}
@@ -369,11 +329,21 @@ const handleManualPlay = () => {
                     <button
                       onClick={handleManualPlay}
                       class="btn btn-primary btn-lg w-full gap-2 text-base"
+                      disabled={manualPlayOperation.loading}
                     >
-                      <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width={2} d="M14.828 14.828a4 4 0 01-5.656 0M9 10h1m4 0h1m-6 4h2m4 0h2M7 7h10a2 2 0 012 2v8a2 2 0 01-2 2H7a2 2 0 01-2-2V9a2 2 0 012-2z" />
-                      </svg>
-                      Resume Audio
+                      {manualPlayOperation.loading ? (
+                        <>
+                          <span class="loading loading-spinner loading-sm"></span>
+                          Resuming...
+                        </>
+                      ) : (
+                        <>
+                          <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width={2} d="M14.828 14.828a4 4 0 01-5.656 0M9 10h1m4 0h1m-6 4h2m4 0h2M7 7h10a2 2 0 012 2v8a2 2 0 01-2 2H7a2 2 0 01-2-2V9a2 2 0 012-2z" />
+                          </svg>
+                          Resume Audio
+                        </>
+                      )}
                     </button>
                     
                   </div>
@@ -386,12 +356,29 @@ const handleManualPlay = () => {
             <button
                 onClick={leaveRoom}
                 class="btn btn-outline btn-sm sm:btn-md mt-4 w-full sm:w-auto border-red-500 text-red-500 hover:bg-red-500 hover:text-white"
+                disabled={leaveRoomOperation.loading}
             >
-                <svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
-                </svg>
-                <span class="text-sm sm:text-base">Leave Room</span>
+                {leaveRoomOperation.loading ? (
+                  <>
+                    <span class="loading loading-spinner loading-sm mr-2"></span>
+                    <span class="text-sm sm:text-base">Leaving...</span>
+                  </>
+                ) : (
+                  <>
+                    <svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
+                    </svg>
+                    <span class="text-sm sm:text-base">Leave Room</span>
+                  </>
+                )}
             </button>
+            
+            {/* Show leave operation errors */}
+            <Show when={leaveRoomOperation.error}>
+              <div class="text-red-400 text-sm text-center mt-2">
+                Failed to leave room: {leaveRoomOperation.error.message}
+              </div>
+            </Show>
           </div>
         </div>
       </Show>

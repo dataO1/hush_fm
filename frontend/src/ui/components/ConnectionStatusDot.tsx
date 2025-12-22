@@ -11,8 +11,8 @@
  * - Red (pulsing): Error/Disconnected
  */
 
-import { createMemo } from 'solid-js'
-import { createLobbyStore } from '../../stores/lobby.store'
+import { createMemo, Show } from 'solid-js'
+import { useLobbyStore } from '../../stores/store-contexts'
 
 interface ConnectionStatusDotProps {
   /** Optional override for connection state (for DJ/Listener specific states) */
@@ -24,9 +24,10 @@ interface ConnectionStatusDotProps {
 }
 
 export default function ConnectionStatusDot(props: ConnectionStatusDotProps) {
-  const lobbyStore = createLobbyStore()
+  // SolidJS 2025: Use store context instead of creating new instance
+  const lobbyStore = useLobbyStore()
   
-  // Determine the status from props or lobby store
+  // SolidJS 2025: Determine status with proper Option handling
   const status = createMemo(() => {
     if (props.connectionState) {
       return props.connectionState
@@ -34,7 +35,9 @@ export default function ConnectionStatusDot(props: ConnectionStatusDotProps) {
     
     // Default to lobby connection state
     const connectionState = lobbyStore.state.connection.state
-    if (lobbyStore.connectionError) {
+    const hasConnectionError = lobbyStore.connectionError() !== null
+    
+    if (hasConnectionError) {
       return 'error'
     }
     
@@ -85,10 +88,25 @@ export default function ConnectionStatusDot(props: ConnectionStatusDotProps) {
     }
   })
   
+  // SolidJS 2025: Use Show for conditional rendering and better accessibility
   return (
-    <div 
-      class={`rounded-full ${sizeClasses()} ${statusClasses()}`}
-      title={props.title}
-    />
+    <Show 
+      when={status()}
+      fallback={
+        <div 
+          class={`rounded-full ${sizeClasses()} bg-gray-500`}
+          title="Status Unknown"
+        />
+      }
+    >
+      {(currentStatus) => (
+        <div 
+          class={`rounded-full ${sizeClasses()} ${statusClasses()}`}
+          title={props.title || `Connection Status: ${currentStatus().toUpperCase()}`}
+          role="status"
+          aria-label={`Connection Status: ${currentStatus().toUpperCase()}`}
+        />
+      )}
+    </Show>
   )
 }

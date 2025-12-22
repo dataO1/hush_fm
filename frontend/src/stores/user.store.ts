@@ -5,21 +5,34 @@
  * This store is independent and runs alongside lobby and room stores.
  */
 
-import { createStore } from 'solid-js/store'
+import { createStore, produce } from 'solid-js/store'
 import { createSignal } from 'solid-js'
 import { Option } from 'effect'
 import type { 
-  UserState, 
-  UserActions
+  UserStateType,
+  UserRoleType
 } from '../domain/schemas/user.schema'
 import { createInitialUserState } from '../domain/schemas/user.schema'
 
 /**
  * Create user store instance
  */
+/**
+ * User store actions interface (using schema-inferred types)
+ */
+export interface UserActions {
+  setSessionId: (sessionId: string) => void
+  setSessionInitialized: (initialized: boolean) => void
+  setSessionComputedAt: (timestamp: string) => void
+  setCurrentRole: (role: UserRoleType | null) => void
+  setFingerprint: (fingerprint: any) => void
+  setPreferences: (preferences: Partial<UserStateType['preferences']>) => void
+  resetUserState: () => void
+}
+
 export const createUserStore = () => {
-  // Main reactive state
-  const [state, setState] = createStore(createInitialUserState() as any)
+  // Main reactive state using schema-inferred types
+  const [state, setState] = createStore<UserStateType>(createInitialUserState())
   
   // Additional UI signals
   const [isComputingSession, setIsComputingSession] = createSignal(false)
@@ -30,30 +43,48 @@ export const createUserStore = () => {
       setState({
         sessionId: Option.some(sessionId),
         sessionInitialized: true,
-        sessionComputedAt: Option.some(new Date())
+        sessionComputedAt: Option.some(new Date().toISOString())
       })
     },
     
     setSessionInitialized: (initialized: boolean) => {
-      setState('sessionInitialized', initialized)
+      setState({
+        sessionInitialized: initialized
+      })
     },
     
-    setSessionComputedAt: (timestamp: Date) => {
-      setState('sessionComputedAt', Option.some(timestamp))
+    setSessionComputedAt: (timestamp: string) => {
+      setState({
+        sessionComputedAt: Option.some(timestamp)
+      })
     },
     
-    setCurrentRole: (role: 'dj' | 'listener' | null) => {
-      setState('currentRole', role ? Option.some(role) : Option.none())
+    setCurrentRole: (role: UserRoleType | null) => {
+      setState({
+        currentRole: role ? Option.some(role) : Option.none()
+      })
+    },
+    
+    setFingerprint: (fingerprint: any) => {
+      setState({
+        fingerprint: Option.some(fingerprint)
+      })
+    },
+    
+    setPreferences: (preferences: Partial<UserStateType['preferences']>) => {
+      setState(produce((draft) => {
+        Object.assign(draft.preferences, preferences)
+      }))
     },
     
     resetUserState: () => {
-      setState(createInitialUserState() as any)
+      setState(createInitialUserState())
     }
   }
   
   return {
     // Reactive state (read-only)
-    state: state as Readonly<UserState>,
+    state: state as Readonly<UserStateType>,
     
     // UI signals
     isComputingSession,
@@ -62,16 +93,19 @@ export const createUserStore = () => {
     // Actions
     actions,
     
-    // Computed values
+    // Computed values with proper Option handling for SolidJS 2025 reactivity
+    // Using getters that don't destructure to maintain fine-grained reactivity
     get hasSessionId() {
       return Option.isSome(state.sessionId)
     },
     
     get sessionId() {
+      // Safe getter for UI consumption (perfect for <Show> components)
       return Option.getOrNull(state.sessionId)
     },
     
     get currentRole() {
+      // Convert Option to nullable for UI logic
       return Option.getOrNull(state.currentRole)
     },
     
@@ -80,7 +114,25 @@ export const createUserStore = () => {
     },
     
     get isSessionReady() {
+      // Direct property access maintains reactivity
       return state.sessionInitialized && Option.isSome(state.sessionId)
+    },
+    
+    get fingerprint() {
+      return Option.getOrNull(state.fingerprint)
+    },
+    
+    get preferences() {
+      return state.preferences
+    },
+    
+    // Option helper methods for UI components
+    get themeOption() {
+      return Option.getOrElse(state.preferences.theme, () => 'system')
+    },
+    
+    get audioQualityOption() {
+      return Option.getOrElse(state.preferences.audioQuality, () => 'medium')
     }
   }
 }

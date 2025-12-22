@@ -2,219 +2,176 @@
  * DJ Domain Schema
  * 
  * Pure state definitions for DJ functionality following the 18-step DJ room creation flow.
- * Includes embedded MediaSoup state: Device, Send Transport, Producer, and audio tracks.
+ * Uses shared schema patterns and proper external type synchronization.
  * 
- * This schema uses Effect Schema for validation and type safety.
- * NO service calls or side effects - pure data models only.
+ * Pattern: S.Schema.Type<> for store inference, S.Encoded vs S.Type for API boundaries
  * 
  * References: DJ_ROOM_CREATION_FLOW_HOW_ITS_SUPPOSED_TO_BE.md (Steps 1-18)
  */
 
-import { Schema as S } from 'effect'
-import { Option } from 'effect'
-import { Device, types } from 'mediasoup-client'
+import { Schema as S, Option, Data } from 'effect'
+import { Device } from 'mediasoup-client'
+import { 
+  WebAPISchemas,
+  MultiStepFlowSchemas
+} from './shared'
+import {
+  RtpCapabilitiesSchema,
+  RtpParametersSchema,
+  DtlsParametersSchema,
+  MediaSoupTransportSchema,
+  MediaSoupProducerSchema
+} from './shared/mediasoup.schema'
+// Import TransportOptionsSchema directly from websocket schema (infrastructure layer)
+import { TransportOptionsSchema, WebSocketSchemas } from './shared/websocket.schema'
 
 /**
- * Custom schemas for MediaSoup types
- */
-const MediaSoupDevice = S.instanceOf(Device)
-const MediaSoupTransport = S.Unknown.pipe(S.filter((value): value is types.Transport => 
-  value != null && typeof value === 'object' && 'id' in value && 'connectionState' in value
-))
-const MediaSoupProducer = S.Unknown.pipe(S.filter((value): value is types.Producer => 
-  value != null && typeof value === 'object' && 'id' in value && 'kind' in value && 'paused' in value
-))
-
-/**
- * DJ Flow Steps (tracking progress through 18-step flow)
+ * DJ Flow Steps (18-step flow progression)
  */
 export const DJFlowStep = S.Literal(
-  'idle',              // Not started
-  'announcing',        // Step 1: Announcing room in lobby
-  'connecting',        // Step 2: Connecting to DJ WebSocket
-  'initializing',      // Step 2: Receiving RTP capabilities
-  'device_loading',    // Step 3: Loading MediaSoup device
-  'requesting_media',  // Step 4: getUserMedia for audio track
-  'requesting_transport', // Step 5: Request WebRTC transport
-  'creating_transport', // Step 8: Create send transport locally  
-  'connecting_transport', // Steps 9-12: Transport connect flow
-  'creating_producer', // Steps 13-15: Producer creation
-  'validating_connection', // Step 15a: WebRTC connection validation
-  'publishing',        // Step 16: Room published and producer ID received
-  'streaming',         // Step 17: Successfully streaming
-  'error',             // Step 18: Error occurred, cleanup needed
-  'cleanup'            // Cleaning up after error or stop
+  'idle',                   // Not started
+  'announcing',             // Step 1: Announcing room in lobby
+  'connecting',             // Step 2: Connecting to DJ WebSocket
+  'initializing',           // Step 2: Receiving RTP capabilities
+  'device_loading',         // Step 3: Loading MediaSoup device
+  'requesting_media',       // Step 4: getUserMedia for audio track
+  'requesting_transport',   // Step 5: Request WebRTC transport
+  'creating_transport',     // Step 8: Create send transport locally  
+  'connecting_transport',   // Steps 9-12: Transport connect flow
+  'creating_producer',      // Steps 13-15: Producer creation
+  'validating_connection',  // Step 15a: WebRTC connection validation
+  'publishing',             // Step 16: Room published and producer ID received
+  'streaming',              // Step 17: Successfully streaming
+  'error',                  // Step 18: Error occurred, cleanup needed
+  'cleanup'                 // Cleaning up after error or stop
 )
-export type DJFlowStep = S.Schema.Type<typeof DJFlowStep>
+export type DJFlowStepType = S.Schema.Type<typeof DJFlowStep>
 
 /**
- * MediaSoup Device State (Step 3: Create and load device)
+ * DJ MediaSoup Device State (Step 3: Create and load device)
  */
-export const MediaSoupDeviceState = S.Struct({
-  device: S.Option(MediaSoupDevice), // mediasoup-client Device instance
+export const DJDeviceState = S.Struct({
+  device: S.Option(S.instanceOf(Device)),
   loaded: S.Boolean,
-  rtpCapabilities: S.Option(S.Unknown), // Received in Step 2
+  rtpCapabilities: S.Option(RtpCapabilitiesSchema),
   loadError: S.Option(S.String),
-  handlerName: S.Option(S.String)
+  handlerName: S.Option(S.String),
+  routerCompatible: S.Boolean
 })
-export type MediaSoupDeviceState = S.Schema.Type<typeof MediaSoupDeviceState>
+export type DJDeviceStateType = S.Schema.Type<typeof DJDeviceState>
 
 /**
- * Audio Track State (Step 4: getUserMedia)
+ * DJ Audio Track State (Step 4: getUserMedia)
  */
-export const AudioTrackState = S.Struct({
-  track: S.Option(S.Unknown), // MediaStreamTrack instance
-  stream: S.Option(S.Unknown), // MediaStream instance
+export const DJAudioTrackState = S.Struct({
+  track: S.Option(WebAPISchemas.MediaStreamTrack),
+  stream: S.Option(WebAPISchemas.MediaStream),
   deviceId: S.Option(S.String),
-  constraints: S.Option(S.Unknown), // MediaTrackConstraints used
-  acquiredAt: S.Option(S.Date),
+  constraints: S.Option(WebAPISchemas.MediaTrackConstraints),
+  acquiredAt: S.Option(S.DateFromString),
   error: S.Option(S.String)
 })
-export type AudioTrackState = S.Schema.Type<typeof AudioTrackState>
+export type DJAudioTrackStateType = S.Schema.Type<typeof DJAudioTrackState>
 
 /**
- * Send Transport State (Steps 5-8: Request and create send transport)
+ * DJ Send Transport State (Steps 5-8: Request and create send transport)
  */
-export const SendTransportState = S.Struct({
-  transport: S.Option(MediaSoupTransport), // mediasoup-client Transport instance
+export const DJSendTransportState = S.Struct({
+  transport: S.Option(MediaSoupTransportSchema),
   id: S.Option(S.String),
   connectionState: S.Literal('new', 'connecting', 'connected', 'disconnecting', 'disconnected', 'failed'),
   iceGatheringState: S.Option(S.String),
   iceConnectionState: S.Option(S.String),
   dtlsState: S.Option(S.String),
-  transportOptions: S.Option(S.Unknown), // Transport params from backend (Step 7)
-  dtlsParameters: S.Option(S.Unknown), // DTLS params for connection (Step 10)
+  transportOptions: S.Option(TransportOptionsSchema), // Use our shared TransportOptions schema
+  dtlsParameters: S.Option(DtlsParametersSchema),
   connected: S.Boolean,
   connectError: S.Option(S.String)
 })
-export type SendTransportState = S.Schema.Type<typeof SendTransportState>
+export type DJSendTransportStateType = S.Schema.Type<typeof DJSendTransportState>
 
 /**
- * Producer State (Steps 13-17: Create and manage producer)
+ * DJ Producer State (Steps 13-17: Create and manage producer)
  */
-export const ProducerState = S.Struct({
-  producer: S.Option(MediaSoupProducer), // mediasoup-client Producer instance
-  id: S.Option(S.String), // Producer ID from backend (Step 16)
+export const DJProducerState = S.Struct({
+  producer: S.Option(MediaSoupProducerSchema),
+  id: S.Option(S.String),
   kind: S.Literal('audio', 'video'),
   paused: S.Boolean,
-  rtpParameters: S.Option(S.Unknown), // RTP params sent to backend (Step 14)
-  track: S.Option(S.Unknown), // Associated MediaStreamTrack
-  appData: S.Option(S.Unknown),
-  stats: S.Option(S.Struct({
-    timestamp: S.Date,
-    bytesTransmitted: S.Number,
-    packetsTransmitted: S.Number,
-    roundTripTime: S.Option(S.Number)
-  })),
-  createdAt: S.Option(S.Date),
+  rtpParameters: S.Option(RtpParametersSchema),
+  track: S.Option(WebAPISchemas.MediaStreamTrack),
+  appData: S.Option(S.Record({ key: S.String, value: S.String })), // Structured app data
+  // Stats removed - not needed
+  createdAt: S.Option(S.DateFromString),
   error: S.Option(S.String)
 })
-export type ProducerState = S.Schema.Type<typeof ProducerState>
+export type DJProducerStateType = S.Schema.Type<typeof DJProducerState>
 
 /**
- * Connection Quality Metrics
+ * DJ Media Streams State (local streams from getUserMedia)
  */
-export const ConnectionQuality = S.Struct({
-  rtt: S.Number,
-  packetsLost: S.Number,
-  jitter: S.Number,
-  timestamp: S.Date,
-  quality: S.Literal('excellent', 'good', 'fair', 'poor')
-})
-export type ConnectionQuality = S.Schema.Type<typeof ConnectionQuality>
-
-/**
- * Media Streams State (local streams from getUserMedia)
- */
-export const MediaStreamsState = S.Struct({
-  localStream: S.Option(S.Unknown), // MediaStream instance from getUserMedia
-  audioTrack: S.Option(S.Unknown),  // MediaStreamTrack instance
+export const DJMediaStreamsState = S.Struct({
+  localStream: S.Option(WebAPISchemas.MediaStream),
+  audioTrack: S.Option(WebAPISchemas.MediaStreamTrack),
   streamId: S.Option(S.String),
-  createdAt: S.Option(S.Date)
+  createdAt: S.Option(S.DateFromString)
 })
-export type MediaStreamsState = S.Schema.Type<typeof MediaStreamsState>
+export type DJMediaStreamsStateType = S.Schema.Type<typeof DJMediaStreamsState>
 
 /**
- * WebSocket Connection State for DJ
+ * DJ WebSocket Connection State (extends shared WebSocket pattern)
  */
-export const DJWebSocketState = S.Struct({
-  websocket: S.Option(S.instanceOf(WebSocket)), // DJ WebSocket connection instance
-  connectionState: S.Literal('disconnected', 'connecting', 'connected', 'error', 'reconnecting'),
-  url: S.Option(S.String),
-  connectedAt: S.Option(S.Date),
-  lastMessageAt: S.Option(S.Date),
-  messageCount: S.Number,
-  connectionError: S.Option(S.String)
-})
-export type DJWebSocketState = S.Schema.Type<typeof DJWebSocketState>
+export const DJWebSocketState = WebSocketSchemas.BaseConnection.pipe(
+  S.extend(WebSocketSchemas.DJExtension)
+)
+export type DJWebSocketStateType = S.Schema.Type<typeof DJWebSocketState>
 
 /**
  * Complete DJ Domain State
  * 
- * Contains all state for DJ functionality following the 18-step flow:
- * - Flow progress tracking
- * - MediaSoup Device (embedded)
- * - Audio track from getUserMedia (embedded) 
- * - Send Transport (optional - created during flow)
- * - Producer (optional - created during flow)
- * - Media Streams (optional - created during flow)
- * - WebSocket connection state
- * - Connection quality metrics
+ * Uses S.Schema.Type<> pattern for store inference.
+ * Store will use: createStore<DJStateType>(createInitialDJState())
  */
-export const DJState = S.Struct({
-  // Flow progress
-  currentStep: DJFlowStep,
-  stepStartedAt: S.Option(S.Date),
-  stepError: S.Option(S.String),
-  
-  // MediaSoup Device (Step 3)
-  device: MediaSoupDeviceState,
-  
-  // Audio Track (Step 4) 
-  audioTrack: AudioTrackState,
-  
-  // Send Transport (Steps 5-8) - Optional, created during flow
-  sendTransport: S.Option(SendTransportState),
-  
-  // Producer (Steps 13-17) - Optional, created during flow
-  producer: S.Option(ProducerState),
-  
-  // Media Streams - Optional, created during flow
-  streams: S.Option(MediaStreamsState),
-  
-  // WebSocket connection state
-  websocket: DJWebSocketState,
-  
-  // Connection quality
-  connectionQuality: S.Option(ConnectionQuality),
-  
-  // Flow timing
-  flowStartedAt: S.Option(S.Date),
-  flowCompletedAt: S.Option(S.Date),
-  
-  // Error tracking
-  lastError: S.Option(S.Struct({
-    step: DJFlowStep,
-    error: S.String,
-    timestamp: S.Date
+export const DJState = MultiStepFlowSchemas.State.pipe(
+  S.extend(S.Struct({
+    // Override currentStep with DJ-specific steps
+    currentStep: DJFlowStep,
+    
+    // DJ-specific embedded state
+    device: DJDeviceState,
+    audioTrack: DJAudioTrackState,
+    sendTransport: S.Option(DJSendTransportState),
+    producer: S.Option(DJProducerState),
+    streams: S.Option(DJMediaStreamsState),
+    websocket: DJWebSocketState,
+    
+    // Note: Connection quality removed - not needed
   }))
-})
-export type DJState = S.Schema.Type<typeof DJState>
+)
+export type DJStateType = S.Schema.Type<typeof DJState>
+export type DJStateEncoded = S.Schema.Encoded<typeof DJState>
 
 /**
- * Initial DJ state factory
+ * Initial DJ state factory for stores
+ * 
+ * Returns clean application state (S.Schema.Type<> format)
+ * Store pattern: const [djState, setDJState] = createStore<DJStateType>(createInitialDJState())
  */
-export const createInitialDJState = (): DJState => ({
+export const createInitialDJState = (): DJStateType => ({
   currentStep: 'idle',
   stepStartedAt: Option.none(),
   stepError: Option.none(),
+  flowStartedAt: Option.none(),
+  flowCompletedAt: Option.none(),
+  lastError: Option.none(),
   
   device: {
     device: Option.none(),
     loaded: false,
     rtpCapabilities: Option.none(),
     loadError: Option.none(),
-    handlerName: Option.none()
+    handlerName: Option.none(),
+    routerCompatible: false
   },
   
   audioTrack: {
@@ -227,9 +184,7 @@ export const createInitialDJState = (): DJState => ({
   },
   
   sendTransport: Option.none(),
-  
   producer: Option.none(),
-  
   streams: Option.none(),
   
   websocket: {
@@ -239,46 +194,105 @@ export const createInitialDJState = (): DJState => ({
     connectedAt: Option.none(),
     lastMessageAt: Option.none(),
     messageCount: 0,
-    connectionError: Option.none()
+    connectionError: Option.none(),
+    roomId: Option.none(),
+    streamingStartedAt: Option.none(),
+    producerIds: []
   },
   
-  connectionQuality: Option.none(),
-  flowStartedAt: Option.none(),
-  flowCompletedAt: Option.none(),
-  lastError: Option.none()
+  // Connection quality removed - not needed
 })
 
 /**
- * DJ state validators
+ * DJ State Decoders for Infrastructure Services
+ * 
+ * Use at API/WebSocket boundaries to validate incoming data
+ */
+export const DJStateDecoders = {
+  /**
+   * Decode complete DJ state from API
+   */
+  decodeDJState: S.decodeUnknown(DJState),
+  
+  /**
+   * Decode device state from MediaSoup API
+   */
+  decodeDeviceState: S.decodeUnknown(DJDeviceState),
+  
+  /**
+   * Decode transport state from MediaSoup API  
+   */
+  decodeTransportState: S.decodeUnknown(DJSendTransportState),
+  
+  /**
+   * Decode producer state from MediaSoup API
+   */
+  decodeProducerState: S.decodeUnknown(DJProducerState),
+  
+  /**
+   * Decode flow step updates
+   */
+  decodeFlowStep: S.decodeUnknown(DJFlowStep)
+}
+
+/**
+ * DJ State Validators for runtime checks
  */
 export const DJStateValidators = {
   /**
+   * Validate DJ flow step
+   */
+  validateFlowStep: (step: unknown): step is DJFlowStepType => 
+    S.is(DJFlowStep)(step),
+  
+  /**
+   * Validate device state
+   */
+  validateDeviceState: (state: unknown): state is DJDeviceStateType => 
+    S.is(DJDeviceState)(state),
+  
+  /**
    * Validate complete DJ state
    */
-  validateDJState: S.decodeUnknown(DJState),
-  
-  /**
-   * Validate device state only
-   */
-  validateDeviceState: S.decodeUnknown(MediaSoupDeviceState),
-  
-  /**
-   * Validate audio track state only
-   */
-  validateAudioTrackState: S.decodeUnknown(AudioTrackState),
-  
-  /**
-   * Validate send transport state only
-   */
-  validateSendTransportState: S.decodeUnknown(SendTransportState),
-  
-  /**
-   * Validate producer state only
-   */
-  validateProducerState: S.decodeUnknown(ProducerState),
-  
-  /**
-   * Validate flow step
-   */
-  validateFlowStep: S.decodeUnknown(DJFlowStep)
+  validateDJState: (state: unknown): state is DJStateType => 
+    S.is(DJState)(state)
 }
+
+/**
+ * DJ Domain Errors (18-step flow)
+ */
+export class DJFlowError extends Data.TaggedError('DJFlowError')<{
+  readonly cause: string
+  readonly step: string
+  readonly stepNumber: number
+  readonly recoverable: boolean
+  readonly operation: string
+  readonly timestamp: Date
+}> {}
+
+export class MediaSoupDeviceError extends Data.TaggedError('MediaSoupDeviceError')<{
+  readonly cause: string
+  readonly operation: 'create' | 'load' | 'capabilities'
+  readonly timestamp: Date
+}> {}
+
+export class AudioTrackError extends Data.TaggedError('AudioTrackError')<{
+  readonly cause: string
+  readonly operation: 'getUserMedia' | 'constraints' | 'track'
+  readonly timestamp: Date
+}> {}
+
+export class TransportError extends Data.TaggedError('TransportError')<{
+  readonly cause: string
+  readonly transportId?: string
+  readonly direction: 'send' | 'receive'
+  readonly operation: 'create' | 'connect' | 'close'
+  readonly timestamp: Date
+}> {}
+
+export class ProducerError extends Data.TaggedError('ProducerError')<{
+  readonly cause: string
+  readonly producerId?: string
+  readonly operation: 'create' | 'pause' | 'resume' | 'close'
+  readonly timestamp: Date
+}> {}

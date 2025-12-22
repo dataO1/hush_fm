@@ -4,6 +4,12 @@
  * Centralized exports for all domain schemas and their validators.
  */
 
+// Shared Foundation Schemas
+export * from './shared'
+
+// User Domain
+export * from './user.schema'
+
 // Lobby Domain
 export * from './lobby.schema'
 

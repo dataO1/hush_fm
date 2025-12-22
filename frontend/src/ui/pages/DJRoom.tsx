@@ -1,23 +1,30 @@
-import { onMount, onCleanup, Show, createSignal, createEffect } from 'solid-js'
+import { onCleanup, Show, createSignal, createEffect, createResource } from 'solid-js'
 import { useParams, useNavigate, useLocation } from '@solidjs/router'
-import { Effect, Option } from 'effect'
+import { Option as O } from 'effect'
 import { DeviceSelector } from '../components/controls/DeviceSelector'
-import { getRoomStore } from '../../stores/room.store'
-import { publishDJRoom, toggleDJStream, closeDJRoom } from '../../services/flows/dj-flows.service'
+import { useConnectionStore, useDJStore, useRoomMetadataStore, useWebRTCStore } from '../../stores/store-contexts'
+import { useDJService } from '../hooks/useEffectService'
 import { ConnectionState, type WebRTCError } from '../../domain/schemas/room.schema'
-import type { DJState } from '../../domain/schemas/dj.schema'
-import ConnectionStatusDot from '../components/ConnectionStatusDot'
 import { Oscilloscope } from '../components/shared/Oscilloscope'
 import { WebRTCErrorHandler } from '../components/WebRTCErrorHandler'
-import { getNavigationCleanupService } from '../../services/navigation-cleanup.service'
+import { RoomHeader } from '../components/room/RoomHeader'
+import { ConnectionStatusGroup } from '../components/streaming/ConnectionStatusGroup'
+import { StreamControls } from '../components/streaming/StreamControls'
+import { StreamError } from '../components/streaming/StreamError'
 
 export default function DJRoom() {
   const params = useParams()
   const navigate = useNavigate()
   const location = useLocation()
 
-  // Use room store for DJ state management - all state comes from here
-  const roomStore = getRoomStore()
+  // SolidJS 2025: Use Effect services through hooks
+  const djService = useDJService()
+
+  // Use stores for reactive state (read-only)
+  const connectionStore = useConnectionStore()
+  const djStore = useDJStore()
+  const roomMetadataStore = useRoomMetadataStore()
+  const webrtcStore = useWebRTCStore()
 
   // Get navigation state (from Landing.tsx room creation)
   const navigationState = location.state as {
@@ -37,59 +44,30 @@ export default function DJRoom() {
   })
 
 
-  // Register with global navigation service and initialize room
-  onMount(async () => {
-    // 1. Register component with global navigation cleanup service
-    // Note: DJ cleanup only resets local state (preserves backend room for other listeners)
-    try {
-      const navigationService = getNavigationCleanupService()
-      
-      // Register with initLocalStore only (NO backend cleanup for DJ navigation)
-      await Effect.runPromise(
-        navigationService.registerComponent('dj-room', navigationService.initLocalStore(), location.pathname)
-      )
-      console.info('🔧 DJRoom: Component registered with global navigation service (local reset only)')
-    } catch (error) {
-      console.error('❌ Failed to register with navigation service:', error)
-    }
-    
-    // 2. Initialize room as ready for streaming setup
-    try {
-      roomStore.actions.setConnectionState(ConnectionState.IDLE)
-    } catch (err: any) {
-      console.error('Failed to initialize DJ room:', err)
-      roomStore.actions.setConnectionState(ConnectionState.ERROR)
-    }
+  // Component initialization completed - no async setup needed
+
+  onCleanup(() => {
+    // SolidJS 2025: Cleanup handled by SolidJS onCleanup
+    console.info('🧹 DJRoom: Component cleanup')
   })
 
-  onCleanup(async () => {
-    // Unregister from global navigation service
-    try {
-      const navigationService = getNavigationCleanupService()
-      await Effect.runPromise(navigationService.unregisterComponent('dj-room'))
-      console.info('🧹 DJRoom: Component unregistered from global navigation service')
-    } catch (error) {
-      console.error('❌ Failed to unregister from navigation service:', error)
-    }
-  })
-
-  // Computed values from store
-  const connectionState = () => roomStore.connectionState
-  const isStreaming = () => roomStore.isDJStreaming
-  const djError = () => roomStore.djError
-  const isConnecting = () => roomStore.isConnecting
-  const isPaused = () => roomStore.isPaused
-  const selectedDeviceId = () => roomStore.selectedDeviceId
+  // Computed values from domain stores (SolidJS 2025 + Effect Option patterns)
+  const connectionState = () => connectionStore.state.state
+  const isStreaming = () => djStore.isStreaming()
+  const djError = () => djStore.flowError() // Already returns null | string
+  const isConnecting = () => connectionStore.isConnecting()
+  const isPaused = () => roomMetadataStore.isPaused()
+  const selectedDeviceId = () => djStore.selectedDeviceId() // Already returns null | string
   
   // WebRTC error state
-  const webrtcError = () => roomStore.webrtcError
-  const hasWebRTCError = () => roomStore.hasWebRTCError
+  const webrtcError = () => webrtcStore.state.error
+  const hasWebRTCError = () => webrtcStore.hasError()
   
-  // Room information - get room ID from store metadata or fallback to params
-  const roomMetadata = () => roomStore.roomMetadata
-  const roomId = () => roomMetadata()?.id || params.roomId
-  const roomName = () => roomMetadata()?.name || `Room ${roomId()}`
-  const djName = () => roomMetadata()?.djName || 'DJ'
+  // SolidJS 2025: Use reactive computeds with proper Option handling
+  const roomId = () => params.roomId
+  
+  // Use Show components for Optional room metadata in template
+  const roomMetadata = () => roomMetadataStore.state.metadata
 
   // Helper to convert ConnectionState to dot status
   const getDotStatus = () => {
@@ -112,22 +90,28 @@ export default function DJRoom() {
     return state
   }
 
-  // Get DJ audio stream from room store
-  const djAudioStream = () => {
-    const dj = roomStore.djState as DJState | null
-    if (!dj) return null
-    
-    // Get stream from the DJ's streams state
-    const streamsOption = dj.streams
-    if (Option.isNone(streamsOption)) return null
-    
-    const streams = Option.getOrNull(streamsOption)
-    if (!streams) return null
-    
-    return Option.getOrNull(streams.localStream) as MediaStream | null
-  }
+  // Get DJ audio stream from DJ store (already converted to null | MediaStream)
+  const djAudioStream = () => djStore.previewStream()
 
-  const startStreaming = async () => {
+  // SolidJS 2025: Use signals and createResource for streaming operations
+  const [streamingRequest, setStreamingRequest] = createSignal<{roomId: string, deviceId: string} | null>(null)
+  
+  const [streamingOperation] = createResource(streamingRequest, async (request) => {
+    if (!request) return null
+    
+    console.info('🎤 Starting DJ stream via Application Service...')
+    
+    const result = await djService.publishToRoom(
+      request.roomId, 
+      navigationState.djWebSocketUrl!, 
+      request.deviceId
+    )
+    
+    console.info('✅ DJ stream started successfully')
+    return result
+  })
+  
+  const startStreaming = () => {
     const deviceId = selectedDeviceId()
     if (!deviceId) {
       console.error('Please select an audio device first')
@@ -139,63 +123,51 @@ export default function DJRoom() {
       console.error('Room ID is required')
       return
     }
-
-    try {
-      // Start DJ publishing flow - service will handle WebSocket connection and state
-      await Effect.runPromise(
-        publishDJRoom(roomStore, currentRoomId, String(deviceId))
-      )
-
-    } catch (err: any) {
-      console.error('Failed to start streaming:', err)
-      // Error state is handled by the store via the service
-    }
+    
+    // Trigger the resource by setting the signal
+    setStreamingRequest({ roomId: currentRoomId, deviceId: String(deviceId) })
   }
 
-  const toggleMute = async () => {
+  // SolidJS 2025: Use signals and createResource for mute operations
+  const [muteRequest, setMuteRequest] = createSignal<{action: 'pause' | 'resume'} | null>(null)
+  
+  const [muteOperation] = createResource(muteRequest, async (request) => {
+    if (!request || !isStreaming()) return null
+    
+    console.info(`🎤 ${request.action === 'pause' ? 'Pausing' : 'Resuming'} DJ stream...`)
+    
+    const result = await djService.controlStreaming(roomId(), request.action)
+    
+    console.info('✅ DJ stream toggled successfully')
+    return result
+  })
+  
+  const toggleMute = () => {
     if (!isStreaming()) return // Only allow mute when streaming
-
-    try {
-      await Effect.runPromise(toggleDJStream(roomStore))
-    } catch (err: any) {
-      console.error('Failed to toggle mute:', err)
-    }
+    
+    const action = isPaused() ? 'resume' : 'pause'
+    setMuteRequest({ action })
   }
 
-  const endStream = async () => {
-    try {
-      // Get DJ WebSocket from store  
-      const djState = roomStore.djState as DJState | null
-      if (!djState) {
-        console.warn('No DJ state found for room closure')
-        navigate('/')
-        return
-      }
-
-      let djWebSocket: WebSocket | null = null
-      Option.match(djState.websocket.websocket, {
-        onSome: (ws) => { djWebSocket = ws as WebSocket },
-        onNone: () => { djWebSocket = null }
-      })
-      
-      if (!djWebSocket) {
-        console.warn('No valid DJ WebSocket found for room closure')
-        navigate('/')
-        return
-      }
-
-      // Use proper cleanup service following the established pattern
-      console.info('🚪 Ending stream and closing DJ room')
-      await Effect.runPromise(closeDJRoom(roomStore, djWebSocket))
-      console.info('✅ DJ room closed successfully')
-      
-      // Navigate back to lobby after successful cleanup
-      navigate('/')
-    } catch (error) {
-      console.error('❌ Failed to end stream and close room:', error)
-      // Navigate anyway to prevent stuck state
-      navigate('/')
-    }
+  // SolidJS 2025: Use signals and createResource for ending stream
+  const [endStreamRequest, setEndStreamRequest] = createSignal<boolean>(false)
+  
+  const [endStreamOperation] = createResource(endStreamRequest, async (shouldEnd) => {
+    if (!shouldEnd) return null
+    
+    console.info('🚪 Ending stream and closing DJ room')
+    
+    const result = await djService.stopStreaming(roomId())
+    
+    console.info('✅ DJ room closed successfully')
+    
+    // Navigate back to lobby after successful cleanup
+    navigate('/')
+    return result
+  })
+  
+  const endStream = () => {
+    setEndStreamRequest(true)
   }
 
   const goBack = () => {
@@ -203,7 +175,7 @@ export default function DJRoom() {
   }
 
   const onDeviceSelected = (deviceId: string) => {
-    roomStore.actions.setSelectedDeviceId(deviceId)
+    djStore.actions.setSelectedDeviceId(deviceId)
   }
 
   return (
@@ -229,18 +201,18 @@ export default function DJRoom() {
           </div>
         </Show>
 
-        <Show when={djError()}>
-          <div class="alert alert-error mb-4 text-sm sm:text-base">
-            <span>{String(djError() || 'An error occurred')}</span>
-            <button class="btn btn-sm btn-circle" onClick={() => roomStore.actions.clearDJError()}>✕</button>
-          </div>
-        </Show>
+        {/* Stream Error Display */}
+        <StreamError 
+          error={djError}
+          onDismiss={() => djStore.actions.clearFlowError()}
+          variant="inline"
+        />
 
         {/* WebRTC Error Handler */}
         <WebRTCErrorHandler 
           error={webrtcError() as WebRTCError | null}
           show={hasWebRTCError()}
-          onDismiss={() => roomStore.actions.clearWebRTCStatus()}
+          onDismiss={() => webrtcStore.actions.clearError()}
           onCancel={() => navigate('/')}
         />
 
@@ -248,34 +220,50 @@ export default function DJRoom() {
           <div class="card bg-white/10 backdrop-blur-sm border border-white/20">
             <div class="card-body p-4 sm:p-6">
               
-              {/* Room Header */}
-              <div class="text-center mb-4 sm:mb-6">
-                <h1 class="text-lg sm:text-xl font-semibold text-white/90 mb-1">{roomName()}</h1>
-                <p class="text-sm text-white/60">DJ: {djName()}</p>
-              </div>
+              {/* Room Header - SolidJS 2025: Use Show for Option metadata */}
+              <Show 
+                when={O.getOrNull(roomMetadata())} 
+                fallback={
+                  <RoomHeader 
+                    roomName={() => `Room ${roomId()}`}
+                    djName={() => 'DJ'}
+                    variant="center"
+                    class="mb-4 sm:mb-6"
+                  />
+                }
+              >
+                {(metadata) => (
+                  <RoomHeader 
+                    roomName={() => metadata.name}
+                    djName={() => metadata.djName}
+                    variant="center"
+                    class="mb-4 sm:mb-6"
+                  />
+                )}
+              </Show>
               <div class="flex justify-between items-center mb-4 sm:mb-6">
                 <button class="btn btn-sm sm:btn-md btn-ghost text-white hover:bg-white/20" onClick={goBack}>←</button>
-                <div class="flex items-center gap-2">
-                  <ConnectionStatusDot 
-                    connectionState={getDotStatus()}
-                    size="md"
-                    title={getStatusText()}
-                  />
-                  <span class="text-xs sm:text-sm font-medium">{getStatusText()}</span>
-                </div>
+                <ConnectionStatusGroup 
+                  status={getDotStatus}
+                  statusText={getStatusText}
+                  dotSize="md"
+                  layout="horizontal"
+                />
               </div>
 
               <DeviceSelector 
                 disabled={isStreaming()} 
-                roomStore={roomStore} 
+                djStore={djStore}
                 onDeviceSelected={onDeviceSelected}
               />
               
-              {/* Audio Oscilloscope - show when audio stream is available (preview or streaming) */}
-              <Show when={djAudioStream()}>
-                <div class="w-full mb-4">
-                  <Oscilloscope stream={djAudioStream()!} height={60} class="mb-0" />
-                </div>
+              {/* Audio Oscilloscope - SolidJS 2025 Option pattern */}
+              <Show when={djAudioStream()} fallback={null}>
+                {(stream) => (
+                  <div class="w-full mb-4">
+                    <Oscilloscope stream={stream()} height={60} class="mb-0" />
+                  </div>
+                )}
               </Show>
               
               {/* Show Go Live button when not streaming */}
@@ -284,9 +272,9 @@ export default function DJRoom() {
                   <button
                     class="btn btn-primary btn-md sm:btn-lg w-full sm:w-auto px-8"
                     onClick={startStreaming}
-                    disabled={!selectedDeviceId() || isConnecting()}
+                    disabled={!selectedDeviceId() || isConnecting() || streamingOperation.loading}
                   >
-                    {isConnecting() ? (
+                    {(isConnecting() || streamingOperation.loading) ? (
                       <>
                         <span class="loading loading-spinner loading-sm"></span>
                         <span class="ml-2">Connecting...</span>
@@ -300,53 +288,52 @@ export default function DJRoom() {
                       </>
                     )}
                   </button>
+                  
+                  {/* Show streaming operation errors */}
+                  <Show when={streamingOperation.error}>
+                    <div class="text-red-400 text-sm mt-2">
+                      Failed to start streaming: {streamingOperation.error.message}
+                    </div>
+                  </Show>
                   <div class="text-xs sm:text-sm text-white/60 mt-2">
                     Select an audio source to get started
                   </div>
                 </div>
               </Show>
 
-              {/* Show streaming controls when streaming */}
-              <Show when={isStreaming()}>
-                <div class="flex flex-col sm:flex-row gap-3 justify-center items-center mt-6">
-                  
-                  {/* Mute/Unmute Button */}
-                  <button
-                    class={`btn btn-md sm:btn-lg gap-2 w-full sm:w-auto sm:min-w-32 ${
-                      isPaused() ? 'btn-warning hover:btn-warning' : 'btn-success hover:btn-success'
-                    }`}
-                    onClick={toggleMute}
-                    disabled={connectionState() === ConnectionState.ERROR || isConnecting()}
-                  >
-                    {isPaused() ? (
-                      <>
-                        <svg class="w-4 h-4 sm:w-5 sm:h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path stroke-linecap="round" stroke-linejoin="round" stroke-width={2} d="M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z" />
-                          <path stroke-linecap="round" stroke-linejoin="round" stroke-width={2} d="M17 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2" />
-                        </svg>
-                        <span class="text-sm sm:text-base">Unmute</span>
-                      </>
-                    ) : (
-                      <>
-                        <svg class="w-4 h-4 sm:w-5 sm:h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path stroke-linecap="round" stroke-linejoin="round" stroke-width={2} d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z" />
-                        </svg>
-                        <span class="text-sm sm:text-base">Mute</span>
-                      </>
-                    )}
-                  </button>
-
-                  {/* End Stream Button */}
-                  <button 
-                    class="btn btn-outline btn-error btn-md sm:btn-lg gap-2 w-full sm:w-auto border-red-500 text-red-500 hover:bg-red-500 hover:text-white" 
-                    onClick={endStream}
-                  >
-                    <svg class="w-4 h-4 sm:w-5 sm:h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width={2} d="M6 18L18 6M6 6l12 12" />
-                    </svg>
-                    <span class="text-sm sm:text-base">End Stream</span>
-                  </button>
-                  
+              {/* Stream Controls */}
+              <StreamControls 
+                isStreaming={isStreaming}
+                isPaused={isPaused}
+                isDisabled={() => connectionState() === ConnectionState.ERROR || isConnecting() || muteOperation.loading || endStreamOperation.loading}
+                onToggleMute={toggleMute}
+                onEndStream={endStream}
+              />
+              
+              {/* Show operation loading states and errors */}
+              <Show when={muteOperation.loading}>
+                <div class="text-center text-sm text-white/70 mt-2">
+                  <span class="loading loading-spinner loading-sm mr-2"></span>
+                  {isPaused() ? 'Resuming...' : 'Pausing...'}
+                </div>
+              </Show>
+              
+              <Show when={endStreamOperation.loading}>
+                <div class="text-center text-sm text-white/70 mt-2">
+                  <span class="loading loading-spinner loading-sm mr-2"></span>
+                  Ending stream...
+                </div>
+              </Show>
+              
+              <Show when={muteOperation.error}>
+                <div class="text-red-400 text-sm text-center mt-2">
+                  Failed to toggle mute: {muteOperation.error.message}
+                </div>
+              </Show>
+              
+              <Show when={endStreamOperation.error}>
+                <div class="text-red-400 text-sm text-center mt-2">
+                  Failed to end stream: {endStreamOperation.error.message}
                 </div>
               </Show>
             </div>

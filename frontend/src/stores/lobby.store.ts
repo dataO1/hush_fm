@@ -7,17 +7,17 @@
  * Extracted from: SignalingProvider.tsx lobby-related functionality
  */
 
-import { createSignal } from 'solid-js'
 import { createStore } from 'solid-js/store'
 import { Option } from 'effect'
-import type { RoomInfo } from '../services/generated/hushFMAPI.schemas'
-import {
-  type LobbyState,
-  createInitialLobbyState
+import type {
+  LobbyStateType,
+  LobbyRoomInfoType
 } from '../domain/schemas/lobby.schema'
+import type { RoomInfo } from '../domain/schemas/room.schema'
+import { createInitialLobbyState } from '../domain/schemas/lobby.schema'
 
 /**
- * Lobby store actions - Pure state setters only
+ * Lobby store actions - Pure state setters only (using schema-inferred types)
  */
 export interface LobbyStoreActions {
   // Connection state management
@@ -28,7 +28,7 @@ export interface LobbyStoreActions {
   
   // Room discovery state management
   setRoomsLoading: (loading: boolean) => void
-  setRooms: (rooms: RoomInfo[]) => void
+  setRooms: (rooms: LobbyRoomInfoType[]) => void
   setRoomDiscoveryError: (error: string) => void
   
   // Room creation state management
@@ -37,9 +37,14 @@ export interface LobbyStoreActions {
   setLastCreatedRoom: (roomId: string) => void
   
   // Room management
-  addRoom: (room: RoomInfo) => void
-  updateRoom: (room: RoomInfo) => void
+  addRoom: (room: LobbyRoomInfoType) => void
+  updateRoom: (room: LobbyRoomInfoType) => void
   removeRoom: (roomId: string) => void
+  
+  // Search and filtering
+  setSearchTerm: (term: string | null) => void
+  setTagFilter: (tags: string[]) => void
+  setShowOnlyStreaming: (showOnly: boolean) => void
   
   // Page lifecycle reset actions (pure state only - called by services)
   clearRooms: () => void
@@ -52,24 +57,17 @@ export interface LobbyStoreActions {
  * Create lobby store
  */
 export const createLobbyStore = () => {
-  // Main reactive state
+  // SolidJS 2025: Single source of truth - all state in store (no duplicate signals)
   const [state, setState] = createStore(createInitialLobbyState() as any)
-  
-  // Additional UI signals
-  const [isConnecting, setIsConnecting] = createSignal(false)
-  const [isRefreshing, setIsRefreshing] = createSignal(false)
-  const [isCreating, setIsCreating] = createSignal(false)
   
   // Pure state actions - no Effects, no service calls
   const actions: LobbyStoreActions = {
     // Connection state management
     setConnecting: (connecting: boolean) => {
-      setIsConnecting(connecting)
       setState('connection', 'state', connecting ? 'connecting' : 'disconnected')
     },
     
     setConnected: (websocket: WebSocket | null) => {
-      setIsConnecting(false)
       setState('connection', {
         websocket: websocket ? Option.some(websocket) : Option.none(),
         state: 'connected',
@@ -80,7 +78,6 @@ export const createLobbyStore = () => {
     },
     
     setDisconnected: () => {
-      setIsConnecting(false)
       setState('connection', {
         websocket: Option.none(),
         state: 'disconnected',
@@ -90,7 +87,6 @@ export const createLobbyStore = () => {
     },
     
     setConnectionError: (error: string) => {
-      setIsConnecting(false)
       setState('connection', {
         state: 'error',
         lastError: Option.some(error)
@@ -99,12 +95,10 @@ export const createLobbyStore = () => {
     
     // Room discovery state management
     setRoomsLoading: (loading: boolean) => {
-      setIsRefreshing(loading)
       setState('discovery', 'loading', loading)
     },
     
     setRooms: (rooms: RoomInfo[]) => {
-      setIsRefreshing(false)
       // Convert array to Map for efficient lookups and inherent uniqueness
       const roomsMap = rooms.reduce((map: Record<string, RoomInfo>, room: RoomInfo) => {
         map[room.id] = room
@@ -119,7 +113,6 @@ export const createLobbyStore = () => {
     },
     
     setRoomDiscoveryError: (error: string) => {
-      setIsRefreshing(false)
       setState('discovery', {
         loading: false,
         refreshError: Option.some(error)
@@ -128,12 +121,10 @@ export const createLobbyStore = () => {
     
     // Room creation state management
     setRoomCreating: (creating: boolean) => {
-      setIsCreating(creating)
       setState('creation', 'creating', creating)
     },
     
     setRoomCreationError: (error: string) => {
-      setIsCreating(false)
       setState('creation', {
         creating: false,
         creationError: Option.some(error)
@@ -141,7 +132,6 @@ export const createLobbyStore = () => {
     },
     
     setLastCreatedRoom: (roomId: string) => {
-      setIsCreating(false)
       setState('creation', {
         creating: false,
         creationError: Option.none(),
@@ -195,17 +185,24 @@ export const createLobbyStore = () => {
     // Reactive state (read-only)
     state: state as Readonly<LobbyState>,
     
-    // UI signals
-    isConnecting,
-    isRefreshing,
-    isCreating,
-    
     // Actions
     actions,
     
     // Computed values
     get isConnected() {
       return state.connection.state === 'connected'
+    },
+    
+    get isConnecting() {
+      return state.connection.state === 'connecting'
+    },
+    
+    get isLoading() {
+      return state.discovery.loading
+    },
+    
+    get isCreating() {
+      return state.creation.creating
     },
     
     get availableRooms() {
@@ -223,6 +220,14 @@ export const createLobbyStore = () => {
     get creationError() {
       return Option.getOrNull(state.creation.creationError)
     },
+
+    // SolidJS 2025: Simple getter for rooms (domain logic moved to application service)
+    // The complex sorting logic stays in LobbyApplicationService.sortRoomsForUser()
+    // Store provides basic sorted rooms by listener count
+    get sortedRoomsByListenerCount() {
+      const rooms = Object.values(state.discovery.availableRooms as Record<string, RoomInfo>) as RoomInfo[]
+      return rooms.slice().sort((a, b) => (b.listenerCount || 0) - (a.listenerCount || 0))
+    },
     
   }
 }
@@ -231,3 +236,28 @@ export const createLobbyStore = () => {
  * Lobby store type
  */
 export type LobbyStore = ReturnType<typeof createLobbyStore>
+
+/**
+ * Singleton lobby store instance
+ */
+let lobbyStoreInstance: LobbyStore | null = null
+
+/**
+ * Get or create the singleton lobby store instance
+ */
+export const getLobbyStore = (): LobbyStore => {
+  if (!lobbyStoreInstance) {
+    lobbyStoreInstance = createLobbyStore()
+  }
+  return lobbyStoreInstance
+}
+
+/**
+ * Reset the global lobby store (useful for testing)
+ */
+export const resetGlobalLobbyStore = (): void => {
+  if (lobbyStoreInstance) {
+    lobbyStoreInstance.actions.clearRooms()
+  }
+  lobbyStoreInstance = null
+}

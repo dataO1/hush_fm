@@ -3,137 +3,211 @@
  * 
  * Pure state definitions for lobby functionality including room listings,
  * lobby WebSocket connections, and room discovery.
+ * Uses shared schema patterns and proper external type synchronization.
  * 
- * This schema uses Effect Schema for validation and type safety.
- * NO service calls or side effects - pure data models only.
+ * Pattern: S.Schema.Type<> for store inference, S.Encoded vs S.Type for API boundaries
  */
 
-import { Schema as S } from 'effect'
-import { Option } from 'effect'
+import { Schema as S, Option, Data } from 'effect'
+// Import WebSocketSchemas directly from websocket schema (infrastructure layer)
+import { WebSocketSchemas } from './shared/websocket.schema'
 
 /**
- * WebSocket connection states
+ * Lobby WebSocket Connection State (extends shared WebSocket pattern)
  */
-export const WSConnectionState = S.Literal(
-  'disconnected',
-  'connecting', 
-  'connected',
-  'error',
-  'reconnecting'
+export const LobbyWebSocketState = WebSocketSchemas.BaseConnection.pipe(
+  S.extend(WebSocketSchemas.LobbyExtension)
 )
-export type WSConnectionState = S.Schema.Type<typeof WSConnectionState>
+export type LobbyWebSocketStateType = S.Schema.Type<typeof LobbyWebSocketState>
 
 /**
- * Lobby WebSocket connection state
+ * Lobby Room Info (for room listings)
  */
-export const LobbyConnectionState = S.Struct({
-  state: WSConnectionState,
-  websocket: S.Option(S.instanceOf(WebSocket)), // WebSocket instance
-  lastConnectedAt: S.Option(S.Date),
-  connectionAttempts: S.Number,
-  lastError: S.Option(S.String)
+export const LobbyRoomInfo = S.Struct({
+  id: S.String,
+  name: S.String,
+  djName: S.String,
+  description: S.Option(S.String),
+  tags: S.Array(S.String),
+  listenerCount: S.Number,
+  isPublic: S.Boolean,
+  isStreaming: S.Boolean,
+  createdAt: S.DateFromString
 })
-export type LobbyConnectionState = S.Schema.Type<typeof LobbyConnectionState>
+export type LobbyRoomInfoType = S.Schema.Type<typeof LobbyRoomInfo>
 
 /**
- * Room discovery and listings state
+ * Room Discovery and Listings State
  */
-export const RoomDiscoveryState = S.Struct({
-  availableRooms: S.Record({ key: S.String, value: S.Unknown }), // Record<string, RoomInfo> keyed by room ID - using unknown to avoid circular import
+export const LobbyRoomDiscoveryState = S.Struct({
+  availableRooms: S.Record({ key: S.String, value: LobbyRoomInfo }),
   loading: S.Boolean,
-  lastRefreshAt: S.Option(S.Date),
-  refreshError: S.Option(S.String)
+  lastRefreshAt: S.Option(S.DateFromString),
+  refreshError: S.Option(S.String),
+  filters: S.Struct({
+    searchTerm: S.Option(S.String),
+    tags: S.Array(S.String),
+    showOnlyStreaming: S.Boolean
+  })
 })
-export type RoomDiscoveryState = S.Schema.Type<typeof RoomDiscoveryState>
+export type LobbyRoomDiscoveryStateType = S.Schema.Type<typeof LobbyRoomDiscoveryState>
 
 /**
- * Room creation state
+ * Room Creation State
  */
-export const RoomCreationState = S.Struct({
+export const LobbyRoomCreationState = S.Struct({
   creating: S.Boolean,
   creationError: S.Option(S.String),
-  lastCreatedRoomId: S.Option(S.String)
+  lastCreatedRoomId: S.Option(S.String),
+  formData: S.Option(S.Struct({
+    name: S.String,
+    description: S.Option(S.String),
+    tags: S.Array(S.String),
+    isPublic: S.Boolean
+  }))
 })
-export type RoomCreationState = S.Schema.Type<typeof RoomCreationState>
+export type LobbyRoomCreationStateType = S.Schema.Type<typeof LobbyRoomCreationState>
 
 /**
  * Complete Lobby Domain State
  * 
- * Contains all state related to lobby functionality:
- * - WebSocket connection to lobby
- * - Room discovery and listings  
- * - Room creation flow
- * - Message history for debugging
+ * Uses S.Schema.Type<> pattern for store inference.
+ * Store will use: createStore<LobbyStateType>(createInitialLobbyState())
  */
 export const LobbyState = S.Struct({
-  // Connection state
-  connection: LobbyConnectionState,
+  // WebSocket connection state
+  websocket: LobbyWebSocketState,
   
   // Room discovery
-  discovery: RoomDiscoveryState,
+  discovery: LobbyRoomDiscoveryState,
   
   // Room creation
-  creation: RoomCreationState,
+  creation: LobbyRoomCreationState,
   
   // Message history (for debugging)
   messageHistory: S.Array(S.Struct({
-    timestamp: S.Date,
+    timestamp: S.DateFromString,
     type: S.String,
-    message: S.Unknown
+    direction: S.Literal('incoming', 'outgoing'),
+    message: S.Record({ key: S.String, value: S.String })
   })),
   
   // Last activity tracking
-  lastActivityAt: S.Date
+  lastActivityAt: S.DateFromString
 })
-export type LobbyState = S.Schema.Type<typeof LobbyState>
+export type LobbyStateType = S.Schema.Type<typeof LobbyState>
+export type LobbyStateEncoded = S.Schema.Encoded<typeof LobbyState>
 
 /**
- * Initial lobby state factory
+ * Initial Lobby state factory for stores
+ * 
+ * Returns clean application state (S.Schema.Type<> format)
+ * Store pattern: const [lobbyState, setLobbyState] = createStore<LobbyStateType>(createInitialLobbyState())
  */
-export const createInitialLobbyState = (): LobbyState => ({
-  connection: {
-    state: 'disconnected',
+export const createInitialLobbyState = (): LobbyStateType => ({
+  websocket: {
     websocket: Option.none(),
-    lastConnectedAt: Option.none(),
-    connectionAttempts: 0,
-    lastError: Option.none()
+    connectionState: 'disconnected',
+    url: Option.none(),
+    connectedAt: Option.none(),
+    lastMessageAt: Option.none(),
+    messageCount: 0,
+    connectionError: Option.none(),
+    lastRoomListUpdate: Option.none(),
+    subscriptionFilters: []
   },
+  
   discovery: {
     availableRooms: {},
     loading: false,
     lastRefreshAt: Option.none(),
-    refreshError: Option.none()
+    refreshError: Option.none(),
+    filters: {
+      searchTerm: Option.none(),
+      tags: [],
+      showOnlyStreaming: false
+    }
   },
+  
   creation: {
     creating: false,
     creationError: Option.none(),
-    lastCreatedRoomId: Option.none()
+    lastCreatedRoomId: Option.none(),
+    formData: Option.none()
   },
+  
   messageHistory: [],
   lastActivityAt: new Date()
 })
 
 /**
- * Lobby state validators
+ * Lobby State Decoders for Infrastructure Services
+ * 
+ * Use at API/WebSocket boundaries to validate incoming data
+ */
+export const LobbyStateDecoders = {
+  /**
+   * Decode complete Lobby state from API
+   */
+  decodeLobbyState: S.decodeUnknown(LobbyState),
+  
+  /**
+   * Decode room info from room list updates
+   */
+  decodeLobbyRoomInfo: S.decodeUnknown(LobbyRoomInfo),
+  
+  /**
+   * Decode discovery state from API
+   */
+  decodeDiscoveryState: S.decodeUnknown(LobbyRoomDiscoveryState),
+  
+  /**
+   * Decode creation state updates
+   */
+  decodeCreationState: S.decodeUnknown(LobbyRoomCreationState)
+}
+
+/**
+ * Lobby State Validators for runtime checks
  */
 export const LobbyStateValidators = {
   /**
-   * Validate complete lobby state
+   * Validate lobby room info
    */
-  validateLobbyState: S.decodeUnknown(LobbyState),
+  validateRoomInfo: (info: unknown): info is LobbyRoomInfoType => 
+    S.is(LobbyRoomInfo)(info),
   
   /**
-   * Validate connection state only
+   * Validate discovery state
    */
-  validateConnectionState: S.decodeUnknown(LobbyConnectionState),
+  validateDiscoveryState: (state: unknown): state is LobbyRoomDiscoveryStateType => 
+    S.is(LobbyRoomDiscoveryState)(state),
   
   /**
-   * Validate room discovery state only  
+   * Validate complete Lobby state
    */
-  validateDiscoveryState: S.decodeUnknown(RoomDiscoveryState),
-  
-  /**
-   * Validate room creation state only
-   */
-  validateCreationState: S.decodeUnknown(RoomCreationState)
+  validateLobbyState: (state: unknown): state is LobbyStateType => 
+    S.is(LobbyState)(state)
 }
+
+/**
+ * Lobby Domain Errors
+ */
+export class LobbyConnectionError extends Data.TaggedError('LobbyConnectionError')<{
+  readonly cause: string
+  readonly operation: string
+  readonly timestamp: Date
+}> {}
+
+export class RoomDiscoveryError extends Data.TaggedError('RoomDiscoveryError')<{
+  readonly cause: string
+  readonly operation: string
+  readonly timestamp: Date
+}> {}
+
+export class RoomCreationError extends Data.TaggedError('RoomCreationError')<{
+  readonly cause: string
+  readonly roomName?: string
+  readonly operation: string
+  readonly timestamp: Date
+}> {}

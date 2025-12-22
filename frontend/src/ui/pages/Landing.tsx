@@ -1,120 +1,73 @@
-import { For, Show, onMount, onCleanup, createMemo } from 'solid-js'
+import { For, Show, createResource, createSignal } from 'solid-js'
 import { useNavigate } from '@solidjs/router'
-import { Effect } from 'effect'
-import { createLobbyStore } from '../../stores/lobby.store'
-import { getUserStore } from '../../stores/user.store'
-import { getRoomStore } from '../../stores/room.store'
-import { getSessionId } from '../../services/user.service'
-import {
-  connectToLobbyWebSocket,
-  discoverRooms,
-  subscribeLobbyEvents,
-  announceRoomCreation,
-  leaveLobby,
-  type CreateRoomRequest
-} from '../../services/flows/lobby-flows.service'
-import type { LobbyEvent } from '../../services/websocket/schemas/websocket'
+import { Effect, Option as O } from 'effect'
+import { useDJStore, useListenersStore, useLobbyStore, useUserStore } from '../../stores/store-contexts'
+import { useLobbyService } from '../hooks/useEffectService'
 import ConnectionStatusDot from '../components/ConnectionStatusDot'
-import { getNavigationCleanupService } from '../../services/navigation-cleanup.service'
+import { RoomCard } from '../components/room/RoomCard'
+import type { RoomInfo } from '../../domain/schemas/room.schema'
 
 export default function Landing() {
   const navigate = useNavigate()
 
-  // Create store instances
-  const lobbyStore = createLobbyStore()
-  const userStore = getUserStore()
-  const roomStore = getRoomStore()
-  
-  // Track WebSocket for cleanup
-  let currentWebSocket: WebSocket | null = null
+  // SolidJS 2025: Use Effect services through hooks
+  const lobbyService = useLobbyService()
 
-  // Initialize store state and connect to lobby on mount
-  onMount(async () => {
-    // 1. Smart store initialization - preserve active streams
-    try {
-      console.info('🏠 Landing: Checking for active connections before cleanup...')
-      
-      // Check if we have active DJ streaming or listener connections
-      const isDJStreaming = roomStore.isDJStreaming
-      const activeListenerRoomId = roomStore.activeListenerRoomId
-      const hasActiveListeners = activeListenerRoomId !== null
-      
-      console.info(`🔍 Landing: Connection state debug:`)
-      console.info(`  🎤 DJ streaming: ${isDJStreaming}`)
-      console.info(`  🎧 Active listener room: ${activeListenerRoomId}`)
-      console.info(`  🎧 Has active listeners: ${hasActiveListeners}`)
-      
-      if (isDJStreaming || hasActiveListeners) {
-        console.info('⚡ Landing: Preserving active connections (DJ streaming or active listener detected)')
-        // Don't perform cleanup - preserve existing connections
-      } else {
-        console.info('🏠 Landing: No active connections detected, performing clean initialization')
-        const navigationService = getNavigationCleanupService()
-        await Effect.runPromise(navigationService.initLocalStore())
-        console.info('✅ Landing: Store state initialized successfully')
-      }
-    } catch (error) {
-      console.error('❌ Landing: Failed to check/initialize store state:', error)
-      // Continue with lobby connection even if initialization fails
-    }
+  // Use stores for reactive state (read-only)
+  const djStore = useDJStore()
+  const listenersStore = useListenersStore()
+  const lobbyStore = useLobbyStore()
+  const userStore = useUserStore()
+
+  // SolidJS 2025: Use createResource for lobby initialization
+  const [lobbyInitialization] = createResource(async () => {
+    console.info('🏠 Landing: Checking active connections and initializing lobby...')
     
-    // 2. Connect to lobby and load rooms
-    try {
-      lobbyStore.actions.setConnecting(true)
-      
-      // Connect to lobby WebSocket
-      const ws = await Effect.runPromise(connectToLobbyWebSocket())
-      currentWebSocket = ws
-      lobbyStore.actions.setConnected(ws)
-      
-      // Subscribe to lobby events
-      const subscribe = await Effect.runPromise(subscribeLobbyEvents(ws))
-      subscribe((event: LobbyEvent) => {
-        switch (event.type) {
-          case 'roomAdded':
-            lobbyStore.actions.addRoom(event.room)
-            break
-          case 'roomUpdated':
-            lobbyStore.actions.updateRoom(event.room)
-            break
-          case 'roomRemoved':
-            lobbyStore.actions.removeRoom(event.roomId)
-            break
-        }
-      })
-      
-      // Initial room discovery
-      await loadRooms()
-    } catch (error) {
-      console.error('Failed to connect to lobby:', error)
-      lobbyStore.actions.setConnectionError(error instanceof Error ? error.message : 'Connection failed')
+    // Check if we have active DJ streaming or listener connections
+    const isDJStreaming = djStore.isStreaming()
+    const activeListenerRoomId = listenersStore.getActiveListenerRoomId()
+    const hasActiveListeners = activeListenerRoomId !== null
+    
+    console.info(`🔍 Landing: Connection state debug:`)
+    console.info(`  🎤 DJ streaming: ${isDJStreaming}`)
+    console.info(`  🎧 Active listener room: ${activeListenerRoomId}`)
+    console.info(`  🎧 Has active listeners: ${hasActiveListeners}`)
+    
+    if (isDJStreaming || hasActiveListeners) {
+      console.info('⚡ Landing: Preserving active connections - using smart initialization')
+      return await lobbyService.initializeWithActiveConnectionCheck()
+    } else {
+      console.info('🏠 Landing: No active connections - using clean initialization')
+      return await lobbyService.initialize()
     }
   })
 
-  // Cleanup on unmount
-  onCleanup(() => {
-    if (currentWebSocket) {
-      Effect.runPromise(leaveLobby(currentWebSocket))
-        .catch(err => console.error('Error disconnecting:', err))
-      currentWebSocket = null
-    }
-    lobbyStore.actions.setDisconnected()
-  })
 
-  // Load rooms helper
-  const loadRooms = async () => {
-    try {
-      lobbyStore.actions.setRoomsLoading(true)
-      const rooms = await Effect.runPromise(discoverRooms())
-      lobbyStore.actions.setRooms(rooms)
-    } catch (error) {
-      console.error('Failed to load rooms:', error)
-      lobbyStore.actions.setRoomDiscoveryError(error instanceof Error ? error.message : 'Failed to load rooms')
-    }
-  }
+  // SolidJS 2025: Use signals for form state and createResource for room creation
+  const [roomCreationData, setRoomCreationData] = createSignal<{name: string, dj: string} | null>(null)
   
-  // Create room handler
-  const handleCreateRoom = async (e: Event) => {
+  const [roomCreation] = createResource(roomCreationData, async (data) => {
+    if (!data) return null
+    
+    console.info('🏠 Creating room via Lobby Application Service...')
+    
+    const result = await lobbyService.announceRoomCreation({
+      roomName: data.name,
+      djName: data.dj,
+      description: `${data.dj}'s room`
+    })
+    
+    // Close modal and navigate to DJ room
+    closeModal()
+    navigate(`/dj/${result.roomId}`, {
+      state: { djWebSocketUrl: result.djWebSocketUrl }
+    })
+    
+    console.info('✅ Room created successfully:', result.roomId)
+    return result
+  })
+  
+  const handleCreateRoom = (e: Event) => {
     e.preventDefault()
     
     const form = e.target as HTMLFormElement
@@ -123,200 +76,102 @@ export default function Landing() {
     const dj = (formData.get('djName') as string)?.trim()
     
     if (!name || !dj) {
-      lobbyStore.actions.setRoomCreationError('Please enter both room name and DJ name')
+      console.error('Please enter both room name and DJ name')
       return
     }
     
-    if (!currentWebSocket) {
-      lobbyStore.actions.setRoomCreationError('Not connected to lobby')
-      return
-    }
-
-    lobbyStore.actions.clearError()
-    
-    try {
-      lobbyStore.actions.setRoomCreating(true)
-      
-      const request: CreateRoomRequest = {
-        name,
-        djName: dj,
-        description: `${dj}'s room`
-      }
-      
-      const result = await Effect.runPromise(announceRoomCreation(currentWebSocket, request, roomStore))
-      
-      lobbyStore.actions.setLastCreatedRoom(result.roomId)
-      
-      // Close modal and navigate to DJ room
-      closeModal()
-      navigate(`/dj/${result.roomId}`, {
-        state: { djWebSocketUrl: result.djWebSocketUrl }
-      })
-    } catch (error) {
-      console.error('Failed to create room:', error)
-      const errorMessage = error instanceof Error ? error.message : 'Failed to create room'
-      lobbyStore.actions.setRoomCreationError(errorMessage)
-    }
+    // Trigger the resource by setting the signal
+    setRoomCreationData({ name, dj })
   }
 
-  // Handle room interaction (join as listener or reconnect as DJ)
-  const handleRoomAction = async (roomId: string, room: any) => {
+  // SolidJS 2025: Handle room interaction using Application Services
+  const handleRoomAction = async (roomId: string, room: RoomInfo) => {
     try {
-      lobbyStore.actions.clearError()
+      console.info('🏠 Processing room action via Application Services...', { roomId })
       
-      // Ensure we have a session ID
-      const sessionId = await Effect.runPromise(getSessionId(userStore))
-      
-      // Check if this is an active listener room (back to room)
-      if (isActiveListenerRoom(room)) {
-        console.info('🎧 Navigating back to active listener room:', { roomId, sessionId })
-        
-        // Navigate directly to listener room - connection should still be active
-        // Pass required navigation state for ListenerRoom component (only serializable data)
-        navigate(`/listen/${roomId}`, {
-          state: { 
-            isReturning: true,
-            sessionId: String(sessionId),
-            listenerWebSocketUrl: `wss://${window.location.hostname}:3443/ws/listener/${sessionId}`,
-            roomInfo: JSON.parse(JSON.stringify({
-              id: room.id || '',
-              name: room.name || '',
-              description: room.description || '',
-              djName: room.djName || 'DJ',
-              tags: room.tags || [],
-              listenerCount: room.listenerCount || 0,
-              isPublic: true
-            }))
-          }
-        })
+      // Check if this is an active listener room (navigation only)
+      const activeListenerRoomId = listenersStore.getActiveListenerRoomId()
+      if (activeListenerRoomId === roomId) {
+        console.info('🎧 Navigating back to active listener room:', roomId)
+        navigate(`/listen/${roomId}`)
         return
       }
       
-      // Check if this is the user's own room (DJ reconnection)
-      if (isOwnRoom(room)) {
-        console.info('🎧 Reconnecting to own DJ room:', { roomId, sessionId })
-        
-        if (!currentWebSocket) {
-          lobbyStore.actions.setConnectionError('Not connected to lobby')
-          return
-        }
-
-        // Use the same announceRoom flow as creating a new room
-        // Backend will find the existing room and return it
-        const request: CreateRoomRequest = {
-          name: room.name,
-          djName: room.djName,
-          description: room.description,
-          tags: room.tags
-        }
-        
-        console.info('🔄 Using announceRoom flow for DJ reconnection')
+      // Check if this is our own DJ room (DJ reconnection) 
+      const currentSessionId = O.getOrNull(userStore.state.sessionId)
+      const isStreaming = djStore.isStreaming() 
+      const djRoomId = djStore.state?.websocket?.roomId ? O.getOrNull(djStore.state.websocket.roomId) : null
+      
+      if (isStreaming && djRoomId === roomId) {
+        console.info('🎤 Navigating back to active DJ room:', roomId)
+        navigate(`/dj/${roomId}`)
+        return
+      }
+      
+      // Check if this is the user's own room for DJ reconnection
+      if (currentSessionId && (room as any).djId === currentSessionId) {
+        console.info('🔄 Reconnecting to own DJ room via room announcement:', roomId)
         
         try {
-          lobbyStore.actions.setRoomCreating(true)
+          const result = await lobbyService.announceRoomCreation({
+            roomName: room.name,
+            djName: room.djName,
+            description: room.description,
+            tags: room.tags
+          })
           
-          const result = await Effect.runPromise(announceRoomCreation(currentWebSocket, request, roomStore))
-          
-          lobbyStore.actions.setLastCreatedRoom(result.roomId)
-          
-          // Navigation handled by announceRoomCreation flow
           navigate(`/dj/${result.roomId}`, {
             state: { djWebSocketUrl: result.djWebSocketUrl }
           })
+          console.info('✅ DJ room reconnection successful')
+          return
         } catch (error) {
           console.error('❌ Failed to reconnect to DJ room:', error)
-          const errorMessage = error instanceof Error ? error.message : 'Failed to reconnect to room'
-          lobbyStore.actions.setRoomCreationError(errorMessage)
         }
+      }
+      
+      // Regular listener join flow using LobbyService
+      console.info('🎧 Requesting to join room as listener via LobbyService:', roomId)
+      
+      if (!currentSessionId) {
+        console.error('❌ Cannot join room: No session ID available')
         return
       }
       
-      // Regular listener join flow
-      if (!currentWebSocket) {
-        lobbyStore.actions.setConnectionError('Not connected to lobby')
-        return
-      }
-      
-      console.info('🎧 Requesting to join room as listener:', { roomId, sessionId })
-      
-      // Send requestJoin command to lobby WebSocket
-      const requestJoinCommand = {
-        type: 'requestJoin' as const,
-        sessionId,
-        roomId
-      }
-      
-      currentWebSocket.send(JSON.stringify(requestJoinCommand))
-      
-      // Wait for joinRoomResponse
-      const joinResponse = await waitForJoinResponse(currentWebSocket, sessionId, roomId)
-      
-      if (joinResponse.success && joinResponse.listenerWebSocketUrl) {
-        console.info('✅ Join request successful, navigating to listener room')
+      try {
+        const joinResult = await lobbyService.requestJoinRoom(roomId, currentSessionId)
         
-        // Navigate to listener room with unique WebSocket URL
-        navigate(`/listen/${roomId}`, {
-          state: { 
-            listenerWebSocketUrl: joinResponse.listenerWebSocketUrl,
-            roomInfo: JSON.parse(JSON.stringify({
-              id: joinResponse.room?.id || roomId,
-              name: joinResponse.room?.name || `Room ${roomId}`,
-              description: joinResponse.room?.description || '',
-              djName: joinResponse.room?.djName || 'DJ',
-              tags: joinResponse.room?.tags || [],
-              listenerCount: joinResponse.room?.listenerCount || 0,
-              isPublic: true
-            })),
-            sessionId: String(sessionId)
-          }
-        })
-      } else {
-        throw new Error(joinResponse.error || 'Join request failed')
+        if (joinResult && joinResult.listenerWebSocketUrl) {
+          console.info('✅ Join request successful, navigating to listener room')
+          
+          navigate(`/listen/${roomId}`, {
+            state: { 
+              listenerWebSocketUrl: joinResult.listenerWebSocketUrl,
+              sessionId: currentSessionId,
+              roomInfo: {
+                id: room.id,
+                name: room.name,
+                djName: room.djName,
+                description: room.description,
+                tags: room.tags,
+                listenerCount: room.listenerCount,
+                isPublic: room.isPublic
+              }
+            }
+          })
+        } else {
+          console.error('❌ Join request failed: No result returned')
+        }
+      } catch (error) {
+        console.error('❌ Failed to request room join:', error)
       }
       
     } catch (error) {
       console.error('❌ Failed to handle room action:', error)
-      lobbyStore.actions.setConnectionError(error instanceof Error ? error.message : 'Failed to join room')
     }
   }
 
-  // Wait for join room response from lobby WebSocket
-  const waitForJoinResponse = (
-    websocket: WebSocket, 
-    sessionId: string, 
-    roomId: string
-  ): Promise<any> => {
-    return new Promise((resolve, reject) => {
-      const handleMessage = (event: MessageEvent) => {
-        try {
-          const message = JSON.parse(event.data)
-          
-          // Check if this is our joinRoomResponse
-          if (
-            message.type === 'joinRoomResponse' && 
-            message.sessionId === sessionId && 
-            message.roomId === roomId
-          ) {
-            websocket.removeEventListener('message', handleMessage)
-            clearTimeout(timeoutId)
-            resolve(message)
-          }
-        } catch (error) {
-          // Continue listening for other messages
-        }
-      }
-      
-      // Set up timeout
-      const timeoutId = setTimeout(() => {
-        websocket.removeEventListener('message', handleMessage)
-        reject(new Error('Timeout waiting for join room response'))
-      }, 10000) // 10 second timeout
-      
-      websocket.addEventListener('message', handleMessage)
-    })
-  }
-
-  // Modal control functions
+  // SolidJS 2025: Modal control functions
   const openModal = () => {
     const modal = document.getElementById('createRoomModal') as HTMLDialogElement
     modal?.showModal()
@@ -325,58 +180,32 @@ export default function Landing() {
   const closeModal = () => {
     const modal = document.getElementById('createRoomModal') as HTMLDialogElement
     modal?.close()
-    lobbyStore.actions.clearError() // Clear any errors when closing modal
   }
   
-  // Computed error state for UI display
-  const displayError = createMemo(() => lobbyStore.connectionError || lobbyStore.creationError)
-
-  // Computed room list with DJ reconnection and active listener features
-  const sortedRooms = createMemo(() => {
-    const currentSessionId = userStore.sessionId
-    const rooms = lobbyStore.availableRooms
-    const activeListenerRoomId = roomStore.activeListenerRoomId
-    
-    if (!currentSessionId) {
-      // No session ID yet, just sort by listener count
-      return rooms.slice().sort((a, b) => (b.listenerCount || 0) - (a.listenerCount || 0))
+  // Computed values from stores (read-only)
+  const availableRooms = () => lobbyStore.availableRooms
+  const isLoading = () => lobbyStore.isLoading() || lobbyInitialization.loading
+  const isCreating = () => lobbyStore.isCreating() || roomCreation.loading
+  
+  // SolidJS 2025: Use computed for Option types that return null-safe values
+  const connectionError = () => lobbyStore.connectionError()
+  const creationError = () => lobbyStore.creationError()
+  
+  // SolidJS 2025: Use createResource for async service calls with proper Option handling
+  const [sortedRooms] = createResource(
+    // Source signal that triggers refetch
+    () => ({ 
+      rooms: availableRooms(), 
+      sessionId: userStore.state.sessionId, 
+      activeListenerRoomId: listenersStore.getActiveListenerRoomId() 
+    }),
+    // Fetcher function that calls the service
+    async (source) => {
+      const sessionId = O.getOrNull(source.sessionId)
+      const activeListenerRoomId = O.getOrNull(source.activeListenerRoomId)
+      return await lobbyService.sortRoomsForUser(source.rooms, sessionId || '', activeListenerRoomId)
     }
-    
-    // Separate rooms by relationship to user
-    const djRooms: typeof rooms = []        // Rooms where user is DJ
-    const listenerRooms: typeof rooms = []  // Rooms where user is actively listening
-    const otherRooms: typeof rooms = []     // All other rooms
-    
-    rooms.forEach(room => {
-      if (room.djId === currentSessionId) {
-        djRooms.push(room)
-      } else if (activeListenerRoomId && room.id === activeListenerRoomId) {
-        listenerRooms.push(room)
-      } else {
-        otherRooms.push(room)
-      }
-    })
-    
-    // Sort each category by listener count (descending)
-    djRooms.sort((a, b) => (b.listenerCount || 0) - (a.listenerCount || 0))
-    listenerRooms.sort((a, b) => (b.listenerCount || 0) - (a.listenerCount || 0))
-    otherRooms.sort((a, b) => (b.listenerCount || 0) - (a.listenerCount || 0))
-    
-    // Return in priority order: DJ rooms → Active listener rooms → Others
-    return [...djRooms, ...listenerRooms, ...otherRooms]
-  })
-  
-  // Helper to check if a room belongs to current user (DJ)
-  const isOwnRoom = (room: any) => {
-    const currentSessionId = userStore.sessionId
-    return currentSessionId && room.djId === currentSessionId
-  }
-  
-  // Helper to check if a room is actively being listened to
-  const isActiveListenerRoom = (room: any) => {
-    const activeListenerRoomId = roomStore.activeListenerRoomId
-    return activeListenerRoomId && room.id === activeListenerRoomId
-  }
+  )
 
   return (
     <div class="min-h-screen bg-gradient-to-br from-purple-900 via-blue-900 to-indigo-900 text-white">
@@ -389,13 +218,45 @@ export default function Landing() {
           <p class="text-sm sm:text-base text-gray-400">Live Audio Streaming</p>
         </div>
 
-        {/* Error Display */}
-        <Show when={displayError()}>
+        {/* Error Display using SolidJS Show for Option types */}
+        <Show when={connectionError()}>
+          {(error) => (
+            <div class="bg-red-500/20 border border-red-500 text-red-100 px-4 py-3 rounded mb-6">
+              <div class="flex justify-between items-center">
+                <span>{String(error())}</span>
+                <button 
+                  onClick={() => lobbyStore.actions.clearError()}
+                  class="text-red-200 hover:text-white"
+                >
+                  ✕
+                </button>
+              </div>
+            </div>
+          )}
+        </Show>
+        
+        <Show when={creationError()}>
+          {(error) => (
+            <div class="bg-red-500/20 border border-red-500 text-red-100 px-4 py-3 rounded mb-6">
+              <div class="flex justify-between items-center">
+                <span>{String(error())}</span>
+                <button 
+                  onClick={() => lobbyStore.actions.clearError()}
+                  class="text-red-200 hover:text-white"
+                >
+                  ✕
+                </button>
+              </div>
+            </div>
+          )}
+        </Show>
+        
+        <Show when={roomCreation.error}>
           <div class="bg-red-500/20 border border-red-500 text-red-100 px-4 py-3 rounded mb-6">
             <div class="flex justify-between items-center">
-              <span>{String(displayError() || '')}</span>
+              <span>Failed to create room: {roomCreation.error?.message}</span>
               <button 
-                onClick={() => lobbyStore.actions.clearError()}
+                onClick={() => setRoomCreationData(null)}
                 class="text-red-200 hover:text-white"
               >
                 ✕
@@ -427,13 +288,10 @@ export default function Landing() {
 
             <div class="space-y-2 sm:space-y-3 max-h-64 sm:max-h-80 lg:max-h-96 overflow-y-auto">
               <Show 
-                when={sortedRooms().length > 0}
+                when={sortedRooms() && sortedRooms()!.length > 0}
                 fallback={
                   <div class="text-center text-gray-400 py-6 sm:py-8">
-                    <Show 
-                      when={lobbyStore.isRefreshing()}
-                      fallback="No rooms available. Create the first one!"
-                    >
+                    <Show when={sortedRooms.loading || isLoading()} fallback="No rooms available. Create the first one!">
                       Loading rooms...
                     </Show>
                   </div>
@@ -441,59 +299,10 @@ export default function Landing() {
               >
                 <For each={sortedRooms()}>
                   {(room) => (
-                    <div class={`rounded-lg p-3 sm:p-4 transition-colors ${
-                      isOwnRoom(room) 
-                        ? 'bg-gradient-to-r from-pink-500/20 to-violet-500/20 border-2 border-pink-500/40 hover:border-pink-500/60' 
-                        : isActiveListenerRoom(room)
-                        ? 'bg-gradient-to-r from-blue-500/20 to-green-500/20 border-2 border-blue-500/40 hover:border-blue-500/60'
-                        : 'bg-white/5 border border-white/10 hover:border-white/20'
-                    }`}>
-                      <div class="flex justify-between items-start mb-2 sm:mb-3">
-                        <div class="flex-1 min-w-0">
-                          <div class="flex items-center gap-2 mb-1">
-                            <Show when={room.isStreaming}>
-                              <ConnectionStatusDot size="sm" connectionState="connected" title="Live Stream" />
-                            </Show>
-                            <Show when={isOwnRoom(room)}>
-                              <div class="px-2 py-1 bg-pink-500/30 text-pink-200 text-xs rounded-full border border-pink-500/50">
-                                Your Room
-                              </div>
-                            </Show>
-                            <Show when={isActiveListenerRoom(room)}>
-                              <div class="px-2 py-1 bg-blue-500/30 text-blue-200 text-xs rounded-full border border-blue-500/50">
-                                Currently Listening
-                              </div>
-                            </Show>
-                            <h3 class="font-bold text-base sm:text-lg truncate">{room.name}</h3>
-                          </div>
-                          <p class="text-gray-300 text-sm truncate">DJ: {room.djName}</p>
-                        </div>
-                        <div class="text-right ml-2 shrink-0">
-                          <div class="text-xs sm:text-sm text-gray-400">
-                            {room.listenerCount || 0} listeners
-                          </div>
-                        </div>
-                      </div>
-                      
-                      <Show when={room.description}>
-                        <p class="text-gray-400 text-sm mb-3">{room.description}</p>
-                      </Show>
-                      
-                      <button
-                        onClick={() => handleRoomAction(room.id, room)}
-                        class={`w-full font-medium py-2 px-3 sm:px-4 rounded transition-colors text-sm sm:text-base ${
-                          isOwnRoom(room)
-                            ? 'bg-gradient-to-r from-pink-500 to-violet-500 hover:from-pink-600 hover:to-violet-600 text-white'
-                            : isActiveListenerRoom(room)
-                            ? 'bg-gradient-to-r from-blue-500 to-green-500 hover:from-blue-600 hover:to-green-600 text-white'
-                            : 'bg-green-500 hover:bg-green-600 text-white'
-                        }`}
-                      >
-                        {isOwnRoom(room) ? 'Reconnect to Your Room' 
-                          : isActiveListenerRoom(room) ? 'Back to Room' 
-                          : 'Join Room'}
-                      </button>
-                    </div>
+                    <RoomCard 
+                      room={room}
+                      onJoin={handleRoomAction}
+                    />
                   )}
                 </For>
               </Show>
@@ -506,10 +315,18 @@ export default function Landing() {
           <div class="modal-box max-w-sm sm:max-w-md bg-white/10 backdrop-blur-md border border-white/20 text-white rounded-2xl p-6 sm:p-8 shadow-2xl">
             <h3 class="font-bold text-xl sm:text-2xl mb-6 text-center bg-gradient-to-r from-pink-500 to-violet-500 bg-clip-text text-transparent">Start Streaming</h3>
             
-            {/* Error Display in Modal */}
-            <Show when={displayError()}>
+            {/* Error Display in Modal using proper Show for Option types */}
+            <Show when={creationError()}>
+              {(error) => (
+                <div class="bg-red-500/20 border border-red-500 text-red-100 px-4 py-3 rounded-lg mb-6">
+                  <span class="text-sm sm:text-base">{String(error())}</span>
+                </div>
+              )}
+            </Show>
+            
+            <Show when={roomCreation.error}>
               <div class="bg-red-500/20 border border-red-500 text-red-100 px-4 py-3 rounded-lg mb-6">
-                <span class="text-sm sm:text-base">{String(displayError() || '')}</span>
+                <span class="text-sm sm:text-base">Failed to create room: {roomCreation.error?.message}</span>
               </div>
             </Show>
             
@@ -541,10 +358,10 @@ export default function Landing() {
               <button
                 type="submit"
                 form="createRoomForm"
-                disabled={lobbyStore.isCreating()}
+                disabled={isCreating()}
                 class="btn bg-gradient-to-r from-pink-500 to-violet-500 hover:from-pink-600 hover:to-violet-600 border-0 text-white font-medium w-full sm:flex-1 py-3 rounded-lg text-sm sm:text-base disabled:opacity-50"
               >
-                <Show when={lobbyStore.isCreating()} fallback="Create Room & Start Streaming">
+                <Show when={isCreating()} fallback="Create Room & Start Streaming">
                   <>
                     <span class="loading loading-spinner loading-sm mr-2"></span>
                     Creating Room...

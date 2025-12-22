@@ -1,28 +1,20 @@
 import { Router, Route } from '@solidjs/router'
 import { Suspense, onMount } from 'solid-js'
-import { Effect } from 'effect'
 import Landing from './ui/pages/Landing'
 import DJRoom from './ui/pages/DJRoom'
 import ListenerRoom from './ui/pages/ListenerRoom'
 import AppLayout from './ui/layouts/AppLayout'
-import { getUserStore } from './stores/user.store'
-import { initializeUserSession } from './services/user.service'
+import { StoreProvider } from './stores/store-contexts'
 
-function App() {
-  // Initialize user session on app startup
+function AppContent() {
+  // SolidJS 2025: No lifecycle service needed anymore
   onMount(async () => {
-    const userStore = getUserStore()
-    
     try {
-      console.info('🚀 Initializing HushFM app with user session...')
-      
-      // Compute session ID from browser fingerprint
-      await Effect.runPromise(initializeUserSession(userStore))
-      
+      console.info('🚀 Initializing HushFM app with SolidJS 2025 + Effect-TS architecture...')
+      console.info('📱 User session will be initialized on demand')
       console.info('✅ App initialization complete')
     } catch (error) {
-      console.error('❌ Failed to initialize user session:', error)
-      // App can still function without session ID, it will be computed when needed
+      console.error('❌ Failed to initialize app:', error)
     }
   })
 
@@ -40,6 +32,14 @@ function App() {
         <Route path="/listen/:roomId" component={ListenerRoom} />
       </Router>
     </Suspense>
+  )
+}
+
+function App() {
+  return (
+    <StoreProvider>
+      <AppContent />
+    </StoreProvider>
   )
 }
 
