@@ -1,22 +1,22 @@
 /**
  * WebSocket Schema Patterns
- * 
+ *
  * Complete WebSocket schemas including connections, messages, and events.
  * Eliminates duplication and provides unified WebSocket handling across all domains.
- * 
+ *
  * Uses S.Encoded vs S.Type pattern for proper boundary handling.
  */
 
 import { Schema as S, Option as O } from 'effect'
 import { WebSocketSchema } from './webapi.schema'
-import { MediaSoupSchemas } from './mediasoup.schema'
+import { ConsumerOptionsSchema, ConsumerParametersTransformSchema, DtlsParametersSchema, DtlsParametersTransformSchema, IceCandidateSchema, RtpCapabilitiesSchema, RtpCapabilitiesTransformSchema, RtpParametersSchema, RtpParametersTransformSchema, TransportOptionsSchema, TransportOptionsTransformSchema } from './mediasoup.schema'
 
 /**
  * Base WebSocket Connection States
  */
 export const WSConnectionState = S.Literal(
   'disconnected',
-  'connecting', 
+  'connecting',
   'connected',
   'error',
   'reconnecting'
@@ -25,14 +25,14 @@ export type WSConnectionStateType = S.Schema.Type<typeof WSConnectionState>
 
 /**
  * WebSocket Connection Quality Metrics
- * 
+ *
  * Encoded (from API): Numbers as strings, timestamps as ISO strings
  * Type (internal): Numbers as numbers, timestamps as Date objects
  */
 export const ConnectionQualitySchema = S.Struct({
   // Wire format uses string timestamps, internal uses Date objects
   timestamp: S.DateFromString, // Transform: ISO string → Date
-  rtt: S.NumberFromString,     // Transform: string → number  
+  rtt: S.NumberFromString,     // Transform: string → number
   packetsLost: S.NumberFromString,
   packetsReceived: S.Option(S.NumberFromString), // Only for listeners
   jitter: S.NumberFromString,
@@ -43,7 +43,7 @@ export type ConnectionQualityEncoded = S.Schema.Encoded<typeof ConnectionQuality
 
 /**
  * Base WebSocket Connection State Pattern
- * 
+ *
  * Can be extended by domain-specific schemas with additional fields.
  * Handles the common pattern of connection tracking across all WebSocket types.
  */
@@ -61,7 +61,7 @@ export type BaseWebSocketConnectionEncoded = S.Schema.Encoded<typeof BaseWebSock
 
 /**
  * WebSocket Connection Statistics
- * 
+ *
  * Used for debugging and monitoring WebSocket health across domains.
  */
 export const WSConnectionStatsSchema = S.Struct({
@@ -77,7 +77,7 @@ export type WSConnectionStatsEncoded = S.Schema.Encoded<typeof WSConnectionStats
 
 /**
  * WebSocket Message Metadata Pattern
- * 
+ *
  * Standard structure for message history and debugging across all WebSocket types.
  */
 export const WSMessageMetadataSchema = S.Struct({
@@ -92,7 +92,7 @@ export type WSMessageMetadataEncoded = S.Schema.Encoded<typeof WSMessageMetadata
 
 /**
  * WebSocket Error Schema
- * 
+ *
  * Structured error information for WebSocket failures with recovery context.
  */
 export const WSErrorSchema = S.Struct({
@@ -108,7 +108,7 @@ export type WSErrorEncoded = S.Schema.Encoded<typeof WSErrorSchema>
 
 /**
  * Domain-Specific WebSocket Extensions
- * 
+ *
  * Utility schemas for extending the base connection with domain-specific fields.
  */
 
@@ -142,24 +142,6 @@ export const LobbyWebSocketExtensionSchema = S.Struct({
 })
 export type LobbyWebSocketExtensionType = S.Schema.Type<typeof LobbyWebSocketExtensionSchema>
 
-/**
- * =============================================================================
- * SHARED TRANSPORT OPTIONS SCHEMA
- * =============================================================================
- */
-
-/**
- * Transport Options Schema - shared between DJ and Listener events
- * Used for WebRTC transport initialization parameters from backend
- */
-export const TransportOptionsSchema = S.Struct({
-  id: S.String,
-  iceParameters: MediaSoupSchemas.IceParameters,
-  iceCandidates: S.Array(MediaSoupSchemas.IceCandidate),
-  dtlsParameters: MediaSoupSchemas.DtlsParameters
-})
-export type TransportOptionsType = S.Schema.Type<typeof TransportOptionsSchema>
-export type TransportOptionsEncoded = S.Schema.Encoded<typeof TransportOptionsSchema>
 
 /**
  * =============================================================================
@@ -171,7 +153,7 @@ export type TransportOptionsEncoded = S.Schema.Encoded<typeof TransportOptionsSc
  * Lobby Commands (Client → Server)
  */
 // Union type created from individual schemas below
-export type LobbyCommandType = 
+export type LobbyCommandType =
   | S.Schema.Type<typeof AnnounceRoomCommandSchema>
   | S.Schema.Type<typeof RequestJoinCommandSchema>
   | S.Schema.Type<typeof RefreshRoomsCommandSchema>
@@ -180,7 +162,7 @@ export type LobbyCommandType =
  * Lobby Events (Server → Client)
  */
 // Union type created from individual schemas below
-export type LobbyEventType = 
+export type LobbyEventType =
   | S.Schema.Type<typeof RoomAddedEventSchema>
   | S.Schema.Type<typeof RoomUpdatedEventSchema>
   | S.Schema.Type<typeof RoomRemovedEventSchema>
@@ -244,6 +226,17 @@ export type RoomUpdatedEvent = S.Schema.Type<typeof RoomUpdatedEventSchema>
 export type RoomRemovedEvent = S.Schema.Type<typeof RoomRemovedEventSchema>
 export type JoinRoomResponseEvent = S.Schema.Type<typeof JoinRoomResponseEventSchema>
 
+/**
+ * Lobby Event Union Schema with discriminator for wire format
+ * Uses attachPropertySignature to add 'type' field only in encoded format
+ */
+export const LobbyEventSchema = S.Union(
+  RoomAddedEventSchema.pipe(S.attachPropertySignature("type", "roomAdded")),
+  RoomUpdatedEventSchema.pipe(S.attachPropertySignature("type", "roomUpdated")),
+  RoomRemovedEventSchema.pipe(S.attachPropertySignature("type", "roomRemoved")),
+  JoinRoomResponseEventSchema.pipe(S.attachPropertySignature("type", "joinRoomResponse"))
+)
+
 // Individual Lobby Command Schemas for specific type safety
 export const AnnounceRoomCommandSchema = S.Struct({
   name: S.String,
@@ -266,12 +259,22 @@ export type AnnounceRoomCommand = S.Schema.Type<typeof AnnounceRoomCommandSchema
 export type RequestJoinCommand = S.Schema.Type<typeof RequestJoinCommandSchema>
 export type RefreshRoomsCommand = S.Schema.Type<typeof RefreshRoomsCommandSchema>
 
+/**
+ * Lobby Command Union Schema with discriminator for wire format
+ * Uses attachPropertySignature to add 'type' field only in encoded format
+ */
+export const LobbyCommandSchema = S.Union(
+  AnnounceRoomCommandSchema.pipe(S.attachPropertySignature("type", "announceRoom")),
+  RequestJoinCommandSchema.pipe(S.attachPropertySignature("type", "requestJoin")),
+  RefreshRoomsCommandSchema.pipe(S.attachPropertySignature("type", "refreshRooms"))
+)
+
 
 /**
  * DJ Commands (Client → Server)
  */
 // Union type created from individual schemas below
-export type DJCommandType = 
+export type DJCommandType =
   | S.Schema.Type<typeof InitRoomCommandSchema>
   | S.Schema.Type<typeof RequestDjTransportCommandSchema>
   | S.Schema.Type<typeof ConnectDjTransportCommandSchema>
@@ -284,7 +287,7 @@ export type DJCommandType =
  * DJ Events (Server → Client)
  */
 // Union type created from individual schemas below
-export type DJEventType = 
+export type DJEventType =
   | S.Schema.Type<typeof RoomAnnouncedEventSchema>
   | S.Schema.Type<typeof RoomInitializedEventSchema>
   | S.Schema.Type<typeof DjTransportReadyEventSchema>
@@ -314,11 +317,11 @@ export const RoomAnnouncedEventSchema = S.Struct({
 
 export const RoomInitializedEventSchema = S.Struct({
   roomId: S.String,
-  rtpCapabilities: MediaSoupSchemas.RtpCapabilities
+  rtpCapabilities: RtpCapabilitiesTransformSchema
 })
 
 export const DjTransportReadyEventSchema = S.Struct({
-  transportOptions: TransportOptionsSchema
+  transportOptions: TransportOptionsTransformSchema
 })
 
 export const TransportConnectedEventSchema = S.Struct({
@@ -353,6 +356,7 @@ export const RoomNotFoundEventSchema = S.Struct({
 })
 
 // Individual DJ Event Types
+export type RoomAnnouncedEvent = S.Schema.Type<typeof RoomAnnouncedEventSchema>
 export type RoomInitializedEvent = S.Schema.Type<typeof RoomInitializedEventSchema>
 export type DjTransportReadyEvent = S.Schema.Type<typeof DjTransportReadyEventSchema>
 export type TransportConnectedEvent = S.Schema.Type<typeof TransportConnectedEventSchema>
@@ -362,6 +366,23 @@ export type StreamResumedEvent = S.Schema.Type<typeof StreamResumedEventSchema>
 export type RoomClosedEvent = S.Schema.Type<typeof RoomClosedEventSchema>
 export type DJCommandFailedEvent = S.Schema.Type<typeof DJCommandFailedEventSchema>
 export type RoomNotFoundEvent = S.Schema.Type<typeof RoomNotFoundEventSchema>
+
+/**
+ * DJ Event Union Schema with discriminator for wire format
+ * Uses attachPropertySignature to add 'type' field only in encoded format
+ */
+export const DJEventSchema = S.Union(
+  RoomAnnouncedEventSchema.pipe(S.attachPropertySignature("type", "roomAnnounced")),
+  RoomInitializedEventSchema.pipe(S.attachPropertySignature("type", "roomInitialized")),
+  DjTransportReadyEventSchema.pipe(S.attachPropertySignature("type", "djTransportReady")),
+  TransportConnectedEventSchema.pipe(S.attachPropertySignature("type", "transportConnected")),
+  ProducerCreatedEventSchema.pipe(S.attachPropertySignature("type", "producerCreated")),
+  StreamPausedEventSchema.pipe(S.attachPropertySignature("type", "streamPaused")),
+  StreamResumedEventSchema.pipe(S.attachPropertySignature("type", "streamResumed")),
+  RoomClosedEventSchema.pipe(S.attachPropertySignature("type", "roomClosed")),
+  DJCommandFailedEventSchema.pipe(S.attachPropertySignature("type", "commandFailed")),
+  RoomNotFoundEventSchema.pipe(S.attachPropertySignature("type", "roomNotFound"))
+)
 
 
 // Individual DJ Command Schemas for specific type safety
@@ -374,11 +395,11 @@ export const RequestDjTransportCommandSchema = S.Struct({
 
 export const ConnectDjTransportCommandSchema = S.Struct({
   transportId: S.Option(S.String),
-  dtlsParameters: MediaSoupSchemas.DtlsParameters
+  dtlsParameters: DtlsParametersTransformSchema
 })
 
 export const ProduceCommandSchema = S.Struct({
-  rtpParameters: MediaSoupSchemas.RtpParameters
+  rtpParameters: RtpParametersTransformSchema
 })
 
 export const PauseStreamCommandSchema = S.Struct({
@@ -399,12 +420,26 @@ export type PauseStreamCommand = S.Schema.Type<typeof PauseStreamCommandSchema>
 export type ResumeStreamCommand = S.Schema.Type<typeof ResumeStreamCommandSchema>
 export type CloseRoomCommand = S.Schema.Type<typeof CloseRoomCommandSchema>
 
+/**
+ * DJ Command Union Schema with discriminator for wire format
+ * Uses attachPropertySignature to add 'type' field only in encoded format
+ */
+export const DJCommandSchema = S.Union(
+  InitRoomCommandSchema.pipe(S.attachPropertySignature("type", "initRoom")),
+  RequestDjTransportCommandSchema.pipe(S.attachPropertySignature("type", "requestDjTransport")),
+  ConnectDjTransportCommandSchema.pipe(S.attachPropertySignature("type", "connectDjTransport")),
+  ProduceCommandSchema.pipe(S.attachPropertySignature("type", "produce")),
+  PauseStreamCommandSchema.pipe(S.attachPropertySignature("type", "pauseStream")),
+  ResumeStreamCommandSchema.pipe(S.attachPropertySignature("type", "resumeStream")),
+  CloseRoomCommandSchema.pipe(S.attachPropertySignature("type", "closeRoom"))
+)
+
 
 /**
  * Listener Commands (Client → Server)
  */
 // Union type created from individual schemas below
-export type ListenerCommandType = 
+export type ListenerCommandType =
   | S.Schema.Type<typeof InitListenerCommandSchema>
   | S.Schema.Type<typeof GetRouterCapabilitiesCommandSchema>
   | S.Schema.Type<typeof ConnectListenerTransportCommandSchema>
@@ -416,7 +451,7 @@ export type ListenerCommandType =
  * Listener Events (Server → Client)
  */
 // Union type created from individual schemas below
-export type ListenerEventType = 
+export type ListenerEventType =
   | S.Schema.Type<typeof ListenerTransportReadyEventSchema>
   | S.Schema.Type<typeof JoinReadyEventSchema>
   | S.Schema.Type<typeof ListenerTransportConnectedEventSchema>
@@ -431,7 +466,7 @@ export type ListenerEventType =
 
 // Individual Listener Event Schemas for specific type safety
 export const ListenerTransportReadyEventSchema = S.Struct({
-  transportOptions: TransportOptionsSchema
+  transportOptions: TransportOptionsTransformSchema
 })
 
 export const JoinReadyEventSchema = S.Struct({
@@ -446,9 +481,9 @@ export const JoinReadyEventSchema = S.Struct({
     description: S.optional(S.String),
     tags: S.Array(S.String)
   }),
-  transportOptions: TransportOptionsSchema,
+  transportOptions: TransportOptionsTransformSchema,
   producerId: S.String,
-  rtpCapabilities: MediaSoupSchemas.RtpCapabilities
+  rtpCapabilities: RtpCapabilitiesTransformSchema
 })
 
 export const ListenerTransportConnectedEventSchema = S.Struct({
@@ -458,17 +493,12 @@ export const ListenerTransportConnectedEventSchema = S.Struct({
 export const ConsumerCreatedEventSchema = S.Struct({
   consumerId: S.String,
   producerId: S.String,
-  consumerParameters: S.Struct({
-    id: S.String,
-    producerId: S.String,
-    kind: S.Literal('audio', 'video'),
-    rtpParameters: MediaSoupSchemas.RtpParameters
-  })
+  consumerParameters: ConsumerParametersTransformSchema
 })
 
 export const RouterCapabilitiesEventSchema = S.Struct({
   roomId: S.String,
-  rtpCapabilities: MediaSoupSchemas.RtpCapabilities
+  rtpCapabilities: RtpCapabilitiesTransformSchema
 })
 
 export const ListenerCountUpdatedEventSchema = S.Struct({
@@ -511,6 +541,24 @@ export type ListenerRoomClosedEvent = S.Schema.Type<typeof ListenerRoomClosedEve
 export type ListenerCommandFailedEvent = S.Schema.Type<typeof ListenerCommandFailedEventSchema>
 export type ListenerRoomNotFoundEvent = S.Schema.Type<typeof ListenerRoomNotFoundEventSchema>
 
+/**
+ * Listener Event Union Schema with discriminator for wire format
+ * Uses attachPropertySignature to add 'type' field only in encoded format
+ */
+export const ListenerEventSchema = S.Union(
+  ListenerTransportReadyEventSchema.pipe(S.attachPropertySignature("type", "listenerTransportReady")),
+  JoinReadyEventSchema.pipe(S.attachPropertySignature("type", "joinReady")),
+  ListenerTransportConnectedEventSchema.pipe(S.attachPropertySignature("type", "transportConnected")),
+  ConsumerCreatedEventSchema.pipe(S.attachPropertySignature("type", "consumerCreated")),
+  RouterCapabilitiesEventSchema.pipe(S.attachPropertySignature("type", "routerCapabilities")),
+  ListenerCountUpdatedEventSchema.pipe(S.attachPropertySignature("type", "listenerCountUpdated")),
+  ListenerStreamPausedEventSchema.pipe(S.attachPropertySignature("type", "streamPaused")),
+  ListenerStreamResumedEventSchema.pipe(S.attachPropertySignature("type", "streamResumed")),
+  ListenerRoomClosedEventSchema.pipe(S.attachPropertySignature("type", "roomClosed")),
+  ListenerCommandFailedEventSchema.pipe(S.attachPropertySignature("type", "commandFailed")),
+  ListenerRoomNotFoundEventSchema.pipe(S.attachPropertySignature("type", "roomNotFound"))
+)
+
 
 // Individual Listener Command Schemas for specific type safety
 export const InitListenerCommandSchema = S.Struct({
@@ -522,11 +570,11 @@ export const GetRouterCapabilitiesCommandSchema = S.Struct({
 
 export const ConnectListenerTransportCommandSchema = S.Struct({
   transportId: S.Option(S.String),
-  dtlsParameters: MediaSoupSchemas.DtlsParameters
+  dtlsParameters: DtlsParametersTransformSchema
 })
 
 export const RequestConsumerCommandSchema = S.Struct({
-  rtpCapabilities: MediaSoupSchemas.RtpCapabilities
+  rtpCapabilities: RtpCapabilitiesTransformSchema
 })
 
 export const ResumeConsumerCommandSchema = S.Struct({
@@ -544,6 +592,19 @@ export type RequestConsumerCommand = S.Schema.Type<typeof RequestConsumerCommand
 export type ResumeConsumerCommand = S.Schema.Type<typeof ResumeConsumerCommandSchema>
 export type LeaveRoomCommand = S.Schema.Type<typeof LeaveRoomCommandSchema>
 
+/**
+ * Listener Command Union Schema with discriminator for wire format
+ * Uses attachPropertySignature to add 'type' field only in encoded format
+ */
+export const ListenerCommandSchema = S.Union(
+  InitListenerCommandSchema.pipe(S.attachPropertySignature("type", "initListener")),
+  GetRouterCapabilitiesCommandSchema.pipe(S.attachPropertySignature("type", "getRouterCapabilities")),
+  ConnectListenerTransportCommandSchema.pipe(S.attachPropertySignature("type", "connectListenerTransport")),
+  RequestConsumerCommandSchema.pipe(S.attachPropertySignature("type", "requestConsumer")),
+  ResumeConsumerCommandSchema.pipe(S.attachPropertySignature("type", "resumeConsumer")),
+  LeaveRoomCommandSchema.pipe(S.attachPropertySignature("type", "leaveRoom"))
+)
+
 
 
 /**
@@ -557,15 +618,15 @@ export const WebSocketSchemas = {
   ConnectionStats: WSConnectionStatsSchema,
   MessageMetadata: WSMessageMetadataSchema,
   Error: WSErrorSchema,
-  
+
   // Domain extensions
   DJExtension: DJWebSocketExtensionSchema,
   ListenerExtension: ListenerWebSocketExtensionSchema,
   LobbyExtension: LobbyWebSocketExtensionSchema,
-  
+
   // Transport options
   TransportOptions: TransportOptionsSchema,
-  
+
   // Individual command and event schemas are exported separately above
 }
 
@@ -580,12 +641,12 @@ export type WebSocketTypes = {
   ConnectionStats: WSConnectionStatsType
   MessageMetadata: WSMessageMetadataType
   Error: WSErrorType
-  
+
   // Domain extensions
   DJExtension: DJWebSocketExtensionType
   ListenerExtension: ListenerWebSocketExtensionType
   LobbyExtension: LobbyWebSocketExtensionType
-  
+
   // Message types
   LobbyCommand: LobbyCommandType
   LobbyEvent: LobbyEventType
@@ -596,15 +657,8 @@ export type WebSocketTypes = {
 }
 
 /**
- * =============================================================================
- * COMMAND BUILDERS USING EFFECT SCHEMA
- * =============================================================================
- */
-
-
-/**
  * Command Validation Functions using Effect Schema
- * 
+ *
  * These use the schema struct capabilities for full validation before sending.
  */
 export const CommandValidators = {
