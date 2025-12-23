@@ -13,16 +13,16 @@ import { AudioClientLive } from './services/infrastructure/AudioClient'
 import { BrowserClientLive } from './services/infrastructure/BrowserClient'
 
 // Store Adapter Layers
-import { ConnectionAdapterLive } from './stores/adapters/connection.adapter'
-import { DJAdapterLive } from './stores/adapters/dj.adapter'
-import { ListenersAdapterLive } from './stores/adapters/listeners.adapter'
-import { WebRTCAdapterLive } from './stores/adapters/webrtc.adapter'
-import { RoomMetadataAdapterLive } from './stores/adapters/room-metadata.adapter'
+import { 
+  AudioAdapterLive,
+  ConnectionAdapterLive,
+  LobbyAdapterLive,
+  UserAdapterLive 
+} from './stores'
 
 // Application Service Layers
-import { DJServiceLive } from './services/application/DJService'
+import { UserServiceLive } from './services/application/UserService'
 import { LobbyServiceLive } from './services/application/LobbyService'
-import { ListenerServiceLive } from './services/application/ListenerService'
 
 /**
  * Main Layer Composition
@@ -39,17 +39,15 @@ const InfrastructureLayer = Layer.mergeAll(
 )
 
 const StoreAdapterLayer = Layer.mergeAll(
+  AudioAdapterLive,
   ConnectionAdapterLive,
-  DJAdapterLive,
-  ListenersAdapterLive,
-  WebRTCAdapterLive,
-  RoomMetadataAdapterLive
+  LobbyAdapterLive,
+  UserAdapterLive
 )
 
 const ApplicationServiceLayer = Layer.mergeAll(
-  DJServiceLive,
-  LobbyServiceLive,
-  ListenerServiceLive
+  UserServiceLive,
+  LobbyServiceLive
 )
 
 // Complete application layer with proper dependency flow:

@@ -155,6 +155,17 @@ export type MediaDeviceInfoType = S.Schema.Type<typeof MediaDeviceInfoSchema>
 
 
 /**
+ * PermissionState Schema (synchronized with browser PermissionState type)
+ * Used for navigator.permissions.query() results
+ */
+export const PermissionStateSchema = S.Union(
+  S.Literal('granted'),
+  S.Literal('denied'),
+  S.Literal('prompt')
+)
+export type PermissionStateType = S.Schema.Type<typeof PermissionStateSchema>
+
+/**
  * Error Schema (for JavaScript Error objects)
  */
 export const ErrorSchema = S.Struct({
@@ -172,6 +183,7 @@ export const WebAPISchemas = {
   MediaTrackConstraints: MediaTrackConstraintsSchema,
   MediaStreamConstraints: MediaStreamConstraintsSchema,
   MediaDeviceInfo: MediaDeviceInfoSchema,
+  PermissionState: PermissionStateSchema,
   Error: ErrorSchema
 }
 
@@ -182,5 +194,6 @@ export type WebAPITypes = {
   MediaTrackConstraints: MediaTrackConstraintsType
   MediaStreamConstraints: MediaStreamConstraintsType
   MediaDeviceInfo: MediaDeviceInfoType
+  PermissionState: PermissionStateType
   Error: ErrorType
 }

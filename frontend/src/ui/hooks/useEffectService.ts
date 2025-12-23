@@ -7,12 +7,11 @@
 
 import { Effect } from 'effect'
 import { runtime } from '../../index'
-import { DJService } from '../../services/application/DJService'
-import { ListenerService } from '../../services/application/ListenerService' 
+import { UserService } from '../../services/application/UserService'
 import { LobbyService } from '../../services/application/LobbyService'
 
 /**
- * Hook to use DJService in SolidJS components
+ * Hook to use UserService for DJ operations in SolidJS components
  * 
  * Returns a promise-based interface for DJ operations.
  * All methods return Effect programs that are automatically run.
@@ -25,8 +24,8 @@ export const useDJService = () => {
     publishToRoom: (roomId: string, djWebSocketUrl: string, selectedDeviceId: string) =>
       runtime.runPromise(
         Effect.gen(function* () {
-          const djService = yield* DJService
-          return yield* djService.publishDJRoom(roomId, djWebSocketUrl, selectedDeviceId)
+          const userService = yield* UserService
+          return yield* userService.publishDJRoom(roomId, djWebSocketUrl, selectedDeviceId)
         })
       ),
 
@@ -36,8 +35,8 @@ export const useDJService = () => {
     stopStreaming: (_djId: string) =>
       runtime.runPromise(
         Effect.gen(function* () {
-          const djService = yield* DJService
-          return yield* djService.closeDJRoom()
+          const userService = yield* UserService
+          return yield* userService.closeDJRoom()
         })
       ),
 
@@ -47,8 +46,8 @@ export const useDJService = () => {
     previewAudioDevice: (deviceId: string) =>
       runtime.runPromise(
         Effect.gen(function* () {
-          const djService = yield* DJService
-          return yield* djService.previewAudioDevice(deviceId)
+          const userService = yield* UserService
+          return yield* userService.previewAudioDevice(deviceId)
         })
       ),
 
@@ -58,8 +57,8 @@ export const useDJService = () => {
     stopPreview: (_djId: string) =>
       runtime.runPromise(
         Effect.gen(function* () {
-          const djService = yield* DJService
-          return yield* djService.stopDevicePreview()
+          const userService = yield* UserService
+          return yield* userService.stopDevicePreview()
         })
       ),
 
@@ -69,9 +68,9 @@ export const useDJService = () => {
     controlStreaming: (djId: string, action: 'pause' | 'resume') =>
       runtime.runPromise(
         Effect.gen(function* () {
-          const djService = yield* DJService
+          const userService = yield* UserService
           const pause = action === 'pause'
-          return yield* djService.toggleDJStream(pause)
+          return yield* userService.toggleDJStream(pause)
         })
       ),
 
@@ -79,7 +78,7 @@ export const useDJService = () => {
 }
 
 /**
- * Hook to use ListenerService in SolidJS components
+ * Hook to use UserService for Listener operations in SolidJS components
  */
 export const useListenerService = () => {
   return {
@@ -89,8 +88,8 @@ export const useListenerService = () => {
     joinRoom: (roomId: string, sessionId: string, listenerWebSocketUrl: string) =>
       runtime.runPromise(
         Effect.gen(function* () {
-          const listenerService = yield* ListenerService
-          return yield* listenerService.joinRoom(roomId, sessionId, listenerWebSocketUrl)
+          const userService = yield* UserService
+          return yield* userService.joinRoomAsListener(roomId, sessionId, listenerWebSocketUrl)
         })
       ),
 
@@ -100,43 +99,28 @@ export const useListenerService = () => {
     leaveRoom: (listenerId: string) =>
       runtime.runPromise(
         Effect.gen(function* () {
-          const listenerService = yield* ListenerService
-          return yield* listenerService.leaveRoom(listenerId)
+          const userService = yield* UserService
+          return yield* userService.leaveListenerRoom(listenerId)
         })
       ),
 
     /**
-     * Control audio playback
+     * Control audio playback - removed, now handled by AudioClient
      */
-    controlAudio: (listenerId: string, action: 'play' | 'pause' | 'setVolume', value?: number) =>
-      runtime.runPromise(
-        Effect.gen(function* () {
-          const listenerService = yield* ListenerService
-          return yield* listenerService.controlAudio(listenerId, action, value)
-        })
-      ),
+    controlAudio: (_listenerId: string, _action: 'play' | 'pause' | 'setVolume', _value?: number) =>
+      Promise.resolve(),
 
     /**
-     * Handle manual play for autoplay-blocked audio
+     * Handle manual play for autoplay-blocked audio - removed, now handled by AudioClient
      */
-    handleManualPlay: (listenerId: string) =>
-      runtime.runPromise(
-        Effect.gen(function* () {
-          const listenerService = yield* ListenerService
-          return yield* listenerService.handleManualPlay(listenerId)
-        })
-      ),
+    handleManualPlay: (_listenerId: string) =>
+      Promise.resolve(),
 
     /**
-     * Check existing resources
+     * Check existing resources - removed
      */
-    checkExistingResources: (roomId: string, sessionId: string) =>
-      runtime.runPromise(
-        Effect.gen(function* () {
-          const listenerService = yield* ListenerService
-          return yield* listenerService.checkExistingResources(roomId, sessionId)
-        })
-      ),
+    checkExistingResources: (_roomId: string, _sessionId: string) =>
+      Promise.resolve(null),
 
 
     /**
@@ -145,8 +129,8 @@ export const useListenerService = () => {
     joinRoomWithNavigation: (joinData: { roomId: string; sessionId: string; listenerWebSocketUrl: string }) =>
       runtime.runPromise(
         Effect.gen(function* () {
-          const listenerService = yield* ListenerService
-          return yield* listenerService.joinRoom(joinData.roomId, joinData.sessionId, joinData.listenerWebSocketUrl)
+          const userService = yield* UserService
+          return yield* userService.joinRoomAsListener(joinData.roomId, joinData.sessionId, joinData.listenerWebSocketUrl)
         })
       ),
 
@@ -156,8 +140,8 @@ export const useListenerService = () => {
     leaveRoomAndNavigate: (listenerId: string) =>
       runtime.runPromise(
         Effect.gen(function* () {
-          const listenerService = yield* ListenerService
-          return yield* listenerService.leaveRoom(listenerId)
+          const userService = yield* UserService
+          return yield* userService.leaveListenerRoom(listenerId)
         })
       )
   }

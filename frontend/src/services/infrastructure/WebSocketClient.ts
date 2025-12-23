@@ -26,7 +26,7 @@ import {
   WebSocketOperation, 
   WsConnectionState 
 } from '../../domain/schemas/connection.schema'
-import { ConnectionAdapter } from '../../stores/connection/connection.adapter'
+import { ConnectionAdapter } from '../../stores'
 
 // Union types for commands and events
 type DJCommand = S.Schema.Type<typeof DJCommandSchema>

@@ -16,8 +16,7 @@ import { Effect, Context, Layer, Option as O } from 'effect'
 import type { LobbyRoomInfoType } from '../../domain/schemas/lobby.schema'
 
 // Import only adapters via Context.Tag
-import { LobbyAdapter } from '../../stores/adapters/lobby.adapter'
-import { RoomMetadataAdapter } from '../../stores/adapters/room-metadata.adapter'
+import { LobbyAdapter } from '../../stores'
 
 // Import only infrastructure via Context.Tag
 import { WebSocketClientService } from '../infrastructure/WebSocketClient'

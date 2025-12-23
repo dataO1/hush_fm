@@ -14,7 +14,7 @@
 import { Effect, Context, Layer, Option, pipe } from 'effect'
 import { types } from 'mediasoup-client'
 import { WebrtcConnectionState, TransportError } from '../../domain/schemas/connection.schema'
-import { ConnectionAdapter } from '../../stores/connection/connection.adapter'
+import { ConnectionAdapter } from '../../stores'
 
 /**
  * WebRTC Service Interface
