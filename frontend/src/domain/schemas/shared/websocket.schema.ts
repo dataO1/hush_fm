@@ -7,8 +7,8 @@
  * Uses S.Encoded vs S.Type pattern for proper boundary handling.
  */
 
-import { Schema as S, Option as O } from 'effect'
-import { ConsumerOptionsSchema, ConsumerParametersTransformSchema, DtlsParametersSchema, DtlsParametersTransformSchema, IceCandidateSchema, RtpCapabilitiesSchema, RtpCapabilitiesTransformSchema, RtpParametersSchema, RtpParametersTransformSchema, TransportOptionsSchema, TransportOptionsTransformSchema } from './mediasoup.schema'
+import { Schema as S } from 'effect'
+import { ConsumerParametersTransformSchema, DtlsParametersTransformSchema, RtpCapabilitiesTransformSchema, RtpParametersTransformSchema, TransportOptionsTransformSchema } from './mediasoup.schema'
 
 
 /**

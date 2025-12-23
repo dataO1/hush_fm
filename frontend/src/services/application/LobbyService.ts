@@ -14,9 +14,11 @@
 
 import { Effect, Context, Layer, Option as O } from 'effect'
 import type { LobbyRoomInfoType } from '../../domain/schemas/lobby.schema'
+import type { AnnounceRoomCommand, RequestJoinCommand } from '../../domain/schemas/shared/websocket.schema'
+import { config } from '../../config'
 
 // Import only adapters via Context.Tag
-import { LobbyAdapter } from '../../stores'
+import { ConnectionAdapter, LobbyAdapter } from '../../stores'
 
 // Import only infrastructure via Context.Tag
 import { WebSocketClientService } from '../infrastructure/WebSocketClient'
@@ -94,16 +96,11 @@ const LobbyServiceImpl = {
     Effect.gen(function* () {
       console.info('🏠 Lobby Service: Connecting to lobby')
       
-      const lobbyAdapter = yield* LobbyAdapter
       const wsClient = yield* WebSocketClientService
       
-      lobbyAdapter.setConnecting(true)
-      
-      // Connect to lobby WebSocket (high-level method handles connection + subscription)
-      const lobbyWS = yield* wsClient.connectToLobby('ws://localhost:3001/lobby') // This would come from config
-      
-      // Store WebSocket in lobby adapter
-      lobbyAdapter.setConnected(lobbyWS)
+      // Connect to lobby WebSocket - wsClient handles all connection state management
+      const lobbyUrl = `${config.websocket.baseUrl}/lobby`
+      yield* wsClient.connectLobby(lobbyUrl)
       
       console.info('✅ Lobby Service: Connected to lobby')
     }),
@@ -115,8 +112,10 @@ const LobbyServiceImpl = {
     Effect.gen(function* () {
       console.info('🏠 Lobby Service: Disconnecting from lobby')
       
-      const lobbyAdapter = yield* LobbyAdapter
-      lobbyAdapter.setDisconnected()
+      const wsClient = yield* WebSocketClientService
+      
+      // Disconnect from lobby - wsClient handles all connection state management
+      yield* wsClient.disconnectLobby()
       
       console.info('✅ Lobby Service: Disconnected from lobby')
     }),
@@ -148,7 +147,6 @@ const LobbyServiceImpl = {
       console.info(`🎵 Lobby Service: Announcing room: ${roomName}`)
       
       const lobbyAdapter = yield* LobbyAdapter
-      const roomMetadataAdapter = yield* RoomMetadataAdapter
       const wsClient = yield* WebSocketClientService
       
       // Validate inputs
@@ -173,27 +171,32 @@ const LobbyServiceImpl = {
         ))
       }
       
-      // Get lobby WebSocket from adapter
-      const lobbyWS = lobbyAdapter.getLobbyWebSocket()
-      if (!lobbyWS) {
-        return yield* Effect.fail(new LobbyServiceError(
-          'Must be connected to lobby to announce room',
-          'announceRoom'
-        ))
+      // Create properly typed announce room command
+      const command: AnnounceRoomCommand = {
+        name: roomName,
+        djName,
+        sessionId,
+        description: description ? O.some(description) : O.none(),
+        tags: tags || []
       }
-
-      // Announce room using WebSocketClient (transformation handled internally)
-      const result = yield* wsClient.announceRoom(lobbyWS, roomName, djName, sessionId, description)
       
-      // Set room metadata
-      roomMetadataAdapter.setRoomMetadata({
+      // Send announce room command via lobby WebSocket
+      yield* wsClient.sendLobbyCommand(command)
+      
+      // Wait for room announced event
+      const result = yield* wsClient.waitForLobbyEvent('roomAnnounced')
+      
+      // Store room info in lobby adapter
+      lobbyAdapter.addRoom({
         id: result.room.id,
         name: roomName,
-        description: description ? O.some(description) : O.none(),
         djName,
-        isPublic: true,
+        description: description ? O.some(description) : O.none(),
+        tags: tags || [],
+        listenerCount: 0,
+        isStreaming: false,
         createdAt: new Date(),
-        tags
+        isPublic: true
       })
       
       const announcementResult: RoomAnnouncementResult = {
@@ -261,20 +264,12 @@ const LobbyServiceImpl = {
     Effect.gen(function* () {
       console.info('🔄 Lobby Service: Refreshing room list')
       
-      const lobbyAdapter = yield* LobbyAdapter
       const wsClient = yield* WebSocketClientService
       
-      // Get lobby WebSocket from adapter
-      const lobbyWS = lobbyAdapter.getLobbyWebSocket()
-      if (!lobbyWS) {
-        return yield* Effect.fail(new LobbyServiceError(
-          'Must be connected to lobby to refresh room list',
-          'refreshRoomList'
-        ))
-      }
+      // Send refresh rooms command (empty object for RefreshRoomsCommand)
+      yield* wsClient.sendLobbyCommand({} as any)
       
-      // Refresh room list using WebSocketClient (transformation handled internally)
-      yield* wsClient.refreshLobbyRoomList(lobbyWS)
+      // Note: Room list updates will come as events automatically
       
       console.info('✅ Lobby Service: Room list refreshed')
     }),

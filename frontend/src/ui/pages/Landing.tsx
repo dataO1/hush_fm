@@ -1,11 +1,11 @@
 import { For, Show, createResource, createSignal } from 'solid-js'
 import { useNavigate } from '@solidjs/router'
-import { Effect, Option as O } from 'effect'
-import { useDJStore, useListenersStore, useLobbyStore, useUserStore } from '../../stores/store-contexts'
+import { Option as O } from 'effect'
+import { useConnectionAdapter, useLobbyAdapter, useUserAdapter, useRuntime } from '../../App'
 import { useLobbyService } from '../hooks/useEffectService'
 import ConnectionStatusDot from '../components/ConnectionStatusDot'
 import { RoomCard } from '../components/room/RoomCard'
-import type { RoomInfo } from '../../domain/schemas/room.schema'
+import type { LobbyRoomType } from '../../domain/schemas/lobby.schema'
 
 export default function Landing() {
   const navigate = useNavigate()

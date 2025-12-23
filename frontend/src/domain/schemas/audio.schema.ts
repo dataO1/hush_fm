@@ -1,6 +1,5 @@
-import { Schema as S, Option, Data } from 'effect'
-import { Device } from 'mediasoup-client'
-import { WebAPISchemas, WebAPITypes } from './shared'
+import { Schema as S, Data } from 'effect'
+import { WebAPISchemas } from './shared'
 /**
  * DJ Audio Track State (Step 4: getUserMedia)
  */

@@ -8,7 +8,7 @@
  * Native type declarations are exported for use in transform utilities.
  */
 
-import { Schema as S, Option as O, Data } from 'effect'
+import { Schema as S, Option as O } from 'effect'
 import { Device } from 'mediasoup-client'
 
 /**
