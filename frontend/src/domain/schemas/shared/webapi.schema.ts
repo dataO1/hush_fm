@@ -1,9 +1,9 @@
 /**
  * Web API Schema Synchronization
- * 
+ *
  * Strict type synchronization with Web API interfaces using Effect Schema.
  * Handles DOM objects, MediaStream API, and other browser APIs.
- * 
+ *
  * Pattern: Use S.instanceOf for DOM objects and S.as for complex interfaces
  */
 
@@ -12,26 +12,6 @@ import { Schema as S } from 'effect'
 /**
  * WebSocket Schema (synchronized with WebSocket interface)
  */
-export const WebSocketSchema = S.instanceOf(WebSocket)
-export type WebSocketType = S.Schema.Type<typeof WebSocketSchema>
-
-/**
- * MediaStream Schema (synchronized with MediaStream interface)
- */
-export const MediaStreamSchema = S.instanceOf(MediaStream)
-export type MediaStreamType = S.Schema.Type<typeof MediaStreamSchema>
-
-/**
- * MediaStreamTrack Schema (synchronized with MediaStreamTrack interface)
- */
-export const MediaStreamTrackSchema = S.instanceOf(MediaStreamTrack)
-export type MediaStreamTrackType = S.Schema.Type<typeof MediaStreamTrackSchema>
-
-/**
- * HTMLAudioElement Schema (synchronized with HTMLAudioElement interface)
- */
-export const HTMLAudioElementSchema = S.instanceOf(HTMLAudioElement)
-export type HTMLAudioElementType = S.Schema.Type<typeof HTMLAudioElementSchema>
 
 /**
  * MediaTrackConstraints Schema (synchronized with MediaTrackConstraints interface)
@@ -48,7 +28,7 @@ export const MediaTrackConstraintsSchema = S.Struct({
       ideal: S.String
     })
   )),
-  
+
   // Audio quality constraints
   sampleRate: S.Option(S.Union(
     S.Number,
@@ -71,7 +51,7 @@ export const MediaTrackConstraintsSchema = S.Struct({
       ideal: S.Number
     })
   )),
-  
+
   // Latency optimization
   latency: S.Option(S.Union(
     S.Number,
@@ -79,7 +59,7 @@ export const MediaTrackConstraintsSchema = S.Struct({
       ideal: S.Number
     })
   )),
-  
+
   // Audio processing controls
   echoCancellation: S.Option(S.Union(
     S.Boolean,
@@ -99,7 +79,7 @@ export const MediaTrackConstraintsSchema = S.Struct({
       exact: S.Boolean
     })
   )),
-  
+
   // Chrome-specific constraints
   googEchoCancellation: S.Option(S.Union(
     S.Boolean,
@@ -166,7 +146,7 @@ export const MediaDeviceInfoSchema = S.Struct({
   groupId: S.String,
   kind: S.Union(
     S.Literal('audioinput'),
-    S.Literal('audiooutput'), 
+    S.Literal('audiooutput'),
     S.Literal('videoinput')
   ),
   label: S.String
