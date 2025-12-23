@@ -1,6 +1,6 @@
 /**
  * Services Index - SolidJS 2025 Architecture
- * 
+ *
  * Exports for the three-layer service architecture:
  * - Infrastructure: Technical operations (WebSocket, HTTP, MediaSoup, Audio, Browser)
  * - Domain: Business logic (Room, Stream, User, Connection, Audio)

@@ -26,7 +26,7 @@ export interface ConnectionActions {
   // WebSocket state transitions (dual)
   setLobbyWSState: (state: WsConnectionState) => void
   setRoomWSState: (state: WsConnectionState) => void
-  
+
   // Error management
   setConnectionError: (error: ConnectionError | null) => void
   clearError: () => void
@@ -51,6 +51,7 @@ export interface ConnectionStore {
   readonly isLobbyConnected: () => boolean
   readonly isRoomConnected: () => boolean
   readonly isConnecting: () => boolean  // WebRTC connecting state
+  readonly isConnected: () => boolean  // WebRTC connecting state
   readonly hasError: () => boolean
   readonly connectionError: () => Option.Option<ConnectionError>
 }
@@ -139,22 +140,27 @@ export const createConnectionStore = (): ConnectionStore => {
   }
 
   // Computed values using createMemo for performance
-  const isLobbyConnected = createMemo(() => 
+  const isLobbyConnected = createMemo(() =>
     state.lobbyWsState === WsConnectionState.CONNECTED
   )
 
-  const isRoomConnected = createMemo(() => 
+  const isRoomConnected = createMemo(() =>
     state.roomWsState === WsConnectionState.CONNECTED &&
     (state.webrtcConnectionState === WebrtcConnectionState.CONNECTED ||
      state.webrtcConnectionState === WebrtcConnectionState.STREAMING)
   )
 
-  const isConnecting = createMemo(() => 
+  const isConnecting = createMemo(() =>
     state.webrtcConnectionState === WebrtcConnectionState.CONNECTING ||
     state.webrtcConnectionState === WebrtcConnectionState.DISCONNECTING
   )
 
-  const hasError = createMemo(() => 
+
+  const isConnected = createMemo(() =>
+    state.webrtcConnectionState === WebrtcConnectionState.CONNECTED
+  )
+
+  const hasError = createMemo(() =>
     state.webrtcConnectionState === WebrtcConnectionState.ERROR ||
     Option.isSome(state.lastError)
   )

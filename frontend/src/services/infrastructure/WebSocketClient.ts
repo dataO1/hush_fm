@@ -19,7 +19,38 @@ import {
   ListenerCommandSchema,
   ListenerEventSchema,
   LobbyCommandSchema,
-  LobbyEventSchema
+  LobbyEventSchema,
+  type LobbyCommandType,
+  type DJCommandType,
+  type ListenerCommandType,
+  // Individual DJ Event Schemas for proper type narrowing
+  RoomInitializedEventSchema,
+  DjTransportReadyEventSchema,
+  TransportConnectedEventSchema,
+  ProducerCreatedEventSchema,
+  StreamPausedEventSchema,
+  StreamResumedEventSchema,
+  RoomClosedEventSchema,
+  DJCommandFailedEventSchema,
+  RoomNotFoundEventSchema,
+  // Individual Listener Event Schemas for proper type narrowing
+  JoinReadyEventSchema,
+  ListenerTransportReadyEventSchema,
+  ListenerTransportConnectedEventSchema,
+  ConsumerCreatedEventSchema,
+  RouterCapabilitiesEventSchema,
+  ListenerCountUpdatedEventSchema,
+  ListenerStreamPausedEventSchema,
+  ListenerStreamResumedEventSchema,
+  ListenerRoomClosedEventSchema,
+  ListenerCommandFailedEventSchema,
+  ListenerRoomNotFoundEventSchema,
+  // Individual Lobby Event Schemas for proper type narrowing
+  RoomAnnouncedEventSchema,
+  RoomAddedEventSchema,
+  RoomUpdatedEventSchema,
+  RoomRemovedEventSchema,
+  JoinRoomResponseEventSchema
 } from '../../domain/schemas/shared/websocket.schema'
 import { 
   WebSocketError, 
@@ -28,12 +59,9 @@ import {
 } from '../../domain/schemas/connection.schema'
 import { ConnectionAdapter } from '../../stores'
 
-// Union types for commands and events
-type DJCommand = S.Schema.Type<typeof DJCommandSchema>
+// Union types for events (use Schema.Type for receiving)
 type DJEvent = S.Schema.Type<typeof DJEventSchema>
-type ListenerCommand = S.Schema.Type<typeof ListenerCommandSchema>
 type ListenerEvent = S.Schema.Type<typeof ListenerEventSchema>
-type LobbyCommand = S.Schema.Type<typeof LobbyCommandSchema>
 type LobbyEvent = S.Schema.Type<typeof LobbyEventSchema>
 
 /**
@@ -56,19 +84,19 @@ interface WebSocketClientServiceImpl {
   readonly disconnectRoom: () => Effect.Effect<void, never, ConnectionAdapter>
 
   /**
-   * Send DJ command
+   * Send DJ command (without type field - added during encoding)
    */
-  readonly sendDJCommand: (command: DJCommand) => Effect.Effect<void, WebSocketError, never>
+  readonly sendDJCommand: (command: DJCommandType) => Effect.Effect<void, WebSocketError, never>
 
   /**
-   * Send Listener command
+   * Send Listener command (without type field - added during encoding)
    */
-  readonly sendListenerCommand: (command: ListenerCommand) => Effect.Effect<void, WebSocketError, never>
+  readonly sendListenerCommand: (command: ListenerCommandType) => Effect.Effect<void, WebSocketError, never>
 
   /**
-   * Send Lobby command
+   * Send Lobby command (without type field - added during encoding)
    */
-  readonly sendLobbyCommand: (command: LobbyCommand) => Effect.Effect<void, WebSocketError, never>
+  readonly sendLobbyCommand: (command: LobbyCommandType) => Effect.Effect<void, WebSocketError, never>
 
   /**
    * Subscribe to DJ events
@@ -86,19 +114,50 @@ interface WebSocketClientServiceImpl {
   readonly subscribeLobbyEvents: (handler: (event: LobbyEvent) => void) => Effect.Effect<() => void, WebSocketError, never>
 
   /**
-   * Wait for specific DJ event type with timeout
+   * Wait for specific DJ event type with timeout - overloaded for proper type narrowing
    */
-  readonly waitForDJEvent: (eventType: string, timeoutMs?: number) => Effect.Effect<DJEvent, WebSocketError, never>
+  readonly waitForDJEvent: {
+    (eventType: 'roomInitialized', timeoutMs?: number): Effect.Effect<S.Schema.Type<typeof RoomInitializedEventSchema>, WebSocketError, never>
+    (eventType: 'djTransportReady', timeoutMs?: number): Effect.Effect<S.Schema.Type<typeof DjTransportReadyEventSchema>, WebSocketError, never>
+    (eventType: 'transportConnected', timeoutMs?: number): Effect.Effect<S.Schema.Type<typeof TransportConnectedEventSchema>, WebSocketError, never>
+    (eventType: 'producerCreated', timeoutMs?: number): Effect.Effect<S.Schema.Type<typeof ProducerCreatedEventSchema>, WebSocketError, never>
+    (eventType: 'streamPaused', timeoutMs?: number): Effect.Effect<S.Schema.Type<typeof StreamPausedEventSchema>, WebSocketError, never>
+    (eventType: 'streamResumed', timeoutMs?: number): Effect.Effect<S.Schema.Type<typeof StreamResumedEventSchema>, WebSocketError, never>
+    (eventType: 'roomClosed', timeoutMs?: number): Effect.Effect<S.Schema.Type<typeof RoomClosedEventSchema>, WebSocketError, never>
+    (eventType: 'djCommandFailed', timeoutMs?: number): Effect.Effect<S.Schema.Type<typeof DJCommandFailedEventSchema>, WebSocketError, never>
+    (eventType: 'roomNotFound', timeoutMs?: number): Effect.Effect<S.Schema.Type<typeof RoomNotFoundEventSchema>, WebSocketError, never>
+    (eventType: string, timeoutMs?: number): Effect.Effect<DJEvent, WebSocketError, never>
+  }
 
   /**
-   * Wait for specific Listener event type with timeout
+   * Wait for specific Listener event type with timeout - overloaded for proper type narrowing
    */
-  readonly waitForListenerEvent: (eventType: string, timeoutMs?: number) => Effect.Effect<ListenerEvent, WebSocketError, never>
+  readonly waitForListenerEvent: {
+    (eventType: 'joinReady', timeoutMs?: number): Effect.Effect<S.Schema.Type<typeof JoinReadyEventSchema>, WebSocketError, never>
+    (eventType: 'listenerTransportReady', timeoutMs?: number): Effect.Effect<S.Schema.Type<typeof ListenerTransportReadyEventSchema>, WebSocketError, never>
+    (eventType: 'transportConnected', timeoutMs?: number): Effect.Effect<S.Schema.Type<typeof ListenerTransportConnectedEventSchema>, WebSocketError, never>
+    (eventType: 'consumerCreated', timeoutMs?: number): Effect.Effect<S.Schema.Type<typeof ConsumerCreatedEventSchema>, WebSocketError, never>
+    (eventType: 'routerCapabilities', timeoutMs?: number): Effect.Effect<S.Schema.Type<typeof RouterCapabilitiesEventSchema>, WebSocketError, never>
+    (eventType: 'listenerCountUpdated', timeoutMs?: number): Effect.Effect<S.Schema.Type<typeof ListenerCountUpdatedEventSchema>, WebSocketError, never>
+    (eventType: 'streamPaused', timeoutMs?: number): Effect.Effect<S.Schema.Type<typeof ListenerStreamPausedEventSchema>, WebSocketError, never>
+    (eventType: 'streamResumed', timeoutMs?: number): Effect.Effect<S.Schema.Type<typeof ListenerStreamResumedEventSchema>, WebSocketError, never>
+    (eventType: 'roomClosed', timeoutMs?: number): Effect.Effect<S.Schema.Type<typeof ListenerRoomClosedEventSchema>, WebSocketError, never>
+    (eventType: 'listenerCommandFailed', timeoutMs?: number): Effect.Effect<S.Schema.Type<typeof ListenerCommandFailedEventSchema>, WebSocketError, never>
+    (eventType: 'roomNotFound', timeoutMs?: number): Effect.Effect<S.Schema.Type<typeof ListenerRoomNotFoundEventSchema>, WebSocketError, never>
+    (eventType: string, timeoutMs?: number): Effect.Effect<ListenerEvent, WebSocketError, never>
+  }
 
   /**
-   * Wait for specific Lobby event type with timeout
+   * Wait for specific Lobby event type with timeout - overloaded for proper type narrowing
    */
-  readonly waitForLobbyEvent: (eventType: string, timeoutMs?: number) => Effect.Effect<LobbyEvent, WebSocketError, never>
+  readonly waitForLobbyEvent: {
+    (eventType: 'roomAnnounced', timeoutMs?: number): Effect.Effect<S.Schema.Type<typeof RoomAnnouncedEventSchema>, WebSocketError, never>
+    (eventType: 'roomAdded', timeoutMs?: number): Effect.Effect<S.Schema.Type<typeof RoomAddedEventSchema>, WebSocketError, never>
+    (eventType: 'roomUpdated', timeoutMs?: number): Effect.Effect<S.Schema.Type<typeof RoomUpdatedEventSchema>, WebSocketError, never>
+    (eventType: 'roomRemoved', timeoutMs?: number): Effect.Effect<S.Schema.Type<typeof RoomRemovedEventSchema>, WebSocketError, never>
+    (eventType: 'joinApproved', timeoutMs?: number): Effect.Effect<S.Schema.Type<typeof JoinRoomResponseEventSchema>, WebSocketError, never>
+    (eventType: string, timeoutMs?: number): Effect.Effect<LobbyEvent, WebSocketError, never>
+  }
 }
 
 /**
@@ -141,10 +200,10 @@ const createWebSocketClientImpl = (): WebSocketClientServiceImpl => {
     }
   }
   
-  // Separate handlers for each event type
-  const djEventHandlers: Set<(event: DJEvent) => void> = new Set()
-  const listenerEventHandlers: Set<(event: ListenerEvent) => void> = new Set()
-  const lobbyEventHandlers: Set<(event: LobbyEvent) => void> = new Set()
+  // Separate handlers for each event type (handle raw data, not decoded)
+  const djEventHandlers: Set<(data: unknown) => void> = new Set()
+  const listenerEventHandlers: Set<(data: unknown) => void> = new Set()
+  const lobbyEventHandlers: Set<(data: unknown) => void> = new Set()
 
   // Generic helper functions
   const clearConnectionTimeout = (connectionType: ConnectionType): Effect.Effect<void, never, never> =>
@@ -222,33 +281,12 @@ const createWebSocketClientImpl = (): WebSocketClientServiceImpl => {
             
             if (connectionType === 'lobby') {
               // Lobby connection only handles lobby events
-              lobbyEventHandlers.forEach(handler => {
-                try {
-                  const lobbyEvent = S.decodeUnknownSync(LobbyEventSchema)(data)
-                  handler(lobbyEvent)
-                } catch (error) {
-                  // Decoding error means it's not a valid lobby event, ignore
-                }
-              })
+              lobbyEventHandlers.forEach(handler => handler(data))
             } else {
               // Room connection handles DJ and Listener events
-              djEventHandlers.forEach(handler => {
-                try {
-                  const djEvent = S.decodeUnknownSync(DJEventSchema)(data)
-                  handler(djEvent)
-                } catch (error) {
-                  // Not a DJ event, ignore
-                }
-              })
-
-              listenerEventHandlers.forEach(handler => {
-                try {
-                  const listenerEvent = S.decodeUnknownSync(ListenerEventSchema)(data)
-                  handler(listenerEvent)
-                } catch (error) {
-                  // Not a listener event, ignore
-                }
-              })
+              // Pass raw data to handlers - they'll decode as needed
+              djEventHandlers.forEach(handler => handler(data))
+              listenerEventHandlers.forEach(handler => handler(data))
             }
           } catch (error) {
             // JSON parse error - report to adapter
@@ -427,14 +465,14 @@ const createWebSocketClientImpl = (): WebSocketClientServiceImpl => {
       }
     }) as Effect.Effect<void, never, never>
 
-  // Generic wait for event function
-  const waitForEvent = <T>(
+  // Generic wait for event function (handles raw data)
+  const waitForEvent = (
     eventType: string,
-    handlers: Set<(event: T) => void>,
+    handlers: Set<(data: unknown) => void>,
     eventName: string,
     timeoutMs = 30000
-  ): Effect.Effect<T, WebSocketError, never> =>
-    Effect.async<T, WebSocketError>((resume) => {
+  ): Effect.Effect<unknown, WebSocketError, never> =>
+    Effect.async<unknown, WebSocketError>((resume) => {
       const timeoutId = setTimeout(() => {
         handlers.delete(eventHandler)
         resume(Effect.fail(createWebSocketError(
@@ -443,12 +481,12 @@ const createWebSocketClientImpl = (): WebSocketClientServiceImpl => {
         )))
       }, timeoutMs)
 
-      const eventHandler = (event: T) => {
+      const eventHandler = (data: unknown) => {
         // Check if this is the event type we're waiting for
-        if ((event as any).type === eventType) {
+        if (typeof data === 'object' && data !== null && 'type' in data && (data as any).type === eventType) {
           clearTimeout(timeoutId)
           handlers.delete(eventHandler)
-          resume(Effect.succeed(event))
+          resume(Effect.succeed(data))
         }
       }
 
@@ -480,7 +518,7 @@ const createWebSocketClientImpl = (): WebSocketClientServiceImpl => {
         yield* disconnect('room', connectionAdapter)
       }) as Effect.Effect<void, never, ConnectionAdapter>,
 
-    sendDJCommand: (command: DJCommand) =>
+    sendDJCommand: (command: DJCommandType) =>
       pipe(
         Effect.try({
           try: () => S.encodeSync(DJCommandSchema)(command),
@@ -493,7 +531,7 @@ const createWebSocketClientImpl = (): WebSocketClientServiceImpl => {
         Effect.flatMap(encoded => sendEncodedCommand(encoded, 'room'))
       ),
 
-    sendListenerCommand: (command: ListenerCommand) =>
+    sendListenerCommand: (command: ListenerCommandType) =>
       pipe(
         Effect.try({
           try: () => S.encodeSync(ListenerCommandSchema)(command),
@@ -506,7 +544,7 @@ const createWebSocketClientImpl = (): WebSocketClientServiceImpl => {
         Effect.flatMap(encoded => sendEncodedCommand(encoded, 'room'))
       ),
 
-    sendLobbyCommand: (command: LobbyCommand) =>
+    sendLobbyCommand: (command: LobbyCommandType) =>
       pipe(
         Effect.try({
           try: () => S.encodeSync(LobbyCommandSchema)(command),
@@ -521,36 +559,142 @@ const createWebSocketClientImpl = (): WebSocketClientServiceImpl => {
 
     subscribeDJEvents: (handler: (event: DJEvent) => void) =>
       Effect.gen(function* () {
-        djEventHandlers.add(handler)
+        // Wrap handler to decode before calling
+        const decodingHandler = (data: unknown) => {
+          try {
+            const event = S.decodeUnknownSync(DJEventSchema)(data)
+            handler(event)
+          } catch {
+            // Not a DJ event, ignore
+          }
+        }
+        djEventHandlers.add(decodingHandler)
         return () => {
-          djEventHandlers.delete(handler)
+          djEventHandlers.delete(decodingHandler)
         }
       }),
 
     subscribeListenerEvents: (handler: (event: ListenerEvent) => void) =>
       Effect.gen(function* () {
-        listenerEventHandlers.add(handler)
+        // Wrap handler to decode before calling
+        const decodingHandler = (data: unknown) => {
+          try {
+            const event = S.decodeUnknownSync(ListenerEventSchema)(data)
+            handler(event)
+          } catch {
+            // Not a Listener event, ignore
+          }
+        }
+        listenerEventHandlers.add(decodingHandler)
         return () => {
-          listenerEventHandlers.delete(handler)
+          listenerEventHandlers.delete(decodingHandler)
         }
       }),
 
     subscribeLobbyEvents: (handler: (event: LobbyEvent) => void) =>
       Effect.gen(function* () {
-        lobbyEventHandlers.add(handler)
+        // Wrap handler to decode before calling
+        const decodingHandler = (data: unknown) => {
+          try {
+            const event = S.decodeUnknownSync(LobbyEventSchema)(data)
+            handler(event)
+          } catch {
+            // Not a Lobby event, ignore
+          }
+        }
+        lobbyEventHandlers.add(decodingHandler)
         return () => {
-          lobbyEventHandlers.delete(handler)
+          lobbyEventHandlers.delete(decodingHandler)
         }
       }),
 
-    waitForDJEvent: (eventType: string, timeoutMs = 30000) =>
-      waitForEvent<DJEvent>(eventType, djEventHandlers, 'DJ', timeoutMs),
+    waitForDJEvent: ((eventType: string, timeoutMs = 30000) => {
+      // Decode using specific schema based on event type
+      const decodeSchema = (
+        eventType === 'roomInitialized' ? RoomInitializedEventSchema :
+        eventType === 'djTransportReady' ? DjTransportReadyEventSchema :
+        eventType === 'transportConnected' ? TransportConnectedEventSchema :
+        eventType === 'producerCreated' ? ProducerCreatedEventSchema :
+        eventType === 'streamPaused' ? StreamPausedEventSchema :
+        eventType === 'streamResumed' ? StreamResumedEventSchema :
+        eventType === 'roomClosed' ? RoomClosedEventSchema :
+        eventType === 'djCommandFailed' ? DJCommandFailedEventSchema :
+        eventType === 'roomNotFound' ? RoomNotFoundEventSchema :
+        DJEventSchema // fallback to union type for unknown events
+      )
 
-    waitForListenerEvent: (eventType: string, timeoutMs = 30000) =>
-      waitForEvent<ListenerEvent>(eventType, listenerEventHandlers, 'Listener', timeoutMs),
+      return pipe(
+        waitForEvent(eventType, djEventHandlers, 'DJ', timeoutMs),
+        Effect.flatMap(data => 
+          Effect.try({
+            try: () => S.decodeUnknownSync(decodeSchema)(data),
+            catch: (error) => createWebSocketError(
+              WebSocketOperation.DECODE,
+              `Failed to decode DJ event: ${eventType}`,
+              error
+            )
+          })
+        )
+      )
+    }) as any,
 
-    waitForLobbyEvent: (eventType: string, timeoutMs = 30000) =>
-      waitForEvent<LobbyEvent>(eventType, lobbyEventHandlers, 'Lobby', timeoutMs)
+    waitForListenerEvent: ((eventType: string, timeoutMs = 30000) => {
+      // Decode using specific schema based on event type
+      const decodeSchema = (
+        eventType === 'joinReady' ? JoinReadyEventSchema :
+        eventType === 'listenerTransportReady' ? ListenerTransportReadyEventSchema :
+        eventType === 'transportConnected' ? ListenerTransportConnectedEventSchema :
+        eventType === 'consumerCreated' ? ConsumerCreatedEventSchema :
+        eventType === 'routerCapabilities' ? RouterCapabilitiesEventSchema :
+        eventType === 'listenerCountUpdated' ? ListenerCountUpdatedEventSchema :
+        eventType === 'streamPaused' ? ListenerStreamPausedEventSchema :
+        eventType === 'streamResumed' ? ListenerStreamResumedEventSchema :
+        eventType === 'roomClosed' ? ListenerRoomClosedEventSchema :
+        eventType === 'listenerCommandFailed' ? ListenerCommandFailedEventSchema :
+        eventType === 'roomNotFound' ? ListenerRoomNotFoundEventSchema :
+        ListenerEventSchema // fallback to union type for unknown events
+      )
+
+      return pipe(
+        waitForEvent(eventType, listenerEventHandlers, 'Listener', timeoutMs),
+        Effect.flatMap(data => 
+          Effect.try({
+            try: () => S.decodeUnknownSync(decodeSchema)(data),
+            catch: (error) => createWebSocketError(
+              WebSocketOperation.DECODE,
+              `Failed to decode Listener event: ${eventType}`,
+              error
+            )
+          })
+        )
+      )
+    }) as any,
+
+    waitForLobbyEvent: ((eventType: string, timeoutMs = 30000) => {
+      // Decode using specific schema based on event type
+      const decodeSchema = (
+        eventType === 'roomAnnounced' ? RoomAnnouncedEventSchema :
+        eventType === 'roomAdded' ? RoomAddedEventSchema :
+        eventType === 'roomUpdated' ? RoomUpdatedEventSchema :
+        eventType === 'roomRemoved' ? RoomRemovedEventSchema :
+        eventType === 'joinApproved' ? JoinRoomResponseEventSchema :
+        LobbyEventSchema // fallback to union type for unknown events
+      )
+
+      return pipe(
+        waitForEvent(eventType, lobbyEventHandlers, 'Lobby', timeoutMs),
+        Effect.flatMap(data => 
+          Effect.try({
+            try: () => S.decodeUnknownSync(decodeSchema)(data),
+            catch: (error) => createWebSocketError(
+              WebSocketOperation.DECODE,
+              `Failed to decode Lobby event: ${eventType}`,
+              error
+            )
+          })
+        )
+      )
+    }) as any
   }
   
   return service

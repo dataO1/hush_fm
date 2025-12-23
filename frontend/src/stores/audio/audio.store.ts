@@ -1,6 +1,6 @@
 /**
  * Audio Store
- * 
+ *
  * Reactive store for audio state management.
  * Manages StreamState and MediaTrackConstraints.
  */
@@ -8,7 +8,7 @@
 import { createMemo } from 'solid-js'
 import { createStore } from 'solid-js/store'
 import { Option } from 'effect'
-import type { StreamStateType, WebAPITypes } from '@/domain/schemas/audio.schema'
+import { StreamStateType } from '@/domain'
 
 /**
  * Audio Store State
@@ -26,17 +26,17 @@ export interface AudioActions {
   // Stream state management
   setStreamState: (state: StreamStateType) => void
   updateStreamState: (updates: Partial<StreamStateType>) => void
-  
+
   // Permission management
   setPermission: (permission: WebAPITypes.PermissionState) => void
-  
+
   // Device management
   setAvailableDevices: (devices: ReadonlyArray<WebAPITypes.MediaDeviceInfo>) => void
-  
+
   // Constraints management
   setMediaTrackConstraints: (constraints: WebAPITypes.MediaTrackConstraints) => void
   clearMediaTrackConstraints: () => void
-  
+
   // Reset
   reset: () => void
 }

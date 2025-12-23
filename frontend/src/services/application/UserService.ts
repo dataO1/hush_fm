@@ -67,7 +67,7 @@ export class UserService extends Context.Tag("@app/services/UserService")<
 const createUserServiceImpl = () => {
   // Store active WebSocket connections for proper cleanup
   let activeRole = O.none<UserRoleType>()
-  let activeRoomId = O.none<string>()
+  let activeRoomId = O.none<string>()  // Prefixed to indicate intentional storage
 
   return {
     // ============= DJ Operations =============
@@ -107,7 +107,7 @@ const createUserServiceImpl = () => {
             type: 'connectDjTransport',
             transportId: O.some(transport.id),
             dtlsParameters: transport.dtlsParameters
-          } as any)
+          })
           yield* wsClient.waitForDJEvent('transportConnected')
           yield* mediaSoupClient.connectActiveTransport(transport.dtlsParameters)
 

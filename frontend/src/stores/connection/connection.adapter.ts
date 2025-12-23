@@ -22,16 +22,17 @@ export class ConnectionAdapter extends Context.Tag("@app/adapters/ConnectionAdap
   {
     // WebRTC (room only)
     setWebRTCState: (state: WebrtcConnectionState) => void
-    
+
     // WebSocket (dual)
     setLobbyWSState: (state: WsConnectionState) => void
     setRoomWSState: (state: WsConnectionState) => void
-    
+
     // Connection status
     isLobbyConnected: () => boolean
     isRoomConnected: () => boolean
     isConnecting: () => boolean  // WebRTC connecting state
-    
+    isConnected: () => boolean  // WebRTC connecting state
+
     // Error management
     hasError: () => boolean
     setConnectionError: (error: ConnectionError | null) => void
@@ -75,6 +76,10 @@ const createConnectionAdapterImpl = () => {
 
     isConnecting: () => {
       return connectionStore.isConnecting()
+    },
+
+    isConnected: () => {
+      return connectionStore.isConnected()
     },
 
     // Error management
