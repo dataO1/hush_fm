@@ -6,7 +6,7 @@ import App from './App'
 import 'solid-devtools'
 
 // Infrastructure Layers
-import { WebSocketClientLive } from './services/infrastructure/websocket/WebSocketClient'
+import { WebSocketClientServiceLive } from './services/infrastructure/WebSocketClient'
 import { MediaSoupClientLive } from './services/infrastructure/MediaSoupClient'
 import { HttpClientLive } from './services/infrastructure/HttpClient'
 import { AudioClientLive } from './services/infrastructure/AudioClient'
@@ -31,7 +31,7 @@ import { ListenerServiceLive } from './services/application/ListenerService'
  * Following 2025 SolidJS + Effect-TS architecture pattern.
  */
 const InfrastructureLayer = Layer.mergeAll(
-  WebSocketClientLive,
+  WebSocketClientServiceLive,
   MediaSoupClientLive,
   HttpClientLive,
   AudioClientLive,

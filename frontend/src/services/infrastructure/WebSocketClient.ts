@@ -1,18 +1,18 @@
 /**
- * WebSocket Infrastructure Client
+ * WebSocket Infrastructure Service
  *
- * Pure technical layer for WebSocket connections.
- * No business logic - only handles connection mechanics.
+ * Lazy-loaded stateful service for WebSocket connections.
+ * Manages connection state internally and updates ConnectionAdapter.
  *
  * Responsibilities:
- * - Raw WebSocket connection management
+ * - WebSocket connection lifecycle management
+ * - Internal URL and connection state storage
  * - Message sending/receiving with automatic encoding/decoding
- * - Connection state tracking
- * - Error handling (technical errors only)
- * - Reconnection logic
+ * - Connection state synchronization with ConnectionAdapter
+ * - Minimal exposed interface for application services
  */
 
-import { Effect, pipe, Schema as S } from 'effect'
+import { Effect, Context, Layer, Option, pipe, Schema as S } from 'effect'
 import {
   DJCommandSchema,
   DJEventSchema,
@@ -21,415 +21,576 @@ import {
   LobbyCommandSchema,
   LobbyEventSchema
 } from '../../domain/schemas/shared/websocket.schema'
+import { 
+  WebSocketError, 
+  WebSocketOperation, 
+  WsConnectionState 
+} from '../../domain/schemas/connection.schema'
+import { ConnectionAdapter } from '../../stores/connection/connection.adapter'
+
+// Union types for commands and events
+type DJCommand = S.Schema.Type<typeof DJCommandSchema>
+type DJEvent = S.Schema.Type<typeof DJEventSchema>
+type ListenerCommand = S.Schema.Type<typeof ListenerCommandSchema>
+type ListenerEvent = S.Schema.Type<typeof ListenerEventSchema>
+type LobbyCommand = S.Schema.Type<typeof LobbyCommandSchema>
+type LobbyEvent = S.Schema.Type<typeof LobbyEventSchema>
 
 /**
- * WebSocket connection configuration
+ * WebSocket Service Interface
+ * 
+ * Minimal interface exposing only essential methods.
+ * All connection state is managed internally.
  */
-export interface WebSocketConfig {
-  url: string
-  protocols?: string[]
-  reconnectAttempts?: number
-  reconnectDelay?: number
-  connectionTimeout?: number
+interface WebSocketClientServiceImpl {
+  /**
+   * Lobby connection management
+   */
+  readonly connectLobby: (url: string) => Effect.Effect<void, WebSocketError, ConnectionAdapter>
+  readonly disconnectLobby: () => Effect.Effect<void, never, ConnectionAdapter>
+  
+  /**
+   * Room connection management
+   */
+  readonly connectRoom: (url: string) => Effect.Effect<void, WebSocketError, ConnectionAdapter>
+  readonly disconnectRoom: () => Effect.Effect<void, never, ConnectionAdapter>
+
+  /**
+   * Send DJ command
+   */
+  readonly sendDJCommand: (command: DJCommand) => Effect.Effect<void, WebSocketError, never>
+
+  /**
+   * Send Listener command
+   */
+  readonly sendListenerCommand: (command: ListenerCommand) => Effect.Effect<void, WebSocketError, never>
+
+  /**
+   * Send Lobby command
+   */
+  readonly sendLobbyCommand: (command: LobbyCommand) => Effect.Effect<void, WebSocketError, never>
+
+  /**
+   * Subscribe to DJ events
+   */
+  readonly subscribeDJEvents: (handler: (event: DJEvent) => void) => Effect.Effect<() => void, WebSocketError, never>
+
+  /**
+   * Subscribe to Listener events
+   */
+  readonly subscribeListenerEvents: (handler: (event: ListenerEvent) => void) => Effect.Effect<() => void, WebSocketError, never>
+
+  /**
+   * Subscribe to Lobby events
+   */
+  readonly subscribeLobbyEvents: (handler: (event: LobbyEvent) => void) => Effect.Effect<() => void, WebSocketError, never>
+
+  /**
+   * Wait for specific DJ event type with timeout
+   */
+  readonly waitForDJEvent: (eventType: string, timeoutMs?: number) => Effect.Effect<DJEvent, WebSocketError, never>
+
+  /**
+   * Wait for specific Listener event type with timeout
+   */
+  readonly waitForListenerEvent: (eventType: string, timeoutMs?: number) => Effect.Effect<ListenerEvent, WebSocketError, never>
+
+  /**
+   * Wait for specific Lobby event type with timeout
+   */
+  readonly waitForLobbyEvent: (eventType: string, timeoutMs?: number) => Effect.Effect<LobbyEvent, WebSocketError, never>
 }
 
 /**
- * WebSocket connection state
+ * WebSocket Client Context Tag
  */
-export type WSConnectionState = 'connecting' | 'open' | 'closing' | 'closed'
+export class WebSocketClientService extends Context.Tag("@app/services/WebSocketClientService")<
+  WebSocketClientService,
+  WebSocketClientServiceImpl
+>() {}
 
 /**
- * WebSocket Infrastructure Error
+ * Connection types
  */
-export class WSInfrastructureError extends Error {
-  constructor(
-    message: string,
-    public operation: string,
-    public wsState?: number,
-    public cause?: unknown
-  ) {
-    super(message)
-    this.name = 'WSInfrastructureError'
+type ConnectionType = 'lobby' | 'room'
+
+/**
+ * Connection state for each WebSocket
+ */
+type ConnectionState = {
+  websocket: Option.Option<WebSocket>
+  url: Option.Option<string>
+  timeoutId: Option.Option<NodeJS.Timeout>
+}
+
+/**
+ * WebSocket Client Implementation
+ */
+const createWebSocketClientImpl = (): WebSocketClientServiceImpl => {
+  // Consolidated connection storage
+  const connections: Record<ConnectionType, ConnectionState> = {
+    lobby: {
+      websocket: Option.none(),
+      url: Option.none(),
+      timeoutId: Option.none()
+    },
+    room: {
+      websocket: Option.none(),
+      url: Option.none(),
+      timeoutId: Option.none()
+    }
   }
-}
+  
+  // Separate handlers for each event type
+  const djEventHandlers: Set<(event: DJEvent) => void> = new Set()
+  const listenerEventHandlers: Set<(event: ListenerEvent) => void> = new Set()
+  const lobbyEventHandlers: Set<(event: LobbyEvent) => void> = new Set()
 
-/**
- * WebSocket Client Interface
- *
- * Simple interface with typed send/receive for each connection type.
- * All encoding/decoding is handled automatically by the union schemas.
- */
-export interface WebSocketClientService {
-  /**
-   * Connect to WebSocket - pure connection establishment
-   */
-  readonly connect: (config: WebSocketConfig) => Effect.Effect<WebSocket, WSInfrastructureError>
-
-  /**
-   * Close connection
-   */
-  readonly close: (ws: WebSocket, code?: number, reason?: string) => Effect.Effect<void, never>
-
-  /**
-   * Get connection state
-   */
-  readonly getState: (ws: WebSocket) => Effect.Effect<WSConnectionState, never>
-
-  // ===== DJ WebSocket Methods =====
-
-  /**
-   * Send DJ command - automatically encodes to wire format with type discriminator
-   */
-  readonly sendDJCommand: (
-    ws: WebSocket,
-    command: S.Schema.Type<typeof DJCommandSchema>
-  ) => Effect.Effect<void, WSInfrastructureError>
-
-  /**
-   * Subscribe to DJ events - automatically decodes from wire format
-   */
-  readonly subscribeDJEvents: (
-    ws: WebSocket
-  ) => Effect.Effect<(handler: (event: S.Schema.Type<typeof DJEventSchema>) => void) => () => void, WSInfrastructureError>
-
-  /**
-   * Wait for specific DJ event - automatically decodes from wire format
-   */
-  readonly waitForDJEvent: <T extends string>(
-    ws: WebSocket,
-    eventType: T,
-    timeoutMs?: number
-  ) => Effect.Effect<S.Schema.Type<typeof DJEventSchema>, WSInfrastructureError>
-
-  // ===== Listener WebSocket Methods =====
-
-  /**
-   * Send Listener command - automatically encodes to wire format with type discriminator
-   */
-  readonly sendListenerCommand: (
-    ws: WebSocket,
-    command: S.Schema.Type<typeof ListenerCommandSchema>
-  ) => Effect.Effect<void, WSInfrastructureError>
-
-  /**
-   * Subscribe to Listener events - automatically decodes from wire format
-   */
-  readonly subscribeListenerEvents: (
-    ws: WebSocket
-  ) => Effect.Effect<(handler: (event: S.Schema.Type<typeof ListenerEventSchema>) => void) => () => void, WSInfrastructureError>
-
-  /**
-   * Wait for specific Listener event - automatically decodes from wire format
-   */
-  readonly waitForListenerEvent: <T extends string>(
-    ws: WebSocket,
-    eventType: T,
-    timeoutMs?: number
-  ) => Effect.Effect<S.Schema.Type<typeof ListenerEventSchema>, WSInfrastructureError>
-
-  // ===== Lobby WebSocket Methods =====
-
-  /**
-   * Send Lobby command - automatically encodes to wire format with type discriminator
-   */
-  readonly sendLobbyCommand: (
-    ws: WebSocket,
-    command: S.Schema.Type<typeof LobbyCommandSchema>
-  ) => Effect.Effect<void, WSInfrastructureError>
-
-  /**
-   * Subscribe to Lobby events - automatically decodes from wire format
-   */
-  readonly subscribeLobbyEvents: (
-    ws: WebSocket
-  ) => Effect.Effect<(handler: (event: S.Schema.Type<typeof LobbyEventSchema>) => void) => () => void, WSInfrastructureError>
-
-  /**
-   * Wait for specific Lobby event - automatically decodes from wire format
-   */
-  readonly waitForLobbyEvent: <T extends string>(
-    ws: WebSocket,
-    eventType: T,
-    timeoutMs?: number
-  ) => Effect.Effect<S.Schema.Type<typeof LobbyEventSchema>, WSInfrastructureError>
-}
-
-/**
- * Create WebSocket Client Service Implementation
- */
-export const createWebSocketClient = (): WebSocketClientService => {
-  // Helper to send raw message
-  const sendRaw = (ws: WebSocket, data: string) =>
-    Effect.try({
-      try: () => {
-        if (ws.readyState !== WebSocket.OPEN) {
-          throw new WSInfrastructureError(
-            'WebSocket is not open',
-            'send',
-            ws.readyState
-          )
-        }
-        ws.send(data)
-      },
-      catch: (error) => new WSInfrastructureError(
-        'Failed to send message',
-        'send',
-        ws.readyState,
-        error
+  // Generic helper functions
+  const clearConnectionTimeout = (connectionType: ConnectionType): Effect.Effect<void, never, never> =>
+    Effect.sync(() => {
+      const connection = connections[connectionType]
+      pipe(
+        connection.timeoutId,
+        Option.match({
+          onNone: () => {},
+          onSome: (timeoutId) => {
+            clearTimeout(timeoutId)
+            connections[connectionType] = {
+              ...connection,
+              timeoutId: Option.none()
+            }
+          }
+        })
       )
     })
 
-  return {
-    connect: (config) =>
-      Effect.async<WebSocket, WSInfrastructureError>((resume) => {
-        try {
-          const ws = new WebSocket(config.url, config.protocols)
 
-          const timeout = setTimeout(() => {
+  const createWebSocketError = (operation: WebSocketOperation, cause: string, originalError?: unknown): WebSocketError =>
+    new WebSocketError({
+      cause: originalError ? `${cause}: ${String(originalError)}` : cause,
+      operation,
+      timestamp: new Date()
+    })
+
+  const setupWebSocketEventHandlers = (
+    ws: WebSocket, 
+    connectionType: ConnectionType,
+    connectionAdapter: Context.Tag.Service<ConnectionAdapter>
+  ) =>
+    Effect.gen(function* () {
+      const setWSState = connectionType === 'lobby' 
+        ? (state: WsConnectionState) => connectionAdapter.setLobbyWSState(state)
+        : (state: WsConnectionState) => connectionAdapter.setRoomWSState(state)
+
+      yield* Effect.sync(() => {
+        ws.onopen = () => {
+          Effect.runSync(clearConnectionTimeout(connectionType))
+          setWSState(WsConnectionState.CONNECTED)
+          connectionAdapter.clearError()
+        }
+
+        ws.onerror = (event) => {
+          Effect.runSync(clearConnectionTimeout(connectionType))
+          const error = createWebSocketError(
+            WebSocketOperation.CONNECT,
+            'WebSocket connection error',
+            event
+          )
+          connectionAdapter.setConnectionError(error)
+          setWSState(WsConnectionState.DISCONNECTED)
+        }
+
+        ws.onclose = () => {
+          Effect.runSync(clearConnectionTimeout(connectionType))
+          setWSState(WsConnectionState.DISCONNECTED)
+          connections[connectionType] = {
+            ...connections[connectionType],
+            websocket: Option.none()
+          }
+          if (connectionType === 'lobby') {
+            lobbyEventHandlers.clear()
+          } else {
+            djEventHandlers.clear()
+            listenerEventHandlers.clear()
+          }
+        }
+
+        ws.onmessage = (message) => {
+          try {
+            const data = JSON.parse(message.data)
+            
+            if (connectionType === 'lobby') {
+              // Lobby connection only handles lobby events
+              lobbyEventHandlers.forEach(handler => {
+                try {
+                  const lobbyEvent = S.decodeUnknownSync(LobbyEventSchema)(data)
+                  handler(lobbyEvent)
+                } catch (error) {
+                  // Decoding error means it's not a valid lobby event, ignore
+                }
+              })
+            } else {
+              // Room connection handles DJ and Listener events
+              djEventHandlers.forEach(handler => {
+                try {
+                  const djEvent = S.decodeUnknownSync(DJEventSchema)(data)
+                  handler(djEvent)
+                } catch (error) {
+                  // Not a DJ event, ignore
+                }
+              })
+
+              listenerEventHandlers.forEach(handler => {
+                try {
+                  const listenerEvent = S.decodeUnknownSync(ListenerEventSchema)(data)
+                  handler(listenerEvent)
+                } catch (error) {
+                  // Not a listener event, ignore
+                }
+              })
+            }
+          } catch (error) {
+            // JSON parse error - report to adapter
+            const wsError = createWebSocketError(
+              WebSocketOperation.RECEIVE,
+              'Failed to parse WebSocket message',
+              error
+            )
+            connectionAdapter.setConnectionError(wsError)
+          }
+        }
+      })
+    })
+
+  const sendRawMessage = (data: string, connectionType: ConnectionType): Effect.Effect<void, WebSocketError, never> =>
+    Effect.gen(function* () {
+      const ws = yield* pipe(
+        connections[connectionType].websocket,
+        Option.match({
+          onNone: () => Effect.fail(createWebSocketError(
+            WebSocketOperation.SEND,
+            `No active ${connectionType} WebSocket connection`
+          )),
+          onSome: (ws) => Effect.succeed(ws)
+        })
+      )
+
+      yield* Effect.try({
+        try: () => {
+          if (ws.readyState !== WebSocket.OPEN) {
+            throw new Error(`WebSocket not open (state: ${ws.readyState})`)
+          }
+          ws.send(data)
+        },
+        catch: (error) => createWebSocketError(
+          WebSocketOperation.SEND,
+          'Failed to send WebSocket message',
+          error
+        )
+      })
+    }) as Effect.Effect<void, WebSocketError, never>
+
+  const sendEncodedCommand = (encodedCommand: unknown, connectionType: ConnectionType): Effect.Effect<void, WebSocketError, never> =>
+    sendRawMessage(JSON.stringify(encodedCommand), connectionType)
+
+  // Generic connection function
+  const createConnection = (
+    url: string,
+    connectionType: ConnectionType,
+    connectionAdapter: Context.Tag.Service<ConnectionAdapter>
+  ): Effect.Effect<void, WebSocketError, never> =>
+    Effect.gen(function* () {
+      // Close existing connection if any
+      yield* pipe(
+        connections[connectionType].websocket,
+        Option.match({
+          onNone: () => Effect.void,
+          onSome: (ws) => Effect.sync(() => {
+            if (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING) {
+              ws.close()
+            }
+          })
+        })
+      )
+
+      // Store URL
+      connections[connectionType] = {
+        ...connections[connectionType],
+        url: Option.some(url)
+      }
+
+      // Update to disconnected state initially
+      const setWSState = connectionType === 'lobby'
+        ? (state: WsConnectionState) => connectionAdapter.setLobbyWSState(state)
+        : (state: WsConnectionState) => connectionAdapter.setRoomWSState(state)
+      setWSState(WsConnectionState.DISCONNECTED)
+
+      // Create new WebSocket connection
+      yield* Effect.async<void, WebSocketError>((resume) => {
+        try {
+          const ws = new WebSocket(url)
+          connections[connectionType] = {
+            ...connections[connectionType],
+            websocket: Option.some(ws)
+          }
+
+          // Setup connection timeout
+          const timeoutId = setTimeout(() => {
             ws.close()
-            resume(Effect.fail(new WSInfrastructureError(
-              'Connection timeout',
-              'connect',
-              ws.readyState
+            resume(Effect.fail(createWebSocketError(
+              WebSocketOperation.CONNECT,
+              `${connectionType === 'lobby' ? 'Lobby' : 'Room'} WebSocket connection timeout (30s)`
             )))
-          }, config.connectionTimeout ?? 30000)
+          }, 30000)
+          connections[connectionType] = {
+            ...connections[connectionType],
+            timeoutId: Option.some(timeoutId)
+          }
 
           ws.onopen = () => {
-            clearTimeout(timeout)
-            resume(Effect.succeed(ws))
+            clearTimeout(timeoutId)
+            connections[connectionType] = {
+              ...connections[connectionType],
+              timeoutId: Option.none()
+            }
+            resume(Effect.succeed(undefined))
           }
 
           ws.onerror = (event) => {
-            clearTimeout(timeout)
-            resume(Effect.fail(new WSInfrastructureError(
-              'Connection error',
-              'connect',
-              ws.readyState,
+            clearTimeout(timeoutId)
+            connections[connectionType] = {
+              ...connections[connectionType],
+              timeoutId: Option.none()
+            }
+            resume(Effect.fail(createWebSocketError(
+              WebSocketOperation.CONNECT,
+              'WebSocket connection failed',
               event
             )))
           }
         } catch (error) {
-          resume(Effect.fail(new WSInfrastructureError(
+          resume(Effect.fail(createWebSocketError(
+            WebSocketOperation.CONNECT,
             'Failed to create WebSocket',
-            'connect',
-            undefined,
             error
           )))
         }
-      }),
+      })
 
-    close: (ws, code, reason) =>
-      Effect.sync(() => {
-        ws.close(code, reason)
-      }),
+      // Setup event handlers after successful connection
+      yield* pipe(
+        connections[connectionType].websocket,
+        Option.match({
+          onNone: () => Effect.fail(createWebSocketError(
+            WebSocketOperation.CONNECT,
+            `${connectionType === 'lobby' ? 'Lobby' : 'Room'} WebSocket not available after connection`
+          )),
+          onSome: (ws) => setupWebSocketEventHandlers(ws, connectionType, connectionAdapter)
+        })
+      )
+    }) as Effect.Effect<void, WebSocketError, never>
 
-    getState: (ws) =>
-      Effect.sync(() => {
-        switch (ws.readyState) {
-          case WebSocket.CONNECTING: return 'connecting' as const
-          case WebSocket.OPEN: return 'open' as const
-          case WebSocket.CLOSING: return 'closing' as const
-          case WebSocket.CLOSED: return 'closed' as const
-          default: return 'closed' as const
+  // Generic disconnect function
+  const disconnect = (
+    connectionType: ConnectionType,
+    connectionAdapter: Context.Tag.Service<ConnectionAdapter>
+  ): Effect.Effect<void, never, never> =>
+    Effect.gen(function* () {
+      yield* clearConnectionTimeout(connectionType)
+      
+      yield* pipe(
+        connections[connectionType].websocket,
+        Option.match({
+          onNone: () => Effect.void,
+          onSome: (ws) => Effect.sync(() => {
+            if (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING) {
+              ws.close()
+            }
+          })
+        })
+      )
+
+      connections[connectionType] = {
+        websocket: Option.none(),
+        url: Option.none(),
+        timeoutId: Option.none()
+      }
+
+      if (connectionType === 'lobby') {
+        lobbyEventHandlers.clear()
+        connectionAdapter.setLobbyWSState(WsConnectionState.DISCONNECTED)
+      } else {
+        djEventHandlers.clear()
+        listenerEventHandlers.clear()
+        connectionAdapter.setRoomWSState(WsConnectionState.DISCONNECTED)
+      }
+    }) as Effect.Effect<void, never, never>
+
+  // Generic wait for event function
+  const waitForEvent = <T>(
+    eventType: string,
+    handlers: Set<(event: T) => void>,
+    eventName: string,
+    timeoutMs = 30000
+  ): Effect.Effect<T, WebSocketError, never> =>
+    Effect.async<T, WebSocketError>((resume) => {
+      const timeoutId = setTimeout(() => {
+        handlers.delete(eventHandler)
+        resume(Effect.fail(createWebSocketError(
+          WebSocketOperation.WAIT_FOR_EVENT,
+          `Timeout waiting for ${eventName} event: ${eventType}`
+        )))
+      }, timeoutMs)
+
+      const eventHandler = (event: T) => {
+        // Check if this is the event type we're waiting for
+        if ((event as any).type === eventType) {
+          clearTimeout(timeoutId)
+          handlers.delete(eventHandler)
+          resume(Effect.succeed(event))
         }
-      }),
+      }
 
-    // ===== DJ Methods =====
+      handlers.add(eventHandler)
+    })
 
-    sendDJCommand: (ws, command) =>
+  const service: WebSocketClientServiceImpl = {
+    connectLobby: (url: string): Effect.Effect<void, WebSocketError, ConnectionAdapter> =>
+      Effect.gen(function* () {
+        const connectionAdapter = yield* ConnectionAdapter
+        yield* createConnection(url, 'lobby', connectionAdapter)
+      }) as Effect.Effect<void, WebSocketError, ConnectionAdapter>,
+
+    connectRoom: (url: string): Effect.Effect<void, WebSocketError, ConnectionAdapter> =>
+      Effect.gen(function* () {
+        const connectionAdapter = yield* ConnectionAdapter
+        yield* createConnection(url, 'room', connectionAdapter)
+      }) as Effect.Effect<void, WebSocketError, ConnectionAdapter>,
+
+    disconnectLobby: (): Effect.Effect<void, never, ConnectionAdapter> =>
+      Effect.gen(function* () {
+        const connectionAdapter = yield* ConnectionAdapter
+        yield* disconnect('lobby', connectionAdapter)
+      }) as Effect.Effect<void, never, ConnectionAdapter>,
+
+    disconnectRoom: (): Effect.Effect<void, never, ConnectionAdapter> =>
+      Effect.gen(function* () {
+        const connectionAdapter = yield* ConnectionAdapter
+        yield* disconnect('room', connectionAdapter)
+      }) as Effect.Effect<void, never, ConnectionAdapter>,
+
+    sendDJCommand: (command: DJCommand) =>
       pipe(
         Effect.try({
           try: () => S.encodeSync(DJCommandSchema)(command),
-          catch: (error) => new WSInfrastructureError(
+          catch: (error) => createWebSocketError(
+            WebSocketOperation.ENCODE,
             'Failed to encode DJ command',
-            'encode',
-            ws.readyState,
             error
           )
         }),
-        Effect.flatMap(encoded => sendRaw(ws, JSON.stringify(encoded)))
+        Effect.flatMap(encoded => sendEncodedCommand(encoded, 'room'))
       ),
 
-    subscribeDJEvents: (ws) =>
-      Effect.sync(() => {
-        const handlers = new Set<(event: S.Schema.Type<typeof DJEventSchema>) => void>()
-
-        ws.onmessage = (message) => {
-          try {
-            const data = JSON.parse(message.data)
-            const event = S.decodeUnknownSync(DJEventSchema)(data)
-            handlers.forEach(handler => handler(event))
-          } catch (error) {
-            console.error('Failed to decode DJ event:', error, message.data)
-          }
-        }
-
-        return (handler: (event: S.Schema.Type<typeof DJEventSchema>) => void) => {
-          handlers.add(handler)
-          return () => { handlers.delete(handler) }
-        }
-      }),
-
-    waitForDJEvent: (ws, eventType, timeoutMs = 30000) =>
-      Effect.async((resume) => {
-        const timeout = setTimeout(() => {
-          ws.removeEventListener('message', messageHandler)
-          resume(Effect.fail(new WSInfrastructureError(
-            `Timeout waiting for DJ event: ${eventType}`,
-            'waitForEvent',
-            ws.readyState
-          )))
-        }, timeoutMs)
-
-        const messageHandler = (message: MessageEvent) => {
-          try {
-            const data = JSON.parse(message.data)
-            // Check if this is the event type we're waiting for before decoding
-            if (data.type === eventType) {
-              const event = S.decodeUnknownSync(DJEventSchema)(data)
-              clearTimeout(timeout)
-              ws.removeEventListener('message', messageHandler)
-              resume(Effect.succeed(event))
-            }
-          } catch (error) {
-            // Ignore decode errors for events we're not waiting for
-          }
-        }
-
-        ws.addEventListener('message', messageHandler)
-      }),
-
-    // ===== Listener Methods =====
-
-    sendListenerCommand: (ws, command) =>
+    sendListenerCommand: (command: ListenerCommand) =>
       pipe(
         Effect.try({
           try: () => S.encodeSync(ListenerCommandSchema)(command),
-          catch: (error) => new WSInfrastructureError(
+          catch: (error) => createWebSocketError(
+            WebSocketOperation.ENCODE,
             'Failed to encode Listener command',
-            'encode',
-            ws.readyState,
             error
           )
         }),
-        Effect.flatMap(encoded => sendRaw(ws, JSON.stringify(encoded)))
+        Effect.flatMap(encoded => sendEncodedCommand(encoded, 'room'))
       ),
 
-    subscribeListenerEvents: (ws) =>
-      Effect.sync(() => {
-        const handlers = new Set<(event: S.Schema.Type<typeof ListenerEventSchema>) => void>()
-
-        ws.onmessage = (message) => {
-          try {
-            const data = JSON.parse(message.data)
-            const event = S.decodeUnknownSync(ListenerEventSchema)(data)
-            handlers.forEach(handler => handler(event))
-          } catch (error) {
-            console.error('Failed to decode Listener event:', error, message.data)
-          }
-        }
-
-        return (handler: (event: S.Schema.Type<typeof ListenerEventSchema>) => void) => {
-          handlers.add(handler)
-          return () => { handlers.delete(handler) }
-        }
-      }),
-
-    waitForListenerEvent: (ws, eventType, timeoutMs = 30000) =>
-      Effect.async((resume) => {
-        const timeout = setTimeout(() => {
-          ws.removeEventListener('message', messageHandler)
-          resume(Effect.fail(new WSInfrastructureError(
-            `Timeout waiting for Listener event: ${eventType}`,
-            'waitForEvent',
-            ws.readyState
-          )))
-        }, timeoutMs)
-
-        const messageHandler = (message: MessageEvent) => {
-          try {
-            const data = JSON.parse(message.data)
-            // Check if this is the event type we're waiting for before decoding
-            if (data.type === eventType) {
-              const event = S.decodeUnknownSync(ListenerEventSchema)(data)
-              clearTimeout(timeout)
-              ws.removeEventListener('message', messageHandler)
-              resume(Effect.succeed(event))
-            }
-          } catch (error) {
-            // Ignore decode errors for events we're not waiting for
-          }
-        }
-
-        ws.addEventListener('message', messageHandler)
-      }),
-
-    // ===== Lobby Methods =====
-
-    sendLobbyCommand: (ws, command) =>
+    sendLobbyCommand: (command: LobbyCommand) =>
       pipe(
         Effect.try({
           try: () => S.encodeSync(LobbyCommandSchema)(command),
-          catch: (error) => new WSInfrastructureError(
+          catch: (error) => createWebSocketError(
+            WebSocketOperation.ENCODE,
             'Failed to encode Lobby command',
-            'encode',
-            ws.readyState,
             error
           )
         }),
-        Effect.flatMap(encoded => sendRaw(ws, JSON.stringify(encoded)))
+        Effect.flatMap(encoded => sendEncodedCommand(encoded, 'lobby'))
       ),
 
-    subscribeLobbyEvents: (ws) =>
-      Effect.sync(() => {
-        const handlers = new Set<(event: S.Schema.Type<typeof LobbyEventSchema>) => void>()
-
-        ws.onmessage = (message) => {
-          try {
-            const data = JSON.parse(message.data)
-            const event = S.decodeUnknownSync(LobbyEventSchema)(data)
-            handlers.forEach(handler => handler(event))
-          } catch (error) {
-            console.error('Failed to decode Lobby event:', error, message.data)
-          }
-        }
-
-        return (handler: (event: S.Schema.Type<typeof LobbyEventSchema>) => void) => {
-          handlers.add(handler)
-          return () => { handlers.delete(handler) }
+    subscribeDJEvents: (handler: (event: DJEvent) => void) =>
+      Effect.gen(function* () {
+        djEventHandlers.add(handler)
+        return () => {
+          djEventHandlers.delete(handler)
         }
       }),
 
-    waitForLobbyEvent: (ws, eventType, timeoutMs = 30000) =>
-      Effect.async((resume) => {
-        const timeout = setTimeout(() => {
-          ws.removeEventListener('message', messageHandler)
-          resume(Effect.fail(new WSInfrastructureError(
-            `Timeout waiting for Lobby event: ${eventType}`,
-            'waitForEvent',
-            ws.readyState
-          )))
-        }, timeoutMs)
-
-        const messageHandler = (message: MessageEvent) => {
-          try {
-            const data = JSON.parse(message.data)
-            // Check if this is the event type we're waiting for before decoding
-            if (data.type === eventType) {
-              const event = S.decodeUnknownSync(LobbyEventSchema)(data)
-              clearTimeout(timeout)
-              ws.removeEventListener('message', messageHandler)
-              resume(Effect.succeed(event))
-            }
-          } catch (error) {
-            // Ignore decode errors for events we're not waiting for
-          }
+    subscribeListenerEvents: (handler: (event: ListenerEvent) => void) =>
+      Effect.gen(function* () {
+        listenerEventHandlers.add(handler)
+        return () => {
+          listenerEventHandlers.delete(handler)
         }
+      }),
 
-        ws.addEventListener('message', messageHandler)
-      })
+    subscribeLobbyEvents: (handler: (event: LobbyEvent) => void) =>
+      Effect.gen(function* () {
+        lobbyEventHandlers.add(handler)
+        return () => {
+          lobbyEventHandlers.delete(handler)
+        }
+      }),
+
+    waitForDJEvent: (eventType: string, timeoutMs = 30000) =>
+      waitForEvent<DJEvent>(eventType, djEventHandlers, 'DJ', timeoutMs),
+
+    waitForListenerEvent: (eventType: string, timeoutMs = 30000) =>
+      waitForEvent<ListenerEvent>(eventType, listenerEventHandlers, 'Listener', timeoutMs),
+
+    waitForLobbyEvent: (eventType: string, timeoutMs = 30000) =>
+      waitForEvent<LobbyEvent>(eventType, lobbyEventHandlers, 'Lobby', timeoutMs)
   }
+  
+  return service
 }
 
-// Export singleton instance
-export const WebSocketClient = createWebSocketClient()
+/**
+ * WebSocket Client Service Layer
+ */
+export const WebSocketClientServiceLive = Layer.succeed(
+  WebSocketClientService,
+  createWebSocketClientImpl()
+)
+
+/**
+ * Lazy-loaded WebSocket client instance
+ * 
+ * Service is created on first access, not at module load time.
+ */
+let webSocketClientInstance: Option.Option<WebSocketClientServiceImpl> = Option.none()
+
+/**
+ * Get or create the lazy-loaded WebSocket client service
+ */
+export const getWebSocketClient = (): WebSocketClientServiceImpl => {
+  return pipe(
+    webSocketClientInstance,
+    Option.match({
+      onNone: () => {
+        const service = createWebSocketClientImpl()
+        webSocketClientInstance = Option.some(service)
+        return service
+      },
+      onSome: (service) => service
+    })
+  )
+}
+
+/**
+ * Reset the WebSocket client instance (useful for testing)
+ */
+export const resetWebSocketClient = (): void => {
+  webSocketClientInstance = Option.none()
+}

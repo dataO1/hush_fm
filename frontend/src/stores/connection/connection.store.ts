@@ -1,50 +1,40 @@
 /**
  * Connection Store
- * 
+ *
  * Pure connection state management without MediaSoup knowledge.
  * Manages room connection state, room ID, and connection type using SolidJS signals.
- * 
+ *
  * This replaces the connection-related parts of the monolithic room store
  * and provides a clean, reactive interface for connection status.
  */
 
-import { createSignal, createMemo } from 'solid-js'
+import { WebrtcConnectionState, WsConnectionState, ConnectionError } from '../../domain/schemas/connection.schema'
+import { createMemo } from 'solid-js'
 import { createStore } from 'solid-js/store'
-import { ConnectionState } from '../domain/schemas/room.schema'
+import { Option } from "effect"
 
-/**
- * Connection state interface
- */
-export interface ConnectionState_Internal {
-  state: ConnectionState
-  roomId: string | null
-  connectionType: 'dj' | 'listener' | null
-  lastConnectedAt: Date | null
-  connectionAttempts: number
-  lastError: string | null
-}
 
 /**
  * Connection actions interface
  */
 export interface ConnectionActions {
-  // State transitions
-  setConnectionState: (state: ConnectionState) => void
-  setRoomId: (roomId: string | null) => void
-  setConnectionType: (type: 'dj' | 'listener' | null) => void
-  setConnectionError: (error: string | null) => void
-  
-  // Connection management
-  connect: (roomId: string, type: 'dj' | 'listener') => void
-  disconnect: () => void
-  incrementConnectionAttempts: () => void
-  resetConnectionAttempts: () => void
+  // WebRTC state transitions (room only)
+  setWebRTCState: (state: WebrtcConnectionState) => void
+  initializeWebRTC: () => void
+  cleanupWebRTC: () => void
+
+  // WebSocket state transitions (dual)
+  setLobbyWSState: (state: WsConnectionState) => void
+  setRoomWSState: (state: WsConnectionState) => void
   
   // Error management
+  setConnectionError: (error: ConnectionError | null) => void
   clearError: () => void
-  
+
   // Reset
   reset: () => void
+  resetLobby: () => void
+  resetRoom: () => void
 }
 
 /**
@@ -52,164 +42,149 @@ export interface ConnectionActions {
  */
 export interface ConnectionStore {
   // Reactive state (read-only)
-  readonly state: ConnectionState_Internal
-  
+  readonly state: DualConnectionState
+
   // Actions
   readonly actions: ConnectionActions
-  
+
   // Computed values (using createMemo for performance)
-  readonly isConnected: () => boolean
-  readonly isConnecting: () => boolean
-  readonly isDisconnected: () => boolean
+  readonly isLobbyConnected: () => boolean
+  readonly isRoomConnected: () => boolean
+  readonly isConnecting: () => boolean  // WebRTC connecting state
   readonly hasError: () => boolean
-  readonly connectionError: () => string | null
-  readonly currentRoomId: () => string | null
-  readonly connectionType: () => 'dj' | 'listener' | null
+  readonly connectionError: () => Option.Option<ConnectionError>
+}
+
+/**
+ * Connection state with dual WebSocket support
+ */
+export interface DualConnectionState {
+  webrtcConnectionState: WebrtcConnectionState  // Single, for room only
+  lobbyWsState: WsConnectionState              // Lobby WebSocket
+  roomWsState: WsConnectionState               // Room WebSocket
+  lastError: Option.Option<ConnectionError>
 }
 
 /**
  * Initial connection state
  */
-const createInitialConnectionState = (): ConnectionState_Internal => ({
-  state: ConnectionState.DISCONNECTED,
-  roomId: null,
-  connectionType: null,
-  lastConnectedAt: null,
-  connectionAttempts: 0,
-  lastError: null
+const createInitialConnectionState = (): DualConnectionState => ({
+  webrtcConnectionState: WebrtcConnectionState.DISCONNECTED,
+  lobbyWsState: WsConnectionState.DISCONNECTED,
+  roomWsState: WsConnectionState.DISCONNECTED,
+  lastError: Option.none()
 })
 
 /**
  * Create Connection Store
- * 
+ *
  * Creates a new connection store with SolidJS signals and computed values.
  * Uses fine-grained reactivity for optimal performance.
  */
 export const createConnectionStore = (): ConnectionStore => {
   // Main reactive state using SolidJS store
   const [state, setState] = createStore(createInitialConnectionState())
-  
+
   // Actions implementation
   const actions: ConnectionActions = {
-    setConnectionState: (newState: ConnectionState) => {
-      setState('state', newState)
-      
-      // Update lastConnectedAt when transitioning to connected states
-      if (newState === ConnectionState.CONNECTED || newState === ConnectionState.STREAMING) {
-        setState('lastConnectedAt', new Date())
-      }
+    setWebRTCState: (newState: WebrtcConnectionState) => {
+      setState('webrtcConnectionState', newState)
     },
 
-    setRoomId: (roomId: string | null) => {
-      setState('roomId', roomId)
+    initializeWebRTC: () => {
+      setState('webrtcConnectionState', WebrtcConnectionState.CONNECTING)
+      setState('lastError', Option.none())
     },
 
-    setConnectionType: (type: 'dj' | 'listener' | null) => {
-      setState('connectionType', type)
+    cleanupWebRTC: () => {
+      setState('webrtcConnectionState', WebrtcConnectionState.DISCONNECTED)
     },
 
-    setConnectionError: (error: string | null) => {
-      setState('lastError', error)
-      
-      // Set error state if error provided
+    setLobbyWSState: (newState: WsConnectionState) => {
+      setState('lobbyWsState', newState)
+    },
+
+    setRoomWSState: (newState: WsConnectionState) => {
+      setState('roomWsState', newState)
+    },
+
+    setConnectionError: (error: ConnectionError | null) => {
+      setState('lastError', error ? Option.some(error) : Option.none())
       if (error) {
-        setState('state', ConnectionState.ERROR)
+        setState('webrtcConnectionState', WebrtcConnectionState.ERROR)
       }
-    },
-
-    connect: (roomId: string, type: 'dj' | 'listener') => {
-      setState({
-        roomId,
-        connectionType: type,
-        state: ConnectionState.CONNECTING,
-        lastError: null
-      })
-    },
-
-    disconnect: () => {
-      setState({
-        state: ConnectionState.DISCONNECTED,
-        roomId: null,
-        connectionType: null,
-        lastError: null
-      })
-    },
-
-    incrementConnectionAttempts: () => {
-      setState('connectionAttempts', (count) => count + 1)
-    },
-
-    resetConnectionAttempts: () => {
-      setState('connectionAttempts', 0)
     },
 
     clearError: () => {
-      setState('lastError', null)
-      
-      // If in error state and no other issues, go to disconnected
-      if (state.state === ConnectionState.ERROR) {
-        setState('state', ConnectionState.DISCONNECTED)
+      setState('lastError', Option.none())
+      // If in error state, reset to disconnected
+      if (state.webrtcConnectionState === WebrtcConnectionState.ERROR) {
+        setState('webrtcConnectionState', WebrtcConnectionState.DISCONNECTED)
       }
     },
 
     reset: () => {
       setState(createInitialConnectionState())
+    },
+
+    resetLobby: () => {
+      setState('lobbyWsState', WsConnectionState.DISCONNECTED)
+    },
+
+    resetRoom: () => {
+      setState('roomWsState', WsConnectionState.DISCONNECTED)
+      setState('webrtcConnectionState', WebrtcConnectionState.DISCONNECTED)
+      setState('lastError', Option.none())
     }
   }
 
   // Computed values using createMemo for performance
-  const isConnected = createMemo(() => 
-    state.state === ConnectionState.CONNECTED || 
-    state.state === ConnectionState.STREAMING ||
-    state.state === ConnectionState.PAUSED
+  const isLobbyConnected = createMemo(() => 
+    state.lobbyWsState === WsConnectionState.CONNECTED
+  )
+
+  const isRoomConnected = createMemo(() => 
+    state.roomWsState === WsConnectionState.CONNECTED &&
+    (state.webrtcConnectionState === WebrtcConnectionState.CONNECTED ||
+     state.webrtcConnectionState === WebrtcConnectionState.STREAMING)
   )
 
   const isConnecting = createMemo(() => 
-    state.state === ConnectionState.CONNECTING ||
-    state.state === ConnectionState.DISCONNECTING
-  )
-
-  const isDisconnected = createMemo(() => 
-    state.state === ConnectionState.DISCONNECTED ||
-    state.state === ConnectionState.IDLE
+    state.webrtcConnectionState === WebrtcConnectionState.CONNECTING ||
+    state.webrtcConnectionState === WebrtcConnectionState.DISCONNECTING
   )
 
   const hasError = createMemo(() => 
-    state.state === ConnectionState.ERROR || !!state.lastError
+    state.webrtcConnectionState === WebrtcConnectionState.ERROR ||
+    Option.isSome(state.lastError)
   )
 
   const connectionError = createMemo(() => state.lastError)
 
-  const currentRoomId = createMemo(() => state.roomId)
-
-  const connectionType = createMemo(() => state.connectionType)
-
   return {
     // Reactive state (read-only access)
-    state: state as Readonly<ConnectionState_Internal>,
-    
+    state: state as Readonly<DualConnectionState>,
+
     // Actions
     actions,
-    
+
     // Computed values (memoized for performance)
-    isConnected,
+    isLobbyConnected,
+    isRoomConnected,
     isConnecting,
-    isDisconnected,
     hasError,
-    connectionError,
-    currentRoomId,
-    connectionType
+    connectionError
   }
 }
 
 /**
  * Connection store type export
  */
-export type ConnectionStore = ReturnType<typeof createConnectionStore>
+export type ConnectionStoreType = ReturnType<typeof createConnectionStore>
 
 /**
  * Singleton connection store instance
- * 
+ *
  * Global instance for application-wide connection state management.
  * Components access this through Context providers.
  */

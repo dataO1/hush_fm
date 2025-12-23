@@ -153,16 +153,6 @@ export const MediaDeviceInfoSchema = S.Struct({
 })
 export type MediaDeviceInfoType = S.Schema.Type<typeof MediaDeviceInfoSchema>
 
-/**
- * Performance Timing Schema (for connection quality metrics)
- */
-export const PerformanceEntrySchema = S.Struct({
-  name: S.String,
-  entryType: S.String,
-  startTime: S.Number,
-  duration: S.Number
-})
-export type PerformanceEntryType = S.Schema.Type<typeof PerformanceEntrySchema>
 
 /**
  * Error Schema (for JavaScript Error objects)
@@ -179,14 +169,9 @@ export type ErrorType = S.Schema.Type<typeof ErrorSchema>
  * Consolidated Web API Schemas for easy import
  */
 export const WebAPISchemas = {
-  WebSocket: WebSocketSchema,
-  MediaStream: MediaStreamSchema,
-  MediaStreamTrack: MediaStreamTrackSchema,
-  HTMLAudioElement: HTMLAudioElementSchema,
   MediaTrackConstraints: MediaTrackConstraintsSchema,
   MediaStreamConstraints: MediaStreamConstraintsSchema,
   MediaDeviceInfo: MediaDeviceInfoSchema,
-  PerformanceEntry: PerformanceEntrySchema,
   Error: ErrorSchema
 }
 
@@ -194,13 +179,8 @@ export const WebAPISchemas = {
  * Consolidated Web API Types for easy import
  */
 export type WebAPITypes = {
-  WebSocket: WebSocketType
-  MediaStream: MediaStreamType
-  MediaStreamTrack: MediaStreamTrackType
-  HTMLAudioElement: HTMLAudioElementType
   MediaTrackConstraints: MediaTrackConstraintsType
   MediaStreamConstraints: MediaStreamConstraintsType
   MediaDeviceInfo: MediaDeviceInfoType
-  PerformanceEntry: PerformanceEntryType
   Error: ErrorType
 }

@@ -23,7 +23,7 @@ import { WebRTCAdapter } from '../../stores/adapters/webrtc.adapter'
 import { RoomMetadataAdapter } from '../../stores/adapters/room-metadata.adapter'
 
 // Import only infrastructure via Context.Tag
-import { WebSocketClient } from '../infrastructure/websocket/WebSocketClient'
+import { WebSocketClientService } from '../infrastructure/WebSocketClient'
 import { MediaSoupClient } from '../infrastructure/MediaSoupClient'
 import { AudioClient } from '../infrastructure/AudioClient'
 
@@ -69,8 +69,8 @@ export class ListenerServiceError extends Error {
 export class ListenerService extends Context.Tag("@app/services/ListenerService")<
   ListenerService,
   {
-    readonly joinRoom: (roomId: string, sessionId: string, listenerWebSocketUrl: string) => Effect.Effect<ListenerJoinResult, ListenerServiceError, ListenersAdapter | ConnectionAdapter | WebRTCAdapter | RoomMetadataAdapter | WebSocketClient | MediaSoupClient | AudioClient>
-    readonly leaveRoom: (listenerId: string) => Effect.Effect<void, ListenerServiceError, ListenersAdapter | ConnectionAdapter | WebRTCAdapter | RoomMetadataAdapter | WebSocketClient | MediaSoupClient>
+    readonly joinRoom: (roomId: string, sessionId: string, listenerWebSocketUrl: string) => Effect.Effect<ListenerJoinResult, ListenerServiceError, ListenersAdapter | ConnectionAdapter | WebRTCAdapter | RoomMetadataAdapter | WebSocketClientService | MediaSoupClient | AudioClient>
+    readonly leaveRoom: (listenerId: string) => Effect.Effect<void, ListenerServiceError, ListenersAdapter | ConnectionAdapter | WebRTCAdapter | RoomMetadataAdapter | WebSocketClientService | MediaSoupClient>
     readonly controlAudio: (listenerId: string, action: 'play' | 'pause' | 'setVolume', value?: number) => Effect.Effect<void, ListenerServiceError, ListenersAdapter>
     readonly handleManualPlay: (listenerId: string) => Effect.Effect<void, ListenerServiceError, ListenersAdapter>
     readonly checkExistingResources: (roomId: string, sessionId: string) => Effect.Effect<ListenerJoinResult | null, ListenerServiceError, ListenersAdapter | ConnectionAdapter>
@@ -181,7 +181,7 @@ const ListenerServiceImpl = {
       const connectionAdapter = yield* ConnectionAdapter
       const webrtcAdapter = yield* WebRTCAdapter
       const roomMetadataAdapter = yield* RoomMetadataAdapter
-      const wsClient = yield* WebSocketClient
+      const wsClient = yield* WebSocketClientService
       const mediaSoupClient = yield* MediaSoupClient
       const audioClient = yield* AudioClient
 
@@ -287,7 +287,7 @@ const ListenerServiceImpl = {
 
       const listenerAdapter = yield* ListenersAdapter
       const connectionAdapter = yield* ConnectionAdapter
-      const wsClient = yield* WebSocketClient
+      const wsClient = yield* WebSocketClientService
       const mediaSoupClient = yield* MediaSoupClient
 
       const listener = listenerAdapter.getListenerState(listenerId)

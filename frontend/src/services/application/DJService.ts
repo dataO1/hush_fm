@@ -22,7 +22,7 @@ import { WebRTCAdapter } from '../../stores/adapters/webrtc.adapter'
 import { RoomMetadataAdapter } from '../../stores/adapters/room-metadata.adapter'
 
 // Import only infrastructure via Context.Tag
-import { WebSocketClient } from '../infrastructure/websocket/WebSocketClient'
+import { WebSocketClientService } from '../infrastructure/WebSocketClient'
 import { MediaSoupClient } from '../infrastructure/MediaSoupClient'
 import { AudioClient } from '../infrastructure/AudioClient'
 
@@ -48,7 +48,7 @@ export class DJService extends Context.Tag("@app/services/DJService")<
   {
     readonly previewAudioDevice: (deviceId: string) => Effect.Effect<MediaStream, DJServiceError, DJAdapter | AudioClient>
     readonly stopDevicePreview: () => Effect.Effect<void, DJServiceError, DJAdapter>
-    readonly publishDJRoom: (roomId: string, djWebSocketUrl: string, deviceId?: string) => Effect.Effect<DJPublishResult, DJServiceError, ConnectionAdapter | DJAdapter | WebRTCAdapter | RoomMetadataAdapter | WebSocketClient | MediaSoupClient | AudioClient>
+    readonly publishDJRoom: (roomId: string, djWebSocketUrl: string, deviceId?: string) => Effect.Effect<DJPublishResult, DJServiceError, ConnectionAdapter | DJAdapter | WebRTCAdapter | RoomMetadataAdapter | WebSocketClientService | MediaSoupClient | AudioClient>
     readonly toggleDJStream: (pause: boolean) => Effect.Effect<void, DJServiceError, DJAdapter>
     readonly closeDJRoom: () => Effect.Effect<void, DJServiceError, ConnectionAdapter | DJAdapter | WebRTCAdapter | RoomMetadataAdapter>
     readonly getAudioDevices: () => Effect.Effect<Array<{ deviceId: string, label: string }>, DJServiceError, AudioClient>
@@ -178,7 +178,7 @@ const DJServiceImpl = {
       const djAdapter = yield* DJAdapter
       const webrtcAdapter = yield* WebRTCAdapter
       const roomMetadataAdapter = yield* RoomMetadataAdapter
-      const wsClient = yield* WebSocketClient
+      const wsClient = yield* WebSocketClientService
       const mediaSoupClient = yield* MediaSoupClient
       const audioClient = yield* AudioClient
       

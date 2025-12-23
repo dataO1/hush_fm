@@ -8,139 +8,7 @@
  */
 
 import { Schema as S, Option as O } from 'effect'
-import { WebSocketSchema } from './webapi.schema'
 import { ConsumerOptionsSchema, ConsumerParametersTransformSchema, DtlsParametersSchema, DtlsParametersTransformSchema, IceCandidateSchema, RtpCapabilitiesSchema, RtpCapabilitiesTransformSchema, RtpParametersSchema, RtpParametersTransformSchema, TransportOptionsSchema, TransportOptionsTransformSchema } from './mediasoup.schema'
-
-/**
- * Base WebSocket Connection States
- */
-export const WSConnectionState = S.Literal(
-  'disconnected',
-  'connecting',
-  'connected',
-  'error',
-  'reconnecting'
-)
-export type WSConnectionStateType = S.Schema.Type<typeof WSConnectionState>
-
-/**
- * WebSocket Connection Quality Metrics
- *
- * Encoded (from API): Numbers as strings, timestamps as ISO strings
- * Type (internal): Numbers as numbers, timestamps as Date objects
- */
-export const ConnectionQualitySchema = S.Struct({
-  // Wire format uses string timestamps, internal uses Date objects
-  timestamp: S.DateFromString, // Transform: ISO string → Date
-  rtt: S.NumberFromString,     // Transform: string → number
-  packetsLost: S.NumberFromString,
-  packetsReceived: S.Option(S.NumberFromString), // Only for listeners
-  jitter: S.NumberFromString,
-  quality: S.Literal('excellent', 'good', 'fair', 'poor')
-})
-export type ConnectionQualityType = S.Schema.Type<typeof ConnectionQualitySchema>
-export type ConnectionQualityEncoded = S.Schema.Encoded<typeof ConnectionQualitySchema>
-
-/**
- * Base WebSocket Connection State Pattern
- *
- * Can be extended by domain-specific schemas with additional fields.
- * Handles the common pattern of connection tracking across all WebSocket types.
- */
-export const BaseWebSocketConnectionSchema = S.Struct({
-  websocket: S.Option(WebSocketSchema),
-  connectionState: WSConnectionState,
-  url: S.Option(S.String),
-  connectedAt: S.Option(S.DateFromString), // Transform: ISO string → Date
-  lastMessageAt: S.Option(S.DateFromString),
-  messageCount: S.Number,
-  connectionError: S.Option(S.String)
-})
-export type BaseWebSocketConnectionType = S.Schema.Type<typeof BaseWebSocketConnectionSchema>
-export type BaseWebSocketConnectionEncoded = S.Schema.Encoded<typeof BaseWebSocketConnectionSchema>
-
-/**
- * WebSocket Connection Statistics
- *
- * Used for debugging and monitoring WebSocket health across domains.
- */
-export const WSConnectionStatsSchema = S.Struct({
-  totalConnections: S.Number,
-  failedConnections: S.Number,
-  reconnectAttempts: S.Number,
-  averageConnectionTime: S.Number, // milliseconds
-  lastFailureReason: S.Option(S.String),
-  lastFailureAt: S.Option(S.DateFromString)
-})
-export type WSConnectionStatsType = S.Schema.Type<typeof WSConnectionStatsSchema>
-export type WSConnectionStatsEncoded = S.Schema.Encoded<typeof WSConnectionStatsSchema>
-
-/**
- * WebSocket Message Metadata Pattern
- *
- * Standard structure for message history and debugging across all WebSocket types.
- */
-export const WSMessageMetadataSchema = S.Struct({
-  timestamp: S.DateFromString, // Transform: ISO string → Date
-  direction: S.Literal('incoming', 'outgoing'),
-  type: S.String,
-  size: S.Number, // bytes
-  success: S.Boolean
-})
-export type WSMessageMetadataType = S.Schema.Type<typeof WSMessageMetadataSchema>
-export type WSMessageMetadataEncoded = S.Schema.Encoded<typeof WSMessageMetadataSchema>
-
-/**
- * WebSocket Error Schema
- *
- * Structured error information for WebSocket failures with recovery context.
- */
-export const WSErrorSchema = S.Struct({
-  code: S.Number, // WebSocket close code
-  reason: S.String,
-  wasClean: S.Boolean,
-  timestamp: S.DateFromString,
-  recoverable: S.Boolean,
-  retryAfter: S.Option(S.Number) // milliseconds
-})
-export type WSErrorType = S.Schema.Type<typeof WSErrorSchema>
-export type WSErrorEncoded = S.Schema.Encoded<typeof WSErrorSchema>
-
-/**
- * Domain-Specific WebSocket Extensions
- *
- * Utility schemas for extending the base connection with domain-specific fields.
- */
-
-/**
- * DJ WebSocket Extension (adds streaming-specific fields)
- */
-export const DJWebSocketExtensionSchema = S.Struct({
-  roomId: S.Option(S.String),
-  streamingStartedAt: S.Option(S.DateFromString),
-  producerIds: S.Array(S.String)
-})
-export type DJWebSocketExtensionType = S.Schema.Type<typeof DJWebSocketExtensionSchema>
-
-/**
- * Listener WebSocket Extension (adds consumption-specific fields)
- */
-export const ListenerWebSocketExtensionSchema = S.Struct({
-  roomId: S.Option(S.String),
-  sessionId: S.String,
-  listeningStartedAt: S.Option(S.DateFromString),
-  consumerIds: S.Array(S.String)
-})
-export type ListenerWebSocketExtensionType = S.Schema.Type<typeof ListenerWebSocketExtensionSchema>
-
-/**
- * Lobby WebSocket Extension (adds discovery-specific fields)
- */
-export const LobbyWebSocketExtensionSchema = S.Struct({
-  lastRoomListUpdate: S.Option(S.DateFromString),
-  subscriptionFilters: S.Array(S.String)
-})
-export type LobbyWebSocketExtensionType = S.Schema.Type<typeof LobbyWebSocketExtensionSchema>
 
 
 /**
@@ -605,47 +473,10 @@ export const ListenerCommandSchema = S.Union(
   LeaveRoomCommandSchema.pipe(S.attachPropertySignature("type", "leaveRoom"))
 )
 
-
-
-/**
- * Consolidated WebSocket Schemas for easy import
- */
-export const WebSocketSchemas = {
-  // Connection patterns
-  ConnectionState: WSConnectionState,
-  ConnectionQuality: ConnectionQualitySchema,
-  BaseConnection: BaseWebSocketConnectionSchema,
-  ConnectionStats: WSConnectionStatsSchema,
-  MessageMetadata: WSMessageMetadataSchema,
-  Error: WSErrorSchema,
-
-  // Domain extensions
-  DJExtension: DJWebSocketExtensionSchema,
-  ListenerExtension: ListenerWebSocketExtensionSchema,
-  LobbyExtension: LobbyWebSocketExtensionSchema,
-
-  // Transport options
-  TransportOptions: TransportOptionsSchema,
-
-  // Individual command and event schemas are exported separately above
-}
-
 /**
  * Consolidated WebSocket Types for easy import
  */
 export type WebSocketTypes = {
-  // Connection patterns
-  ConnectionState: WSConnectionStateType
-  ConnectionQuality: ConnectionQualityType
-  BaseConnection: BaseWebSocketConnectionType
-  ConnectionStats: WSConnectionStatsType
-  MessageMetadata: WSMessageMetadataType
-  Error: WSErrorType
-
-  // Domain extensions
-  DJExtension: DJWebSocketExtensionType
-  ListenerExtension: ListenerWebSocketExtensionType
-  LobbyExtension: LobbyWebSocketExtensionType
 
   // Message types
   LobbyCommand: LobbyCommandType

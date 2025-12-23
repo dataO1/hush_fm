@@ -20,7 +20,7 @@ import { LobbyAdapter } from '../../stores/adapters/lobby.adapter'
 import { RoomMetadataAdapter } from '../../stores/adapters/room-metadata.adapter'
 
 // Import only infrastructure via Context.Tag
-import { WebSocketClient } from '../infrastructure/websocket/WebSocketClient'
+import { WebSocketClientService } from '../infrastructure/WebSocketClient'
 import { HttpClient } from '../infrastructure/HttpClient'
 
 /**
@@ -57,12 +57,12 @@ export interface RoomJoinResult {
 export class LobbyService extends Context.Tag("@app/services/LobbyService")<
   LobbyService,
   {
-    readonly connectToLobby: () => Effect.Effect<void, LobbyServiceError, LobbyAdapter | WebSocketClient>
+    readonly connectToLobby: () => Effect.Effect<void, LobbyServiceError, LobbyAdapter | WebSocketClientService>
     readonly disconnectFromLobby: () => Effect.Effect<void, LobbyServiceError, LobbyAdapter>
     readonly getRoomList: () => Effect.Effect<LobbyRoomInfoType[], LobbyServiceError, HttpClient>
-    readonly announceRoom: (roomName: string, djName: string, sessionId: string, description?: string, tags?: string[]) => Effect.Effect<RoomAnnouncementResult, LobbyServiceError, LobbyAdapter | RoomMetadataAdapter | WebSocketClient>
-    readonly requestJoinRoom: (roomId: string, sessionId: string) => Effect.Effect<RoomJoinResult, LobbyServiceError, LobbyAdapter | WebSocketClient>
-    readonly refreshRoomList: () => Effect.Effect<void, LobbyServiceError, LobbyAdapter | WebSocketClient>
+    readonly announceRoom: (roomName: string, djName: string, sessionId: string, description?: string, tags?: string[]) => Effect.Effect<RoomAnnouncementResult, LobbyServiceError, LobbyAdapter | RoomMetadataAdapter | WebSocketClientService>
+    readonly requestJoinRoom: (roomId: string, sessionId: string) => Effect.Effect<RoomJoinResult, LobbyServiceError, LobbyAdapter | WebSocketClientService>
+    readonly refreshRoomList: () => Effect.Effect<void, LobbyServiceError, LobbyAdapter | WebSocketClientService>
     readonly sortRoomsForUser: (rooms: any[], sessionId: string, activeListenerRoomId?: string) => Effect.Effect<any[], LobbyServiceError, never>
   }
 >() {}
@@ -96,7 +96,7 @@ const LobbyServiceImpl = {
       console.info('🏠 Lobby Service: Connecting to lobby')
       
       const lobbyAdapter = yield* LobbyAdapter
-      const wsClient = yield* WebSocketClient
+      const wsClient = yield* WebSocketClientService
       
       lobbyAdapter.setConnecting(true)
       
@@ -150,7 +150,7 @@ const LobbyServiceImpl = {
       
       const lobbyAdapter = yield* LobbyAdapter
       const roomMetadataAdapter = yield* RoomMetadataAdapter
-      const wsClient = yield* WebSocketClient
+      const wsClient = yield* WebSocketClientService
       
       // Validate inputs
       if (!roomName.trim()) {
@@ -215,7 +215,7 @@ const LobbyServiceImpl = {
       console.info(`🎧 Lobby Service: Requesting to join room: ${roomId}`)
       
       const lobbyAdapter = yield* LobbyAdapter
-      const wsClient = yield* WebSocketClient
+      const wsClient = yield* WebSocketClientService
       
       // Validate inputs
       if (!roomId.trim()) {
@@ -263,7 +263,7 @@ const LobbyServiceImpl = {
       console.info('🔄 Lobby Service: Refreshing room list')
       
       const lobbyAdapter = yield* LobbyAdapter
-      const wsClient = yield* WebSocketClient
+      const wsClient = yield* WebSocketClientService
       
       // Get lobby WebSocket from adapter
       const lobbyWS = lobbyAdapter.getLobbyWebSocket()

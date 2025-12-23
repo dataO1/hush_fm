@@ -1,4 +1,4 @@
-import { Data } from "effect"
+import { Data, Option } from "effect"
 
 
 export class MediaSoupDeviceError extends Data.TaggedError('MediaSoupDeviceError')<{
@@ -41,11 +41,56 @@ export class RouterCompatibilityError extends Data.TaggedError('RouterCompatibil
   readonly timestamp: Date
 }> {}
 
+/**
+ * WebSocket Operation enum
+ */
+export enum WebSocketOperation {
+  CONNECT = 'connect',
+  SEND = 'send',
+  RECEIVE = 'receive',
+  ENCODE = 'encode',
+  DECODE = 'decode',
+  WAIT_FOR_EVENT = 'waitForEvent'
+}
+
+export class WebSocketError extends Data.TaggedError('WebSocketError')<{
+  readonly cause: string
+  readonly operation: WebSocketOperation
+  readonly timestamp: Date
+}> {}
+
+/**
+ * Connection Error Union Type
+ */
+export type ConnectionError = 
+  | MediaSoupDeviceError
+  | ProducerError
+  | ConsumerError
+  | TransportError
+  | RouterCompatibilityError
+  | WebSocketError
+
+/**
+ * Connection State - combining WebRTC and WebSocket connection states
+ */
+export type ConnectionState = {
+    webrtcConnectionState: WebrtcConnectionState,
+    wsConnectionState: WsConnectionState,
+    lastError: Option.Option<ConnectionError>,
+}
 
 /**
  * Connection State enum for easy reference
  */
-export enum ConnectionState {
+export enum WsConnectionState {
+  CONNECTED = 'CONNECTED',
+  DISCONNECTED = 'DISCONNECTED',
+}
+
+/**
+ * Connection State enum for easy reference
+ */
+export enum WebrtcConnectionState {
   CONNECTING = 'CONNECTING',
   CONNECTED = 'CONNECTED',
   STREAMING = 'STREAMING',
