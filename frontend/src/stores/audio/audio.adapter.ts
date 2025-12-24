@@ -6,7 +6,7 @@
  */
 
 import { Context, Layer, Option } from 'effect'
-import type { StreamStateType, WebAPITypes } from '../../domain/schemas/audio.schema'
+import type { StreamStateType } from '../../domain/schemas/audio.schema'
 import type { AudioStore } from './audio.store'
 import { getAudioStore } from './audio.store'
 
@@ -22,17 +22,17 @@ interface AudioAdapterImpl {
   getStreamState: () => StreamStateType
   
   // Permission management
-  setPermission: (permission: WebAPITypes.PermissionState) => void
-  getPermission: () => Option.Option<WebAPITypes.PermissionState>
+  setPermission: (permission: PermissionState) => void
+  getPermission: () => Option.Option<PermissionState>
   
   // Device management
-  setAvailableDevices: (devices: ReadonlyArray<WebAPITypes.MediaDeviceInfo>) => void
-  getAvailableDevices: () => ReadonlyArray<WebAPITypes.MediaDeviceInfo>
+  setAvailableDevices: (devices: ReadonlyArray<MediaDeviceInfo>) => void
+  getAvailableDevices: () => ReadonlyArray<MediaDeviceInfo>
   getCurrentDeviceId: () => string | null
   
   // Constraints management
-  setMediaTrackConstraints: (constraints: WebAPITypes.MediaTrackConstraints) => void
-  getMediaTrackConstraints: () => Option.Option<WebAPITypes.MediaTrackConstraints>
+  setMediaTrackConstraints: (constraints: MediaTrackConstraints) => void
+  getMediaTrackConstraints: () => Option.Option<MediaTrackConstraints>
   clearMediaTrackConstraints: () => void
   
   // State checks
@@ -80,14 +80,14 @@ const createAudioAdapterImpl = (
     getStreamState: () => audioStore.state.streamState,
 
     // Permission management
-    setPermission: (permission: WebAPITypes.PermissionState) => {
+    setPermission: (permission: PermissionState) => {
       audioStore.actions.setPermission(permission)
     },
 
     getPermission: () => audioStore.state.streamState.permission,
 
     // Device management
-    setAvailableDevices: (devices: ReadonlyArray<WebAPITypes.MediaDeviceInfo>) => {
+    setAvailableDevices: (devices: ReadonlyArray<MediaDeviceInfo>) => {
       audioStore.actions.setAvailableDevices(devices)
     },
 
@@ -96,7 +96,7 @@ const createAudioAdapterImpl = (
     getCurrentDeviceId: () => audioStore.currentDeviceId(),
 
     // Constraints management
-    setMediaTrackConstraints: (constraints: WebAPITypes.MediaTrackConstraints) => {
+    setMediaTrackConstraints: (constraints: MediaTrackConstraints) => {
       audioStore.actions.setMediaTrackConstraints(constraints)
     },
 

@@ -76,7 +76,7 @@ export const createAudioStore = () => {
     },
 
     setPermission: (permission: PermissionState) => {
-      setState('streamState', 'permission', Option.some(permission))
+      setState('streamState', { permission: Option.some(permission) })
     },
 
     setAvailableDevices: (devices: ReadonlyArray<MediaDeviceInfo>) => {

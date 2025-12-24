@@ -46,47 +46,43 @@ export const createLobbyStore = () => {
   // Pure state actions - no Effects, no service calls
   const actions: LobbyStoreActions = {
     setRoomsLoading: (loading: boolean) => {
-      setState('loading', loading)
+      setState({ loading })
     },
 
     setRooms: (rooms: LobbyRoomInfoType[]) => {
-      setState('rooms', rooms)
+      setState({ rooms })
     },
 
     setRoomCreating: (creating: boolean) => {
-      setState('creatingRoom', creating)
+      setState({ creatingRoom: creating })
     },
 
     setRoomCreationError: (error: string) => {
-      setState('creationError', Option.some(error))
+      setState({ creationError: Option.some(error) })
     },
 
     setLastCreatedRoom: (roomId: string) => {
-      setState('lastCreatedRoomId', Option.some(roomId))
+      setState({ lastCreatedRoomId: Option.some(roomId) })
     },
 
     addRoom: (room: LobbyRoomInfoType) => {
-      setState('rooms', (prev) => [...(prev as LobbyRoomInfoType[]), room])
+      setState({ rooms: [...state.rooms, room] })
     },
 
     updateRoom: (room: LobbyRoomInfoType) => {
-      setState('rooms', (prev) => 
-        (prev as LobbyRoomInfoType[]).map(r => r.id === room.id ? room : r)
-      )
+      setState({ rooms: state.rooms.map(r => r.id === room.id ? room : r) })
     },
 
     removeRoom: (roomId: string) => {
-      setState('rooms', (prev) => 
-        (prev as LobbyRoomInfoType[]).filter(r => r.id !== roomId)
-      )
+      setState({ rooms: state.rooms.filter(r => r.id !== roomId) })
     },
 
     clearRooms: () => {
-      setState('rooms', [])
+      setState({ rooms: [] })
     },
 
     clearError: () => {
-      setState('creationError', Option.none())
+      setState({ creationError: Option.none() })
     }
   }
 

@@ -6,7 +6,7 @@
  */
 
 import { Context, Layer, Option } from 'effect'
-import type { ConnectionStore, DualConnectionState } from './connection.store'
+import type { DualConnectionState } from './connection.store'
 import { getConnectionStore } from './connection.store'
 import { WebrtcConnectionState, WsConnectionState, ConnectionError } from '../../domain/schemas/connection.schema'
 

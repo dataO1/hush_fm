@@ -46,7 +46,7 @@ export default function ListenerRoom() {
   // SolidJS 2025: Computed values from adapters (read-only)
   const connectionState = () => connectionAdapter.getConnectionState()
   const isConnecting = () => connectionState()?.webrtcConnectionState === WebrtcConnectionState.CONNECTING
-  const connectionError = () => connectionAdapter.getError()
+  const connectionError = () => Option.getOrNull(connectionAdapter.getError())
   const hasConnectionError = () => connectionAdapter.hasError()
 
   // Room information from params and navigation state

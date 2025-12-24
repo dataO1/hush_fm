@@ -61,8 +61,8 @@ export default function DJRoom() {
   const isPaused = () => !audioAdapter.isPlaying()
   const selectedDeviceId = () => audioAdapter.getCurrentDeviceId()
   
-  // Connection error state
-  const connectionError = () => connectionAdapter.getError()
+  // Connection error state  
+  const connectionError = () => O.getOrNull(connectionAdapter.getError())
   const hasConnectionError = () => connectionAdapter.hasError()
   
   // SolidJS 2025: Use reactive computeds with proper Option handling

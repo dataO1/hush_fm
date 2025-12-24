@@ -8,6 +8,7 @@
 
 import { Show } from 'solid-js'
 import type { JSX } from 'solid-js'
+import { Option } from 'effect'
 import ConnectionStatusDot from '../ConnectionStatusDot'
 import type { LobbyRoomInfoType } from '../../../domain/schemas/lobby.schema'
 
@@ -53,9 +54,9 @@ export function RoomCard(props: RoomCardProps): JSX.Element {
         </div>
       </div>
       
-      <Show when={props.room.description}>
+      <Show when={Option.isSome(props.room.description)}>
         <p class="text-gray-400 text-sm mb-3">
-          {props.room.description}
+          {Option.getOrNull(props.room.description)}
         </p>
       </Show>
       

@@ -10,7 +10,7 @@
 
 // External Library Type Synchronizations
 export * from './mediasoup.schema'
-export * from './webapi.schema'
+// webapi.schema removed - using native DOM types instead
 
 // Domain-Specific Shared Patterns
 // TODO: Create these when needed

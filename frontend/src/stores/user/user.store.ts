@@ -31,19 +31,19 @@ export const createUserStore = () => {
   // Pure state actions - no Effects, no service calls
   const actions: UserActions = {
     setSessionId: (sessionId: string) => {
-      setState('sessionId', Option.some(sessionId))
+      setState({ sessionId: Option.some(sessionId) })
     },
 
     clearSessionId: () => {
-      setState('sessionId', Option.none())
+      setState({ sessionId: Option.none() })
     },
 
     setCurrentRole: (role: UserRoleType) => {
-      setState('currentRole', Option.some(role))
+      setState({ currentRole: Option.some(role) })
     },
 
     clearCurrentRole: () => {
-      setState('currentRole', Option.none())
+      setState({ currentRole: Option.none() })
     },
 
     reset: () => {
