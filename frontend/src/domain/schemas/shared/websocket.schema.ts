@@ -10,6 +10,10 @@
 import { Schema as S } from 'effect'
 import { ConsumerParametersTransformSchema, DtlsParametersTransformSchema, RtpCapabilitiesTransformSchema, RtpParametersTransformSchema, TransportOptionsTransformSchema } from './mediasoup.schema'
 
+/**
+ * Individual command and event schemas with type fields
+ * Uses withConstructorDefault for commands to auto-inject type fields
+ */
 
 /**
  * =============================================================================
@@ -48,7 +52,8 @@ export const RoomAddedEventSchema = S.Struct({
     createdAt: S.String,
     description: S.optional(S.String),
     tags: S.Array(S.String)
-  })
+  }),
+  type: S.Literal("roomAdded")
 })
 
 export const RoomUpdatedEventSchema = S.Struct({
@@ -62,11 +67,13 @@ export const RoomUpdatedEventSchema = S.Struct({
     createdAt: S.String,
     description: S.optional(S.String),
     tags: S.Array(S.String)
-  })
+  }),
+  type: S.Literal("roomUpdated")
 })
 
 export const RoomRemovedEventSchema = S.Struct({
-  roomId: S.String
+  roomId: S.String,
+  type: S.Literal("roomRemoved")
 })
 
 export const JoinRoomResponseEventSchema = S.Struct({
@@ -85,7 +92,8 @@ export const JoinRoomResponseEventSchema = S.Struct({
     createdAt: S.String,
     description: S.optional(S.String),
     tags: S.Array(S.String)
-  }))
+  })),
+  type: S.Literal("joinRoomResponse")
 })
 
 // Individual Lobby Event Types
@@ -95,31 +103,42 @@ export type RoomRemovedEvent = S.Schema.Type<typeof RoomRemovedEventSchema>
 export type JoinRoomResponseEvent = S.Schema.Type<typeof JoinRoomResponseEventSchema>
 
 /**
- * Lobby Event Union Schema with discriminator for wire format
- * Uses attachPropertySignature to add 'type' field only in encoded format
+ * Lobby Event Union Schema with discriminated type field
  */
 export const LobbyEventSchema = S.Union(
-  RoomAddedEventSchema.pipe(S.attachPropertySignature("type", "roomAdded")),
-  RoomUpdatedEventSchema.pipe(S.attachPropertySignature("type", "roomUpdated")),
-  RoomRemovedEventSchema.pipe(S.attachPropertySignature("type", "roomRemoved")),
-  JoinRoomResponseEventSchema.pipe(S.attachPropertySignature("type", "joinRoomResponse"))
+  RoomAddedEventSchema,
+  RoomUpdatedEventSchema,
+  RoomRemovedEventSchema,
+  JoinRoomResponseEventSchema
 )
 
-// Individual Lobby Command Schemas for specific type safety
+// Individual Lobby Command Schemas with default type fields
 export const AnnounceRoomCommandSchema = S.Struct({
   name: S.String,
   djName: S.String,
   sessionId: S.String,
   description: S.Option(S.String),
-  tags: S.Array(S.String)
+  tags: S.Array(S.String),
+  type: S.Literal("announceRoom").pipe(
+    S.propertySignature,
+    S.withConstructorDefault(() => "announceRoom" as const)
+  )
 })
 
 export const RequestJoinCommandSchema = S.Struct({
   roomId: S.String,
-  sessionId: S.String
+  sessionId: S.String,
+  type: S.Literal("requestJoin").pipe(
+    S.propertySignature,
+    S.withConstructorDefault(() => "requestJoin" as const)
+  )
 })
 
 export const RefreshRoomsCommandSchema = S.Struct({
+  type: S.Literal("refreshRooms").pipe(
+    S.propertySignature,
+    S.withConstructorDefault(() => "refreshRooms" as const)
+  )
 })
 
 // Individual Lobby Command Types
@@ -128,13 +147,13 @@ export type RequestJoinCommand = S.Schema.Type<typeof RequestJoinCommandSchema>
 export type RefreshRoomsCommand = S.Schema.Type<typeof RefreshRoomsCommandSchema>
 
 /**
- * Lobby Command Union Schema with discriminator for wire format
- * Uses attachPropertySignature to add 'type' field only in encoded format
+ * Lobby Command Union Schema
+ * Commands include type fields with default values for discrimination
  */
 export const LobbyCommandSchema = S.Union(
-  AnnounceRoomCommandSchema.pipe(S.attachPropertySignature("type", "announceRoom")),
-  RequestJoinCommandSchema.pipe(S.attachPropertySignature("type", "requestJoin")),
-  RefreshRoomsCommandSchema.pipe(S.attachPropertySignature("type", "refreshRooms"))
+  AnnounceRoomCommandSchema,
+  RequestJoinCommandSchema,
+  RefreshRoomsCommandSchema
 )
 
 
@@ -180,47 +199,57 @@ export const RoomAnnouncedEventSchema = S.Struct({
     description: S.optional(S.String),
     tags: S.Array(S.String)
   }),
-  wsUrl: S.String
+  wsUrl: S.String,
+  type: S.Literal("roomAnnounced")
 })
 
 export const RoomInitializedEventSchema = S.Struct({
   roomId: S.String,
-  rtpCapabilities: RtpCapabilitiesTransformSchema
+  rtpCapabilities: RtpCapabilitiesTransformSchema,
+  type: S.Literal("roomInitialized")
 })
 
 export const DjTransportReadyEventSchema = S.Struct({
-  transportOptions: TransportOptionsTransformSchema
+  transportOptions: TransportOptionsTransformSchema,
+  type: S.Literal("djTransportReady")
 })
 
 export const TransportConnectedEventSchema = S.Struct({
-  transportId: S.String
+  transportId: S.String,
+  type: S.Literal("transportConnected")
 })
 
 export const ProducerCreatedEventSchema = S.Struct({
   producerId: S.String,
-  roomId: S.String
+  roomId: S.String,
+  type: S.Literal("producerCreated")
 })
 
 export const StreamPausedEventSchema = S.Struct({
-  roomId: S.String
+  roomId: S.String,
+  type: S.Literal("streamPaused")
 })
 
 export const StreamResumedEventSchema = S.Struct({
-  roomId: S.String
+  roomId: S.String,
+  type: S.Literal("streamResumed")
 })
 
 export const RoomClosedEventSchema = S.Struct({
   roomId: S.String,
-  reason: S.String
+  reason: S.String,
+  type: S.Literal("roomClosed")
 })
 
 export const DJCommandFailedEventSchema = S.Struct({
   command: S.String,
-  error: S.String
+  error: S.String,
+  type: S.Literal("commandFailed")
 })
 
 export const RoomNotFoundEventSchema = S.Struct({
-  roomId: S.String
+  roomId: S.String,
+  type: S.Literal("roomNotFound")
 })
 
 // Individual DJ Event Types
@@ -236,47 +265,74 @@ export type DJCommandFailedEvent = S.Schema.Type<typeof DJCommandFailedEventSche
 export type RoomNotFoundEvent = S.Schema.Type<typeof RoomNotFoundEventSchema>
 
 /**
- * DJ Event Union Schema with discriminator for wire format
- * Uses attachPropertySignature to add 'type' field only in encoded format
+ * DJ Event Union Schema with discriminated type field
  */
 export const DJEventSchema = S.Union(
-  RoomAnnouncedEventSchema.pipe(S.attachPropertySignature("type", "roomAnnounced")),
-  RoomInitializedEventSchema.pipe(S.attachPropertySignature("type", "roomInitialized")),
-  DjTransportReadyEventSchema.pipe(S.attachPropertySignature("type", "djTransportReady")),
-  TransportConnectedEventSchema.pipe(S.attachPropertySignature("type", "transportConnected")),
-  ProducerCreatedEventSchema.pipe(S.attachPropertySignature("type", "producerCreated")),
-  StreamPausedEventSchema.pipe(S.attachPropertySignature("type", "streamPaused")),
-  StreamResumedEventSchema.pipe(S.attachPropertySignature("type", "streamResumed")),
-  RoomClosedEventSchema.pipe(S.attachPropertySignature("type", "roomClosed")),
-  DJCommandFailedEventSchema.pipe(S.attachPropertySignature("type", "commandFailed")),
-  RoomNotFoundEventSchema.pipe(S.attachPropertySignature("type", "roomNotFound"))
+  RoomAnnouncedEventSchema,
+  RoomInitializedEventSchema,
+  DjTransportReadyEventSchema,
+  TransportConnectedEventSchema,
+  ProducerCreatedEventSchema,
+  StreamPausedEventSchema,
+  StreamResumedEventSchema,
+  RoomClosedEventSchema,
+  DJCommandFailedEventSchema,
+  RoomNotFoundEventSchema
 )
 
 
-// Individual DJ Command Schemas for specific type safety
+// Individual DJ Command Schemas with default type fields
 export const InitRoomCommandSchema = S.Struct({
-  roomId: S.String
+  roomId: S.String,
+  type: S.Literal("initRoom").pipe(
+    S.propertySignature,
+    S.withConstructorDefault(() => "initRoom" as const)
+  )
 })
 
 export const RequestDjTransportCommandSchema = S.Struct({
+  type: S.Literal("requestDjTransport").pipe(
+    S.propertySignature,
+    S.withConstructorDefault(() => "requestDjTransport" as const)
+  )
 })
 
 export const ConnectDjTransportCommandSchema = S.Struct({
   transportId: S.Option(S.String),
-  dtlsParameters: DtlsParametersTransformSchema
+  dtlsParameters: DtlsParametersTransformSchema,
+  type: S.Literal("connectDjTransport").pipe(
+    S.propertySignature,
+    S.withConstructorDefault(() => "connectDjTransport" as const)
+  )
 })
 
 export const ProduceCommandSchema = S.Struct({
-  rtpParameters: RtpParametersTransformSchema
+  rtpParameters: RtpParametersTransformSchema,
+  type: S.Literal("produce").pipe(
+    S.propertySignature,
+    S.withConstructorDefault(() => "produce" as const)
+  )
 })
 
 export const PauseStreamCommandSchema = S.Struct({
+  type: S.Literal("pauseStream").pipe(
+    S.propertySignature,
+    S.withConstructorDefault(() => "pauseStream" as const)
+  )
 })
 
 export const ResumeStreamCommandSchema = S.Struct({
+  type: S.Literal("resumeStream").pipe(
+    S.propertySignature,
+    S.withConstructorDefault(() => "resumeStream" as const)
+  )
 })
 
 export const CloseRoomCommandSchema = S.Struct({
+  type: S.Literal("closeRoom").pipe(
+    S.propertySignature,
+    S.withConstructorDefault(() => "closeRoom" as const)
+  )
 })
 
 // Individual DJ Command Types
@@ -289,17 +345,17 @@ export type ResumeStreamCommand = S.Schema.Type<typeof ResumeStreamCommandSchema
 export type CloseRoomCommand = S.Schema.Type<typeof CloseRoomCommandSchema>
 
 /**
- * DJ Command Union Schema with discriminator for wire format
- * Uses attachPropertySignature to add 'type' field only in encoded format
+ * DJ Command Union Schema
+ * Commands include type fields with default values for discrimination
  */
 export const DJCommandSchema = S.Union(
-  InitRoomCommandSchema.pipe(S.attachPropertySignature("type", "initRoom")),
-  RequestDjTransportCommandSchema.pipe(S.attachPropertySignature("type", "requestDjTransport")),
-  ConnectDjTransportCommandSchema.pipe(S.attachPropertySignature("type", "connectDjTransport")),
-  ProduceCommandSchema.pipe(S.attachPropertySignature("type", "produce")),
-  PauseStreamCommandSchema.pipe(S.attachPropertySignature("type", "pauseStream")),
-  ResumeStreamCommandSchema.pipe(S.attachPropertySignature("type", "resumeStream")),
-  CloseRoomCommandSchema.pipe(S.attachPropertySignature("type", "closeRoom"))
+  InitRoomCommandSchema,
+  RequestDjTransportCommandSchema,
+  ConnectDjTransportCommandSchema,
+  ProduceCommandSchema,
+  PauseStreamCommandSchema,
+  ResumeStreamCommandSchema,
+  CloseRoomCommandSchema
 )
 
 
@@ -334,7 +390,8 @@ export type ListenerEventType =
 
 // Individual Listener Event Schemas for specific type safety
 export const ListenerTransportReadyEventSchema = S.Struct({
-  transportOptions: TransportOptionsTransformSchema
+  transportOptions: TransportOptionsTransformSchema,
+  type: S.Literal("listenerTransportReady")
 })
 
 export const JoinReadyEventSchema = S.Struct({
@@ -351,49 +408,59 @@ export const JoinReadyEventSchema = S.Struct({
   }),
   transportOptions: TransportOptionsTransformSchema,
   producerId: S.String,
-  rtpCapabilities: RtpCapabilitiesTransformSchema
+  rtpCapabilities: RtpCapabilitiesTransformSchema,
+  type: S.Literal("joinReady")
 })
 
 export const ListenerTransportConnectedEventSchema = S.Struct({
-  transportId: S.String
+  transportId: S.String,
+  type: S.Literal("transportConnected")
 })
 
 export const ConsumerCreatedEventSchema = S.Struct({
   consumerId: S.String,
   producerId: S.String,
-  consumerParameters: ConsumerParametersTransformSchema
+  consumerParameters: ConsumerParametersTransformSchema,
+  type: S.Literal("consumerCreated")
 })
 
 export const RouterCapabilitiesEventSchema = S.Struct({
   roomId: S.String,
-  rtpCapabilities: RtpCapabilitiesTransformSchema
+  rtpCapabilities: RtpCapabilitiesTransformSchema,
+  type: S.Literal("routerCapabilities")
 })
 
 export const ListenerCountUpdatedEventSchema = S.Struct({
   roomId: S.String,
-  count: S.Number
+  count: S.Number,
+  type: S.Literal("listenerCountUpdated")
 })
 
 export const ListenerStreamPausedEventSchema = S.Struct({
-  roomId: S.String
+  roomId: S.String,
+  type: S.Literal("streamPaused")
 })
 
 export const ListenerStreamResumedEventSchema = S.Struct({
-  roomId: S.String
+  roomId: S.String,
+  type: S.Literal("streamResumed")
 })
 
 export const ListenerRoomClosedEventSchema = S.Struct({
   roomId: S.String,
-  reason: S.String
+  reason: S.String,
+  type: S.Literal("roomClosed")
 })
 
 export const ListenerCommandFailedEventSchema = S.Struct({
   command: S.String,
-  error: S.String
+  error: S.String,
+  type: S.Literal("commandFailed")
 })
 
 export const ListenerRoomNotFoundEventSchema = S.Struct({
-  roomId: S.String
+  roomId: S.String,
+  type: S.Literal("roomNotFound")
 })
 
 // Individual Listener Event Types
@@ -410,46 +477,69 @@ export type ListenerCommandFailedEvent = S.Schema.Type<typeof ListenerCommandFai
 export type ListenerRoomNotFoundEvent = S.Schema.Type<typeof ListenerRoomNotFoundEventSchema>
 
 /**
- * Listener Event Union Schema with discriminator for wire format
- * Uses attachPropertySignature to add 'type' field only in encoded format
+ * Listener Event Union Schema with discriminated type field
  */
 export const ListenerEventSchema = S.Union(
-  ListenerTransportReadyEventSchema.pipe(S.attachPropertySignature("type", "listenerTransportReady")),
-  JoinReadyEventSchema.pipe(S.attachPropertySignature("type", "joinReady")),
-  ListenerTransportConnectedEventSchema.pipe(S.attachPropertySignature("type", "transportConnected")),
-  ConsumerCreatedEventSchema.pipe(S.attachPropertySignature("type", "consumerCreated")),
-  RouterCapabilitiesEventSchema.pipe(S.attachPropertySignature("type", "routerCapabilities")),
-  ListenerCountUpdatedEventSchema.pipe(S.attachPropertySignature("type", "listenerCountUpdated")),
-  ListenerStreamPausedEventSchema.pipe(S.attachPropertySignature("type", "streamPaused")),
-  ListenerStreamResumedEventSchema.pipe(S.attachPropertySignature("type", "streamResumed")),
-  ListenerRoomClosedEventSchema.pipe(S.attachPropertySignature("type", "roomClosed")),
-  ListenerCommandFailedEventSchema.pipe(S.attachPropertySignature("type", "commandFailed")),
-  ListenerRoomNotFoundEventSchema.pipe(S.attachPropertySignature("type", "roomNotFound"))
+  ListenerTransportReadyEventSchema,
+  JoinReadyEventSchema,
+  ListenerTransportConnectedEventSchema,
+  ConsumerCreatedEventSchema,
+  RouterCapabilitiesEventSchema,
+  ListenerCountUpdatedEventSchema,
+  ListenerStreamPausedEventSchema,
+  ListenerStreamResumedEventSchema,
+  ListenerRoomClosedEventSchema,
+  ListenerCommandFailedEventSchema,
+  ListenerRoomNotFoundEventSchema
 )
 
 
-// Individual Listener Command Schemas for specific type safety
+// Individual Listener Command Schemas with default type fields
 export const InitListenerCommandSchema = S.Struct({
+  type: S.Literal("initListener").pipe(
+    S.propertySignature,
+    S.withConstructorDefault(() => "initListener" as const)
+  )
 })
 
 export const GetRouterCapabilitiesCommandSchema = S.Struct({
-  roomId: S.String
+  roomId: S.String,
+  type: S.Literal("getRouterCapabilities").pipe(
+    S.propertySignature,
+    S.withConstructorDefault(() => "getRouterCapabilities" as const)
+  )
 })
 
 export const ConnectListenerTransportCommandSchema = S.Struct({
   transportId: S.Option(S.String),
-  dtlsParameters: DtlsParametersTransformSchema
+  dtlsParameters: DtlsParametersTransformSchema,
+  type: S.Literal("connectListenerTransport").pipe(
+    S.propertySignature,
+    S.withConstructorDefault(() => "connectListenerTransport" as const)
+  )
 })
 
 export const RequestConsumerCommandSchema = S.Struct({
-  rtpCapabilities: RtpCapabilitiesTransformSchema
+  rtpCapabilities: RtpCapabilitiesTransformSchema,
+  type: S.Literal("requestConsumer").pipe(
+    S.propertySignature,
+    S.withConstructorDefault(() => "requestConsumer" as const)
+  )
 })
 
 export const ResumeConsumerCommandSchema = S.Struct({
-  consumerId: S.String
+  consumerId: S.String,
+  type: S.Literal("resumeConsumer").pipe(
+    S.propertySignature,
+    S.withConstructorDefault(() => "resumeConsumer" as const)
+  )
 })
 
 export const LeaveRoomCommandSchema = S.Struct({
+  type: S.Literal("leaveRoom").pipe(
+    S.propertySignature,
+    S.withConstructorDefault(() => "leaveRoom" as const)
+  )
 })
 
 // Individual Listener Command Types
@@ -461,16 +551,16 @@ export type ResumeConsumerCommand = S.Schema.Type<typeof ResumeConsumerCommandSc
 export type LeaveRoomCommand = S.Schema.Type<typeof LeaveRoomCommandSchema>
 
 /**
- * Listener Command Union Schema with discriminator for wire format
- * Uses attachPropertySignature to add 'type' field only in encoded format
+ * Listener Command Union Schema with proper transform handling
+ * Each command schema handles type field transformation internally
  */
 export const ListenerCommandSchema = S.Union(
-  InitListenerCommandSchema.pipe(S.attachPropertySignature("type", "initListener")),
-  GetRouterCapabilitiesCommandSchema.pipe(S.attachPropertySignature("type", "getRouterCapabilities")),
-  ConnectListenerTransportCommandSchema.pipe(S.attachPropertySignature("type", "connectListenerTransport")),
-  RequestConsumerCommandSchema.pipe(S.attachPropertySignature("type", "requestConsumer")),
-  ResumeConsumerCommandSchema.pipe(S.attachPropertySignature("type", "resumeConsumer")),
-  LeaveRoomCommandSchema.pipe(S.attachPropertySignature("type", "leaveRoom"))
+  InitListenerCommandSchema,
+  GetRouterCapabilitiesCommandSchema,
+  ConnectListenerTransportCommandSchema,
+  RequestConsumerCommandSchema,
+  ResumeConsumerCommandSchema,
+  LeaveRoomCommandSchema
 )
 
 /**

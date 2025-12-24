@@ -26,17 +26,17 @@ import { WebSocketClientService } from '../infrastructure/WebSocketClient'
 import { MediaSoupClient } from '../infrastructure/MediaSoupClient'
 import { AudioClient } from '../infrastructure/AudioClient'
 
-// Import WebSocket command types
-import type { 
-  InitRoomCommand, 
-  RequestDjTransportCommand, 
-  ConnectDjTransportCommand, 
-  ProduceCommand,
-  CloseRoomCommand,
-  InitListenerCommand,
-  ConnectListenerTransportCommand,
-  RequestConsumerCommand,
-  ResumeConsumerCommand
+// Import WebSocket command schemas for S.make construction
+import { 
+  InitRoomCommandSchema, 
+  RequestDjTransportCommandSchema, 
+  ConnectDjTransportCommandSchema, 
+  ProduceCommandSchema,
+  CloseRoomCommandSchema,
+  InitListenerCommandSchema,
+  ConnectListenerTransportCommandSchema,
+  RequestConsumerCommandSchema,
+  ResumeConsumerCommandSchema
 } from '../../domain/schemas/shared/websocket.schema'
 
 // Import domain schemas and types
@@ -97,24 +97,24 @@ const createUserServiceImpl = () => {
           yield* wsClient.connectRoom(djWebSocketUrl)
 
           // 2. Initialize room and get RTP capabilities
-          yield* wsClient.sendDJCommand({ roomId } satisfies InitRoomCommand)
+          yield* wsClient.sendDJCommand(InitRoomCommandSchema.make({ roomId }))
           const rtpCapabilitiesEvent = yield* wsClient.waitForDJEvent('roomInitialized')
 
           // 3. Initialize MediaSoup device
           yield* mediaSoupClient.initDevice(rtpCapabilitiesEvent.rtpCapabilities)
 
           // 4. Request transport from server
-          yield* wsClient.sendDJCommand({} satisfies RequestDjTransportCommand)
+          yield* wsClient.sendDJCommand(RequestDjTransportCommandSchema.make({}))
           const transportEvent = yield* wsClient.waitForDJEvent('djTransportReady')
 
           // 5. Create send transport
           const transport = yield* mediaSoupClient.createSendTransport(transportEvent.transportOptions)
 
           // 6. Connect transport
-          yield* wsClient.sendDJCommand({
+          yield* wsClient.sendDJCommand(ConnectDjTransportCommandSchema.make({
             transportId: O.some(transport.id),
             dtlsParameters: transportEvent.transportOptions.dtlsParameters
-          } satisfies ConnectDjTransportCommand)
+          }))
           yield* wsClient.waitForDJEvent('transportConnected')
           yield* mediaSoupClient.connectActiveTransport(transportEvent.transportOptions.dtlsParameters)
 
@@ -145,9 +145,9 @@ const createUserServiceImpl = () => {
           const producer = yield* mediaSoupClient.createProducer(audioTrack)
 
           // 9. Notify server about producer
-          yield* wsClient.sendDJCommand({
+          yield* wsClient.sendDJCommand(ProduceCommandSchema.make({
             rtpParameters: producer.rtpParameters
-          } satisfies ProduceCommand)
+          }))
           const producerEvent = yield* wsClient.waitForDJEvent('producerCreated')
 
           return {
@@ -174,7 +174,7 @@ const createUserServiceImpl = () => {
 
         // Send close command if connected
         if (connectionAdapter.isRoomConnected()) {
-          yield* wsClient.sendDJCommand({} satisfies CloseRoomCommand).pipe(
+          yield* wsClient.sendDJCommand(CloseRoomCommandSchema.make({})).pipe(
             Effect.mapError((error) => new UserServiceError({
               cause: `Failed to send close room command: ${error}`,
               role: 'dj',
@@ -230,7 +230,7 @@ const createUserServiceImpl = () => {
         yield* wsClient.connectRoom(listenerWebSocketUrl)
 
         // 2. Initialize listener
-        yield* wsClient.sendListenerCommand({} satisfies InitListenerCommand)
+        yield* wsClient.sendListenerCommand(InitListenerCommandSchema.make({}))
         const joinReadyEvent = yield* wsClient.waitForListenerEvent('joinReady')
 
           // 3. Initialize MediaSoup device
@@ -240,18 +240,18 @@ const createUserServiceImpl = () => {
           const transport = yield* mediaSoupClient.createReceiveTransport(joinReadyEvent.transportOptions)
 
           // 5. Connect transport
-          yield* wsClient.sendListenerCommand({
+          yield* wsClient.sendListenerCommand(ConnectListenerTransportCommandSchema.make({
             transportId: O.some(transport.id),
             dtlsParameters: joinReadyEvent.transportOptions.dtlsParameters
-          } satisfies ConnectListenerTransportCommand)
+          }))
           yield* wsClient.waitForListenerEvent('transportConnected')
           yield* mediaSoupClient.connectActiveTransport(joinReadyEvent.transportOptions.dtlsParameters)
 
           // 6. Request consumer
           const rtpCapabilities = yield* mediaSoupClient.getDeviceCapabilities()
-          yield* wsClient.sendListenerCommand({
+          yield* wsClient.sendListenerCommand(RequestConsumerCommandSchema.make({
             rtpCapabilities
-          } satisfies RequestConsumerCommand)
+          }))
           const consumerEvent = yield* wsClient.waitForListenerEvent('consumerCreated')
 
           // 7. Create consumer (consumerParameters already has all required fields from transform)
@@ -263,9 +263,9 @@ const createUserServiceImpl = () => {
 
           // 9. Resume consumer if needed
           if (consumer.paused) {
-            yield* wsClient.sendListenerCommand({
+            yield* wsClient.sendListenerCommand(ResumeConsumerCommandSchema.make({
               consumerId: consumer.id
-            } satisfies ResumeConsumerCommand)
+            }))
           }
 
         const listenerId = `${sessionId}-${roomId}`

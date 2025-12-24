@@ -17,6 +17,13 @@ import type { LobbyRoomInfoType } from '../../domain/schemas/lobby.schema'
 import { LobbyRoomInfo } from '../../domain/schemas/lobby.schema'
 import { config } from '../../config'
 
+// Import lobby command schemas for .make() construction
+import { 
+  AnnounceRoomCommandSchema, 
+  RequestJoinCommandSchema, 
+  RefreshRoomsCommandSchema 
+} from '../../domain/schemas/shared/websocket.schema'
+
 // Import only adapters via Context.Tag
 import { LobbyAdapter, ConnectionAdapter } from '../../stores'
 
@@ -191,14 +198,14 @@ const LobbyServiceImpl = {
         ))
       }
 
-      // Send announce room command via lobby WebSocket (without type field)
-      yield* wsClient.sendLobbyCommand({
+      // Send announce room command via lobby WebSocket
+      yield* wsClient.sendLobbyCommand(AnnounceRoomCommandSchema.make({
         name: roomName,
         djName,
         sessionId,
         description: description ? O.some(description) : O.none(),
         tags: tags || []
-      }).pipe(
+      })).pipe(
         Effect.mapError((error) => new LobbyServiceError(
           `Failed to send announce room command: ${error.cause}`,
           'announceRoom',
@@ -263,11 +270,11 @@ const LobbyServiceImpl = {
         ))
       }
 
-      // Send request join command via lobby WebSocket (without type field)
-      yield* wsClient.sendLobbyCommand({
+      // Send request join command via lobby WebSocket
+      yield* wsClient.sendLobbyCommand(RequestJoinCommandSchema.make({
         roomId,
         sessionId
-      }).pipe(
+      })).pipe(
         Effect.mapError((error) => new LobbyServiceError(
           `Failed to send join room command: ${error.cause}`,
           'requestJoinRoom',
@@ -304,8 +311,8 @@ const LobbyServiceImpl = {
 
       const wsClient = yield* WebSocketClientService
 
-      // Send refresh rooms command (empty object for RefreshRoomsCommand)
-      yield* wsClient.sendLobbyCommand({}).pipe(
+      // Send refresh rooms command
+      yield* wsClient.sendLobbyCommand(RefreshRoomsCommandSchema.make({})).pipe(
         Effect.mapError((error) => new LobbyServiceError(
           `Failed to send refresh rooms command: ${error.cause}`,
           'refreshRoomList',

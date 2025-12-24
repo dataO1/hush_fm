@@ -84,17 +84,17 @@ interface WebSocketClientServiceImpl {
   readonly disconnectRoom: () => Effect.Effect<void, never, ConnectionAdapter>
 
   /**
-   * Send DJ command (without type field - added during encoding)
+   * Send DJ command (includes type field for discrimination)
    */
   readonly sendDJCommand: (command: DJCommandType) => Effect.Effect<void, WebSocketError, never>
 
   /**
-   * Send Listener command (without type field - added during encoding)
+   * Send Listener command (includes type field for discrimination)
    */
   readonly sendListenerCommand: (command: ListenerCommandType) => Effect.Effect<void, WebSocketError, never>
 
   /**
-   * Send Lobby command (without type field - added during encoding)
+   * Send Lobby command (includes type field for discrimination)
    */
   readonly sendLobbyCommand: (command: LobbyCommandType) => Effect.Effect<void, WebSocketError, never>
 
@@ -608,93 +608,364 @@ const createWebSocketClientImpl = (): WebSocketClientServiceImpl => {
         }
       }),
 
-    waitForDJEvent: ((eventType: string, timeoutMs = 30000) => {
-      // Decode using specific schema based on event type
-      const decodeSchema = (
-        eventType === 'roomInitialized' ? RoomInitializedEventSchema :
-        eventType === 'djTransportReady' ? DjTransportReadyEventSchema :
-        eventType === 'transportConnected' ? TransportConnectedEventSchema :
-        eventType === 'producerCreated' ? ProducerCreatedEventSchema :
-        eventType === 'streamPaused' ? StreamPausedEventSchema :
-        eventType === 'streamResumed' ? StreamResumedEventSchema :
-        eventType === 'roomClosed' ? RoomClosedEventSchema :
-        eventType === 'djCommandFailed' ? DJCommandFailedEventSchema :
-        eventType === 'roomNotFound' ? RoomNotFoundEventSchema :
-        DJEventSchema // fallback to union type for unknown events
-      )
-
-      return pipe(
-        waitForEvent(eventType, djEventHandlers, 'DJ', timeoutMs),
-        Effect.flatMap(data => 
-          Effect.try({
-            try: () => S.decodeUnknownSync(decodeSchema)(data),
-            catch: (error) => createWebSocketError(
-              WebSocketOperation.DECODE,
-              `Failed to decode DJ event: ${eventType}`,
-              error
-            )
-          })
+    waitForDJEvent: {
+      'roomInitialized': (timeoutMs = 30000) =>
+        pipe(
+          waitForEvent('roomInitialized', djEventHandlers, 'DJ', timeoutMs),
+          Effect.flatMap(data => 
+            Effect.try({
+              try: () => S.decodeUnknownSync(RoomInitializedEventSchema)(data),
+              catch: (error) => createWebSocketError(
+                WebSocketOperation.DECODE,
+                'Failed to decode DJ event: roomInitialized',
+                error
+              )
+            })
+          )
+        ),
+      'djTransportReady': (timeoutMs = 30000) =>
+        pipe(
+          waitForEvent('djTransportReady', djEventHandlers, 'DJ', timeoutMs),
+          Effect.flatMap(data => 
+            Effect.try({
+              try: () => S.decodeUnknownSync(DjTransportReadyEventSchema)(data),
+              catch: (error) => createWebSocketError(
+                WebSocketOperation.DECODE,
+                'Failed to decode DJ event: djTransportReady',
+                error
+              )
+            })
+          )
+        ),
+      'transportConnected': (timeoutMs = 30000) =>
+        pipe(
+          waitForEvent('transportConnected', djEventHandlers, 'DJ', timeoutMs),
+          Effect.flatMap(data => 
+            Effect.try({
+              try: () => S.decodeUnknownSync(TransportConnectedEventSchema)(data),
+              catch: (error) => createWebSocketError(
+                WebSocketOperation.DECODE,
+                'Failed to decode DJ event: transportConnected',
+                error
+              )
+            })
+          )
+        ),
+      'producerCreated': (timeoutMs = 30000) =>
+        pipe(
+          waitForEvent('producerCreated', djEventHandlers, 'DJ', timeoutMs),
+          Effect.flatMap(data => 
+            Effect.try({
+              try: () => S.decodeUnknownSync(ProducerCreatedEventSchema)(data),
+              catch: (error) => createWebSocketError(
+                WebSocketOperation.DECODE,
+                'Failed to decode DJ event: producerCreated',
+                error
+              )
+            })
+          )
+        ),
+      'streamPaused': (timeoutMs = 30000) =>
+        pipe(
+          waitForEvent('streamPaused', djEventHandlers, 'DJ', timeoutMs),
+          Effect.flatMap(data => 
+            Effect.try({
+              try: () => S.decodeUnknownSync(StreamPausedEventSchema)(data),
+              catch: (error) => createWebSocketError(
+                WebSocketOperation.DECODE,
+                'Failed to decode DJ event: streamPaused',
+                error
+              )
+            })
+          )
+        ),
+      'streamResumed': (timeoutMs = 30000) =>
+        pipe(
+          waitForEvent('streamResumed', djEventHandlers, 'DJ', timeoutMs),
+          Effect.flatMap(data => 
+            Effect.try({
+              try: () => S.decodeUnknownSync(StreamResumedEventSchema)(data),
+              catch: (error) => createWebSocketError(
+                WebSocketOperation.DECODE,
+                'Failed to decode DJ event: streamResumed',
+                error
+              )
+            })
+          )
+        ),
+      'roomClosed': (timeoutMs = 30000) =>
+        pipe(
+          waitForEvent('roomClosed', djEventHandlers, 'DJ', timeoutMs),
+          Effect.flatMap(data => 
+            Effect.try({
+              try: () => S.decodeUnknownSync(RoomClosedEventSchema)(data),
+              catch: (error) => createWebSocketError(
+                WebSocketOperation.DECODE,
+                'Failed to decode DJ event: roomClosed',
+                error
+              )
+            })
+          )
+        ),
+      'djCommandFailed': (timeoutMs = 30000) =>
+        pipe(
+          waitForEvent('djCommandFailed', djEventHandlers, 'DJ', timeoutMs),
+          Effect.flatMap(data => 
+            Effect.try({
+              try: () => S.decodeUnknownSync(DJCommandFailedEventSchema)(data),
+              catch: (error) => createWebSocketError(
+                WebSocketOperation.DECODE,
+                'Failed to decode DJ event: djCommandFailed',
+                error
+              )
+            })
+          )
+        ),
+      'roomNotFound': (timeoutMs = 30000) =>
+        pipe(
+          waitForEvent('roomNotFound', djEventHandlers, 'DJ', timeoutMs),
+          Effect.flatMap(data => 
+            Effect.try({
+              try: () => S.decodeUnknownSync(RoomNotFoundEventSchema)(data),
+              catch: (error) => createWebSocketError(
+                WebSocketOperation.DECODE,
+                'Failed to decode DJ event: roomNotFound',
+                error
+              )
+            })
+          )
         )
-      )
-    }) as any,
+    } as any,
 
-    waitForListenerEvent: ((eventType: string, timeoutMs = 30000) => {
-      // Decode using specific schema based on event type
-      const decodeSchema = (
-        eventType === 'joinReady' ? JoinReadyEventSchema :
-        eventType === 'listenerTransportReady' ? ListenerTransportReadyEventSchema :
-        eventType === 'transportConnected' ? ListenerTransportConnectedEventSchema :
-        eventType === 'consumerCreated' ? ConsumerCreatedEventSchema :
-        eventType === 'routerCapabilities' ? RouterCapabilitiesEventSchema :
-        eventType === 'listenerCountUpdated' ? ListenerCountUpdatedEventSchema :
-        eventType === 'streamPaused' ? ListenerStreamPausedEventSchema :
-        eventType === 'streamResumed' ? ListenerStreamResumedEventSchema :
-        eventType === 'roomClosed' ? ListenerRoomClosedEventSchema :
-        eventType === 'listenerCommandFailed' ? ListenerCommandFailedEventSchema :
-        eventType === 'roomNotFound' ? ListenerRoomNotFoundEventSchema :
-        ListenerEventSchema // fallback to union type for unknown events
-      )
-
-      return pipe(
-        waitForEvent(eventType, listenerEventHandlers, 'Listener', timeoutMs),
-        Effect.flatMap(data => 
-          Effect.try({
-            try: () => S.decodeUnknownSync(decodeSchema)(data),
-            catch: (error) => createWebSocketError(
-              WebSocketOperation.DECODE,
-              `Failed to decode Listener event: ${eventType}`,
-              error
-            )
-          })
+    waitForListenerEvent: {
+      'joinReady': (timeoutMs = 30000) =>
+        pipe(
+          waitForEvent('joinReady', listenerEventHandlers, 'Listener', timeoutMs),
+          Effect.flatMap(data => 
+            Effect.try({
+              try: () => S.decodeUnknownSync(JoinReadyEventSchema)(data),
+              catch: (error) => createWebSocketError(
+                WebSocketOperation.DECODE,
+                'Failed to decode Listener event: joinReady',
+                error
+              )
+            })
+          )
+        ),
+      'listenerTransportReady': (timeoutMs = 30000) =>
+        pipe(
+          waitForEvent('listenerTransportReady', listenerEventHandlers, 'Listener', timeoutMs),
+          Effect.flatMap(data => 
+            Effect.try({
+              try: () => S.decodeUnknownSync(ListenerTransportReadyEventSchema)(data),
+              catch: (error) => createWebSocketError(
+                WebSocketOperation.DECODE,
+                'Failed to decode Listener event: listenerTransportReady',
+                error
+              )
+            })
+          )
+        ),
+      'transportConnected': (timeoutMs = 30000) =>
+        pipe(
+          waitForEvent('transportConnected', listenerEventHandlers, 'Listener', timeoutMs),
+          Effect.flatMap(data => 
+            Effect.try({
+              try: () => S.decodeUnknownSync(ListenerTransportConnectedEventSchema)(data),
+              catch: (error) => createWebSocketError(
+                WebSocketOperation.DECODE,
+                'Failed to decode Listener event: transportConnected',
+                error
+              )
+            })
+          )
+        ),
+      'consumerCreated': (timeoutMs = 30000) =>
+        pipe(
+          waitForEvent('consumerCreated', listenerEventHandlers, 'Listener', timeoutMs),
+          Effect.flatMap(data => 
+            Effect.try({
+              try: () => S.decodeUnknownSync(ConsumerCreatedEventSchema)(data),
+              catch: (error) => createWebSocketError(
+                WebSocketOperation.DECODE,
+                'Failed to decode Listener event: consumerCreated',
+                error
+              )
+            })
+          )
+        ),
+      'routerCapabilities': (timeoutMs = 30000) =>
+        pipe(
+          waitForEvent('routerCapabilities', listenerEventHandlers, 'Listener', timeoutMs),
+          Effect.flatMap(data => 
+            Effect.try({
+              try: () => S.decodeUnknownSync(RouterCapabilitiesEventSchema)(data),
+              catch: (error) => createWebSocketError(
+                WebSocketOperation.DECODE,
+                'Failed to decode Listener event: routerCapabilities',
+                error
+              )
+            })
+          )
+        ),
+      'listenerCountUpdated': (timeoutMs = 30000) =>
+        pipe(
+          waitForEvent('listenerCountUpdated', listenerEventHandlers, 'Listener', timeoutMs),
+          Effect.flatMap(data => 
+            Effect.try({
+              try: () => S.decodeUnknownSync(ListenerCountUpdatedEventSchema)(data),
+              catch: (error) => createWebSocketError(
+                WebSocketOperation.DECODE,
+                'Failed to decode Listener event: listenerCountUpdated',
+                error
+              )
+            })
+          )
+        ),
+      'streamPaused': (timeoutMs = 30000) =>
+        pipe(
+          waitForEvent('streamPaused', listenerEventHandlers, 'Listener', timeoutMs),
+          Effect.flatMap(data => 
+            Effect.try({
+              try: () => S.decodeUnknownSync(ListenerStreamPausedEventSchema)(data),
+              catch: (error) => createWebSocketError(
+                WebSocketOperation.DECODE,
+                'Failed to decode Listener event: streamPaused',
+                error
+              )
+            })
+          )
+        ),
+      'streamResumed': (timeoutMs = 30000) =>
+        pipe(
+          waitForEvent('streamResumed', listenerEventHandlers, 'Listener', timeoutMs),
+          Effect.flatMap(data => 
+            Effect.try({
+              try: () => S.decodeUnknownSync(ListenerStreamResumedEventSchema)(data),
+              catch: (error) => createWebSocketError(
+                WebSocketOperation.DECODE,
+                'Failed to decode Listener event: streamResumed',
+                error
+              )
+            })
+          )
+        ),
+      'roomClosed': (timeoutMs = 30000) =>
+        pipe(
+          waitForEvent('roomClosed', listenerEventHandlers, 'Listener', timeoutMs),
+          Effect.flatMap(data => 
+            Effect.try({
+              try: () => S.decodeUnknownSync(ListenerRoomClosedEventSchema)(data),
+              catch: (error) => createWebSocketError(
+                WebSocketOperation.DECODE,
+                'Failed to decode Listener event: roomClosed',
+                error
+              )
+            })
+          )
+        ),
+      'listenerCommandFailed': (timeoutMs = 30000) =>
+        pipe(
+          waitForEvent('listenerCommandFailed', listenerEventHandlers, 'Listener', timeoutMs),
+          Effect.flatMap(data => 
+            Effect.try({
+              try: () => S.decodeUnknownSync(ListenerCommandFailedEventSchema)(data),
+              catch: (error) => createWebSocketError(
+                WebSocketOperation.DECODE,
+                'Failed to decode Listener event: listenerCommandFailed',
+                error
+              )
+            })
+          )
+        ),
+      'roomNotFound': (timeoutMs = 30000) =>
+        pipe(
+          waitForEvent('roomNotFound', listenerEventHandlers, 'Listener', timeoutMs),
+          Effect.flatMap(data => 
+            Effect.try({
+              try: () => S.decodeUnknownSync(ListenerRoomNotFoundEventSchema)(data),
+              catch: (error) => createWebSocketError(
+                WebSocketOperation.DECODE,
+                'Failed to decode Listener event: roomNotFound',
+                error
+              )
+            })
+          )
         )
-      )
-    }) as any,
+    } as any,
 
-    waitForLobbyEvent: ((eventType: string, timeoutMs = 30000) => {
-      // Decode using specific schema based on event type
-      const decodeSchema = (
-        eventType === 'roomAnnounced' ? RoomAnnouncedEventSchema :
-        eventType === 'roomAdded' ? RoomAddedEventSchema :
-        eventType === 'roomUpdated' ? RoomUpdatedEventSchema :
-        eventType === 'roomRemoved' ? RoomRemovedEventSchema :
-        eventType === 'joinApproved' ? JoinRoomResponseEventSchema :
-        LobbyEventSchema // fallback to union type for unknown events
-      )
-
-      return pipe(
-        waitForEvent(eventType, lobbyEventHandlers, 'Lobby', timeoutMs),
-        Effect.flatMap(data => 
-          Effect.try({
-            try: () => S.decodeUnknownSync(decodeSchema)(data),
-            catch: (error) => createWebSocketError(
-              WebSocketOperation.DECODE,
-              `Failed to decode Lobby event: ${eventType}`,
-              error
-            )
-          })
+    waitForLobbyEvent: {
+      'roomAnnounced': (timeoutMs = 30000) =>
+        pipe(
+          waitForEvent('roomAnnounced', lobbyEventHandlers, 'Lobby', timeoutMs),
+          Effect.flatMap(data => 
+            Effect.try({
+              try: () => S.decodeUnknownSync(RoomAnnouncedEventSchema)(data),
+              catch: (error) => createWebSocketError(
+                WebSocketOperation.DECODE,
+                'Failed to decode Lobby event: roomAnnounced',
+                error
+              )
+            })
+          )
+        ),
+      'roomAdded': (timeoutMs = 30000) =>
+        pipe(
+          waitForEvent('roomAdded', lobbyEventHandlers, 'Lobby', timeoutMs),
+          Effect.flatMap(data => 
+            Effect.try({
+              try: () => S.decodeUnknownSync(RoomAddedEventSchema)(data),
+              catch: (error) => createWebSocketError(
+                WebSocketOperation.DECODE,
+                'Failed to decode Lobby event: roomAdded',
+                error
+              )
+            })
+          )
+        ),
+      'roomUpdated': (timeoutMs = 30000) =>
+        pipe(
+          waitForEvent('roomUpdated', lobbyEventHandlers, 'Lobby', timeoutMs),
+          Effect.flatMap(data => 
+            Effect.try({
+              try: () => S.decodeUnknownSync(RoomUpdatedEventSchema)(data),
+              catch: (error) => createWebSocketError(
+                WebSocketOperation.DECODE,
+                'Failed to decode Lobby event: roomUpdated',
+                error
+              )
+            })
+          )
+        ),
+      'roomRemoved': (timeoutMs = 30000) =>
+        pipe(
+          waitForEvent('roomRemoved', lobbyEventHandlers, 'Lobby', timeoutMs),
+          Effect.flatMap(data => 
+            Effect.try({
+              try: () => S.decodeUnknownSync(RoomRemovedEventSchema)(data),
+              catch: (error) => createWebSocketError(
+                WebSocketOperation.DECODE,
+                'Failed to decode Lobby event: roomRemoved',
+                error
+              )
+            })
+          )
+        ),
+      'joinApproved': (timeoutMs = 30000) =>
+        pipe(
+          waitForEvent('joinApproved', lobbyEventHandlers, 'Lobby', timeoutMs),
+          Effect.flatMap(data => 
+            Effect.try({
+              try: () => S.decodeUnknownSync(JoinRoomResponseEventSchema)(data),
+              catch: (error) => createWebSocketError(
+                WebSocketOperation.DECODE,
+                'Failed to decode Lobby event: joinApproved',
+                error
+              )
+            })
+          )
         )
-      )
-    }) as any
+    } as any
   }
   
   return service
