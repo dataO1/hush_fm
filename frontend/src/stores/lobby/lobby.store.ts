@@ -8,7 +8,6 @@
  */
 
 import { createStore } from 'solid-js/store'
-import { createMemo } from 'solid-js'
 import { Option } from 'effect'
 import { LobbyRoomInfoType, LobbyStateType, createInitialLobbyState } from '@/domain/schemas/lobby.schema'
 
@@ -86,14 +85,13 @@ export const createLobbyStore = () => {
     }
   }
 
-  // Computed values
-  const isLoading = createMemo(() => state.loading)
-  const isCreating = createMemo(() => state.creatingRoom)
-  const creationError = createMemo(() => Option.getOrNull(state.creationError))
-  const lastCreatedRoomId = createMemo(() => Option.getOrNull(state.lastCreatedRoomId))
-  const sortedRoomsByListenerCount = createMemo(() => 
+  // Computed values - Using getter functions to avoid reactive computations outside render context
+  const isLoading = () => state.loading
+  const isCreating = () => state.creatingRoom
+  const creationError = () => Option.getOrNull(state.creationError)
+  const lastCreatedRoomId = () => Option.getOrNull(state.lastCreatedRoomId)
+  const sortedRoomsByListenerCount = () => 
     state.rooms.slice().sort((a, b) => (b.listenerCount || 0) - (a.listenerCount || 0))
-  )
 
   return {
     // Reactive state (read-only)

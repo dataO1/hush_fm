@@ -106,7 +106,7 @@ const LobbyServiceImpl = {
       const wsClient = yield* WebSocketClientService
 
       // Connect to lobby WebSocket - wsClient handles all connection state management
-      const lobbyUrl = `${config.websocket.baseUrl}/lobby`
+      const lobbyUrl = `${config.websocket.baseUrl}/ws/lobby`
       yield* wsClient.connectLobby(lobbyUrl).pipe(
         Effect.mapError((error) => new LobbyServiceError(
           `Failed to connect to lobby: ${error}`,

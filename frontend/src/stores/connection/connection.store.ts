@@ -9,7 +9,7 @@
  */
 
 import { WebrtcConnectionState, WsConnectionState, ConnectionError } from '../../domain/schemas/connection.schema'
-import { createMemo } from 'solid-js'
+// Removed createMemo import - using getter functions instead
 import { createStore } from 'solid-js/store'
 import { Option } from "effect"
 
@@ -139,33 +139,27 @@ export const createConnectionStore = (): ConnectionStore => {
     }
   }
 
-  // Computed values using createMemo for performance
-  const isLobbyConnected = createMemo(() =>
+  // Computed values - Using getter functions to avoid reactive computations outside render context
+  const isLobbyConnected = () =>
     state.lobbyWsState === WsConnectionState.CONNECTED
-  )
 
-  const isRoomConnected = createMemo(() =>
+  const isRoomConnected = () =>
     state.roomWsState === WsConnectionState.CONNECTED &&
     (state.webrtcConnectionState === WebrtcConnectionState.CONNECTED ||
      state.webrtcConnectionState === WebrtcConnectionState.STREAMING)
-  )
 
-  const isConnecting = createMemo(() =>
+  const isConnecting = () =>
     state.webrtcConnectionState === WebrtcConnectionState.CONNECTING ||
     state.webrtcConnectionState === WebrtcConnectionState.DISCONNECTING
-  )
 
-
-  const isConnected = createMemo(() =>
+  const isConnected = () =>
     state.webrtcConnectionState === WebrtcConnectionState.CONNECTED
-  )
 
-  const hasError = createMemo(() =>
+  const hasError = () =>
     state.webrtcConnectionState === WebrtcConnectionState.ERROR ||
     Option.isSome(state.lastError)
-  )
 
-  const connectionError = createMemo(() => state.lastError)
+  const connectionError = () => state.lastError
 
   return {
     // Reactive state (read-only access)

@@ -5,7 +5,7 @@
  * Manages StreamState and MediaTrackConstraints.
  */
 
-import { createMemo } from 'solid-js'
+// Removed createMemo import - using getter functions instead
 import { createStore } from 'solid-js/store'
 import { Option } from 'effect'
 import { StreamStateType } from '@/domain'
@@ -96,13 +96,13 @@ export const createAudioStore = () => {
     }
   }
 
-  // Computed values
-  const isPlaying = createMemo(() => state.streamState.playing)
-  const requiresUserGesture = createMemo(() => state.streamState.requiresUserGesture)
-  const currentDeviceId = createMemo(() => Option.getOrNull(state.streamState.deviceId))
-  const hasError = createMemo(() => Option.isSome(state.streamState.error))
-  const errorMessage = createMemo(() => Option.getOrNull(state.streamState.error))
-  const permission = createMemo(() => Option.getOrNull(state.streamState.permission))
+  // Computed values - Using getter functions to avoid reactive computations outside render context
+  const isPlaying = () => state.streamState.playing
+  const requiresUserGesture = () => state.streamState.requiresUserGesture
+  const currentDeviceId = () => Option.getOrNull(state.streamState.deviceId)
+  const hasError = () => Option.isSome(state.streamState.error)
+  const errorMessage = () => Option.getOrNull(state.streamState.error)
+  const permission = () => Option.getOrNull(state.streamState.permission)
 
   return {
     // Reactive state (read-only)
