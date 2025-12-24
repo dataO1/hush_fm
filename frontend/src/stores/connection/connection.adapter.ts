@@ -37,6 +37,9 @@ export class ConnectionAdapter extends Context.Tag("@app/adapters/ConnectionAdap
     hasError: () => boolean
     setConnectionError: (error: ConnectionError | null) => void
     clearError: () => void
+    
+    // Reset room connection state
+    resetRoom: () => void
   }
 >() {}
 
@@ -92,6 +95,12 @@ const createConnectionAdapterImpl = () => {
     },
 
     clearError: () => {
+      connectionStore.actions.clearError()
+    },
+    
+    resetRoom: () => {
+      connectionStore.actions.setRoomWSState(WsConnectionState.DISCONNECTED)
+      connectionStore.actions.setWebRTCState(WebrtcConnectionState.DISCONNECTED)
       connectionStore.actions.clearError()
     }
   }

@@ -12,5 +12,5 @@ export * from './api'
 
 // Three-layer SolidJS 2025 Architecture
 export * from './infrastructure'
-export * from './domain'
+// Domain services are in domain/schemas
 export * from './application'

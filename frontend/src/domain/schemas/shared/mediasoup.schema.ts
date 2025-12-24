@@ -9,6 +9,51 @@
  */
 
 import { Schema as S, Option as O } from 'effect'
+
+/**
+ * MediaSoup RTP Header Extension URI type
+ * Specific URIs supported by MediaSoup
+ */
+export const RtpHeaderExtensionUriSchema = S.Union(
+  S.Literal('urn:ietf:params:rtp-hdrext:sdes:mid'),
+  S.Literal('urn:ietf:params:rtp-hdrext:sdes:rtp-stream-id'),
+  S.Literal('urn:ietf:params:rtp-hdrext:sdes:repaired-rtp-stream-id'),
+  S.Literal('http://www.webrtc.org/experiments/rtp-hdrext/abs-send-time'),
+  S.Literal('http://www.ietf.org/id/draft-holmer-rmcat-transport-wide-cc-extensions-01'),
+  S.Literal('urn:ietf:params:rtp-hdrext:ssrc-audio-level'),
+  S.Literal('https://aomediacodec.github.io/av1-rtp-spec/#dependency-descriptor-rtp-header-extension'),
+  S.Literal('urn:3gpp:video-orientation'),
+  S.Literal('http://www.webrtc.org/experiments/rtp-hdrext/abs-capture-time'),
+  S.Literal('urn:ietf:params:rtp-hdrext:toffset'),
+  S.Literal('http://www.webrtc.org/experiments/rtp-hdrext/playout-delay'),
+  S.Literal('urn:mediasoup:params:rtp-hdrext:packet-id')
+)
+export type RtpHeaderExtensionUriType = S.Schema.Type<typeof RtpHeaderExtensionUriSchema>
+
+/**
+ * DTLS Fingerprint Algorithm type
+ * Hash algorithms supported by MediaSoup
+ */
+export const FingerprintAlgorithmSchema = S.Union(
+  S.Literal('sha-1'),
+  S.Literal('sha-224'),
+  S.Literal('sha-256'),
+  S.Literal('sha-384'),
+  S.Literal('sha-512')
+)
+export type FingerprintAlgorithmType = S.Schema.Type<typeof FingerprintAlgorithmSchema>
+
+/**
+ * RTP Header Extension Direction type
+ * Direction values supported by MediaSoup
+ */
+export const RtpHeaderExtensionDirectionSchema = S.Union(
+  S.Literal('sendrecv'),
+  S.Literal('sendonly'),
+  S.Literal('recvonly'),
+  S.Literal('inactive')
+)
+export type RtpHeaderExtensionDirectionType = S.Schema.Type<typeof RtpHeaderExtensionDirectionSchema>
 import { Device } from 'mediasoup-client'
 
 /**
@@ -86,10 +131,10 @@ export const RtpCapabilitiesSchema = S.Struct({
   })))), // MediaSoup: optional RtpCodecCapability[]
   headerExtensions: S.optional(S.mutable(S.Array(S.Struct({
     kind: S.Union(S.Literal('audio'), S.Literal('video')), // MediaSoup: MediaKind enum
-    uri: S.String,
+    uri: RtpHeaderExtensionUriSchema,
     preferredId: S.Number,
     preferredEncrypt: S.optional(S.Boolean), // MediaSoup: optional boolean
-    direction: S.optional(S.String) // MediaSoup: optional string (not enum)
+    direction: S.optional(RtpHeaderExtensionDirectionSchema) // MediaSoup: optional RtpHeaderExtensionDirection
   })))) // MediaSoup: optional RtpHeaderExtension[]
 })
 export type RtpCapabilitiesType = S.Schema.Type<typeof RtpCapabilitiesSchema>
@@ -137,7 +182,7 @@ export type RtpParametersType = S.Schema.Type<typeof RtpParametersSchema>
 export const DtlsParametersSchema = S.Struct({
   role: S.Union(S.Literal('auto'), S.Literal('client'), S.Literal('server')),
   fingerprints: S.mutable(S.Array(S.Struct({
-    algorithm: S.String,
+    algorithm: FingerprintAlgorithmSchema,
     value: S.String
   })))
 })
@@ -543,10 +588,10 @@ export const RtpCapabilitiesTransformSchema = S.transform(
       })) : undefined,
       headerExtensions: wireData.headerExtensions ? wireData.headerExtensions.map(ext => ({
         kind: ext.kind as "audio" | "video", // Cast string to MediaSoup enum
-        uri: ext.uri,
+        uri: ext.uri as S.Schema.Type<typeof RtpHeaderExtensionUriSchema>, // Parse to specific literal
         preferredId: ext.preferredId,
         preferredEncrypt: ext.preferredEncrypt, // Backend: required bool, no Option handling needed
-        direction: ext.direction // Backend: required String, no Option handling needed
+        direction: ext.direction as S.Schema.Type<typeof RtpHeaderExtensionDirectionSchema> // Parse to specific literal
       })) : undefined
     }),
     encode: (nativeData) => ({
@@ -656,8 +701,20 @@ export const DtlsParametersTransformSchema = S.transform(
   DtlsParametersSchema,
   {
     strict: true,
-    decode: (wireData) => wireData, // Direct pass-through as structures match
-    encode: (nativeData) => nativeData // Direct pass-through as structures match
+    decode: (wireData) => ({
+      role: wireData.role,
+      fingerprints: wireData.fingerprints.map(fp => ({
+        algorithm: fp.algorithm as S.Schema.Type<typeof FingerprintAlgorithmSchema>, // Parse to specific literal
+        value: fp.value
+      }))
+    }),
+    encode: (nativeData) => ({
+      role: nativeData.role,
+      fingerprints: nativeData.fingerprints.map(fp => ({
+        algorithm: fp.algorithm,
+        value: fp.value
+      }))
+    })
   }
 )
 

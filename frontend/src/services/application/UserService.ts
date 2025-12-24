@@ -44,7 +44,6 @@ export class UserService extends Context.Tag("@app/services/UserService")<
   {
     // DJ Operations
     readonly publishDJRoom: (roomId: string, djWebSocketUrl: string, deviceId?: string) => Effect.Effect<DJPublishResultType, UserServiceError, ConnectionAdapter | UserAdapter | LobbyAdapter | WebSocketClientService | MediaSoupClient | AudioClient>
-    readonly toggleDJStream: (pause: boolean) => Effect.Effect<void, UserServiceError, UserAdapter | WebSocketClientService>
     readonly closeDJRoom: () => Effect.Effect<void, UserServiceError, ConnectionAdapter | UserAdapter | LobbyAdapter | WebSocketClientService | AudioClient>
     readonly getAudioDevices: () => Effect.Effect<Array<{ deviceId: string, label: string }>, UserServiceError, AudioClient>
 
@@ -67,7 +66,6 @@ export class UserService extends Context.Tag("@app/services/UserService")<
 const createUserServiceImpl = () => {
   // Store active WebSocket connections for proper cleanup
   let activeRole = O.none<UserRoleType>()
-  let activeRoomId = O.none<string>()  // Prefixed to indicate intentional storage
 
   return {
     // ============= DJ Operations =============
@@ -81,7 +79,6 @@ const createUserServiceImpl = () => {
 
         // Set active state
         activeRole = O.some('dj' as UserRoleType)
-        activeRoomId = O.some(roomId)
         userAdapter.setCurrentRole('dj')
 
         try {
@@ -106,10 +103,10 @@ const createUserServiceImpl = () => {
           yield* wsClient.sendDJCommand({
             type: 'connectDjTransport',
             transportId: O.some(transport.id),
-            dtlsParameters: transport.dtlsParameters
+            dtlsParameters: transportEvent.transportOptions.dtlsParameters
           })
           yield* wsClient.waitForDJEvent('transportConnected')
-          yield* mediaSoupClient.connectActiveTransport(transport.dtlsParameters)
+          yield* mediaSoupClient.connectActiveTransport(transportEvent.transportOptions.dtlsParameters)
 
           // 7. Get audio stream if deviceId provided
           const stream = deviceId ? yield* audioClient.selectDevice(deviceId) : yield* audioClient.getCurrentStream().pipe(
@@ -154,7 +151,6 @@ const createUserServiceImpl = () => {
           // Cleanup MediaSoup resources on error
           yield* mediaSoupClient.cleanup()
           activeRole = O.none()
-          activeRoomId = O.none()
 
           throw error
         }
@@ -184,7 +180,6 @@ const createUserServiceImpl = () => {
         // Reset state
         connectionAdapter.resetRoom()
         activeRole = O.none()
-        activeRoomId = O.none()
       }) as Effect.Effect<void, UserServiceError, ConnectionAdapter | WebSocketClientService | AudioClient | MediaSoupClient>,
 
     getAudioDevices: () =>
@@ -209,7 +204,6 @@ const createUserServiceImpl = () => {
 
         // Set active state
         activeRole = O.some('listener' as UserRoleType)
-        activeRoomId = O.some(roomId)
         userAdapter.setCurrentRole('listener')
 
         try {
@@ -230,10 +224,10 @@ const createUserServiceImpl = () => {
           yield* wsClient.sendListenerCommand({
             type: 'connectListenerTransport',
             transportId: O.some(transport.id),
-            dtlsParameters: transport.dtlsParameters
+            dtlsParameters: joinReadyEvent.transportOptions.dtlsParameters
           } as any)
           yield* wsClient.waitForListenerEvent('transportConnected')
-          yield* mediaSoupClient.connectActiveTransport(transport.dtlsParameters)
+          yield* mediaSoupClient.connectActiveTransport(joinReadyEvent.transportOptions.dtlsParameters)
 
           // 6. Request consumer
           const rtpCapabilities = yield* mediaSoupClient.getDeviceCapabilities()
@@ -243,13 +237,8 @@ const createUserServiceImpl = () => {
           } as any)
           const consumerEvent = yield* wsClient.waitForListenerEvent('consumerCreated')
 
-          // 7. Create consumer
-          const consumer = yield* mediaSoupClient.createConsumer({
-            id: consumerEvent.consumerId,
-            producerId: consumerEvent.producerId,
-            kind: 'audio' as any,
-            rtpParameters: consumerEvent.consumerParameters.rtpParameters
-          })
+          // 7. Create consumer (consumerParameters already has all required fields from transform)
+          const consumer = yield* mediaSoupClient.createConsumer(consumerEvent.consumerParameters)
 
           // 8. Connect remote stream for audio playback
           const remoteStream = new MediaStream([consumer.track])
@@ -274,13 +263,12 @@ const createUserServiceImpl = () => {
           // Cleanup MediaSoup resources on error
           yield* mediaSoupClient.cleanup()
           activeRole = O.none()
-          activeRoomId = O.none()
 
           throw error
         }
       }) as Effect.Effect<ListenerJoinResultType, UserServiceError, UserAdapter | ConnectionAdapter | LobbyAdapter | WebSocketClientService | MediaSoupClient | AudioClient>,
 
-    leaveListenerRoom: (listenerId: string) =>
+    leaveListenerRoom: (_listenerId: string) =>
       Effect.gen(function* () {
         const connectionAdapter = yield* ConnectionAdapter
         const wsClient = yield* WebSocketClientService
@@ -299,7 +287,6 @@ const createUserServiceImpl = () => {
         // Reset state
         connectionAdapter.resetRoom()
         activeRole = O.none()
-        activeRoomId = O.none()
       }) as Effect.Effect<void, UserServiceError, ConnectionAdapter | WebSocketClientService | AudioClient | MediaSoupClient>,
 
 
@@ -320,7 +307,6 @@ const createUserServiceImpl = () => {
         }
 
         activeRole = O.none()
-        activeRoomId = O.none()
       }) as Effect.Effect<void, UserServiceError, WebSocketClientService | ConnectionAdapter>,
 
     getCurrentRole: () =>

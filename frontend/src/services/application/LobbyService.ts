@@ -21,7 +21,7 @@ import { LobbyAdapter } from '../../stores'
 
 // Import only infrastructure via Context.Tag
 import { WebSocketClientService } from '../infrastructure/WebSocketClient'
-import { HttpClient } from '../infrastructure/HttpClient'
+import { listRooms } from '../generated/rooms/rooms'
 
 /**
  * Room announcement result
@@ -59,7 +59,7 @@ export class LobbyService extends Context.Tag("@app/services/LobbyService")<
   {
     readonly connectToLobby: () => Effect.Effect<void, LobbyServiceError, LobbyAdapter | WebSocketClientService>
     readonly disconnectFromLobby: () => Effect.Effect<void, LobbyServiceError, LobbyAdapter>
-    readonly getRoomList: () => Effect.Effect<LobbyRoomInfoType[], LobbyServiceError, HttpClient>
+    readonly getRoomList: () => Effect.Effect<LobbyRoomInfoType[], LobbyServiceError, never>
     readonly announceRoom: (roomName: string, djName: string, sessionId: string, description?: string, tags?: string[]) => Effect.Effect<RoomAnnouncementResult, LobbyServiceError, LobbyAdapter | WebSocketClientService>
     readonly requestJoinRoom: (roomId: string, sessionId: string) => Effect.Effect<RoomJoinResult, LobbyServiceError, LobbyAdapter | WebSocketClientService>
     readonly refreshRoomList: () => Effect.Effect<void, LobbyServiceError, LobbyAdapter | WebSocketClientService>
@@ -124,13 +124,14 @@ const LobbyServiceImpl = {
    */
   getRoomList: () =>
     Effect.gen(function* () {
-      const httpClient = yield* HttpClient
-
       // Fetch rooms from API
-      const response = yield* httpClient.request({
-        method: 'GET',
-        url: '/api/rooms',
-        headers: { 'Content-Type': 'application/json' }
+      const response = yield* Effect.tryPromise({
+        try: async () => await listRooms(),
+        catch: (error) => new LobbyServiceError(
+          `Failed to fetch rooms: ${error}`,
+          'getRoomList',
+          error
+        )
       })
 
       // Parse and validate room list
@@ -212,7 +213,6 @@ const LobbyServiceImpl = {
     Effect.gen(function* () {
       console.info(`🎧 Lobby Service: Requesting to join room: ${roomId}`)
 
-      const lobbyAdapter = yield* LobbyAdapter
       const wsClient = yield* WebSocketClientService
 
       // Validate inputs
@@ -242,7 +242,7 @@ const LobbyServiceImpl = {
       const joinResult: RoomJoinResult = {
         roomId,
         sessionId: result.sessionId, // Use sessionId from result
-        listenerWebSocketUrl: result.listenerWebSocketUrl,
+        listenerWebSocketUrl: O.getOrElse(() => '')(result.listenerWebSocketUrl),
         joinedAt: new Date()
       }
 

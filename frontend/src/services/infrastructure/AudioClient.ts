@@ -1,0 +1,372 @@
+/**
+ * Audio Infrastructure Client
+ * 
+ * Infrastructure service that manages MediaStream and audio devices.
+ * State is managed via AudioAdapter/Store.
+ */
+
+import { Effect, Layer, Option as O, Context, pipe } from 'effect'
+import { AudioAdapter } from '../../stores'
+import { 
+  AudioDeviceError,
+  AudioTrackError,
+  AudioPlaybackError,
+  type AudioServiceError
+} from '../../domain/schemas/audio.schema'
+
+/**
+ * Audio Client Interface
+ * 
+ * Infrastructure layer for audio device and stream management.
+ * State is persisted in AudioAdapter/Store.
+ */
+interface AudioClientInterface {
+  // Device Management
+  readonly getAudioDevices: () => Effect.Effect<
+    ReadonlyArray<MediaDeviceInfo>, 
+    AudioServiceError, 
+    AudioAdapter
+  >
+  
+  // Device Selection (for DJ mic input)
+  // Updates state in AudioAdapter
+  readonly selectDevice: (deviceId: string) => Effect.Effect<
+    MediaStream,
+    AudioServiceError,
+    AudioAdapter
+  >
+  
+  // Remote Stream (for listener playback)
+  // Updates state in AudioAdapter
+  readonly connectRemoteStream: (stream: MediaStream) => Effect.Effect<
+    void,
+    AudioServiceError,
+    AudioAdapter
+  >
+  
+  // Stop any active stream
+  // Updates state in AudioAdapter
+  readonly stopStream: () => Effect.Effect<
+    void,
+    never,
+    AudioAdapter
+  >
+  
+  // Toggle playing state (pause/resume) without disconnecting
+  // Updates state in AudioAdapter
+  readonly toggleAudioStreamPlaying: (pause: boolean) => Effect.Effect<
+    void,
+    AudioServiceError,
+    AudioAdapter
+  >
+  
+  // Get current stream (internal use by other services)
+  readonly getCurrentStream: () => O.Option<MediaStream>
+}
+
+/**
+ * Audio Client Context Tag
+ */
+export class AudioClient extends Context.Tag("@app/infrastructure/AudioClient")<
+  AudioClient,
+  AudioClientInterface
+>() {}
+
+/**
+ * Create Audio Client Implementation
+ */
+const createAudioClientImpl = (): AudioClientInterface => {
+  // Internal MediaStream reference
+  let currentStream: O.Option<MediaStream> = O.none()
+  
+  // Internal audio element for playback (listener mode)
+  let audioElement: O.Option<HTMLAudioElement> = O.none()
+
+  // Helper function to stop current stream
+  const stopCurrentStream = (): Effect.Effect<void, never, never> =>
+    Effect.sync(() => {
+      pipe(
+        currentStream,
+        O.match({
+          onNone: () => {},
+          onSome: (stream) => {
+            stream.getTracks().forEach(track => track.stop())
+          }
+        })
+      )
+      
+      pipe(
+        audioElement,
+        O.match({
+          onNone: () => {},
+          onSome: (elem) => {
+            elem.pause()
+            elem.srcObject = null
+          }
+        })
+      )
+    })
+
+  // Helper to update permissions if available
+  const updatePermissions = (audioAdapter: AudioAdapter): Effect.Effect<void, never, never> =>
+    pipe(
+      Effect.tryPromise({
+        try: async () => {
+          const permission = await navigator.permissions.query({ name: 'microphone' as PermissionName })
+          return permission.state as PermissionState
+        },
+        catch: () => null // Permissions API not supported
+      }),
+      Effect.map(state => {
+        if (state !== null) {
+          audioAdapter.setPermission(state)
+        }
+      })
+    )
+
+  return {
+    getAudioDevices: () =>
+      Effect.gen(function* () {
+        const audioAdapter = yield* AudioAdapter
+        
+        // Update permissions if available (don't fail if not supported)
+        yield* updatePermissions(audioAdapter)
+        
+        const devices = yield* Effect.tryPromise({
+          try: async () => {
+            const devices = await navigator.mediaDevices.enumerateDevices()
+            const audioInputs = devices.filter(device => device.kind === 'audioinput')
+            audioAdapter.setAvailableDevices(audioInputs)
+            return audioInputs
+          },
+          catch: (error) => new AudioDeviceError({
+            cause: String(error),
+            operation: 'enumerate',
+            timestamp: new Date()
+          })
+        })
+        
+        return devices
+      }),
+
+    selectDevice: (deviceId: string) =>
+      Effect.gen(function* () {
+        const audioAdapter = yield* AudioAdapter
+        
+        // Stop any existing stream
+        yield* stopCurrentStream()
+        
+        // Update permissions if available
+        yield* updatePermissions(audioAdapter)
+        
+        // Check stored constraints from adapter
+        const storedConstraints = audioAdapter.getMediaTrackConstraints()
+        
+        // Build constraints, preferring stored ones
+        const audioConstraints = pipe(
+          storedConstraints,
+          O.getOrElse(() => ({
+            deviceId: { exact: deviceId },
+            echoCancellation: true,
+            noiseSuppression: true,
+            autoGainControl: true
+          }))
+        )
+        
+        const constraints: MediaStreamConstraints = {
+          audio: audioConstraints,
+          video: false
+        }
+        
+        const newStream = yield* Effect.tryPromise({
+          try: async () => {
+            const stream = await navigator.mediaDevices.getUserMedia(constraints)
+            
+            // Update internal reference
+            currentStream = O.some(stream)
+            
+            // Update state in adapter
+            audioAdapter.setStreamState({
+              playing: true,
+              deviceId: O.some(deviceId),
+              constraints: O.some(audioConstraints as any),
+              acquiredAt: O.some(new Date()),
+              error: O.none(),
+              requiresUserGesture: false,
+              permission: audioAdapter.getPermission()
+            })
+            
+            return stream
+          },
+          catch: (error) => new AudioTrackError({
+            cause: String(error),
+            operation: 'getUserMedia',
+            timestamp: new Date()
+          })
+        })
+        
+        return newStream
+      }),
+
+    connectRemoteStream: (remoteStream: MediaStream) =>
+      Effect.gen(function* () {
+        const audioAdapter = yield* AudioAdapter
+        
+        // Stop any existing stream
+        yield* stopCurrentStream()
+        
+        // Create audio element for playback if not exists
+        audioElement = pipe(
+          audioElement,
+          O.orElse(() => {
+            const elem = new Audio()
+            elem.autoplay = true
+            return O.some(elem)
+          })
+        )
+        
+        const elem = O.getOrThrow(audioElement)
+        elem.srcObject = remoteStream
+        
+        // Try to play with proper error handling
+        yield* pipe(
+          Effect.tryPromise({
+            try: async () => {
+              await elem.play()
+              return 'success' as const
+            },
+            catch: (error) => {
+              const errorStr = String(error)
+              const isAutoplayBlocked = errorStr.includes('play()') || 
+                                       errorStr.includes('user gesture') ||
+                                       errorStr.includes('Autoplay')
+              return { error: errorStr, isAutoplayBlocked }
+            }
+          }),
+          Effect.tap(result => Effect.sync(() => {
+            // Update internal reference
+            currentStream = O.some(remoteStream)
+            
+            if (result === 'success') {
+              // Update state - successful playback
+              audioAdapter.setStreamState({
+                playing: true,
+                deviceId: O.none(),
+                constraints: O.none(),
+                acquiredAt: O.some(new Date()),
+                error: O.none(),
+                requiresUserGesture: false,
+                permission: audioAdapter.getPermission()
+              })
+            } else {
+              // Update state - autoplay blocked or error
+              audioAdapter.setStreamState({
+                playing: false,
+                deviceId: O.none(),
+                constraints: O.none(),
+                acquiredAt: O.some(new Date()),
+                error: O.some(result.error),
+                requiresUserGesture: result.isAutoplayBlocked,
+                permission: audioAdapter.getPermission()
+              })
+            }
+          })),
+          Effect.flatMap(result =>
+            result === 'success'
+              ? Effect.void
+              : result.isAutoplayBlocked
+                ? Effect.void // Don't fail on autoplay block - UI will handle
+                : Effect.fail(new AudioPlaybackError({
+                    cause: result.error,
+                    operation: 'play',
+                    autoplayBlocked: false,
+                    timestamp: new Date()
+                  }))
+          )
+        )
+      }),
+
+    toggleAudioStreamPlaying: (pause: boolean) =>
+      Effect.gen(function* () {
+        const audioAdapter = yield* AudioAdapter
+        
+        // Only for DJ mode - pause/resume MediaStream tracks
+        yield* pipe(
+          currentStream,
+          O.match({
+            onNone: () => 
+              Effect.fail(new AudioPlaybackError({
+                cause: 'No active audio stream to toggle',
+                operation: pause ? 'pause' : 'play',
+                autoplayBlocked: false,
+                timestamp: new Date()
+              })),
+            onSome: (stream) => 
+              Effect.sync(() => {
+                // Enable/disable audio tracks
+                stream.getAudioTracks().forEach(track => {
+                  track.enabled = !pause
+                })
+                
+                // Update state in adapter
+                audioAdapter.updateStreamState({
+                  playing: !pause
+                })
+              })
+          })
+        )
+      }),
+
+    stopStream: () =>
+      Effect.gen(function* () {
+        const audioAdapter = yield* AudioAdapter
+        
+        // Stop MediaStream tracks
+        pipe(
+          currentStream,
+          O.match({
+            onNone: () => {},
+            onSome: (stream) => {
+              stream.getTracks().forEach(track => track.stop())
+            }
+          })
+        )
+        currentStream = O.none()
+        
+        // Cleanup audio element
+        pipe(
+          audioElement,
+          O.match({
+            onNone: () => {},
+            onSome: (elem) => {
+              elem.pause()
+              elem.srcObject = null
+            }
+          })
+        )
+        
+        // Update state in adapter
+        audioAdapter.setStreamState({
+          playing: false,
+          deviceId: O.none(),
+          constraints: O.none(),
+          acquiredAt: O.none(),
+          error: O.none(),
+          requiresUserGesture: false,
+          permission: audioAdapter.getPermission()
+        })
+      }),
+
+    getCurrentStream: () => currentStream
+  }
+}
+
+/**
+ * Audio Client Layer
+ * 
+ * Live implementation that creates the client.
+ */
+export const AudioClientLive = Layer.succeed(
+  AudioClient,
+  createAudioClientImpl()
+)
