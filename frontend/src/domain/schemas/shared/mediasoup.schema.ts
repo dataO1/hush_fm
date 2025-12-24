@@ -508,7 +508,13 @@ export const TransportOptionsTransformSchema = S.transform(
         type: candidate.type,
         tcpType: O.getOrNull(candidate.tcpType) ?? undefined
       })),
-      dtlsParameters: wireData.dtlsParameters
+      dtlsParameters: {
+        role: wireData.dtlsParameters.role,
+        fingerprints: wireData.dtlsParameters.fingerprints.map(fp => ({
+          value: fp.value,
+          algorithm: fp.algorithm as FingerprintAlgorithmType
+        }))
+      }
     }),
     encode: (nativeData) => ({
       id: nativeData.id,
@@ -526,7 +532,13 @@ export const TransportOptionsTransformSchema = S.transform(
         type: candidate.type,
         tcpType: candidate.tcpType !== undefined ? O.some(candidate.tcpType) : O.none()
       })),
-      dtlsParameters: nativeData.dtlsParameters
+      dtlsParameters: {
+        role: nativeData.dtlsParameters.role,
+        fingerprints: nativeData.dtlsParameters.fingerprints.map(fp => ({
+          value: fp.value,
+          algorithm: fp.algorithm
+        }))
+      }
     })
   }
 )

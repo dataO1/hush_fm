@@ -1,9 +1,12 @@
 import { onCleanup, Show, createSignal, createEffect, createResource } from 'solid-js'
 import { useParams, useNavigate, useLocation } from '@solidjs/router'
-import { Option as O } from 'effect'
+import { Option as O, Effect, Layer } from 'effect'
 import { DeviceSelector } from '../components/controls/DeviceSelector'
-import { useConnectionAdapter, useUserAdapter, useLobbyAdapter, useAudioAdapter, useAudioClient } from '../../App'
-import { useDJService } from '../hooks/useEffectService'
+import { useConnectionAdapter, useAudioAdapter, useAudioClient, useRuntime } from '../../App'
+import { AudioClient } from '../../services/infrastructure/AudioClient'
+import { AudioClientLive } from '../../services/infrastructure/AudioClient'
+import { AudioAdapterLive } from '../../stores/audio/audio.adapter'
+import { UserService } from '../../services/application/UserService'
 import { WebrtcConnectionState, WsConnectionState } from '../../domain/schemas/connection.schema'
 import { Oscilloscope } from '../components/shared/Oscilloscope'
 import { WebRTCErrorHandler } from '../components/WebRTCErrorHandler'
@@ -17,14 +20,14 @@ export default function DJRoom() {
   const location = useLocation()
 
   // SolidJS 2025: Use Effect services through hooks
-  const djService = useDJService()
 
   // Use adapters for reactive state (read-only)
   const connectionAdapter = useConnectionAdapter()
-  const userAdapter = useUserAdapter()
-  const lobbyAdapter = useLobbyAdapter()
   const audioAdapter = useAudioAdapter()
   const audioClient = useAudioClient()
+  
+  // Get runtime for Effect execution
+  const runtime = useRuntime()
 
   // Get navigation state (from Landing.tsx room creation)
   const navigationState = location.state as {
@@ -36,7 +39,7 @@ export default function DJRoom() {
   // Router state guard - redirect to lobby if missing critical state  
   createEffect(() => {
     // Check if we have valid navigation state to be in DJ room
-    if (!navigationState.djWebSocketUrl && connectionState()?.wsConnectionState === WsConnectionState.DISCONNECTED) {
+    if (!navigationState.djWebSocketUrl && connectionState()?.roomWsState === WsConnectionState.DISCONNECTED) {
       console.info('No valid DJ WebSocket URL detected, redirecting to lobby')
       setIsRedirecting(true)
       setTimeout(() => navigate('/'), 1000) // Brief delay to show redirect message
@@ -54,7 +57,6 @@ export default function DJRoom() {
   // Computed values from domain adapters (SolidJS 2025 + Effect Option patterns)
   const connectionState = () => connectionAdapter.getConnectionState()
   const isStreaming = () => audioAdapter.isPlaying()
-  const djError = () => audioAdapter.getError()
   const isConnecting = () => connectionAdapter.isConnecting()
   const isPaused = () => !audioAdapter.isPlaying()
   const selectedDeviceId = () => audioAdapter.getCurrentDeviceId()
@@ -67,7 +69,7 @@ export default function DJRoom() {
   const roomId = () => params.roomId
   
   // Use Show components for Optional room metadata in template
-  const roomMetadata = () => connectionAdapter.getRoomMetadata()
+  // Note: Room metadata would come from a room adapter if needed
 
   // Helper to convert ConnectionState to dot status
   const getDotStatus = () => {
@@ -102,11 +104,14 @@ export default function DJRoom() {
     
     console.info('🎤 Starting DJ stream via Application Service...')
     
-    const result = await djService.publishToRoom(
-      request.roomId, 
-      navigationState.djWebSocketUrl!, 
-      request.deviceId
+    // Use Effect pattern to access UserService
+    const program = UserService.pipe(
+      Effect.flatMap((service) => 
+        service.publishDJRoom(request.roomId, navigationState.djWebSocketUrl!, request.deviceId)
+      )
     )
+    
+    const result = await runtime.runPromise(program)
     
     console.info('✅ DJ stream started successfully')
     return result
@@ -137,7 +142,16 @@ export default function DJRoom() {
     
     console.info(`🎤 ${request.action === 'pause' ? 'Pausing' : 'Resuming'} DJ stream...`)
     
-    const result = await djService.controlStreaming(roomId(), request.action)
+    // Use Effect pattern to control streaming  
+    const program = Effect.sync(() => {
+      if (request.action === 'pause') {
+        return audioClient.toggleAudioStreamPlaying(true)
+      } else {
+        return audioClient.toggleAudioStreamPlaying(false)
+      }
+    })
+    
+    const result = await runtime.runPromise(program)
     
     console.info('✅ DJ stream toggled successfully')
     return result
@@ -158,7 +172,12 @@ export default function DJRoom() {
     
     console.info('🚪 Ending stream and closing DJ room')
     
-    const result = await djService.stopStreaming(roomId())
+    // Use Effect pattern to close DJ room
+    const program = UserService.pipe(
+      Effect.flatMap((service) => service.closeDJRoom())
+    )
+    
+    const result = await runtime.runPromise(program)
     
     console.info('✅ DJ room closed successfully')
     
@@ -176,7 +195,15 @@ export default function DJRoom() {
   }
 
   const onDeviceSelected = (deviceId: string) => {
-    audioAdapter.setCurrentDeviceId(deviceId)
+    // Use AudioClient service to select the device
+    Effect.runPromise(
+      Effect.gen(function* () {
+        const audioClient = yield* AudioClient
+        yield* audioClient.selectDevice(deviceId)
+      }).pipe(
+        Effect.provide(Layer.merge(AudioClientLive, AudioAdapterLive))
+      )
+    ).catch(console.error)
   }
 
   return (
@@ -216,27 +243,13 @@ export default function DJRoom() {
           <div class="card bg-white/10 backdrop-blur-sm border border-white/20">
             <div class="card-body p-4 sm:p-6">
               
-              {/* Room Header - SolidJS 2025: Use Show for Option metadata */}
-              <Show 
-                when={O.getOrNull(roomMetadata())} 
-                fallback={
-                  <RoomHeader 
-                    roomName={() => `Room ${roomId()}`}
-                    djName={() => 'DJ'}
-                    variant="center"
-                    class="mb-4 sm:mb-6"
-                  />
-                }
-              >
-                {(metadata) => (
-                  <RoomHeader 
-                    roomName={() => metadata.name}
-                    djName={() => metadata.djName}
-                    variant="center"
-                    class="mb-4 sm:mb-6"
-                  />
-                )}
-              </Show>
+              {/* Room Header */}
+              <RoomHeader 
+                roomName={() => `Room ${roomId()}`}
+                djName={() => 'DJ'}
+                variant="center"
+                class="mb-4 sm:mb-6"
+              />
               <div class="flex justify-between items-center mb-4 sm:mb-6">
                 <button class="btn btn-sm sm:btn-md btn-ghost text-white hover:bg-white/20" onClick={goBack}>←</button>
                 <ConnectionStatusGroup 

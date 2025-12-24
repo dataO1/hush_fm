@@ -152,7 +152,7 @@ const createWebRTCServiceImpl = (): WebRTCServiceImpl => {
         const connectionAdapter = yield* ConnectionAdapter
 
         // Clean up any existing transport
-        yield* cleanupExistingTransport
+        yield* cleanupExistingTransport as Effect.Effect<void, TransportError, never>
 
         currentTransport = Option.some(transport)
         
@@ -182,10 +182,8 @@ const createWebRTCServiceImpl = (): WebRTCServiceImpl => {
       }) as Effect.Effect<void, never, never>,
 
     state: () =>
-      Effect.gen(function* () {
-        const connectionAdapter = yield* ConnectionAdapter
-        
-        return pipe(
+      Effect.sync(() => 
+        pipe(
           currentTransport,
           Option.match({
             onNone: () => WebrtcConnectionState.DISCONNECTED,
@@ -207,7 +205,7 @@ const createWebRTCServiceImpl = (): WebRTCServiceImpl => {
             }
           })
         )
-      }) as Effect.Effect<WebrtcConnectionState, never, never>
+      ) as Effect.Effect<WebrtcConnectionState, never, never>
   }
 
   return service

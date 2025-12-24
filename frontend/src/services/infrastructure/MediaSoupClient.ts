@@ -199,7 +199,7 @@ const createMediaSoupClientImpl = (): MediaSoupClientInterface => {
               }),
               Effect.catchAll(error =>
                 Effect.fail(
-                  error instanceof MediaSoupError
+                  error._tag === 'MediaSoupError'
                     ? error
                     : new MediaSoupError({
                         cause: String(error),
@@ -250,7 +250,7 @@ const createMediaSoupClientImpl = (): MediaSoupClientInterface => {
               }),
               Effect.catchAll(error =>
                 Effect.fail(
-                  error instanceof MediaSoupError
+                  error._tag === 'MediaSoupError'
                     ? error
                     : new MediaSoupError({
                         cause: String(error),
@@ -277,7 +277,7 @@ const createMediaSoupClientImpl = (): MediaSoupClientInterface => {
           })),
           onSome: (transport) =>
             Effect.tryPromise({
-              try: () => transport.connect({ dtlsParameters }),
+              try: () => (transport as any).connect({ dtlsParameters }),
               catch: error => new MediaSoupError({
                 cause: String(error),
                 operation: 'connectActiveTransport',

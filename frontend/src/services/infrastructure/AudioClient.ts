@@ -41,7 +41,7 @@ interface AudioClientInterface {
   // Updates state in AudioAdapter
   readonly connectRemoteStream: (stream: MediaStream) => Effect.Effect<
     void,
-    AudioServiceError,
+    AudioPlaybackError,
     AudioAdapter
   >
   
@@ -115,17 +115,16 @@ const createAudioClientImpl = (): AudioClientInterface => {
     Effect.gen(function* () {
       const audioAdapter = yield* AudioAdapter
       
-      const state = yield* Effect.tryPromise({
-        try: async () => {
+      const state: PermissionState = yield* Effect.promise(async () => {
+        try {
           const permission = await navigator.permissions.query({ name: 'microphone' as PermissionName })
           return permission.state as PermissionState
-        },
-        catch: () => null // Permissions API not supported
+        } catch {
+          return 'prompt' as PermissionState // Permissions API not supported, default to prompt
+        }
       })
       
-      if (state !== null) {
-        audioAdapter.setPermission(state)
-      }
+      audioAdapter.setPermission(state)
     })
 
   return {
@@ -233,61 +232,52 @@ const createAudioClientImpl = (): AudioClientInterface => {
         elem.srcObject = remoteStream
         
         // Try to play with proper error handling
-        yield* pipe(
-          Effect.tryPromise({
-            try: async () => {
-              await elem.play()
-              return 'success' as const
-            },
-            catch: (error) => {
-              const errorStr = String(error)
-              const isAutoplayBlocked = errorStr.includes('play()') || 
-                                       errorStr.includes('user gesture') ||
-                                       errorStr.includes('Autoplay')
-              return { error: errorStr, isAutoplayBlocked }
-            }
-          }),
-          Effect.tap(result => Effect.sync(() => {
-            // Update internal reference
-            setCurrentStream(O.some(remoteStream))
+        yield* Effect.gen(function* () {
+          try {
+            yield* Effect.promise(() => elem.play())
             
-            if (result === 'success') {
-              // Update state - successful playback
-              audioAdapter.setStreamState({
-                playing: true,
-                deviceId: O.none(),
-                constraints: O.none(),
-                acquiredAt: O.some(new Date()),
-                error: O.none(),
-                requiresUserGesture: false,
-                permission: audioAdapter.getPermission()
-              })
-            } else {
-              // Update state - autoplay blocked or error
-              audioAdapter.setStreamState({
-                playing: false,
-                deviceId: O.none(),
-                constraints: O.none(),
-                acquiredAt: O.some(new Date()),
-                error: O.some(result.error),
-                requiresUserGesture: result.isAutoplayBlocked,
-                permission: audioAdapter.getPermission()
-              })
+            // Update internal reference and state - successful playback
+            setCurrentStream(O.some(remoteStream))
+            audioAdapter.setStreamState({
+              playing: true,
+              deviceId: O.none(),
+              constraints: O.none(),
+              acquiredAt: O.some(new Date()),
+              error: O.none(),
+              requiresUserGesture: false,
+              permission: audioAdapter.getPermission()
+            })
+            
+            return
+          } catch (error) {
+            const errorStr = String(error)
+            const isAutoplayBlocked = errorStr.includes('play()') || 
+                                     errorStr.includes('user gesture') ||
+                                     errorStr.includes('Autoplay')
+            
+            // Update internal reference and state
+            setCurrentStream(O.some(remoteStream))
+            audioAdapter.setStreamState({
+              playing: false,
+              deviceId: O.none(),
+              constraints: O.none(),
+              acquiredAt: O.some(new Date()),
+              error: O.some(errorStr),
+              requiresUserGesture: isAutoplayBlocked,
+              permission: audioAdapter.getPermission()
+            })
+            
+            // Only fail on non-autoplay errors
+            if (!isAutoplayBlocked) {
+              return yield* Effect.fail(new AudioPlaybackError({
+                cause: errorStr,
+                operation: 'play',
+                autoplayBlocked: false,
+                timestamp: new Date()
+              }))
             }
-          })),
-          Effect.flatMap(result =>
-            result === 'success'
-              ? Effect.void
-              : result.isAutoplayBlocked
-                ? Effect.void // Don't fail on autoplay block - UI will handle
-                : Effect.fail(new AudioPlaybackError({
-                    cause: result.error,
-                    operation: 'play',
-                    autoplayBlocked: false,
-                    timestamp: new Date()
-                  }))
-          )
-        )
+          }
+        })
       }),
 
     toggleAudioStreamPlaying: (pause: boolean) =>

@@ -19,7 +19,7 @@
 import { Effect, Context, Layer, Option as O } from 'effect'
 
 // Import only adapters via Context.Tag
-import { ConnectionAdapter, UserAdapter, LobbyAdapter } from '../../stores'
+import { ConnectionAdapter, UserAdapter } from '../../stores'
 
 // Import only infrastructure via Context.Tag
 import { WebSocketClientService } from '../infrastructure/WebSocketClient'
@@ -30,8 +30,7 @@ import { AudioClient } from '../infrastructure/AudioClient'
 import {
   UserServiceError,
   type UserRoleType,
-  type DJPublishResultType,
-  type ListenerJoinResultType
+  type DJPublishResultType
 } from '../../domain/schemas/user.schema'
 /**
  * User Service Context Tag
@@ -43,13 +42,13 @@ export class UserService extends Context.Tag("@app/services/UserService")<
   UserService,
   {
     // DJ Operations
-    readonly publishDJRoom: (roomId: string, djWebSocketUrl: string, deviceId?: string) => Effect.Effect<DJPublishResultType, UserServiceError, ConnectionAdapter | UserAdapter | LobbyAdapter | WebSocketClientService | MediaSoupClient | AudioClient>
-    readonly closeDJRoom: () => Effect.Effect<void, UserServiceError, ConnectionAdapter | UserAdapter | LobbyAdapter | WebSocketClientService | AudioClient>
+    readonly publishDJRoom: (roomId: string, djWebSocketUrl: string, deviceId?: string) => Effect.Effect<DJPublishResultType, UserServiceError, UserAdapter | WebSocketClientService | MediaSoupClient | AudioClient>
+    readonly closeDJRoom: () => Effect.Effect<void, UserServiceError, ConnectionAdapter | WebSocketClientService | AudioClient | MediaSoupClient>
     readonly getAudioDevices: () => Effect.Effect<Array<{ deviceId: string, label: string }>, UserServiceError, AudioClient>
 
     // Listener Operations
-    readonly joinRoomAsListener: (roomId: string, sessionId: string, listenerWebSocketUrl: string) => Effect.Effect<ListenerJoinResultType, UserServiceError, UserAdapter | ConnectionAdapter | LobbyAdapter | WebSocketClientService | MediaSoupClient | AudioClient>
-    readonly leaveListenerRoom: (listenerId: string) => Effect.Effect<void, UserServiceError, UserAdapter | ConnectionAdapter | LobbyAdapter | WebSocketClientService | MediaSoupClient | AudioClient>
+    readonly joinRoomAsListener: (roomId: string, sessionId: string, listenerWebSocketUrl: string) => Effect.Effect<{ readonly listenerId: string; readonly roomId: string; readonly sessionId: string; readonly joinedAt: Date }, UserServiceError, UserAdapter | WebSocketClientService | MediaSoupClient | AudioClient>
+    readonly leaveListenerRoom: (listenerId: string) => Effect.Effect<void, UserServiceError, ConnectionAdapter | WebSocketClientService>
 
     // Shared Operations
     readonly disconnect: () => Effect.Effect<void, UserServiceError, WebSocketClientService | ConnectionAdapter>
@@ -154,7 +153,7 @@ const createUserServiceImpl = () => {
 
           throw error
         }
-      }) as Effect.Effect<DJPublishResultType, UserServiceError, ConnectionAdapter | UserAdapter | LobbyAdapter | WebSocketClientService | MediaSoupClient | AudioClient>,
+      }) as Effect.Effect<DJPublishResultType, UserServiceError, UserAdapter | WebSocketClientService | MediaSoupClient | AudioClient>,
 
     closeDJRoom: () =>
       Effect.gen(function* () {
@@ -303,7 +302,7 @@ const createUserServiceImpl = () => {
             }))
           })
         )
-      ),
+      ) as Effect.Effect<{ readonly listenerId: string; readonly roomId: string; readonly sessionId: string; readonly joinedAt: Date }, UserServiceError, UserAdapter | WebSocketClientService | MediaSoupClient | AudioClient>,
 
     leaveListenerRoom: (_listenerId: string) =>
       Effect.gen(function* () {

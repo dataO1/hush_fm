@@ -18,7 +18,7 @@ import { LobbyRoomInfo } from '../../domain/schemas/lobby.schema'
 import { config } from '../../config'
 
 // Import only adapters via Context.Tag
-import { LobbyAdapter } from '../../stores'
+import { LobbyAdapter, ConnectionAdapter } from '../../stores'
 
 // Import only infrastructure via Context.Tag
 import { WebSocketClientService } from '../infrastructure/WebSocketClient'
@@ -58,9 +58,9 @@ export interface RoomJoinResult {
 export class LobbyService extends Context.Tag("@app/services/LobbyService")<
   LobbyService,
   {
-    readonly connectToLobby: () => Effect.Effect<void, LobbyServiceError, WebSocketClientService>
-    readonly disconnectFromLobby: () => Effect.Effect<void, LobbyServiceError, WebSocketClientService>
-    readonly getRoomList: () => Effect.Effect<LobbyRoomInfoType[], LobbyServiceError, never>
+    readonly connectToLobby: () => Effect.Effect<void, LobbyServiceError, ConnectionAdapter | WebSocketClientService>
+    readonly disconnectFromLobby: () => Effect.Effect<void, LobbyServiceError, ConnectionAdapter | WebSocketClientService>
+    readonly getRoomList: () => Effect.Effect<ReadonlyArray<LobbyRoomInfoType>, LobbyServiceError, never>
     readonly announceRoom: (roomName: string, djName: string, sessionId: string, description?: string, tags?: string[]) => Effect.Effect<RoomAnnouncementResult, LobbyServiceError, LobbyAdapter | WebSocketClientService>
     readonly requestJoinRoom: (roomId: string, sessionId: string) => Effect.Effect<RoomJoinResult, LobbyServiceError, WebSocketClientService>
     readonly refreshRoomList: () => Effect.Effect<void, LobbyServiceError, WebSocketClientService>
@@ -357,5 +357,5 @@ const LobbyServiceImpl = {
  */
 export const LobbyServiceLive = Layer.succeed(
   LobbyService,
-  LobbyService.of(LobbyServiceImpl)
+  LobbyServiceImpl
 )

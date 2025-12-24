@@ -1,8 +1,8 @@
 import { For, Show, createResource, createSignal } from 'solid-js'
 import { useNavigate } from '@solidjs/router'
-import { Option as O } from 'effect'
+import { Option as O, Effect } from 'effect'
 import { useConnectionAdapter, useLobbyAdapter, useUserAdapter, useRuntime } from '../../App'
-import { useLobbyService } from '../hooks/useEffectService'
+import { LobbyService } from '../../services/application/LobbyService'
 import ConnectionStatusDot from '../components/ConnectionStatusDot'
 import { RoomCard } from '../components/room/RoomCard'
 import type { LobbyRoomInfoType } from '../../domain/schemas/lobby.schema'
@@ -11,12 +11,14 @@ export default function Landing() {
   const navigate = useNavigate()
 
   // SolidJS 2025: Use Effect services through hooks
-  const lobbyService = useLobbyService()
 
   // Use adapters for reactive state (read-only)
   const connectionAdapter = useConnectionAdapter()
   const lobbyAdapter = useLobbyAdapter()
   const userAdapter = useUserAdapter()
+  
+  // Get runtime for Effect execution
+  const runtime = useRuntime()
 
   // SolidJS 2025: Use createResource for lobby initialization
   const [lobbyInitialization] = createResource(async () => {
@@ -24,20 +26,20 @@ export default function Landing() {
     
     // Check if we have active DJ streaming or listener connections
     const currentRole = userAdapter.getCurrentRole()
-    const isDJStreaming = Option.getOrNull(currentRole) === 'dj'
+    const isDJStreaming = O.getOrNull(currentRole) === 'dj'
     const hasActiveListeners = connectionAdapter.isRoomConnected()
     
     console.info(`🔍 Landing: Connection state debug:`)
     console.info(`  🎤 DJ streaming: ${isDJStreaming}`)
     console.info(`  🎧 Has active listeners: ${hasActiveListeners}`)
     
-    if (isDJStreaming || hasActiveListeners) {
-      console.info('⚡ Landing: Preserving active connections - using smart initialization')
-      return await lobbyService.initializeWithActiveConnectionCheck()
-    } else {
-      console.info('🏠 Landing: No active connections - using clean initialization')
-      return await lobbyService.initialize()
-    }
+    // Use Effect pattern to connect to lobby
+    console.info('🏠 Landing: Connecting to lobby')
+    const program = LobbyService.pipe(
+      Effect.flatMap((service) => service.connectToLobby())
+    )
+    
+    return await runtime.runPromise(program)
   })
 
 
@@ -49,11 +51,20 @@ export default function Landing() {
     
     console.info('🏠 Creating room via Lobby Application Service...')
     
-    const result = await lobbyService.announceRoomCreation({
-      roomName: data.name,
-      djName: data.dj,
-      description: `${data.dj}'s room`
-    })
+    // Use Effect pattern to announce room creation
+    const program = LobbyService.pipe(
+      Effect.flatMap((service) => 
+        service.announceRoom(
+          data.name, 
+          data.dj, 
+          userAdapter.getSessionId() ? O.getOrNull(userAdapter.getSessionId())! : 'anonymous',
+          `${data.dj}'s room`,
+          []
+        )
+      )
+    )
+    
+    const result = await runtime.runPromise(program)
     
     // Close modal and navigate to DJ room
     closeModal()
@@ -98,7 +109,7 @@ export default function Landing() {
       // Check if this is our own DJ room (DJ reconnection) 
       const currentSessionId = userAdapter.getSessionId()
       const currentRole = userAdapter.getCurrentRole()
-      const isStreaming = Option.getOrNull(currentRole) === 'dj'
+      const isStreaming = O.getOrNull(currentRole) === 'dj'
       const isDJConnected = connectionAdapter.isConnected()
       
       if (isStreaming && isDJConnected) {
@@ -108,17 +119,25 @@ export default function Landing() {
       }
       
       // Check if this is the user's own room for DJ reconnection
-      const sessionId = Option.getOrNull(currentSessionId)
+      const sessionId = O.getOrNull(currentSessionId)
       if (sessionId && room.djId === sessionId) {
         console.info('🔄 Reconnecting to own DJ room via room announcement:', roomId)
         
         try {
-          const result = await lobbyService.announceRoomCreation({
-            roomName: room.name,
-            djName: room.djName,
-            description: Option.getOrNull(room.description),
-            tags: room.tags || []
-          })
+          // Use Effect pattern to announce room reconnection
+          const program = LobbyService.pipe(
+            Effect.flatMap((service) => 
+              service.announceRoom(
+                room.name,
+                room.djName,
+                sessionId,
+                O.getOrNull(room.description) || undefined,
+                [...(room.tags || [])]
+              )
+            )
+          )
+          
+          const result = await runtime.runPromise(program)
           
           navigate(`/dj/${result.roomId}`, {
             state: { djWebSocketUrl: result.djWebSocketUrl }
@@ -139,7 +158,12 @@ export default function Landing() {
       }
       
       try {
-        const joinResult = await lobbyService.requestJoinRoom(roomId, sessionId)
+        // Use Effect pattern to request join room
+        const program = LobbyService.pipe(
+          Effect.flatMap((service) => service.requestJoinRoom(roomId, sessionId))
+        )
+        
+        const joinResult = await runtime.runPromise(program)
         
         if (joinResult && joinResult.listenerWebSocketUrl) {
           console.info('✅ Join request successful, navigating to listener room')
@@ -152,7 +176,7 @@ export default function Landing() {
                 id: room.id,
                 name: room.name,
                 djName: room.djName,
-                description: Option.getOrNull(room.description),
+                description: O.getOrNull(room.description),
                 tags: room.tags,
                 listenerCount: room.listenerCount,
                 isPublic: room.isPublic
@@ -188,7 +212,7 @@ export default function Landing() {
   const isCreating = () => lobbyAdapter.isCreating() || roomCreation.loading
   
   // SolidJS 2025: Use computed for Option types that return null-safe values
-  const connectionError = () => Option.getOrNull(connectionAdapter.getError())
+  const connectionError = () => O.getOrNull(connectionAdapter.getError())
   const creationError = () => lobbyAdapter.getCreationError()
   
   // SolidJS 2025: Use createResource for async service calls with proper Option handling
@@ -202,7 +226,12 @@ export default function Landing() {
     // Fetcher function that calls the service
     async (source) => {
       const sessionId = O.getOrNull(source.sessionId)
-      return await lobbyService.sortRoomsForUser(source.rooms, sessionId || '', null)
+      // Use Effect pattern to sort rooms
+      const program = LobbyService.pipe(
+        Effect.flatMap((service) => service.sortRoomsForUser(source.rooms, sessionId || '', undefined))
+      )
+      
+      return await runtime.runPromise(program)
     }
   )
 

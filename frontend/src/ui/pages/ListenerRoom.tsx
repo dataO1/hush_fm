@@ -1,8 +1,9 @@
 import { Show, createResource, createSignal } from 'solid-js'
 import { useParams, useNavigate, useLocation } from '@solidjs/router'
 import { Option } from 'effect'
-import { useConnectionAdapter, useUserAdapter, useAudioClient } from '../../App'
-import { useListenerService } from '../hooks/useEffectService'
+import { useConnectionAdapter, useAudioClient } from '../../App'
+import { useRuntime } from '../../App'
+import { UserService } from '../../services/application/UserService'
 import { WebrtcConnectionState } from '../../domain/schemas/connection.schema'
 import { Oscilloscope } from '../components/shared/Oscilloscope'
 import { WebRTCErrorHandler } from '../components/WebRTCErrorHandler'
@@ -15,12 +16,12 @@ export default function ListenerRoom() {
   const location = useLocation()
 
   // SolidJS 2025: Use Effect services through hooks
-  const listenerService = useListenerService()
-
   // Use adapters for reactive state (read-only)
   const connectionAdapter = useConnectionAdapter()
-  const userAdapter = useUserAdapter()
   const audioClient = useAudioClient()
+  
+  // Get runtime for Effect execution
+  const runtime = useRuntime()
 
   // Get data from navigation state (from Landing.tsx)
   const navigationState = location.state as {
