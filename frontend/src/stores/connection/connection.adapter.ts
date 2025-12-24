@@ -5,8 +5,8 @@
  * Services use this tag for dependency injection, never importing the implementation directly.
  */
 
-import { Context, Layer } from 'effect'
-import type { ConnectionStore } from './connection.store'
+import { Context, Layer, Option } from 'effect'
+import type { ConnectionStore, DualConnectionState } from './connection.store'
 import { getConnectionStore } from './connection.store'
 import { WebrtcConnectionState, WsConnectionState, ConnectionError } from '../../domain/schemas/connection.schema'
 
@@ -20,6 +20,10 @@ import { WebrtcConnectionState, WsConnectionState, ConnectionError } from '../..
 export class ConnectionAdapter extends Context.Tag("@app/adapters/ConnectionAdapter")<
   ConnectionAdapter,
   {
+    // State access
+    getConnectionState: () => DualConnectionState
+    getError: () => Option.Option<ConnectionError>
+
     // WebRTC (room only)
     setWebRTCState: (state: WebrtcConnectionState) => void
 
@@ -54,6 +58,15 @@ const createConnectionAdapterImpl = () => {
   const connectionStore = getConnectionStore()
 
   return {
+    // State access
+    getConnectionState: () => {
+      return connectionStore.state
+    },
+
+    getError: () => {
+      return connectionStore.connectionError()
+    },
+
     // WebRTC state management (room only)
     setWebRTCState: (state: WebrtcConnectionState) => {
       connectionStore.actions.setWebRTCState(state)

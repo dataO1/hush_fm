@@ -6,6 +6,7 @@
  */
 
 import { Effect, Layer, Option as O, Context, pipe } from 'effect'
+import { createSignal } from 'solid-js'
 import { AudioAdapter } from '../../stores'
 import { 
   AudioDeviceError,
@@ -60,8 +61,8 @@ interface AudioClientInterface {
     AudioAdapter
   >
   
-  // Get current stream (internal use by other services)
-  readonly getCurrentStream: () => O.Option<MediaStream>
+  // Reactive stream signal (for UI components)
+  readonly currentStream: () => O.Option<MediaStream>
 }
 
 /**
@@ -76,8 +77,8 @@ export class AudioClient extends Context.Tag("@app/infrastructure/AudioClient")<
  * Create Audio Client Implementation
  */
 const createAudioClientImpl = (): AudioClientInterface => {
-  // Internal MediaStream reference
-  let currentStream: O.Option<MediaStream> = O.none()
+  // Internal MediaStream reference - now reactive with SolidJS signal
+  const [currentStream, setCurrentStream] = createSignal<O.Option<MediaStream>>(O.none())
   
   // Internal audio element for playback (listener mode)
   let audioElement: O.Option<HTMLAudioElement> = O.none()
@@ -86,7 +87,7 @@ const createAudioClientImpl = (): AudioClientInterface => {
   const stopCurrentStream = (): Effect.Effect<void, never, never> =>
     Effect.sync(() => {
       pipe(
-        currentStream,
+        currentStream(),
         O.match({
           onNone: () => {},
           onSome: (stream) => {
@@ -105,24 +106,27 @@ const createAudioClientImpl = (): AudioClientInterface => {
           }
         })
       )
+      
+      setCurrentStream(O.none())
     })
 
   // Helper to update permissions if available
-  const updatePermissions = (audioAdapter: AudioAdapter): Effect.Effect<void, never, never> =>
-    pipe(
-      Effect.tryPromise({
+  const updatePermissions = (): Effect.Effect<void, never, AudioAdapter> =>
+    Effect.gen(function* () {
+      const audioAdapter = yield* AudioAdapter
+      
+      const state = yield* Effect.tryPromise({
         try: async () => {
           const permission = await navigator.permissions.query({ name: 'microphone' as PermissionName })
           return permission.state as PermissionState
         },
         catch: () => null // Permissions API not supported
-      }),
-      Effect.map(state => {
-        if (state !== null) {
-          audioAdapter.setPermission(state)
-        }
       })
-    )
+      
+      if (state !== null) {
+        audioAdapter.setPermission(state)
+      }
+    })
 
   return {
     getAudioDevices: () =>
@@ -130,7 +134,7 @@ const createAudioClientImpl = (): AudioClientInterface => {
         const audioAdapter = yield* AudioAdapter
         
         // Update permissions if available (don't fail if not supported)
-        yield* updatePermissions(audioAdapter)
+        yield* updatePermissions()
         
         const devices = yield* Effect.tryPromise({
           try: async () => {
@@ -157,7 +161,7 @@ const createAudioClientImpl = (): AudioClientInterface => {
         yield* stopCurrentStream()
         
         // Update permissions if available
-        yield* updatePermissions(audioAdapter)
+        yield* updatePermissions()
         
         // Check stored constraints from adapter
         const storedConstraints = audioAdapter.getMediaTrackConstraints()
@@ -183,7 +187,7 @@ const createAudioClientImpl = (): AudioClientInterface => {
             const stream = await navigator.mediaDevices.getUserMedia(constraints)
             
             // Update internal reference
-            currentStream = O.some(stream)
+            setCurrentStream(O.some(stream))
             
             // Update state in adapter
             audioAdapter.setStreamState({
@@ -245,7 +249,7 @@ const createAudioClientImpl = (): AudioClientInterface => {
           }),
           Effect.tap(result => Effect.sync(() => {
             // Update internal reference
-            currentStream = O.some(remoteStream)
+            setCurrentStream(O.some(remoteStream))
             
             if (result === 'success') {
               // Update state - successful playback
@@ -292,7 +296,7 @@ const createAudioClientImpl = (): AudioClientInterface => {
         
         // Only for DJ mode - pause/resume MediaStream tracks
         yield* pipe(
-          currentStream,
+          currentStream(),
           O.match({
             onNone: () => 
               Effect.fail(new AudioPlaybackError({
@@ -323,7 +327,7 @@ const createAudioClientImpl = (): AudioClientInterface => {
         
         // Stop MediaStream tracks
         pipe(
-          currentStream,
+          currentStream(),
           O.match({
             onNone: () => {},
             onSome: (stream) => {
@@ -331,7 +335,7 @@ const createAudioClientImpl = (): AudioClientInterface => {
             }
           })
         )
-        currentStream = O.none()
+        setCurrentStream(O.none())
         
         // Cleanup audio element
         pipe(
@@ -357,7 +361,7 @@ const createAudioClientImpl = (): AudioClientInterface => {
         })
       }),
 
-    getCurrentStream: () => currentStream
+    currentStream: currentStream
   }
 }
 

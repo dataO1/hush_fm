@@ -1,16 +1,13 @@
 import { Show, createResource, createSignal } from 'solid-js'
 import { useParams, useNavigate, useLocation } from '@solidjs/router'
-import { Option as O, pipe } from 'effect'
-import type { ListenerJoinResultType } from '../../domain/schemas/user.schema'
-import { useConnectionAdapter, useLobbyAdapter, useUserAdapter, useRuntime } from '../../App'
+import { Option } from 'effect'
+import { useConnectionAdapter, useUserAdapter, useAudioClient } from '../../App'
 import { useListenerService } from '../hooks/useEffectService'
-import { ConnectionState } from '../../domain/schemas/connection.schema'
-import type { MediaSoupError } from '../../services/infrastructure/MediaSoupClient'
+import { WebrtcConnectionState } from '../../domain/schemas/connection.schema'
 import { Oscilloscope } from '../components/shared/Oscilloscope'
 import { WebRTCErrorHandler } from '../components/WebRTCErrorHandler'
 import { RoomHeader } from '../components/room/RoomHeader'
 import { ConnectionStatusGroup } from '../components/streaming/ConnectionStatusGroup'
-import { StreamError } from '../components/streaming/StreamError'
 
 export default function ListenerRoom() {
   const params = useParams()
@@ -20,10 +17,10 @@ export default function ListenerRoom() {
   // SolidJS 2025: Use Effect services through hooks
   const listenerService = useListenerService()
 
-  // Use stores for reactive state (read-only)
-  const connectionStore = useConnectionStore()
-  const listenersStore = useListenersStore()
-  const webrtcStore = useWebRTCStore()
+  // Use adapters for reactive state (read-only)
+  const connectionAdapter = useConnectionAdapter()
+  const userAdapter = useUserAdapter()
+  const audioClient = useAudioClient()
 
   // Get data from navigation state (from Landing.tsx)
   const navigationState = location.state as {
@@ -41,11 +38,11 @@ export default function ListenerRoom() {
     }
   } || {}
 
-  // SolidJS 2025: Computed values from stores (read-only)
-  const connectionState = () => connectionStore.state.state
-  const isConnecting = () => connectionState() === ConnectionState.CONNECTING
-  const webrtcError = () => webrtcStore.state.error
-  const hasWebRTCError = () => webrtcStore.hasError()
+  // SolidJS 2025: Computed values from adapters (read-only)
+  const connectionState = () => connectionAdapter.getConnectionState()
+  const isConnecting = () => connectionState()?.webrtcConnectionState === WebrtcConnectionState.CONNECTING
+  const connectionError = () => connectionAdapter.getError()
+  const hasConnectionError = () => connectionAdapter.hasError()
 
   // Room information from params and navigation state
   const roomId = () => params.roomId
@@ -55,59 +52,29 @@ export default function ListenerRoom() {
   // Helper to convert ConnectionState to dot status
   const getDotStatus = () => {
     const state = connectionState()
-    if (state === ConnectionState.STREAMING) return 'streaming'
-    if (state === ConnectionState.PAUSED) return 'paused'
-    if (state === ConnectionState.ERROR) return 'error'
-    if (state === ConnectionState.CONNECTED) return 'connected'
-    if (state === ConnectionState.CONNECTING || state === ConnectionState.DISCONNECTING) return 'connecting'
+    const webrtcState = state?.webrtcConnectionState
+    if (webrtcState === WebrtcConnectionState.STREAMING) return 'streaming'
+    if (webrtcState === WebrtcConnectionState.PAUSED) return 'paused'
+    if (webrtcState === WebrtcConnectionState.ERROR) return 'error'
+    if (webrtcState === WebrtcConnectionState.CONNECTED) return 'connected'
+    if (webrtcState === WebrtcConnectionState.CONNECTING || webrtcState === WebrtcConnectionState.DISCONNECTING) return 'connecting'
     return 'disconnected'
   }
 
   // Helper to get status text for accessibility
   const getStatusText = () => {
     const state = connectionState()
-    if (state === ConnectionState.STREAMING) return 'LIVE'
-    if (state === ConnectionState.PAUSED) return 'PAUSED'
-    return state
+    const webrtcState = state?.webrtcConnectionState
+    if (webrtcState === WebrtcConnectionState.STREAMING) return 'LIVE'
+    if (webrtcState === WebrtcConnectionState.PAUSED) return 'PAUSED'
+    return webrtcState || 'DISCONNECTED'
   }
 
-  // SolidJS 2025: Simple accessor functions for property access (no memo needed)
-  const currentListenerId = () => roomId() // Use roomId as listener ID
-  
-  const currentListener = (): ListenerStateType | null => {
-    const listenerId = currentListenerId()
-    return listenerId ? listenersStore.getListener(listenerId) : null
-  }
-
-  // SolidJS 2025: Use Option for reactive error handling
-  const currentError = () => {
-    const listener = currentListener()
-    return listener?.stepError || O.none()
-  }
-
-  // SolidJS 2025: Simplify Option handling for Show components
-  const listenerAudioStream = () => {
-    const listener = currentListener()
-    if (!listener) return null
-    
-    return O.getOrNull(
-      pipe(
-        listener.audioPlayback,
-        O.flatMap((audioPlayback) => audioPlayback.mediaStream)
-      )
-    )
-  }
+  // Audio stream is accessed directly via signal in template
 
   const needsUserPlay = () => {
-    const listener = currentListener()
-    if (!listener) return false
-    
-    // audioPlayback is an Option type, need to extract value first
-    return pipe(
-      listener.audioPlayback,
-      O.map((audioPlayback) => audioPlayback.autoplayBlocked),
-      O.getOrElse(() => false)
-    )
+    // Check if user interaction is needed for audio playback
+    return connectionState()?.webrtcConnectionState === WebrtcConnectionState.CONNECTED
   }
 
 
@@ -218,11 +185,11 @@ export default function ListenerRoom() {
 
       {/* Audio managed by consumer service - no DOM element needed here */}
 
-      {/* WebRTC Error Handler */}
+      {/* Connection Error Handler */}
       <WebRTCErrorHandler 
-        error={webrtcError() as WebRTCError | null}
-        show={hasWebRTCError()}
-        onDismiss={() => webrtcStore.actions.clearError()}
+        error={connectionError()}
+        show={hasConnectionError()}
+        onDismiss={() => connectionAdapter.clearError()}
         onCancel={() => navigate('/')}
       />
 
@@ -235,19 +202,7 @@ export default function ListenerRoom() {
         </div>
       </Show>
 
-      {/* Stream Error Display - SolidJS 2025: Use Show for Option errors */}
-      <Show when={O.getOrNull(currentError())}>
-        {(error) => (
-          <StreamError 
-            error={() => error()}
-            onDismiss={() => {
-              const listenerId = currentListenerId()
-              if (listenerId) listenersStore.actions.clearListenerError(listenerId)
-            }}
-            variant="floating"
-          />
-        )}
-      </Show>
+      {/* Stream errors now handled by WebRTC error handler above */}
       
       {/* Join operation errors */}
       <Show when={joinRoomOperation.error}>
@@ -262,7 +217,7 @@ export default function ListenerRoom() {
         </div>
       </Show>
 
-      <Show when={!isConnecting() && !joinRoomOperation.loading && !O.getOrNull(currentError()) && !joinRoomOperation.error}>
+      <Show when={!isConnecting() && !joinRoomOperation.loading && !joinRoomOperation.error}>
         <div class="card bg-white/10 backdrop-blur-sm border border-white/20 shadow-xl max-w-sm sm:max-w-md w-full mx-4">
           <div class="card-body flex flex-col items-center gap-6 sm:gap-8 p-4 sm:p-6">
             
@@ -281,8 +236,8 @@ export default function ListenerRoom() {
               layout="vertical"
             />
 
-            {/* Audio Oscilloscope - SolidJS 2025 Option pattern */}
-            <Show when={listenerAudioStream()} fallback={null}>
+            {/* Audio Oscilloscope - SolidJS 2025 reactive signal pattern */}
+            <Show when={Option.getOrNull(audioClient.currentStream())} fallback={null}>
               {(stream) => (
                 <div class="w-full">
                   <Oscilloscope 

@@ -5,7 +5,7 @@ import { useConnectionAdapter, useLobbyAdapter, useUserAdapter, useRuntime } fro
 import { useLobbyService } from '../hooks/useEffectService'
 import ConnectionStatusDot from '../components/ConnectionStatusDot'
 import { RoomCard } from '../components/room/RoomCard'
-import type { LobbyRoomType } from '../../domain/schemas/lobby.schema'
+import type { LobbyRoomInfoType } from '../../domain/schemas/lobby.schema'
 
 export default function Landing() {
   const navigate = useNavigate()
@@ -13,24 +13,22 @@ export default function Landing() {
   // SolidJS 2025: Use Effect services through hooks
   const lobbyService = useLobbyService()
 
-  // Use stores for reactive state (read-only)
-  const djStore = useDJStore()
-  const listenersStore = useListenersStore()
-  const lobbyStore = useLobbyStore()
-  const userStore = useUserStore()
+  // Use adapters for reactive state (read-only)
+  const connectionAdapter = useConnectionAdapter()
+  const lobbyAdapter = useLobbyAdapter()
+  const userAdapter = useUserAdapter()
 
   // SolidJS 2025: Use createResource for lobby initialization
   const [lobbyInitialization] = createResource(async () => {
     console.info('🏠 Landing: Checking active connections and initializing lobby...')
     
     // Check if we have active DJ streaming or listener connections
-    const isDJStreaming = djStore.isStreaming()
-    const activeListenerRoomId = listenersStore.getActiveListenerRoomId()
-    const hasActiveListeners = activeListenerRoomId !== null
+    const currentRole = userAdapter.getCurrentRole()
+    const isDJStreaming = Option.getOrNull(currentRole) === 'dj'
+    const hasActiveListeners = connectionAdapter.isRoomConnected()
     
     console.info(`🔍 Landing: Connection state debug:`)
     console.info(`  🎤 DJ streaming: ${isDJStreaming}`)
-    console.info(`  🎧 Active listener room: ${activeListenerRoomId}`)
     console.info(`  🎧 Has active listeners: ${hasActiveListeners}`)
     
     if (isDJStreaming || hasActiveListeners) {
@@ -85,39 +83,41 @@ export default function Landing() {
   }
 
   // SolidJS 2025: Handle room interaction using Application Services
-  const handleRoomAction = async (roomId: string, room: RoomInfo) => {
+  const handleRoomAction = async (roomId: string, room: LobbyRoomInfoType) => {
     try {
       console.info('🏠 Processing room action via Application Services...', { roomId })
       
       // Check if this is an active listener room (navigation only)
-      const activeListenerRoomId = listenersStore.getActiveListenerRoomId()
-      if (activeListenerRoomId === roomId) {
+      const isActiveListener = connectionAdapter.isRoomConnected()
+      if (isActiveListener && roomId) {
         console.info('🎧 Navigating back to active listener room:', roomId)
         navigate(`/listen/${roomId}`)
         return
       }
       
       // Check if this is our own DJ room (DJ reconnection) 
-      const currentSessionId = O.getOrNull(userStore.state.sessionId)
-      const isStreaming = djStore.isStreaming() 
-      const djRoomId = djStore.state?.websocket?.roomId ? O.getOrNull(djStore.state.websocket.roomId) : null
+      const currentSessionId = userAdapter.getSessionId()
+      const currentRole = userAdapter.getCurrentRole()
+      const isStreaming = Option.getOrNull(currentRole) === 'dj'
+      const isDJConnected = connectionAdapter.isConnected()
       
-      if (isStreaming && djRoomId === roomId) {
+      if (isStreaming && isDJConnected) {
         console.info('🎤 Navigating back to active DJ room:', roomId)
         navigate(`/dj/${roomId}`)
         return
       }
       
       // Check if this is the user's own room for DJ reconnection
-      if (currentSessionId && (room as any).djId === currentSessionId) {
+      const sessionId = Option.getOrNull(currentSessionId)
+      if (sessionId && room.djId === sessionId) {
         console.info('🔄 Reconnecting to own DJ room via room announcement:', roomId)
         
         try {
           const result = await lobbyService.announceRoomCreation({
             roomName: room.name,
             djName: room.djName,
-            description: room.description,
-            tags: room.tags
+            description: Option.getOrNull(room.description),
+            tags: room.tags || []
           })
           
           navigate(`/dj/${result.roomId}`, {
@@ -133,13 +133,13 @@ export default function Landing() {
       // Regular listener join flow using LobbyService
       console.info('🎧 Requesting to join room as listener via LobbyService:', roomId)
       
-      if (!currentSessionId) {
+      if (!sessionId) {
         console.error('❌ Cannot join room: No session ID available')
         return
       }
       
       try {
-        const joinResult = await lobbyService.requestJoinRoom(roomId, currentSessionId)
+        const joinResult = await lobbyService.requestJoinRoom(roomId, sessionId)
         
         if (joinResult && joinResult.listenerWebSocketUrl) {
           console.info('✅ Join request successful, navigating to listener room')
@@ -147,12 +147,12 @@ export default function Landing() {
           navigate(`/listen/${roomId}`, {
             state: { 
               listenerWebSocketUrl: joinResult.listenerWebSocketUrl,
-              sessionId: currentSessionId,
+              sessionId: sessionId,
               roomInfo: {
                 id: room.id,
                 name: room.name,
                 djName: room.djName,
-                description: room.description,
+                description: Option.getOrNull(room.description),
                 tags: room.tags,
                 listenerCount: room.listenerCount,
                 isPublic: room.isPublic
@@ -182,28 +182,27 @@ export default function Landing() {
     modal?.close()
   }
   
-  // Computed values from stores (read-only)
-  const availableRooms = () => lobbyStore.availableRooms
-  const isLoading = () => lobbyStore.isLoading() || lobbyInitialization.loading
-  const isCreating = () => lobbyStore.isCreating() || roomCreation.loading
+  // Computed values from adapters (read-only)
+  const availableRooms = () => lobbyAdapter.getRooms()
+  const isLoading = () => lobbyAdapter.isLoading() || lobbyInitialization.loading
+  const isCreating = () => lobbyAdapter.isCreating() || roomCreation.loading
   
   // SolidJS 2025: Use computed for Option types that return null-safe values
-  const connectionError = () => lobbyStore.connectionError()
-  const creationError = () => lobbyStore.creationError()
+  const connectionError = () => Option.getOrNull(connectionAdapter.getError())
+  const creationError = () => lobbyAdapter.getCreationError()
   
   // SolidJS 2025: Use createResource for async service calls with proper Option handling
   const [sortedRooms] = createResource(
     // Source signal that triggers refetch
     () => ({ 
       rooms: availableRooms(), 
-      sessionId: userStore.state.sessionId, 
-      activeListenerRoomId: listenersStore.getActiveListenerRoomId() 
+      sessionId: userAdapter.getSessionId(), 
+      isRoomConnected: connectionAdapter.isRoomConnected() 
     }),
     // Fetcher function that calls the service
     async (source) => {
       const sessionId = O.getOrNull(source.sessionId)
-      const activeListenerRoomId = O.getOrNull(source.activeListenerRoomId)
-      return await lobbyService.sortRoomsForUser(source.rooms, sessionId || '', activeListenerRoomId)
+      return await lobbyService.sortRoomsForUser(source.rooms, sessionId || '', null)
     }
   )
 
@@ -225,7 +224,7 @@ export default function Landing() {
               <div class="flex justify-between items-center">
                 <span>{String(error())}</span>
                 <button 
-                  onClick={() => lobbyStore.actions.clearError()}
+                  onClick={() => connectionAdapter.clearError()}
                   class="text-red-200 hover:text-white"
                 >
                   ✕
@@ -241,7 +240,7 @@ export default function Landing() {
               <div class="flex justify-between items-center">
                 <span>{String(error())}</span>
                 <button 
-                  onClick={() => lobbyStore.actions.clearError()}
+                  onClick={() => connectionAdapter.clearError()}
                   class="text-red-200 hover:text-white"
                 >
                   ✕

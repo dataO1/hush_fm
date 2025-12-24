@@ -15,8 +15,8 @@ import { StreamStateType } from '@/domain'
  */
 export interface AudioState {
   streamState: StreamStateType
-  mediaTrackConstraints: Option.Option<WebAPITypes.MediaTrackConstraints>
-  availableDevices: ReadonlyArray<WebAPITypes.MediaDeviceInfo>
+  mediaTrackConstraints: Option.Option<MediaTrackConstraints>
+  availableDevices: ReadonlyArray<MediaDeviceInfo>
 }
 
 /**
@@ -28,13 +28,13 @@ export interface AudioActions {
   updateStreamState: (updates: Partial<StreamStateType>) => void
 
   // Permission management
-  setPermission: (permission: WebAPITypes.PermissionState) => void
+  setPermission: (permission: PermissionState) => void
 
   // Device management
-  setAvailableDevices: (devices: ReadonlyArray<WebAPITypes.MediaDeviceInfo>) => void
+  setAvailableDevices: (devices: ReadonlyArray<MediaDeviceInfo>) => void
 
   // Constraints management
-  setMediaTrackConstraints: (constraints: WebAPITypes.MediaTrackConstraints) => void
+  setMediaTrackConstraints: (constraints: MediaTrackConstraints) => void
   clearMediaTrackConstraints: () => void
 
   // Reset
@@ -75,15 +75,15 @@ export const createAudioStore = () => {
       setState('streamState', (prev) => ({ ...prev, ...updates }))
     },
 
-    setPermission: (permission: WebAPITypes.PermissionState) => {
+    setPermission: (permission: PermissionState) => {
       setState('streamState', 'permission', Option.some(permission))
     },
 
-    setAvailableDevices: (devices: ReadonlyArray<WebAPITypes.MediaDeviceInfo>) => {
+    setAvailableDevices: (devices: ReadonlyArray<MediaDeviceInfo>) => {
       setState('availableDevices', devices)
     },
 
-    setMediaTrackConstraints: (constraints: WebAPITypes.MediaTrackConstraints) => {
+    setMediaTrackConstraints: (constraints: MediaTrackConstraints) => {
       setState('mediaTrackConstraints', Option.some(constraints))
     },
 

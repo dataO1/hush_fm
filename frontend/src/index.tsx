@@ -8,9 +8,7 @@ import 'solid-devtools'
 // Infrastructure Layers
 import { WebSocketClientServiceLive } from './services/infrastructure/WebSocketClient'
 import { MediaSoupClientLive } from './services/infrastructure/MediaSoupClient'
-import { HttpClientLive } from './services/infrastructure/HttpClient'
 import { AudioClientLive } from './services/infrastructure/AudioClient'
-import { BrowserClientLive } from './services/infrastructure/BrowserClient'
 
 // Store Adapter Layers
 import { 
@@ -33,9 +31,7 @@ import { LobbyServiceLive } from './services/application/LobbyService'
 const InfrastructureLayer = Layer.mergeAll(
   WebSocketClientServiceLive,
   MediaSoupClientLive,
-  HttpClientLive,
-  AudioClientLive,
-  BrowserClientLive
+  AudioClientLive
 )
 
 const StoreAdapterLayer = Layer.mergeAll(

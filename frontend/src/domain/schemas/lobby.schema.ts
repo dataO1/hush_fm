@@ -8,20 +8,26 @@
  * Pattern: S.Schema.Type<> for store inference, S.Encoded vs S.Type for API boundaries
  */
 
-import { Schema as S, Option, Data } from 'effect'
+import { Schema as S, Option as O, Data } from 'effect'
+
 /**
- * Lobby Room Info (for room listings)
+ * Lobby Room Info Schema
+ * Handles API wire format transformation automatically
+ * - description: converts null/undefined to Option<string>
+ * - createdAt: converts ISO string to Date
+ * - isPublic: defaults to true for all API rooms
  */
 export const LobbyRoomInfo = S.Struct({
   id: S.String,
   name: S.String,
   djName: S.String,
-  description: S.Option(S.String),
+  djId: S.String,
+  description: S.OptionFromNullOr(S.String),
   tags: S.Array(S.String),
   listenerCount: S.Number,
-  isPublic: S.Boolean,
   isStreaming: S.Boolean,
-  createdAt: S.DateFromString
+  createdAt: S.DateFromString,
+  isPublic: S.optionalWith(S.Boolean, { default: () => true })
 })
 export type LobbyRoomInfoType = S.Schema.Type<typeof LobbyRoomInfo>
 
@@ -51,8 +57,8 @@ export const createInitialLobbyState = (): LobbyStateType => ({
   rooms: [],
   loading: false,
   creatingRoom: false,
-  creationError: Option.none(),
-  lastCreatedRoomId: Option.none()
+  creationError: O.none(),
+  lastCreatedRoomId: O.none()
 })
 
 

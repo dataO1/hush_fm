@@ -2,16 +2,14 @@ import { onCleanup, Show, createSignal, createEffect, createResource } from 'sol
 import { useParams, useNavigate, useLocation } from '@solidjs/router'
 import { Option as O } from 'effect'
 import { DeviceSelector } from '../components/controls/DeviceSelector'
-import { useConnectionAdapter, useUserAdapter, useLobbyAdapter, useAudioAdapter } from '../../App'
+import { useConnectionAdapter, useUserAdapter, useLobbyAdapter, useAudioAdapter, useAudioClient } from '../../App'
 import { useDJService } from '../hooks/useEffectService'
-import { ConnectionState } from '../../domain/schemas/connection.schema'
-import type { MediaSoupError } from '../../services/infrastructure/MediaSoupClient'
+import { WebrtcConnectionState, WsConnectionState } from '../../domain/schemas/connection.schema'
 import { Oscilloscope } from '../components/shared/Oscilloscope'
 import { WebRTCErrorHandler } from '../components/WebRTCErrorHandler'
 import { RoomHeader } from '../components/room/RoomHeader'
 import { ConnectionStatusGroup } from '../components/streaming/ConnectionStatusGroup'
 import { StreamControls } from '../components/streaming/StreamControls'
-import { StreamError } from '../components/streaming/StreamError'
 
 export default function DJRoom() {
   const params = useParams()
@@ -21,11 +19,12 @@ export default function DJRoom() {
   // SolidJS 2025: Use Effect services through hooks
   const djService = useDJService()
 
-  // Use stores for reactive state (read-only)
-  const connectionStore = useConnectionStore()
-  const djStore = useDJStore()
-  const roomMetadataStore = useRoomMetadataStore()
-  const webrtcStore = useWebRTCStore()
+  // Use adapters for reactive state (read-only)
+  const connectionAdapter = useConnectionAdapter()
+  const userAdapter = useUserAdapter()
+  const lobbyAdapter = useLobbyAdapter()
+  const audioAdapter = useAudioAdapter()
+  const audioClient = useAudioClient()
 
   // Get navigation state (from Landing.tsx room creation)
   const navigationState = location.state as {
@@ -37,7 +36,7 @@ export default function DJRoom() {
   // Router state guard - redirect to lobby if missing critical state  
   createEffect(() => {
     // Check if we have valid navigation state to be in DJ room
-    if (!navigationState.djWebSocketUrl && connectionState() === ConnectionState.DISCONNECTED) {
+    if (!navigationState.djWebSocketUrl && connectionState()?.wsConnectionState === WsConnectionState.DISCONNECTED) {
       console.info('No valid DJ WebSocket URL detected, redirecting to lobby')
       setIsRedirecting(true)
       setTimeout(() => navigate('/'), 1000) // Brief delay to show redirect message
@@ -52,47 +51,48 @@ export default function DJRoom() {
     console.info('🧹 DJRoom: Component cleanup')
   })
 
-  // Computed values from domain stores (SolidJS 2025 + Effect Option patterns)
-  const connectionState = () => connectionStore.state.state
-  const isStreaming = () => djStore.isStreaming()
-  const djError = () => djStore.flowError() // Already returns null | string
-  const isConnecting = () => connectionStore.isConnecting()
-  const isPaused = () => roomMetadataStore.isPaused()
-  const selectedDeviceId = () => djStore.selectedDeviceId() // Already returns null | string
+  // Computed values from domain adapters (SolidJS 2025 + Effect Option patterns)
+  const connectionState = () => connectionAdapter.getConnectionState()
+  const isStreaming = () => audioAdapter.isPlaying()
+  const djError = () => audioAdapter.getError()
+  const isConnecting = () => connectionAdapter.isConnecting()
+  const isPaused = () => !audioAdapter.isPlaying()
+  const selectedDeviceId = () => audioAdapter.getCurrentDeviceId()
   
-  // WebRTC error state
-  const webrtcError = () => webrtcStore.state.error
-  const hasWebRTCError = () => webrtcStore.hasError()
+  // Connection error state
+  const connectionError = () => connectionAdapter.getError()
+  const hasConnectionError = () => connectionAdapter.hasError()
   
   // SolidJS 2025: Use reactive computeds with proper Option handling
   const roomId = () => params.roomId
   
   // Use Show components for Optional room metadata in template
-  const roomMetadata = () => roomMetadataStore.state.metadata
+  const roomMetadata = () => connectionAdapter.getRoomMetadata()
 
   // Helper to convert ConnectionState to dot status
   const getDotStatus = () => {
     const state = connectionState()
-    if (state === ConnectionState.STREAMING && isPaused()) return 'paused'
-    if (state === ConnectionState.STREAMING) return 'streaming'
-    if (state === ConnectionState.PAUSED) return 'paused'
-    if (state === ConnectionState.ERROR) return 'error'
-    if (state === ConnectionState.CONNECTED || state === ConnectionState.IDLE) return 'setup'
-    if (state === ConnectionState.CONNECTING || state === ConnectionState.DISCONNECTING) return 'connecting'
+    const webrtcState = state?.webrtcConnectionState
+    if (webrtcState === WebrtcConnectionState.STREAMING && isPaused()) return 'paused'
+    if (webrtcState === WebrtcConnectionState.STREAMING) return 'streaming'
+    if (webrtcState === WebrtcConnectionState.PAUSED) return 'paused'
+    if (webrtcState === WebrtcConnectionState.ERROR) return 'error'
+    if (webrtcState === WebrtcConnectionState.CONNECTED) return 'setup'
+    if (webrtcState === WebrtcConnectionState.CONNECTING || webrtcState === WebrtcConnectionState.DISCONNECTING) return 'connecting'
     return 'disconnected'
   }
 
   // Helper to get status text for accessibility
   const getStatusText = () => {
     const state = connectionState()
-    if (state === ConnectionState.STREAMING && isPaused()) return 'MUTED'
-    if (state === ConnectionState.STREAMING) return 'LIVE'
-    if (state === ConnectionState.IDLE) return 'SETUP'
-    return state
+    const webrtcState = state?.webrtcConnectionState
+    if (webrtcState === WebrtcConnectionState.STREAMING && isPaused()) return 'MUTED'
+    if (webrtcState === WebrtcConnectionState.STREAMING) return 'LIVE'
+    if (webrtcState === WebrtcConnectionState.CONNECTED) return 'SETUP'
+    return webrtcState || 'DISCONNECTED'
   }
 
-  // Get DJ audio stream from DJ store (already converted to null | MediaStream)
-  const djAudioStream = () => djStore.previewStream()
+  // Audio stream is accessed directly via signal in template
 
   // SolidJS 2025: Use signals and createResource for streaming operations
   const [streamingRequest, setStreamingRequest] = createSignal<{roomId: string, deviceId: string} | null>(null)
@@ -176,7 +176,7 @@ export default function DJRoom() {
   }
 
   const onDeviceSelected = (deviceId: string) => {
-    djStore.actions.setSelectedDeviceId(deviceId)
+    audioAdapter.setCurrentDeviceId(deviceId)
   }
 
   return (
@@ -202,18 +202,13 @@ export default function DJRoom() {
           </div>
         </Show>
 
-        {/* Stream Error Display */}
-        <StreamError 
-          error={djError}
-          onDismiss={() => djStore.actions.clearFlowError()}
-          variant="inline"
-        />
+        {/* Stream errors now handled globally in AppLayout */}
 
         {/* WebRTC Error Handler */}
         <WebRTCErrorHandler 
-          error={webrtcError() as WebRTCError | null}
-          show={hasWebRTCError()}
-          onDismiss={() => webrtcStore.actions.clearError()}
+          error={connectionError()}
+          show={hasConnectionError()}
+          onDismiss={() => connectionAdapter.clearError()}
           onCancel={() => navigate('/')}
         />
 
@@ -254,12 +249,12 @@ export default function DJRoom() {
 
               <DeviceSelector 
                 disabled={isStreaming()} 
-                djStore={djStore}
+                audioAdapter={audioAdapter}
                 onDeviceSelected={onDeviceSelected}
               />
               
-              {/* Audio Oscilloscope - SolidJS 2025 Option pattern */}
-              <Show when={djAudioStream()} fallback={null}>
+              {/* Audio Oscilloscope - SolidJS 2025 reactive signal pattern */}
+              <Show when={O.getOrNull(audioClient.currentStream())} fallback={null}>
                 {(stream) => (
                   <div class="w-full mb-4">
                     <Oscilloscope stream={stream()} height={60} class="mb-0" />
@@ -306,7 +301,7 @@ export default function DJRoom() {
               <StreamControls 
                 isStreaming={isStreaming}
                 isPaused={isPaused}
-                isDisabled={() => connectionState() === ConnectionState.ERROR || isConnecting() || muteOperation.loading || endStreamOperation.loading}
+                isDisabled={() => connectionState()?.webrtcConnectionState === WebrtcConnectionState.ERROR || isConnecting() || muteOperation.loading || endStreamOperation.loading}
                 onToggleMute={toggleMute}
                 onEndStream={endStream}
               />

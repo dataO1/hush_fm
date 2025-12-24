@@ -18,7 +18,6 @@ import { LobbyService, LobbyServiceLive } from './services/application/LobbyServ
 import { WebSocketClientService, WebSocketClientServiceLive } from './services/infrastructure/WebSocketClient'
 import { MediaSoupClient, MediaSoupClientLive } from './services/infrastructure/MediaSoupClient'
 import { AudioClient, AudioClientLive } from './services/infrastructure/AudioClient'
-import { HttpClient, HttpClientLive } from './services/infrastructure/HttpClient'
 
 // Create the complete application layer with all services and adapters
 const AppLayer = Layer.mergeAll(
@@ -33,8 +32,7 @@ const AppLayer = Layer.mergeAll(
   // Infrastructure Services
   WebSocketClientServiceLive,
   MediaSoupClientLive,
-  AudioClientLive,
-  HttpClientLive
+  AudioClientLive
 )
 
 // Create managed runtime with all dependencies
@@ -50,7 +48,6 @@ type LobbyServiceType = Context.Tag.Service<LobbyService>
 type WebSocketClientServiceType = Context.Tag.Service<WebSocketClientService>
 type MediaSoupClientType = Context.Tag.Service<MediaSoupClient>
 type AudioClientType = Context.Tag.Service<AudioClient>
-type HttpClientType = Context.Tag.Service<HttpClient>
 
 // Service context types
 interface ServiceContextValue {
@@ -66,7 +63,6 @@ interface ServiceContextValue {
   webSocketClient: WebSocketClientServiceType
   mediaSoupClient: MediaSoupClientType
   audioClient: AudioClientType
-  httpClient: HttpClientType
   // Runtime for Effect execution
   runtime: typeof runtime
 }
@@ -90,7 +86,6 @@ const ServiceProvider: ParentComponent = (props) => {
     webSocketClient: runtime.runSync(WebSocketClientService),
     mediaSoupClient: runtime.runSync(MediaSoupClient),
     audioClient: runtime.runSync(AudioClient),
-    httpClient: runtime.runSync(HttpClient),
     // Runtime
     runtime
   }
@@ -118,6 +113,7 @@ export const useUserAdapter = () => useServices().userAdapter
 export const useAudioAdapter = () => useServices().audioAdapter
 export const useUserService = () => useServices().userService
 export const useLobbyService = () => useServices().lobbyService
+export const useAudioClient = () => useServices().audioClient
 export const useRuntime = () => useServices().runtime
 
 function AppContent() {

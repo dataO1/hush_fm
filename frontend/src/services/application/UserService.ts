@@ -109,7 +109,7 @@ const createUserServiceImpl = () => {
           yield* mediaSoupClient.connectActiveTransport(transportEvent.transportOptions.dtlsParameters)
 
           // 7. Get audio stream if deviceId provided
-          const stream = deviceId ? yield* audioClient.selectDevice(deviceId) : yield* audioClient.getCurrentStream().pipe(
+          const stream = deviceId ? yield* audioClient.selectDevice(deviceId) : yield* audioClient.currentStream().pipe(
             O.match({
               onNone: () => Effect.fail(new UserServiceError({
                 cause: 'No audio device selected',
@@ -165,33 +165,61 @@ const createUserServiceImpl = () => {
 
         // Send close command if connected
         if (connectionAdapter.isRoomConnected()) {
-          yield* wsClient.sendDJCommand({ type: 'closeRoom' } as any)
+          yield* wsClient.sendDJCommand({ type: 'closeRoom' } as any).pipe(
+            Effect.mapError((error) => new UserServiceError({
+              cause: `Failed to send close room command: ${error}`,
+              role: 'dj',
+              operation: 'closeDJRoom',
+              timestamp: new Date()
+            }))
+          )
         }
 
         // Clean up MediaSoup resources
-        yield* mediaSoupClient.cleanup()
+        yield* mediaSoupClient.cleanup().pipe(
+          Effect.mapError((error) => new UserServiceError({
+            cause: `Failed to cleanup MediaSoup resources: ${error}`,
+            role: 'dj',
+            operation: 'closeDJRoom',
+            timestamp: new Date()
+          }))
+        )
 
         // Stop audio stream
         yield* audioClient.stopStream()
 
         // Disconnect WebSocket
-        yield* wsClient.disconnectRoom()
+        yield* wsClient.disconnectRoom().pipe(
+          Effect.mapError((error) => new UserServiceError({
+            cause: `Failed to disconnect room WebSocket: ${error}`,
+            role: 'dj',
+            operation: 'closeDJRoom',
+            timestamp: new Date()
+          }))
+        )
 
         // Reset state
         connectionAdapter.resetRoom()
         activeRole = O.none()
-      }) as Effect.Effect<void, UserServiceError, ConnectionAdapter | WebSocketClientService | AudioClient | MediaSoupClient>,
+      }),
 
     getAudioDevices: () =>
       Effect.gen(function* () {
         const audioClient = yield* AudioClient
-        const devices = yield* audioClient.getAudioDevices()
+        const devices = yield* audioClient.getAudioDevices().pipe(
+          Effect.mapError((error) => new UserServiceError({
+            cause: `Failed to get audio devices: ${error}`,
+            role: 'dj', // Audio devices are typically requested by DJs
+            operation: 'getAudioDevices',
+            timestamp: new Date()
+          }))
+        )
         // Map to expected format
         return devices.map(d => ({
           deviceId: d.deviceId,
           label: d.label || 'Unknown Device'
         }))
-      }) as Effect.Effect<Array<{ deviceId: string, label: string }>, UserServiceError, AudioClient>,
+      }),
 
     // ============= Listener Operations =============
 
@@ -206,13 +234,12 @@ const createUserServiceImpl = () => {
         activeRole = O.some('listener' as UserRoleType)
         userAdapter.setCurrentRole('listener')
 
-        try {
-          // 1. Connect WebSocket to room
-          yield* wsClient.connectRoom(listenerWebSocketUrl)
+        // 1. Connect WebSocket to room
+        yield* wsClient.connectRoom(listenerWebSocketUrl)
 
-          // 2. Initialize listener
-          yield* wsClient.sendListenerCommand({ type: 'initListener' } as any)
-          const joinReadyEvent = yield* wsClient.waitForListenerEvent('joinReady')
+        // 2. Initialize listener
+        yield* wsClient.sendListenerCommand({ type: 'initListener' } as any)
+        const joinReadyEvent = yield* wsClient.waitForListenerEvent('joinReady')
 
           // 3. Initialize MediaSoup device
           yield* mediaSoupClient.initDevice(joinReadyEvent.rtpCapabilities)
@@ -252,21 +279,31 @@ const createUserServiceImpl = () => {
             } as any)
           }
 
-          const listenerId = `${sessionId}-${roomId}`
-          return {
-            listenerId,
-            roomId,
-            sessionId,
-            joinedAt: new Date()
-          }
-        } catch (error) {
-          // Cleanup MediaSoup resources on error
-          yield* mediaSoupClient.cleanup()
-          activeRole = O.none()
-
-          throw error
+        const listenerId = `${sessionId}-${roomId}`
+        return {
+          listenerId,
+          roomId,
+          sessionId,
+          joinedAt: new Date()
         }
-      }) as Effect.Effect<ListenerJoinResultType, UserServiceError, UserAdapter | ConnectionAdapter | LobbyAdapter | WebSocketClientService | MediaSoupClient | AudioClient>,
+      }).pipe(
+        Effect.catchAll((error) => 
+          Effect.gen(function* () {
+            // Cleanup MediaSoup resources on error
+            const mediaSoupClient = yield* MediaSoupClient
+            yield* mediaSoupClient.cleanup()
+            activeRole = O.none()
+
+            // Map error to UserServiceError
+            return yield* Effect.fail(new UserServiceError({
+              cause: `Failed to join room as listener: ${error}`,
+              role: 'listener',
+              operation: 'joinRoomAsListener',
+              timestamp: new Date()
+            }))
+          })
+        )
+      ),
 
     leaveListenerRoom: (_listenerId: string) =>
       Effect.gen(function* () {

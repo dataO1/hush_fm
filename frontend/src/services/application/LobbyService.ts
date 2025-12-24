@@ -12,8 +12,9 @@
  * - Lobby WebSocket management
  */
 
-import { Effect, Context, Layer, Option as O } from 'effect'
+import { Effect, Context, Layer, Option as O, Schema as S } from 'effect'
 import type { LobbyRoomInfoType } from '../../domain/schemas/lobby.schema'
+import { LobbyRoomInfo } from '../../domain/schemas/lobby.schema'
 import { config } from '../../config'
 
 // Import only adapters via Context.Tag
@@ -57,12 +58,12 @@ export interface RoomJoinResult {
 export class LobbyService extends Context.Tag("@app/services/LobbyService")<
   LobbyService,
   {
-    readonly connectToLobby: () => Effect.Effect<void, LobbyServiceError, LobbyAdapter | WebSocketClientService>
-    readonly disconnectFromLobby: () => Effect.Effect<void, LobbyServiceError, LobbyAdapter>
+    readonly connectToLobby: () => Effect.Effect<void, LobbyServiceError, WebSocketClientService>
+    readonly disconnectFromLobby: () => Effect.Effect<void, LobbyServiceError, WebSocketClientService>
     readonly getRoomList: () => Effect.Effect<LobbyRoomInfoType[], LobbyServiceError, never>
     readonly announceRoom: (roomName: string, djName: string, sessionId: string, description?: string, tags?: string[]) => Effect.Effect<RoomAnnouncementResult, LobbyServiceError, LobbyAdapter | WebSocketClientService>
-    readonly requestJoinRoom: (roomId: string, sessionId: string) => Effect.Effect<RoomJoinResult, LobbyServiceError, LobbyAdapter | WebSocketClientService>
-    readonly refreshRoomList: () => Effect.Effect<void, LobbyServiceError, LobbyAdapter | WebSocketClientService>
+    readonly requestJoinRoom: (roomId: string, sessionId: string) => Effect.Effect<RoomJoinResult, LobbyServiceError, WebSocketClientService>
+    readonly refreshRoomList: () => Effect.Effect<void, LobbyServiceError, WebSocketClientService>
     readonly sortRoomsForUser: (rooms: any[], sessionId: string, activeListenerRoomId?: string) => Effect.Effect<any[], LobbyServiceError, never>
   }
 >() {}
@@ -99,7 +100,13 @@ const LobbyServiceImpl = {
 
       // Connect to lobby WebSocket - wsClient handles all connection state management
       const lobbyUrl = `${config.websocket.baseUrl}/lobby`
-      yield* wsClient.connectLobby(lobbyUrl)
+      yield* wsClient.connectLobby(lobbyUrl).pipe(
+        Effect.mapError((error) => new LobbyServiceError(
+          `Failed to connect to lobby: ${error}`,
+          'connectToLobby',
+          error
+        ))
+      )
 
       console.info('✅ Lobby Service: Connected to lobby')
     }),
@@ -114,7 +121,13 @@ const LobbyServiceImpl = {
       const wsClient = yield* WebSocketClientService
 
       // Disconnect from lobby - wsClient handles all connection state management
-      yield* wsClient.disconnectLobby()
+      yield* wsClient.disconnectLobby().pipe(
+        Effect.mapError((error) => new LobbyServiceError(
+          `Failed to disconnect from lobby: ${error}`,
+          'disconnectFromLobby',
+          error
+        ))
+      )
 
       console.info('✅ Lobby Service: Disconnected from lobby')
     }),
@@ -134,8 +147,15 @@ const LobbyServiceImpl = {
         )
       })
 
-      // Parse and validate room list
-      const rooms = response.data as LobbyRoomInfoType[]
+      // Parse and transform room list from wire format to domain format
+      const rooms = yield* S.decodeUnknown(S.Array(LobbyRoomInfo))(response.data).pipe(
+        Effect.mapError((error) => new LobbyServiceError(
+          `Failed to parse room data: ${error}`,
+          'getRoomList',
+          error
+        ))
+      )
+      
       return rooms
     }),
 
@@ -178,16 +198,29 @@ const LobbyServiceImpl = {
         sessionId,
         description: description ? O.some(description) : O.none(),
         tags: tags || []
-      })
+      }).pipe(
+        Effect.mapError((error) => new LobbyServiceError(
+          `Failed to send announce room command: ${error.cause}`,
+          'announceRoom',
+          error
+        ))
+      )
 
       // Wait for room announced event
-      const result = yield* wsClient.waitForLobbyEvent('roomAnnounced')
+      const result = yield* wsClient.waitForLobbyEvent('roomAnnounced').pipe(
+        Effect.mapError((error) => new LobbyServiceError(
+          `Failed to receive room announced event: ${error.cause}`,
+          'announceRoom',
+          error
+        ))
+      )
 
       // Store room info in lobby adapter
       lobbyAdapter.addRoom({
         id: result.room.id,
         name: roomName,
         djName,
+        djId: sessionId,
         description: description ? O.some(description) : O.none(),
         tags: tags || [],
         listenerCount: 0,
@@ -234,10 +267,22 @@ const LobbyServiceImpl = {
       yield* wsClient.sendLobbyCommand({
         roomId,
         sessionId
-      })
+      }).pipe(
+        Effect.mapError((error) => new LobbyServiceError(
+          `Failed to send join room command: ${error.cause}`,
+          'requestJoinRoom',
+          error
+        ))
+      )
 
       // Wait for join approved event
-      const result = yield* wsClient.waitForLobbyEvent('joinApproved')
+      const result = yield* wsClient.waitForLobbyEvent('joinApproved').pipe(
+        Effect.mapError((error) => new LobbyServiceError(
+          `Failed to receive join approved event: ${error.cause}`,
+          'requestJoinRoom',
+          error
+        ))
+      )
 
       const joinResult: RoomJoinResult = {
         roomId,
@@ -260,7 +305,13 @@ const LobbyServiceImpl = {
       const wsClient = yield* WebSocketClientService
 
       // Send refresh rooms command (empty object for RefreshRoomsCommand)
-      yield* wsClient.sendLobbyCommand({})
+      yield* wsClient.sendLobbyCommand({}).pipe(
+        Effect.mapError((error) => new LobbyServiceError(
+          `Failed to send refresh rooms command: ${error.cause}`,
+          'refreshRoomList',
+          error
+        ))
+      )
 
       // Note: Room list updates will come as events automatically
 
