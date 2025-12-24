@@ -198,15 +198,11 @@ const createMediaSoupClientImpl = (): MediaSoupClientInterface => {
                 return transport
               }),
               Effect.catchAll(error =>
-                Effect.fail(
-                  error._tag === 'MediaSoupError'
-                    ? error
-                    : new MediaSoupError({
-                        cause: String(error),
-                        operation: 'createSendTransport',
-                        timestamp: new Date()
-                      })
-                )
+                Effect.fail(new MediaSoupError({
+                  cause: String(error),
+                  operation: 'createSendTransport',
+                  timestamp: new Date()
+                }))
               )
             )
         })
@@ -249,15 +245,11 @@ const createMediaSoupClientImpl = (): MediaSoupClientInterface => {
                 return transport
               }),
               Effect.catchAll(error =>
-                Effect.fail(
-                  error._tag === 'MediaSoupError'
-                    ? error
-                    : new MediaSoupError({
-                        cause: String(error),
-                        operation: 'createReceiveTransport',
-                        timestamp: new Date()
-                      })
-                )
+                Effect.fail(new MediaSoupError({
+                  cause: String(error),
+                  operation: 'createReceiveTransport',
+                  timestamp: new Date()
+                }))
               )
             )
         })

@@ -9,13 +9,13 @@
 import { Show } from 'solid-js'
 import type { JSX } from 'solid-js'
 import ConnectionStatusDot from '../ConnectionStatusDot'
-import type { RoomInfo } from '../../../domain/schemas/room.schema'
+import type { LobbyRoomInfoType } from '../../../domain/schemas/lobby.schema'
 
 interface RoomCardProps {
   /** Room information */
-  room: RoomInfo
+  room: LobbyRoomInfoType
   /** Join room action handler */
-  onJoin: (roomId: string, room: RoomInfo) => void
+  onJoin: (roomId: string, room: LobbyRoomInfoType) => void
   /** Additional CSS classes */
   class?: string
 }

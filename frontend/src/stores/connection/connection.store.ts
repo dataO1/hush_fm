@@ -178,6 +178,7 @@ export const createConnectionStore = (): ConnectionStore => {
     isLobbyConnected,
     isRoomConnected,
     isConnecting,
+    isConnected,
     hasError,
     connectionError
   }

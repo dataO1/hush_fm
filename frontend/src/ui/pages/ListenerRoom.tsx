@@ -1,9 +1,10 @@
 import { Show, createResource, createSignal } from 'solid-js'
 import { useParams, useNavigate, useLocation } from '@solidjs/router'
 import { Option } from 'effect'
-import { useConnectionAdapter, useAudioClient } from '../../App'
+import { useConnectionAdapter, useAudioClient, useAudioAdapter } from '../../App'
 import { useRuntime } from '../../App'
 import { UserService } from '../../services/application/UserService'
+import { Effect } from 'effect'
 import { WebrtcConnectionState } from '../../domain/schemas/connection.schema'
 import { Oscilloscope } from '../components/shared/Oscilloscope'
 import { WebRTCErrorHandler } from '../components/WebRTCErrorHandler'
@@ -20,8 +21,11 @@ export default function ListenerRoom() {
   const connectionAdapter = useConnectionAdapter()
   const audioClient = useAudioClient()
   
-  // Get runtime for Effect execution
+  // Get runtime for Effect execution  
   const runtime = useRuntime()
+  
+  // Get audio adapter for checking user gesture requirement
+  const audioAdapter = useAudioAdapter()
 
   // Get data from navigation state (from Landing.tsx)
   const navigationState = location.state as {
@@ -73,10 +77,6 @@ export default function ListenerRoom() {
 
   // Audio stream is accessed directly via signal in template
 
-  const needsUserPlay = () => {
-    // Check if user interaction is needed for audio playback
-    return connectionState()?.webrtcConnectionState === WebrtcConnectionState.CONNECTED
-  }
 
 
 
@@ -103,11 +103,14 @@ export default function ListenerRoom() {
       isReturning: !!isReturning
     })
     
-    const result = await listenerService.joinRoom(
-      roomId(),
-      sessionId,
-      listenerWebSocketUrl
+    // Use Effect pattern to join room as listener
+    const program = UserService.pipe(
+      Effect.flatMap((service) => 
+        service.joinRoomAsListener(roomId(), sessionId, listenerWebSocketUrl)
+      )
     )
+    
+    const result = await runtime.runPromise(program)
 
     console.info('✅ Listener join flow completed successfully')
     return result
@@ -124,31 +127,6 @@ export default function ListenerRoom() {
 
 
 
-  // SolidJS 2025: Use createResource for manual play
-  const [manualPlayRequest, setManualPlayRequest] = createSignal<boolean>(false)
-  
-  const [manualPlayOperation] = createResource(manualPlayRequest, async (shouldPlay) => {
-    if (!shouldPlay) return null
-    
-    const listenerId = roomId()
-    if (!listenerId) {
-      console.error('No listener ID available for manual play')
-      return null
-    }
-    
-    console.info('▶️ Handling manual play via Application Service')
-    
-    const result = await listenerService.handleManualPlay(listenerId)
-    
-    console.info('✅ Manual play completed successfully')
-    return result
-  })
-  
-  const handleManualPlay = () => {
-    setManualPlayRequest(true)
-    // Reset the signal after triggering
-    setTimeout(() => setManualPlayRequest(false), 100)
-  }
 
   // SolidJS 2025: Use createResource for leaving room
   const [leaveRoomRequest, setLeaveRoomRequest] = createSignal<boolean>(false)
@@ -161,7 +139,12 @@ export default function ListenerRoom() {
     const listenerId = roomId()
     if (listenerId) {
       console.info('📡 Calling leaveRoomAndNavigate Application Service')
-      const result = await listenerService.leaveRoomAndNavigate(listenerId)
+      // Use Effect pattern to leave room
+      const program = UserService.pipe(
+        Effect.flatMap((service) => service.leaveListenerRoom(listenerId))
+      )
+      
+      const result = await runtime.runPromise(program)
       console.info('✅ Leave room Application Service completed')
       
       // Navigate back to lobby after successful cleanup
@@ -245,18 +228,21 @@ export default function ListenerRoom() {
                     stream={stream()}
                     height={60} 
                     class="mb-0"
-                    userGestureAvailable={!needsUserPlay()}
+                    userGestureAvailable={!audioAdapter.requiresUserGesture()}
                   />
                 </div>
               )}
             </Show>
 
             {/* User Interaction Modal (Only if autoplay blocked) */}
-            <Show when={needsUserPlay()}>
+            <Show when={audioAdapter.requiresUserGesture()}>
               {/* Modal Background Overlay - Click outside to resume */}
               <div 
                 class="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4"
-                onClick={handleManualPlay}
+                onClick={() => {
+                  // Just close the modal - user gesture has been provided
+                  console.log('User clicked to close modal')
+                }}
               >
                 {/* Modal Container */}
                 <div 
@@ -284,11 +270,14 @@ export default function ListenerRoom() {
                     
                     {/* Action Button */}
                     <button
-                      onClick={handleManualPlay}
+                      onClick={() => {
+                  // Just close the modal - user gesture has been provided
+                  console.log('User clicked to close modal')
+                }}
                       class="btn btn-primary btn-lg w-full gap-2 text-base"
-                      disabled={manualPlayOperation.loading}
+                      disabled={audioAdapter.requiresUserGesture()}
                     >
-                      {manualPlayOperation.loading ? (
+                      {audioAdapter.requiresUserGesture() ? (
                         <>
                           <span class="loading loading-spinner loading-sm"></span>
                           Resuming...

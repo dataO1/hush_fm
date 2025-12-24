@@ -19,12 +19,25 @@
 import { Effect, Context, Layer, Option as O } from 'effect'
 
 // Import only adapters via Context.Tag
-import { ConnectionAdapter, UserAdapter } from '../../stores'
+import { ConnectionAdapter, UserAdapter, AudioAdapter } from '../../stores'
 
 // Import only infrastructure via Context.Tag
 import { WebSocketClientService } from '../infrastructure/WebSocketClient'
 import { MediaSoupClient } from '../infrastructure/MediaSoupClient'
 import { AudioClient } from '../infrastructure/AudioClient'
+
+// Import WebSocket command types
+import type { 
+  InitRoomCommand, 
+  RequestDjTransportCommand, 
+  ConnectDjTransportCommand, 
+  ProduceCommand,
+  CloseRoomCommand,
+  InitListenerCommand,
+  ConnectListenerTransportCommand,
+  RequestConsumerCommand,
+  ResumeConsumerCommand
+} from '../../domain/schemas/shared/websocket.schema'
 
 // Import domain schemas and types
 import {
@@ -43,12 +56,11 @@ export class UserService extends Context.Tag("@app/services/UserService")<
   {
     // DJ Operations
     readonly publishDJRoom: (roomId: string, djWebSocketUrl: string, deviceId?: string) => Effect.Effect<DJPublishResultType, UserServiceError, UserAdapter | WebSocketClientService | MediaSoupClient | AudioClient>
-    readonly closeDJRoom: () => Effect.Effect<void, UserServiceError, ConnectionAdapter | WebSocketClientService | AudioClient | MediaSoupClient>
-    readonly getAudioDevices: () => Effect.Effect<Array<{ deviceId: string, label: string }>, UserServiceError, AudioClient>
+    readonly closeDJRoom: () => Effect.Effect<void, UserServiceError, ConnectionAdapter | AudioAdapter | WebSocketClientService | AudioClient | MediaSoupClient>
 
     // Listener Operations
     readonly joinRoomAsListener: (roomId: string, sessionId: string, listenerWebSocketUrl: string) => Effect.Effect<{ readonly listenerId: string; readonly roomId: string; readonly sessionId: string; readonly joinedAt: Date }, UserServiceError, UserAdapter | WebSocketClientService | MediaSoupClient | AudioClient>
-    readonly leaveListenerRoom: (listenerId: string) => Effect.Effect<void, UserServiceError, ConnectionAdapter | WebSocketClientService>
+    readonly leaveListenerRoom: (listenerId: string) => Effect.Effect<void, UserServiceError, ConnectionAdapter | WebSocketClientService | AudioClient | MediaSoupClient>
 
     // Shared Operations
     readonly disconnect: () => Effect.Effect<void, UserServiceError, WebSocketClientService | ConnectionAdapter>
@@ -85,14 +97,14 @@ const createUserServiceImpl = () => {
           yield* wsClient.connectRoom(djWebSocketUrl)
 
           // 2. Initialize room and get RTP capabilities
-          yield* wsClient.sendDJCommand({ type: 'initRoom', roomId } as any)
+          yield* wsClient.sendDJCommand({ roomId } satisfies InitRoomCommand)
           const rtpCapabilitiesEvent = yield* wsClient.waitForDJEvent('roomInitialized')
 
           // 3. Initialize MediaSoup device
           yield* mediaSoupClient.initDevice(rtpCapabilitiesEvent.rtpCapabilities)
 
           // 4. Request transport from server
-          yield* wsClient.sendDJCommand({ type: 'requestDjTransport' } as any)
+          yield* wsClient.sendDJCommand({} satisfies RequestDjTransportCommand)
           const transportEvent = yield* wsClient.waitForDJEvent('djTransportReady')
 
           // 5. Create send transport
@@ -100,10 +112,9 @@ const createUserServiceImpl = () => {
 
           // 6. Connect transport
           yield* wsClient.sendDJCommand({
-            type: 'connectDjTransport',
             transportId: O.some(transport.id),
             dtlsParameters: transportEvent.transportOptions.dtlsParameters
-          })
+          } satisfies ConnectDjTransportCommand)
           yield* wsClient.waitForDJEvent('transportConnected')
           yield* mediaSoupClient.connectActiveTransport(transportEvent.transportOptions.dtlsParameters)
 
@@ -135,9 +146,8 @@ const createUserServiceImpl = () => {
 
           // 9. Notify server about producer
           yield* wsClient.sendDJCommand({
-            type: 'produce',
             rtpParameters: producer.rtpParameters
-          } as any)
+          } satisfies ProduceCommand)
           const producerEvent = yield* wsClient.waitForDJEvent('producerCreated')
 
           return {
@@ -164,7 +174,7 @@ const createUserServiceImpl = () => {
 
         // Send close command if connected
         if (connectionAdapter.isRoomConnected()) {
-          yield* wsClient.sendDJCommand({ type: 'closeRoom' } as any).pipe(
+          yield* wsClient.sendDJCommand({} satisfies CloseRoomCommand).pipe(
             Effect.mapError((error) => new UserServiceError({
               cause: `Failed to send close room command: ${error}`,
               role: 'dj',
@@ -202,23 +212,6 @@ const createUserServiceImpl = () => {
         activeRole = O.none()
       }),
 
-    getAudioDevices: () =>
-      Effect.gen(function* () {
-        const audioClient = yield* AudioClient
-        const devices = yield* audioClient.getAudioDevices().pipe(
-          Effect.mapError((error) => new UserServiceError({
-            cause: `Failed to get audio devices: ${error}`,
-            role: 'dj', // Audio devices are typically requested by DJs
-            operation: 'getAudioDevices',
-            timestamp: new Date()
-          }))
-        )
-        // Map to expected format
-        return devices.map(d => ({
-          deviceId: d.deviceId,
-          label: d.label || 'Unknown Device'
-        }))
-      }),
 
     // ============= Listener Operations =============
 
@@ -237,7 +230,7 @@ const createUserServiceImpl = () => {
         yield* wsClient.connectRoom(listenerWebSocketUrl)
 
         // 2. Initialize listener
-        yield* wsClient.sendListenerCommand({ type: 'initListener' } as any)
+        yield* wsClient.sendListenerCommand({} satisfies InitListenerCommand)
         const joinReadyEvent = yield* wsClient.waitForListenerEvent('joinReady')
 
           // 3. Initialize MediaSoup device
@@ -248,19 +241,17 @@ const createUserServiceImpl = () => {
 
           // 5. Connect transport
           yield* wsClient.sendListenerCommand({
-            type: 'connectListenerTransport',
             transportId: O.some(transport.id),
             dtlsParameters: joinReadyEvent.transportOptions.dtlsParameters
-          } as any)
+          } satisfies ConnectListenerTransportCommand)
           yield* wsClient.waitForListenerEvent('transportConnected')
           yield* mediaSoupClient.connectActiveTransport(joinReadyEvent.transportOptions.dtlsParameters)
 
           // 6. Request consumer
           const rtpCapabilities = yield* mediaSoupClient.getDeviceCapabilities()
           yield* wsClient.sendListenerCommand({
-            type: 'requestConsumer',
             rtpCapabilities
-          } as any)
+          } satisfies RequestConsumerCommand)
           const consumerEvent = yield* wsClient.waitForListenerEvent('consumerCreated')
 
           // 7. Create consumer (consumerParameters already has all required fields from transform)
@@ -273,9 +264,8 @@ const createUserServiceImpl = () => {
           // 9. Resume consumer if needed
           if (consumer.paused) {
             yield* wsClient.sendListenerCommand({
-              type: 'resumeConsumer',
               consumerId: consumer.id
-            } as any)
+            } satisfies ResumeConsumerCommand)
           }
 
         const listenerId = `${sessionId}-${roomId}`

@@ -1,8 +1,8 @@
 import { Show } from 'solid-js'
-import type { WebRTCError } from '../../domain/schemas/room.schema'
+import type { ConnectionError } from '../../domain/schemas/connection.schema'
 
 interface WebRTCErrorHandlerProps {
-  error: WebRTCError | null
+  error: ConnectionError | null
   onDismiss?: () => void
   onCancel?: () => void
   show?: boolean
@@ -10,27 +10,35 @@ interface WebRTCErrorHandlerProps {
 
 export function WebRTCErrorHandler(props: WebRTCErrorHandlerProps) {
 
-  const getErrorTitle = (error: WebRTCError) => {
-    switch (error.type) {
-      case 'transport_connection':
+  const getErrorTitle = (error: ConnectionError) => {
+    switch (error._tag) {
+      case 'TransportError':
         return 'Connection Failed'
-      case 'producer_creation':
+      case 'ProducerError':
         return 'Audio Stream Failed'
-      case 'device_initialization':
+      case 'MediaSoupDeviceError':
         return 'Device Error'
+      case 'ConsumerError':
+        return 'Playback Error'
+      case 'WebSocketError':
+        return 'Network Error'
       default:
         return 'WebRTC Error'
     }
   }
 
-  const getErrorDescription = (error: WebRTCError) => {
-    switch (error.type) {
-      case 'transport_connection':
+  const getErrorDescription = (error: ConnectionError) => {
+    switch (error._tag) {
+      case 'TransportError':
         return 'Could not connect to streaming server. Check your internet connection.'
-      case 'producer_creation':
+      case 'ProducerError':
         return 'Unable to access microphone. Check device permissions.'
-      case 'device_initialization':
+      case 'MediaSoupDeviceError':
         return 'Microphone not found. Check device connection.'
+      case 'ConsumerError':
+        return 'Could not receive audio stream. Connection may be unstable.'
+      case 'WebSocketError':
+        return 'Network connection lost. Attempting to reconnect...'
       default:
         return 'Connection failed. Please try again.'
     }

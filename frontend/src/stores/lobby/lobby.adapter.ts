@@ -65,7 +65,7 @@ const createLobbyAdapterImpl = (
 
   return {
     // Room list management
-    getRooms: () => lobbyStore.state.rooms,
+    getRooms: () => [...lobbyStore.state.rooms],
     
     setRooms: (rooms: LobbyRoomInfoType[]) => {
       lobbyStore.actions.setRooms(rooms)

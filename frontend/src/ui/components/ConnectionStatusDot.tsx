@@ -12,7 +12,7 @@
  */
 
 import { createMemo, Show } from 'solid-js'
-import { useLobbyStore } from '../../stores/store-contexts'
+import { useConnectionAdapter } from '../../App'
 
 interface ConnectionStatusDotProps {
   /** Optional override for connection state (for DJ/Listener specific states) */
@@ -24,8 +24,8 @@ interface ConnectionStatusDotProps {
 }
 
 export default function ConnectionStatusDot(props: ConnectionStatusDotProps) {
-  // SolidJS 2025: Use store context instead of creating new instance
-  const lobbyStore = useLobbyStore()
+  // SolidJS 2025: Use adapter from runtime manager
+  const connectionAdapter = useConnectionAdapter()
   
   // SolidJS 2025: Determine status with proper Option handling
   const status = createMemo(() => {
@@ -33,26 +33,30 @@ export default function ConnectionStatusDot(props: ConnectionStatusDotProps) {
       return props.connectionState
     }
     
-    // Default to lobby connection state
-    const connectionState = lobbyStore.state.connection.state
-    const hasConnectionError = lobbyStore.connectionError() !== null
+    // Default to connection state from adapter
+    const hasConnectionError = connectionAdapter.hasError()
     
     if (hasConnectionError) {
       return 'error'
     }
     
-    switch (connectionState) {
-      case 'connected':
-        return 'connected'
-      case 'connecting':
-      case 'reconnecting':
-        return 'connecting'
-      case 'error':
-        return 'error'
-      case 'disconnected':
-      default:
-        return 'disconnected'
+    const isLobbyConnected = connectionAdapter.isLobbyConnected()
+    const isRoomConnected = connectionAdapter.isRoomConnected()
+    const isConnecting = connectionAdapter.isConnecting()
+    
+    if (isRoomConnected) {
+      return 'connected'
     }
+    
+    if (isLobbyConnected && !isConnecting) {
+      return 'connected'
+    }
+    
+    if (isConnecting) {
+      return 'connecting'
+    }
+    
+    return 'disconnected'
   })
   
   // Size classes

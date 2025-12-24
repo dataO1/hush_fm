@@ -41,7 +41,7 @@ export interface LobbyStoreActions {
  */
 export const createLobbyStore = () => {
   // SolidJS 2025: Single source of truth - all state in store (no duplicate signals)
-  const [state, setState] = createStore(createInitialLobbyState())
+  const [state, setState] = createStore<LobbyStateType>(createInitialLobbyState())
 
   // Pure state actions - no Effects, no service calls
   const actions: LobbyStoreActions = {
@@ -66,18 +66,18 @@ export const createLobbyStore = () => {
     },
 
     addRoom: (room: LobbyRoomInfoType) => {
-      setState('rooms', (prev) => [...prev, room])
+      setState('rooms', (prev) => [...(prev as LobbyRoomInfoType[]), room])
     },
 
     updateRoom: (room: LobbyRoomInfoType) => {
       setState('rooms', (prev) => 
-        prev.map(r => r.id === room.id ? room : r)
+        (prev as LobbyRoomInfoType[]).map(r => r.id === room.id ? room : r)
       )
     },
 
     removeRoom: (roomId: string) => {
       setState('rooms', (prev) => 
-        prev.filter(r => r.id !== roomId)
+        (prev as LobbyRoomInfoType[]).filter(r => r.id !== roomId)
       )
     },
 
