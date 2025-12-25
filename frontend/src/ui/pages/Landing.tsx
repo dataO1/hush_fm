@@ -1,4 +1,4 @@
-import { For, Show, createResource, createSignal, onCleanup, createContext, useContext, ParentComponent } from 'solid-js'
+import { For, Show, createResource, createSignal, onCleanup, onMount, createContext, useContext, ParentComponent } from 'solid-js'
 import { useNavigate } from '@solidjs/router'
 import { Option as O, Effect, Context, ManagedRuntime, Layer } from 'effect'
 import { useConnectionAdapter, useLobbyAdapter, useUserAdapter } from '../../App'
@@ -7,6 +7,7 @@ import { LobbyAdapter } from '../../stores'
 import ConnectionStatusDot from '../components/ConnectionStatusDot'
 import { RoomCard } from '../components/room/RoomCard'
 import type { LobbyRoomInfoType } from '../../domain/schemas/lobby.schema'
+import { WebrtcConnectionState } from '../../domain/schemas/connection.schema'
 
 // Lobby Feature Service Context
 interface LobbyFeatureContextValue {
@@ -92,11 +93,19 @@ function LandingContent() {
     
     // Use scoped lobby service to connect
     console.info('🏠 Landing: Connecting to lobby')
-    return await lobbyService.connectToLobby().pipe(
-      Effect.runPromise
-    )
+    return await lobbyService.connectToLobby().pipe(Effect.runPromise)
   })
 
+  // Load room list once on mount
+  onMount(async () => {
+    try {
+      console.info('🏠 Landing: Loading initial room list...')
+      await lobbyService.getRoomList().pipe(Effect.runPromise)
+      console.info('✅ Landing: Room list loaded successfully')
+    } catch (error) {
+      console.error('❌ Landing: Failed to load room list:', error)
+    }
+  })
 
   // SolidJS 2025: Use signals for form state and createResource for room creation
   const [roomCreationData, setRoomCreationData] = createSignal<{name: string, dj: string} | null>(null)
@@ -222,7 +231,7 @@ function LandingContent() {
                 name: room.name,
                 djName: room.djName,
                 description: O.getOrNull(room.description),
-                tags: room.tags,
+                tags: [...room.tags], // Convert readonly array to regular array
                 listenerCount: room.listenerCount,
                 isPublic: room.isPublic
               }
@@ -343,7 +352,11 @@ function LandingContent() {
           <div class="bg-white/10 backdrop-blur-sm rounded-xl sm:rounded-2xl p-4 sm:p-6 lg:p-8 border border-white/20">
             <div class="flex justify-between items-center mb-4 sm:mb-6">
               <div class="flex items-center gap-2 sm:gap-3">
-                <ConnectionStatusDot size="sm" title="Connection Status" />
+                <ConnectionStatusDot 
+                  size="sm" 
+                  webrtcState={() => WebrtcConnectionState.CONNECTED}
+                  title="Connection Status" 
+                />
                 <h2 class="text-xl sm:text-2xl lg:text-3xl font-bold">Live Rooms</h2>
               </div>
               <button

@@ -7,7 +7,27 @@
  * Uses S.Encoded vs S.Type pattern for proper boundary handling.
  */
 
-import { Schema as S } from 'effect'
+import { Schema as S, pipe, Effect } from 'effect'
+
+/**
+ * Middleware Pattern for Global Schema Logging
+ * Wraps schema make operations with detailed logging for debugging
+ */
+export const withSchemaLogging = (schema: any, schemaName: string) => {
+  return (input: any) =>
+    pipe(
+      Effect.try(() => {
+        console.info(`🔄 Schema: Creating ${schemaName} with input:`, input)
+        return schema.make(input)
+      }),
+      Effect.tap((result) => 
+        Effect.sync(() => console.info(`✅ Schema: ${schemaName} created successfully:`, result))
+      ),
+      Effect.tapError((error) =>
+        Effect.sync(() => console.error(`❌ Schema: Failed to create ${schemaName}:`, error, 'Input:', input))
+      )
+    )
+}
 import { ConsumerParametersTransformSchema, DtlsParametersTransformSchema, RtpCapabilitiesTransformSchema, RtpParametersTransformSchema, TransportOptionsTransformSchema } from './mediasoup.schema'
 
 /**
@@ -572,6 +592,19 @@ export const ListenerEventSchema = S.Union(
   ListenerRoomNotFoundEventSchema
 )
 
+/**
+ * Master WebSocket Event Union Schema
+ * 
+ * Contains all DJ, Lobby, and Listener events with discriminated type field.
+ * Use this for single-decode operations in WebSocket message processing.
+ */
+export const WebSocketEventSchema = S.Union(
+  LobbyEventSchema,
+  DJEventSchema,
+  ListenerEventSchema
+)
+
+export type WebSocketEvent = S.Schema.Type<typeof WebSocketEventSchema>
 
 // Individual Listener Command Schemas with default type fields
 export const InitListenerCommandSchema = S.Struct({
@@ -641,6 +674,20 @@ export const ListenerCommandSchema = S.Union(
   ResumeConsumerCommandSchema,
   LeaveRoomCommandSchema
 )
+
+/**
+ * Master WebSocket Command Union Schema
+ * 
+ * Contains all DJ, Lobby, and Listener commands with discriminated type field.
+ * Use this for unified command processing in WebSocket operations.
+ */
+export const WebSocketCommandSchema = S.Union(
+  LobbyCommandSchema,
+  DJCommandSchema,
+  ListenerCommandSchema
+)
+
+export type WebSocketCommand = S.Schema.Type<typeof WebSocketCommandSchema>
 
 /**
  * Consolidated WebSocket Types for easy import

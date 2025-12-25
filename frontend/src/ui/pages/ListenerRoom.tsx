@@ -100,35 +100,12 @@ function ListenerRoomContent() {
   const roomName = () => navigationState.roomInfo?.name || `Room ${roomId()}`
   const djName = () => navigationState.roomInfo?.djName || 'DJ'
 
-  // Helper to convert ConnectionState to dot status
-  const getDotStatus = () => {
-    const state = connectionState()
-    const webrtcState = state?.webrtcConnectionState
-    if (webrtcState === WebrtcConnectionState.STREAMING) return 'streaming'
-    if (webrtcState === WebrtcConnectionState.PAUSED) return 'paused'
-    if (webrtcState === WebrtcConnectionState.ERROR) return 'error'
-    if (webrtcState === WebrtcConnectionState.CONNECTED) return 'connected'
-    if (webrtcState === WebrtcConnectionState.CONNECTING || webrtcState === WebrtcConnectionState.DISCONNECTING) return 'connecting'
-    return 'disconnected'
-  }
-
-  // Helper to get status text for accessibility
-  const getStatusText = () => {
-    const state = connectionState()
-    const webrtcState = state?.webrtcConnectionState
-    if (webrtcState === WebrtcConnectionState.STREAMING) return 'LIVE'
-    if (webrtcState === WebrtcConnectionState.PAUSED) return 'PAUSED'
-    return webrtcState || 'DISCONNECTED'
-  }
+  // Get WebRTC state getter for connection dot
+  const getWebrtcState = () => connectionState()?.webrtcConnectionState || WebrtcConnectionState.DISCONNECTED
 
   // Audio stream is accessed directly via signal in template
 
-
-
-
-
-
-  // SolidJS 2025: Use createResource for room joining
+  // SolidJS 2025: Use createResource for room joining with connection setup
   const [joinRoomOperation] = createResource(async () => {
     const sessionId = navigationState.sessionId
     const listenerWebSocketUrl = navigationState.listenerWebSocketUrl
@@ -149,10 +126,18 @@ function ListenerRoomContent() {
       isReturning: !!isReturning
     })
     
+    // 1. First ensure WebSocket is connected before starting join flow
+    const connectionAdapter = useConnectionAdapter()
+    if (!connectionAdapter.isRoomConnected()) {
+      console.info('🔗 ListenerRoom: Connecting to listener WebSocket before join...', { listenerWebSocketUrl })
+      await userService.connect(listenerWebSocketUrl).pipe(Effect.runPromise)
+      console.info('✅ ListenerRoom: Listener WebSocket connected successfully')
+    }
+    
+    // 2. Now start the join flow
     const result = await userService.joinRoomAsListener(
       roomId(), 
-      sessionId, 
-      listenerWebSocketUrl
+      sessionId
     ).pipe(Effect.runPromise)
 
     console.info('✅ Listener join flow completed successfully')
@@ -263,8 +248,7 @@ function ListenerRoomContent() {
 
             {/* Status Indicator - single source of truth from connection state */}
             <ConnectionStatusGroup 
-              status={getDotStatus}
-              statusText={getStatusText}
+              webrtcState={getWebrtcState}
               dotSize="lg"
               layout="vertical"
             />

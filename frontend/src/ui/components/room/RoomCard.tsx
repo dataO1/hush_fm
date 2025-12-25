@@ -8,6 +8,7 @@
 
 import { Show } from 'solid-js'
 import type { JSX } from 'solid-js'
+import { WebrtcConnectionState } from '../../../domain/schemas/connection.schema'
 import { Option } from 'effect'
 import ConnectionStatusDot from '../ConnectionStatusDot'
 import type { LobbyRoomInfoType } from '../../../domain/schemas/lobby.schema'
@@ -35,8 +36,8 @@ export function RoomCard(props: RoomCardProps): JSX.Element {
             <Show when={props.room.isPublic && props.room.listenerCount > 0}>
               <ConnectionStatusDot 
                 size="sm" 
-                connectionState="streaming" 
-                title="Live Stream" 
+                webrtcState={() => props.room.isStreaming ? WebrtcConnectionState.STREAMING : WebrtcConnectionState.CONNECTED}
+                title={props.room.isStreaming ? "Live Stream" : "Room Available"} 
               />
             </Show>
             <h3 class="font-bold text-base sm:text-lg truncate">

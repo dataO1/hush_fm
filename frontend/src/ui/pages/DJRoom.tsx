@@ -153,28 +153,8 @@ function DJRoomContent() {
   // Use Show components for Optional room metadata in template
   // Note: Room metadata would come from a room adapter if needed
 
-  // Helper to convert ConnectionState to dot status
-  const getDotStatus = () => {
-    const state = connectionState()
-    const webrtcState = state?.webrtcConnectionState
-    if (webrtcState === WebrtcConnectionState.STREAMING && isPaused()) return 'paused'
-    if (webrtcState === WebrtcConnectionState.STREAMING) return 'streaming'
-    if (webrtcState === WebrtcConnectionState.PAUSED) return 'paused'
-    if (webrtcState === WebrtcConnectionState.ERROR) return 'error'
-    if (webrtcState === WebrtcConnectionState.CONNECTED) return 'setup'
-    if (webrtcState === WebrtcConnectionState.CONNECTING || webrtcState === WebrtcConnectionState.DISCONNECTING) return 'connecting'
-    return 'disconnected'
-  }
-
-  // Helper to get status text for accessibility
-  const getStatusText = () => {
-    const state = connectionState()
-    const webrtcState = state?.webrtcConnectionState
-    if (webrtcState === WebrtcConnectionState.STREAMING && isPaused()) return 'MUTED'
-    if (webrtcState === WebrtcConnectionState.STREAMING) return 'LIVE'
-    if (webrtcState === WebrtcConnectionState.CONNECTED) return 'SETUP'
-    return webrtcState || 'DISCONNECTED'
-  }
+  // Get WebRTC state getter for connection dot
+  const getWebrtcState = () => connectionState()?.webrtcConnectionState || WebrtcConnectionState.DISCONNECTED
 
   // Audio stream is accessed directly via signal in template
 
@@ -265,8 +245,8 @@ function DJRoomContent() {
               <div class="flex justify-between items-center mb-4 sm:mb-6">
                 <button class="btn btn-sm sm:btn-md btn-ghost text-white hover:bg-white/20" onClick={goBack}>←</button>
                 <ConnectionStatusGroup 
-                  status={getDotStatus}
-                  statusText={getStatusText}
+                  webrtcState={getWebrtcState}
+                  isPaused={isPaused}
                   dotSize="md"
                   layout="horizontal"
                 />

@@ -61,7 +61,12 @@ export interface MediaSoupClientInterface {
   /**
    * Create receive transport for listener
    */
-  readonly createReceiveTransport: (options: TransportOptionsType) => Effect.Effect<types.Transport, MediaSoupError>
+  readonly createReceiveTransport: (
+    options: TransportOptionsType,
+    handlers?: {
+      onConnect?: (dtlsParameters: types.DtlsParameters) => Promise<void>
+    }
+  ) => Effect.Effect<types.Transport, MediaSoupError>
 
   /**
    * Connect the active transport
@@ -375,7 +380,9 @@ const createMediaSoupClientImpl = (connectionAdapter: Context.Tag.Service<Connec
     /**
      * Create receive transport for listener
      */
-    createReceiveTransport: (options: TransportOptionsType) =>
+    createReceiveTransport: (options: TransportOptionsType, handlers?: {
+      onConnect?: (dtlsParameters: types.DtlsParameters) => Promise<void>
+    }) =>
       pipe(
         device,
         O.match({
@@ -404,6 +411,13 @@ const createMediaSoupClientImpl = (connectionAdapter: Context.Tag.Service<Connec
                   dtlsParameters: options.dtlsParameters as types.DtlsParameters,
                   sctpParameters:  undefined
                 })
+
+                // Set up event handlers if provided
+                if (handlers?.onConnect) {
+                  transport.on('connect', ({ dtlsParameters }, callback, errback) => {
+                    handlers.onConnect!(dtlsParameters).then(callback).catch(errback)
+                  })
+                }
 
                 // Set up connection state monitoring  
                 handleTransportEvents(transport)

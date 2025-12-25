@@ -2,61 +2,75 @@
  * Connection Status Dot Component
  * 
  * A reusable component that shows connection status as a colored, pulsing dot.
- * Uses stores for state knowledge and is read-only.
+ * Pure component that only uses props - no direct store access.
  * 
  * Colors:
- * - Green (pulsing): Connected/Active
+ * - Green (pulsing): Streaming/Active
  * - Blue (pulsing): Connecting/Setup
- * - Yellow (solid): Muted/Paused
+ * - Yellow (solid): Paused/Muted
  * - Red (pulsing): Error/Disconnected
  */
 
-import { createMemo, Show } from 'solid-js'
-import { useConnectionAdapter } from '../../App'
+import { createMemo } from 'solid-js'
+import { WebrtcConnectionState } from '../../domain/schemas/connection.schema'
 
 interface ConnectionStatusDotProps {
-  /** Optional override for connection state (for DJ/Listener specific states) */
-  connectionState?: 'connected' | 'connecting' | 'muted' | 'error' | 'disconnected' | 'streaming' | 'paused' | 'setup'
+  /** Reactive getter for WebRTC connection state */
+  webrtcState: () => WebrtcConnectionState
+  /** Reactive getter for audio pause state */
+  isPaused?: () => boolean
   /** Size variant */
   size?: 'sm' | 'md' | 'lg'
-  /** Optional tooltip text */
+  /** Optional tooltip text override */
   title?: string
 }
 
 export default function ConnectionStatusDot(props: ConnectionStatusDotProps) {
-  // SolidJS 2025: Use adapter from runtime manager
-  const connectionAdapter = useConnectionAdapter()
-  
-  // SolidJS 2025: Determine status with proper Option handling
+  // Map WebRTC connection state to visual status
   const status = createMemo(() => {
-    if (props.connectionState) {
-      return props.connectionState
+    const webrtcState = props.webrtcState()
+    const paused = props.isPaused?.() ?? false
+    
+    // Handle combined audio pause + streaming state
+    if (webrtcState === WebrtcConnectionState.STREAMING && paused) {
+      return 'paused'
     }
     
-    // Default to connection state from adapter
-    const hasConnectionError = connectionAdapter.hasError()
+    // Map WebRTC states to visual states
+    switch (webrtcState) {
+      case WebrtcConnectionState.STREAMING:
+        return 'streaming'
+      case WebrtcConnectionState.CONNECTED:
+        return 'setup'
+      case WebrtcConnectionState.CONNECTING:
+      case WebrtcConnectionState.DISCONNECTING:
+        return 'connecting'
+      case WebrtcConnectionState.PAUSED:
+        return 'paused'
+      case WebrtcConnectionState.ERROR:
+        return 'error'
+      case WebrtcConnectionState.DISCONNECTED:
+      default:
+        return 'disconnected'
+    }
+  })
+  
+  // Get status text for accessibility
+  const statusText = createMemo(() => {
+    const webrtcState = props.webrtcState()
+    const paused = props.isPaused?.() ?? false
     
-    if (hasConnectionError) {
-      return 'error'
+    if (webrtcState === WebrtcConnectionState.STREAMING && paused) {
+      return 'MUTED'
+    }
+    if (webrtcState === WebrtcConnectionState.STREAMING) {
+      return 'LIVE'
+    }
+    if (webrtcState === WebrtcConnectionState.CONNECTED) {
+      return 'SETUP'
     }
     
-    const isLobbyConnected = connectionAdapter.isLobbyConnected()
-    const isRoomConnected = connectionAdapter.isRoomConnected()
-    const isConnecting = connectionAdapter.isConnecting()
-    
-    if (isRoomConnected) {
-      return 'connected'
-    }
-    
-    if (isLobbyConnected && !isConnecting) {
-      return 'connected'
-    }
-    
-    if (isConnecting) {
-      return 'connecting'
-    }
-    
-    return 'disconnected'
+    return webrtcState || 'DISCONNECTED'
   })
   
   // Size classes
@@ -75,13 +89,11 @@ export default function ConnectionStatusDot(props: ConnectionStatusDotProps) {
   // Status-specific classes
   const statusClasses = createMemo(() => {
     switch (status()) {
-      case 'connected':
       case 'streaming':
         return 'bg-green-500 animate-pulse'
       case 'connecting':
       case 'setup':
         return 'bg-blue-500 animate-pulse'
-      case 'muted':
       case 'paused':
         return 'bg-yellow-500'
       case 'error':
@@ -94,23 +106,11 @@ export default function ConnectionStatusDot(props: ConnectionStatusDotProps) {
   
   // SolidJS 2025: Use Show for conditional rendering and better accessibility
   return (
-    <Show 
-      when={status()}
-      fallback={
-        <div 
-          class={`rounded-full ${sizeClasses()} bg-gray-500`}
-          title="Status Unknown"
-        />
-      }
-    >
-      {(currentStatus) => (
-        <div 
-          class={`rounded-full ${sizeClasses()} ${statusClasses()}`}
-          title={props.title || `Connection Status: ${currentStatus().toUpperCase()}`}
-          role="status"
-          aria-label={`Connection Status: ${currentStatus().toUpperCase()}`}
-        />
-      )}
-    </Show>
+    <div 
+      class={`rounded-full ${sizeClasses()} ${statusClasses()}`}
+      title={props.title || `Connection Status: ${statusText()}`}
+      role="status"
+      aria-label={`Connection Status: ${statusText()}`}
+    />
   )
 }

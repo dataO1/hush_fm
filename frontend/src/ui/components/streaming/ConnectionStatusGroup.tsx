@@ -8,12 +8,13 @@
 
 import type { JSX } from 'solid-js'
 import ConnectionStatusDot from '../ConnectionStatusDot'
+import { WebrtcConnectionState } from '../../../domain/schemas/connection.schema'
 
 interface ConnectionStatusGroupProps {
-  /** Reactive getter for connection status */
-  status: () => string
-  /** Reactive getter for status text */
-  statusText: () => string
+  /** Reactive getter for WebRTC connection state */
+  webrtcState: () => WebrtcConnectionState
+  /** Reactive getter for audio pause state */
+  isPaused?: () => boolean
   /** Connection dot size */
   dotSize?: 'sm' | 'md' | 'lg'
   /** Layout orientation */
@@ -25,6 +26,24 @@ interface ConnectionStatusGroupProps {
 export function ConnectionStatusGroup(props: ConnectionStatusGroupProps): JSX.Element {
   const dotSize = () => props.dotSize || 'md'
   const layout = () => props.layout || 'horizontal'
+  
+  // Get status text using the same logic as ConnectionStatusDot
+  const statusText = () => {
+    const webrtcState = props.webrtcState()
+    const paused = props.isPaused?.() ?? false
+    
+    if (webrtcState === WebrtcConnectionState.STREAMING && paused) {
+      return 'MUTED'
+    }
+    if (webrtcState === WebrtcConnectionState.STREAMING) {
+      return 'LIVE'
+    }
+    if (webrtcState === WebrtcConnectionState.CONNECTED) {
+      return 'SETUP'
+    }
+    
+    return webrtcState || 'DISCONNECTED'
+  }
   
   const containerClass = () => {
     const base = layout() === 'horizontal' 
@@ -49,12 +68,13 @@ export function ConnectionStatusGroup(props: ConnectionStatusGroupProps): JSX.El
   return (
     <div class={containerClass()}>
       <ConnectionStatusDot 
-        connectionState={props.status() as any}
+        webrtcState={props.webrtcState}
+        isPaused={props.isPaused}
         size={dotSize()}
-        title={props.statusText()}
+        title={`Connection Status: ${statusText()}`}
       />
       <span class={textClass()}>
-        {props.statusText()}
+        {statusText()}
       </span>
     </div>
   )

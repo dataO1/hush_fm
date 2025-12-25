@@ -25,21 +25,16 @@ import {
   Ref,
   Queue,
   PubSub,
-  HashMap,
-  Stream,
-  Fiber
+  HashMap
 } from 'effect'
 
 import {
   DJCommandSchema,
-  DJEventSchema,
   ListenerCommandSchema,
-  ListenerEventSchema,
   LobbyCommandSchema,
-  LobbyEventSchema,
-  type LobbyCommandType,
-  type DJCommandType,
-  type ListenerCommandType
+  WebSocketEventSchema,
+  type WebSocketEvent,
+  type WebSocketCommand
 } from '../../domain/schemas/shared/websocket.schema'
 
 import { 
@@ -47,12 +42,7 @@ import {
   WebSocketOperation 
 } from '../../domain/schemas/connection.schema'
 
-// Union types for events and commands
-type DJEvent = S.Schema.Type<typeof DJEventSchema>
-type ListenerEvent = S.Schema.Type<typeof ListenerEventSchema>
-type LobbyEvent = S.Schema.Type<typeof LobbyEventSchema>
-type AnyEvent = DJEvent | ListenerEvent | LobbyEvent
-type AnyCommand = DJCommandType | ListenerCommandType | LobbyCommandType
+// We now use WebSocketCommand directly instead of a type alias
 
 // Default timeout for WebSocket operations
 const DEFAULT_WEBSOCKET_TIMEOUT = 30000
@@ -83,22 +73,22 @@ export interface WebSocketClientServiceImpl {
    * Send command and wait for typed response
    * Schema inferred from command, expected event type inferred from T
    */
-  readonly sendCommand: <T extends AnyEvent>(
-    command: AnyCommand
+  readonly sendCommand: <T extends WebSocketEvent>(
+    command: WebSocketCommand
   ) => Effect.Effect<T, WebSocketError>
   
   /**
    * Send command without waiting for response (fire and forget)
    */
   readonly sendCommandFireForget: (
-    command: AnyCommand
+    command: WebSocketCommand
   ) => Effect.Effect<void, WebSocketError>
   
   /**
    * Subscribe to events of specific type
    */
-  readonly subscribe: <T>(
-    eventSchema: S.Schema<T, unknown, never>,
+  readonly subscribe: <T extends WebSocketEvent>(
+    eventType: T['type'],
     handler: (event: T) => void
   ) => Effect.Effect<() => void>
 }
@@ -133,7 +123,7 @@ const createWebSocketError = (operation: WebSocketOperation, cause: string, orig
  * Helper to get expected event type from command type
  * Maps command types to their corresponding event types using Effect for proper error handling
  */
-const getExpectedEventType = (command: AnyCommand): Effect.Effect<string, WebSocketError> => {
+const getExpectedEventType = (command: WebSocketCommand): Effect.Effect<string, WebSocketError> => {
   return Effect.sync(() =>
     Match.value(command).pipe(
       Match.when({ type: "announceRoom" }, () => "roomAnnounced"),
@@ -167,18 +157,25 @@ const getExpectedEventType = (command: AnyCommand): Effect.Effect<string, WebSoc
  * Message processing fiber
  * 
  * Processes raw messages from the queue:
- * 1. Decode using appropriate schema
+ * 1. Decode using appropriate schema based on message type
  * 2. Check for pending requests and resolve Deferred
- * 3. Broadcast to event Hub for subscribers
+ * 3. Call registered event callback for the specific event type
  */
 const createMessageProcessor = (
   messageQueue: Queue.Queue<string>,
   eventPubSub: PubSub.PubSub<ParsedMessage>,
-  pendingRequests: Ref.Ref<HashMap.HashMap<string, Deferred.Deferred<unknown, WebSocketError>>>
+  pendingRequests: Ref.Ref<HashMap.HashMap<string, Deferred.Deferred<unknown, WebSocketError>>>,
+  eventCallbacks: Ref.Ref<HashMap.HashMap<string, (event: WebSocketEvent) => void>>
 ): Effect.Effect<void, never, never> =>
   pipe(
     Effect.sync(() => console.info('🎯 WebSocketClient: Message processor waiting for message...')),
-    Effect.flatMap(() => Queue.take(messageQueue)),
+    Effect.flatMap(() => {
+      console.info('🔍 WebSocketClient: Taking message from queue...')
+      return Queue.take(messageQueue)
+    }),
+    Effect.tap((message) => Effect.sync(() => 
+      console.info('✅ WebSocketClient: Message taken from queue successfully:', message)
+    )),
     Effect.flatMap(rawMessage => {
       console.info('📥 WebSocketClient: Received raw message:', rawMessage)
       return Effect.try({
@@ -204,41 +201,63 @@ const createMessageProcessor = (
           data: parsed
         }
         
-        return pipe(
-          Ref.get(pendingRequests),
-          Effect.flatMap(pendingMap => {
-            console.info('🔍 WebSocketClient: Looking for pending request for message type:', message.type)
-            console.info('🗂️ WebSocketClient: Available pending requests:', Array.from(HashMap.keys(pendingMap)))
-            
-            const maybePending = HashMap.get(pendingMap, message.type)
-            
-            const completePending = Option.isSome(maybePending)
-              ? pipe(
-                  Effect.sync(() => console.info('✅ WebSocketClient: Found matching pending request for:', message.type)),
-                  Effect.flatMap(() => Deferred.succeed(maybePending.value, message.data)),
-                  Effect.flatMap(() => 
-                    Ref.update(pendingRequests, map => 
-                      HashMap.remove(map, message.type)
-                    )
-                  )
-                )
-              : Effect.sync(() => console.info('❌ WebSocketClient: No pending request found for:', message.type))
-            
-            // Always broadcast to subscribers
-            const broadcast = PubSub.publish(eventPubSub, message).pipe(
-              Effect.catchAll(() => Effect.void)
+        return Effect.gen(function* () {
+          const eventType = message.type
+          
+          // Decode using the master WebSocket event union schema
+          console.info('🔍 WebSocketClient: Attempting to decode event:', eventType)
+          const decodedEvent = yield* pipe(
+            S.decode(WebSocketEventSchema)(parsed),
+            Effect.tap(() => Effect.sync(() => 
+              console.info('✅ WebSocketClient: Event decoded successfully:', eventType)
+            )),
+            Effect.tapError((error) =>
+              Effect.sync(() => console.error('❌ WebSocketClient: Failed to decode event:', eventType, error, 'Raw data:', parsed))
             )
-            
-            return Effect.all([completePending, broadcast], { concurrency: "unbounded" }).pipe(
-              Effect.asVoid
-            )
-          })
+          )
+          
+          // Handle pending requests with decoded domain event
+          console.info('🔍 WebSocketClient: Checking for pending requests for event:', eventType)
+          const pendingMap = yield* Ref.get(pendingRequests)
+          const pendingKeys = Array.from(HashMap.keys(pendingMap))
+          console.info('🔍 WebSocketClient: Current pending request types:', pendingKeys)
+          const maybePending = HashMap.get(pendingMap, eventType)
+          
+          if (Option.isSome(maybePending)) {
+            console.info('✅ WebSocketClient: Found matching pending request for:', eventType)
+            yield* Deferred.succeed(maybePending.value, decodedEvent)
+            yield* Ref.update(pendingRequests, map => HashMap.remove(map, eventType))
+            console.info('✅ WebSocketClient: Pending request resolved for:', eventType)
+          } else {
+            console.info('ℹ️ WebSocketClient: No pending request found for:', eventType)
+          }
+          
+          // Handle event callbacks with decoded domain event
+          const callbackMap = yield* Ref.get(eventCallbacks)
+          const maybeCallback = HashMap.get(callbackMap, eventType)
+          
+          if (Option.isSome(maybeCallback)) {
+            console.info('🎯 WebSocketClient: Found registered callback for:', eventType)
+            yield* Effect.sync(() => maybeCallback.value(decodedEvent as WebSocketEvent))
+          }
+          
+          // Always broadcast to subscribers for backward compatibility
+          yield* PubSub.publish(eventPubSub, message).pipe(Effect.catchAll(() => Effect.void))
+        }).pipe(
+          Effect.catchAll((error) => 
+            Effect.sync(() => console.error('💥 WebSocketClient: Error processing message:', message.type, error, 'Full stack:', error))
+          )
         )
+      } else {
+        console.warn('⚠️ WebSocketClient: Received message without proper structure:', parsed)
       }
       return Effect.void
     }),
     Effect.forever,
-    Effect.catchAll(() => Effect.void)
+    Effect.catchAll((error) => {
+      console.error('💥 WebSocketClient: Message processor loop crashed:', error)
+      return Effect.void
+    })
   )
 
 /**
@@ -271,7 +290,16 @@ const setupWebSocketHandlers = (
     ws.onmessage = (event) => {
       console.info('🔔 WebSocket: Raw message received, offering to queue:', event.data)
       // Only offer to queue - no other processing
-      Effect.runFork(Queue.offer(messageQueue, event.data))
+      Effect.runFork(
+        Queue.offer(messageQueue, event.data).pipe(
+          Effect.tap(() => Effect.sync(() => 
+            console.info('✅ WebSocket: Message successfully offered to queue')
+          )),
+          Effect.catchAll((error) => 
+            Effect.sync(() => console.error('❌ WebSocket: Failed to offer message to queue:', error))
+          )
+        )
+      )
     }
   })
 
@@ -282,6 +310,7 @@ const make = Effect.gen(function* () {
   // Core state
   const connectionState = yield* Ref.make(Option.none<WebSocket>())
   const pendingRequests = yield* Ref.make(HashMap.empty<string, Deferred.Deferred<unknown, WebSocketError>>())
+  const eventCallbacks = yield* Ref.make(HashMap.empty<string, (event: WebSocketEvent) => void>())
   const messageQueue = yield* Queue.unbounded<string>()
   const eventPubSub = yield* PubSub.unbounded<ParsedMessage>()
   
@@ -290,7 +319,7 @@ const make = Effect.gen(function* () {
   const processorFiber = yield* Effect.forkDaemon(
     Effect.gen(function* () {
       console.info('🎯 WebSocketClient: Message processor fiber started successfully')
-      yield* createMessageProcessor(messageQueue, eventPubSub, pendingRequests)
+      yield* createMessageProcessor(messageQueue, eventPubSub, pendingRequests, eventCallbacks)
     }).pipe(
       Effect.catchAll((error) => 
         Effect.sync(() => console.error('💥 WebSocketClient: Message processor crashed:', error))
@@ -303,24 +332,31 @@ const make = Effect.gen(function* () {
   yield* Effect.addFinalizer(() => 
     Effect.gen(function* () {
       const maybeWs = yield* Ref.get(connectionState)
+      console.info('🧹 WebSocketClient: Starting cleanup...')
       if (Option.isSome(maybeWs)) {
+        console.info('🧹 WebSocketClient: Closing existing WebSocket connection')
         yield* Effect.sync(() => maybeWs.value.close())
       }
+      console.info('🧹 WebSocketClient: Shutting down message queue')
       yield* Queue.shutdown(messageQueue)
+      console.info('🧹 WebSocketClient: Shutting down event PubSub')
       yield* PubSub.shutdown(eventPubSub)
-      console.info('🧹 WebSocketClient cleaned up')
+      console.info('✅ WebSocketClient: Cleanup completed successfully')
     })
   )
 
   // Implementation
   const connect = (url: string): Effect.Effect<void, WebSocketError, never> =>
     Effect.gen(function* () {
+      console.info('🔌 WebSocketClient: Attempting to connect to:', url)
       // Close existing connection if any
       const existingWs = yield* Ref.get(connectionState)
       if (Option.isSome(existingWs)) {
+        console.info('🔌 WebSocketClient: Closing existing connection before new connection')
         yield* Effect.sync(() => existingWs.value.close())
       }
       
+      console.info('🔌 WebSocketClient: Creating new WebSocket connection')
       // Create new connection
       yield* Effect.async<void, WebSocketError>((resume) => {
         try {
@@ -335,9 +371,12 @@ const make = Effect.gen(function* () {
           }, DEFAULT_WEBSOCKET_TIMEOUT)
           
           ws.onopen = () => {
+            console.info('✅ WebSocketClient: Connection established successfully')
             clearTimeout(timeoutId)
             Effect.runSync(Ref.set(connectionState, Option.some(ws)))
+            console.info('🔧 WebSocketClient: Setting up event handlers')
             Effect.runSync(setupWebSocketHandlers(ws, messageQueue, connectionState))
+            console.info('🚀 WebSocketClient: Ready to process messages')
             resume(Effect.succeed(undefined))
           }
           
@@ -397,7 +436,7 @@ const make = Effect.gen(function* () {
       })
     })
 
-  const sendCommandFireForget = (command: AnyCommand): Effect.Effect<void, WebSocketError, never> =>
+  const sendCommandFireForget = (command: WebSocketCommand): Effect.Effect<void, WebSocketError, never> =>
     Effect.gen(function* () {
       // Encode command using appropriate schema
       console.info('🔄 WebSocketClient: Encoding command:', command.type, command)
@@ -432,7 +471,7 @@ const make = Effect.gen(function* () {
       yield* sendRawMessage(JSON.stringify(encoded))
     })
 
-  const sendCommand = <T extends AnyEvent>(command: AnyCommand): Effect.Effect<T, WebSocketError, never> =>
+  const sendCommand = <T extends WebSocketEvent>(command: WebSocketCommand): Effect.Effect<T, WebSocketError, never> =>
     Effect.gen(function* () {
       const deferred = yield* Deferred.make<T, WebSocketError>()
       
@@ -471,43 +510,26 @@ const make = Effect.gen(function* () {
       return result as T
     })
 
-  const subscribe = <T>(
-    eventSchema: S.Schema<T, unknown, never>,
+  const subscribe = <T extends WebSocketEvent>(
+    eventType: T['type'],
     handler: (event: T) => void
   ): Effect.Effect<() => void, never, never> =>
-    Effect.scoped(
-      Effect.gen(function* () {
-        const dequeue = yield* PubSub.subscribe(eventPubSub)
-        
-        const subscription = yield* pipe(
-          Stream.fromQueue(dequeue),
-          Stream.mapEffect(message => {
-            console.info('🔄 WebSocketClient: Decoding message:', message.type, message.data)
-            return S.decode(eventSchema)(message.data).pipe(
-              Effect.match({
-                onFailure: (error) => {
-                  console.error('❌ WebSocketClient: Failed to decode message:', message.type, error, message.data)
-                  // TODO: Store decode error in connection adapter for UI display
-                  return Option.none<T>()
-                },
-                onSuccess: (event) => {
-                  console.info('✅ WebSocketClient: Message decoded successfully:', message.type, event)
-                  return Option.some(event)
-                }
-              })
-            )
-          }),
-          Stream.filter(Option.isSome),
-          Stream.map(event => event.value),
-          Stream.runForEach(event => Effect.sync(() => handler(event))),
-          Effect.fork
+    Effect.gen(function* () {
+      console.info('📋 WebSocketClient: Registering event callback for type:', eventType)
+      
+      // Register callback in the HashMap
+      yield* Ref.update(eventCallbacks, map => 
+        HashMap.set(map, eventType, handler as (event: WebSocketEvent) => void)
+      )
+      
+      // Return unsubscribe function
+      return () => {
+        console.info('🗑️ WebSocketClient: Unregistering event callback for type:', eventType)
+        Effect.runFork(
+          Ref.update(eventCallbacks, map => HashMap.remove(map, eventType))
         )
-        
-        return () => {
-          Effect.runFork(Fiber.interrupt(subscription))
-        }
-      })
-    )
+      }
+    })
 
   return {
     connect,
