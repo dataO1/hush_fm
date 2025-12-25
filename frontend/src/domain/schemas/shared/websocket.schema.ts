@@ -130,7 +130,7 @@ export const RoomAnnouncedEventSchema = S.Struct({
     listenerCount: S.Number,
     isStreaming: S.Boolean,
     createdAt: S.String,
-    description: S.optional(S.String),
+    description: S.OptionFromNullOr(S.String),
     tags: S.Array(S.String)
   }),
   wsUrl: S.String,
@@ -146,7 +146,7 @@ export const RoomAddedEventSchema = S.Struct({
     listenerCount: S.Number,
     isStreaming: S.Boolean,
     createdAt: S.String,
-    description: S.optional(S.String),
+    description: S.OptionFromNullOr(S.String),
     tags: S.Array(S.String)
   }),
   type: S.Literal("roomAdded")
@@ -161,7 +161,7 @@ export const RoomUpdatedEventSchema = S.Struct({
     listenerCount: S.Number,
     isStreaming: S.Boolean,
     createdAt: S.String,
-    description: S.optional(S.String),
+    description: S.OptionFromNullOr(S.String),
     tags: S.Array(S.String)
   }),
   type: S.Literal("roomUpdated")
@@ -186,7 +186,7 @@ export const JoinRoomResponseEventSchema = S.Struct({
     listenerCount: S.Number,
     isStreaming: S.Boolean,
     createdAt: S.String,
-    description: S.optional(S.String),
+    description: S.OptionFromNullOr(S.String),
     tags: S.Array(S.String)
   })),
   type: S.Literal("joinRoomResponse")
@@ -482,7 +482,7 @@ export const JoinReadyEventSchema = S.Struct({
     listenerCount: S.Number,
     isStreaming: S.Boolean,
     createdAt: S.String,
-    description: S.optional(S.String),
+    description: S.OptionFromNullOr(S.String),
     tags: S.Array(S.String)
   }),
   transportOptions: TransportOptionsTransformSchema,

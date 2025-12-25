@@ -8,7 +8,7 @@
  * Native type declarations are exported for use in transform utilities.
  */
 
-import { Schema as S, Option as O } from 'effect'
+import { Schema as S } from 'effect'
 
 /**
  * MediaSoup RTP Header Extension URI type
@@ -298,11 +298,11 @@ export type MediaSoupTypes = {
  * Backend uses serde_json::Value for complex nested structures
  */
 const WireRtpParametersSchema = S.Struct({
-  mid: S.Option(S.String), // Backend: Option<String>
+  mid: S.optional(S.String), // Backend: Option<String> -> JSON-compatible optional
   codecs: S.mutable(S.Array(S.Unknown)), // Backend: Vec<serde_json::Value>
   headerExtensions: S.mutable(S.Array(S.Unknown)), // Backend: header_extensions → headerExtensions (Vec<serde_json::Value>)
   encodings: S.mutable(S.Array(S.Unknown)), // Backend: Vec<serde_json::Value>
-  rtcp: S.Option(S.Unknown) // Backend: Option<serde_json::Value>
+  rtcp: S.optional(S.Unknown) // Backend: Option<serde_json::Value> -> JSON-compatible optional
 })
 
 /**
@@ -328,7 +328,7 @@ const WireIceCandidateSchema = S.Struct({
   protocol: S.Union(S.Literal('udp'), S.Literal('tcp')),
   port: S.Number,
   type: S.Union(S.Literal('host'), S.Literal('srflx'), S.Literal('prflx'), S.Literal('relay')),
-  tcpType: S.Option(S.Union(S.Literal('active'), S.Literal('passive'), S.Literal('so')))
+  tcpType: S.optional(S.Union(S.Literal('active'), S.Literal('passive'), S.Literal('so')))
 })
 
 /**
@@ -351,7 +351,7 @@ const WireTransportOptionsSchema = S.Struct({
   iceParameters: S.Struct({
     usernameFragment: S.String,
     password: S.String,
-    iceLite: S.Option(S.Boolean)
+    iceLite: S.optional(S.Boolean)
   }),
   iceCandidates: S.mutable(S.Array(WireIceCandidateSchema)),
   dtlsParameters: WireDtlsParametersSchema
@@ -365,13 +365,13 @@ const WireRtpCapabilitiesSchema = S.Struct({
   codecs: S.mutable(S.Array(S.Struct({
     kind: S.String, // Backend: String (required)
     mimeType: S.String, // Backend: mime_type → mimeType (required)
-    preferredPayloadType: S.Option(S.Number), // Backend: preferred_payload_type → preferredPayloadType (Option<u8>)
+    preferredPayloadType: S.optional(S.Number), // Backend: preferred_payload_type → preferredPayloadType (Option<u8>)
     clockRate: S.Number, // Backend: clock_rate → clockRate (u32, required)
     channels: S.Number, // Backend: channels (u8, required - NOT optional!)
     parameters: S.Record({ key: S.String, value: S.Unknown }), // Backend: BTreeMap<String, String> (required)
     rtcpFeedback: S.mutable(S.Array(S.Struct({
       type: S.String, // Backend: r#type → type (required)
-      parameter: S.Option(S.String) // Backend: parameter (Option<String>)
+      parameter: S.optional(S.String) // Backend: parameter (Option<String>)
     }))) // Backend: rtcp_feedback → rtcpFeedback (required)
   }))), // Backend: codecs (Vec<>, required)
   headerExtensions: S.mutable(S.Array(S.Struct({
@@ -408,7 +408,7 @@ export const ConsumerParametersTransformSchema = S.transform(
       kind: wireData.kind as "audio" | "video", // Backend sends string, cast to MediaSoup enum
       rtpParameters: {
         // Backend sends complete RtpParametersWrapper as JSON, trust the serialization
-        mid: O.getOrNull(wireData.rtpParameters.mid) ?? undefined,
+        mid: wireData.rtpParameters.mid,
         codecs: (wireData.rtpParameters.codecs as any[]).map((codec: any) => ({
           mimeType: codec.mimeType,
           payloadType: codec.payloadType,
@@ -446,35 +446,35 @@ export const ConsumerParametersTransformSchema = S.transform(
       producerId: nativeData.producerId,
       kind: nativeData.kind,
       rtpParameters: {
-        mid: nativeData.rtpParameters.mid !== undefined ? O.some(nativeData.rtpParameters.mid) : O.none(),
+        mid: nativeData.rtpParameters.mid,
         codecs: (nativeData.rtpParameters.codecs || []).map(codec => ({
           mimeType: codec.mimeType,
           payloadType: codec.payloadType,
           clockRate: codec.clockRate,
-          channels: codec.channels !== undefined ? O.some(codec.channels) : O.none(),
+          channels: codec.channels,
           parameters: codec.parameters || {},
           rtcpFeedback: (codec.rtcpFeedback || []).map(feedback => ({
             type: feedback.type,
-            parameter: feedback.parameter !== undefined ? O.some(feedback.parameter) : O.none()
+            parameter: feedback.parameter
           }))
         })),
         headerExtensions: (nativeData.rtpParameters.headerExtensions || []).map(ext => ({
           uri: ext.uri,
           id: ext.id,
-          encrypt: ext.encrypt !== undefined ? O.some(ext.encrypt) : O.none(),
+          encrypt: ext.encrypt,
           parameters: ext.parameters || {}
         })),
         encodings: (nativeData.rtpParameters.encodings || []).map(encoding => ({
-          ssrc: encoding.ssrc !== undefined ? O.some(encoding.ssrc) : O.none(),
-          rid: encoding.rid !== undefined ? O.some(encoding.rid) : O.none(),
-          dtx: encoding.dtx !== undefined ? O.some(encoding.dtx) : O.none(),
-          scalabilityMode: encoding.scalabilityMode !== undefined ? O.some(encoding.scalabilityMode) : O.none(),
-          maxBitrate: encoding.maxBitrate !== undefined ? O.some(encoding.maxBitrate) : O.none()
+          ssrc: encoding.ssrc,
+          rid: encoding.rid,
+          dtx: encoding.dtx,
+          scalabilityMode: encoding.scalabilityMode,
+          maxBitrate: encoding.maxBitrate
         })),
-        rtcp: nativeData.rtpParameters.rtcp ? O.some({
-          cname: nativeData.rtpParameters.rtcp.cname !== undefined ? O.some(nativeData.rtpParameters.rtcp.cname) : O.none(),
-          reducedSize: nativeData.rtpParameters.rtcp.reducedSize !== undefined ? O.some(nativeData.rtpParameters.rtcp.reducedSize) : O.none()
-        }) : O.none()
+        rtcp: nativeData.rtpParameters.rtcp ? {
+          cname: nativeData.rtpParameters.rtcp.cname,
+          reducedSize: nativeData.rtpParameters.rtcp.reducedSize
+        } : undefined
       },
       type: nativeData.type,
       producerPaused: nativeData.producerPaused
@@ -496,7 +496,7 @@ export const TransportOptionsTransformSchema = S.transform(
       iceParameters: {
         usernameFragment: wireData.iceParameters.usernameFragment,
         password: wireData.iceParameters.password,
-        iceLite: O.getOrNull(wireData.iceParameters.iceLite) ?? undefined
+        iceLite: wireData.iceParameters.iceLite
       },
       iceCandidates: wireData.iceCandidates.map(candidate => ({
         foundation: candidate.foundation,
@@ -506,7 +506,7 @@ export const TransportOptionsTransformSchema = S.transform(
         protocol: candidate.protocol,
         port: candidate.port,
         type: candidate.type,
-        tcpType: O.getOrNull(candidate.tcpType) ?? undefined
+        tcpType: candidate.tcpType
       })),
       dtlsParameters: {
         role: wireData.dtlsParameters.role,
@@ -521,7 +521,7 @@ export const TransportOptionsTransformSchema = S.transform(
       iceParameters: {
         usernameFragment: nativeData.iceParameters.usernameFragment,
         password: nativeData.iceParameters.password,
-        iceLite: nativeData.iceParameters.iceLite !== undefined ? O.some(nativeData.iceParameters.iceLite) : O.none()
+        iceLite: nativeData.iceParameters.iceLite
       },
       iceCandidates: nativeData.iceCandidates.map(candidate => ({
         foundation: candidate.foundation,
@@ -530,7 +530,7 @@ export const TransportOptionsTransformSchema = S.transform(
         protocol: candidate.protocol,
         port: candidate.port,
         type: candidate.type,
-        tcpType: candidate.tcpType !== undefined ? O.some(candidate.tcpType) : O.none()
+        tcpType: candidate.tcpType
       })),
       dtlsParameters: {
         role: nativeData.dtlsParameters.role || 'auto',
@@ -561,7 +561,7 @@ export const IceCandidateTransformSchema = S.transform(
       protocol: wireData.protocol,
       port: wireData.port,
       type: wireData.type,
-      tcpType: O.getOrNull(wireData.tcpType) ?? undefined
+      tcpType: wireData.tcpType
     }),
     encode: (nativeData) => ({
       foundation: nativeData.foundation,
@@ -570,7 +570,7 @@ export const IceCandidateTransformSchema = S.transform(
       protocol: nativeData.protocol,
       port: nativeData.port,
       type: nativeData.type,
-      tcpType: nativeData.tcpType !== undefined ? O.some(nativeData.tcpType) : O.none()
+      tcpType: nativeData.tcpType
     })
   }
 )
@@ -589,13 +589,13 @@ export const RtpCapabilitiesTransformSchema = S.transform(
       codecs: wireData.codecs ? wireData.codecs.map(codec => ({
         kind: codec.kind as "audio" | "video", // Cast string to MediaSoup enum
         mimeType: codec.mimeType,
-        preferredPayloadType: O.getOrNull(codec.preferredPayloadType) ?? 96,
+        preferredPayloadType: codec.preferredPayloadType ?? 96,
         clockRate: codec.clockRate,
         channels: codec.channels, // Backend: required u8, no Option handling needed
         parameters: codec.parameters || {},
         rtcpFeedback: codec.rtcpFeedback?.map(feedback => ({
           type: feedback.type,
-          parameter: O.getOrNull(feedback.parameter) ?? undefined
+          parameter: feedback.parameter
         })) || []
       })) : undefined,
       headerExtensions: wireData.headerExtensions ? wireData.headerExtensions.map(ext => ({
@@ -610,13 +610,13 @@ export const RtpCapabilitiesTransformSchema = S.transform(
       codecs: (nativeData.codecs || []).map(codec => ({
         kind: codec.kind,
         mimeType: codec.mimeType,
-        preferredPayloadType: codec.preferredPayloadType !== undefined ? O.some(codec.preferredPayloadType) : O.none(),
+        preferredPayloadType: codec.preferredPayloadType,
         clockRate: codec.clockRate,
         channels: codec.channels || 1, // Backend: required u8, provide default
         parameters: codec.parameters || {},
         rtcpFeedback: (codec.rtcpFeedback || []).map(feedback => ({
           type: feedback.type,
-          parameter: feedback.parameter !== undefined ? O.some(feedback.parameter) : O.none()
+          parameter: feedback.parameter
         }))
       })),
       headerExtensions: (nativeData.headerExtensions || []).map(ext => ({
@@ -640,7 +640,7 @@ export const RtpParametersTransformSchema = S.transform(
   {
     strict: true,
     decode: (wireData) => ({
-      mid: O.getOrNull(wireData.mid) ?? undefined,
+      mid: wireData.mid,
       codecs: (wireData.codecs as any[]).map((codec: any) => ({
         mimeType: codec.mimeType,
         payloadType: codec.payloadType,
@@ -665,41 +665,41 @@ export const RtpParametersTransformSchema = S.transform(
         scalabilityMode: encoding.scalabilityMode ?? undefined,
         maxBitrate: encoding.maxBitrate ?? undefined
       })),
-      rtcp: O.getOrNull(wireData.rtcp) ? {
-        cname: (O.getOrNull(wireData.rtcp) as any).cname ?? undefined,
-        reducedSize: (O.getOrNull(wireData.rtcp) as any).reducedSize ?? undefined
+      rtcp: wireData.rtcp ? {
+        cname: (wireData.rtcp as any).cname,
+        reducedSize: (wireData.rtcp as any).reducedSize
       } : undefined
     }),
     encode: (nativeData) => ({
-      mid: nativeData.mid !== undefined ? O.some(nativeData.mid) : O.none(),
+      mid: nativeData.mid,
       codecs: (nativeData.codecs || []).map(codec => ({
         mimeType: codec.mimeType,
         payloadType: codec.payloadType,
         clockRate: codec.clockRate,
-        channels: codec.channels !== undefined ? O.some(codec.channels) : O.none(),
+        channels: codec.channels,
         parameters: codec.parameters || {},
         rtcpFeedback: (codec.rtcpFeedback || []).map(feedback => ({
           type: feedback.type,
-          parameter: feedback.parameter !== undefined ? O.some(feedback.parameter) : O.none()
+          parameter: feedback.parameter
         }))
       })),
       headerExtensions: (nativeData.headerExtensions || []).map(ext => ({
         uri: ext.uri,
         id: ext.id,
-        encrypt: ext.encrypt !== undefined ? O.some(ext.encrypt) : O.none(),
+        encrypt: ext.encrypt,
         parameters: ext.parameters || {}
       })),
       encodings: (nativeData.encodings || []).map(encoding => ({
-        ssrc: encoding.ssrc !== undefined ? O.some(encoding.ssrc) : O.none(),
-        rid: encoding.rid !== undefined ? O.some(encoding.rid) : O.none(),
-        dtx: encoding.dtx !== undefined ? O.some(encoding.dtx) : O.none(),
-        scalabilityMode: encoding.scalabilityMode !== undefined ? O.some(encoding.scalabilityMode) : O.none(),
-        maxBitrate: encoding.maxBitrate !== undefined ? O.some(encoding.maxBitrate) : O.none()
+        ssrc: encoding.ssrc,
+        rid: encoding.rid,
+        dtx: encoding.dtx,
+        scalabilityMode: encoding.scalabilityMode,
+        maxBitrate: encoding.maxBitrate
       })),
-      rtcp: nativeData.rtcp ? O.some({
-        cname: nativeData.rtcp.cname !== undefined ? O.some(nativeData.rtcp.cname) : O.none(),
-        reducedSize: nativeData.rtcp.reducedSize !== undefined ? O.some(nativeData.rtcp.reducedSize) : O.none()
-      }) : O.none()
+      rtcp: nativeData.rtcp ? {
+        cname: nativeData.rtcp.cname,
+        reducedSize: nativeData.rtcp.reducedSize
+      } : undefined
     })
   }
 )

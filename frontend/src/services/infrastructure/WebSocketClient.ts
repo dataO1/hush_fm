@@ -20,6 +20,7 @@ import {
   Option, 
   pipe, 
   Schema as S, 
+  Match,
   Deferred, 
   Ref,
   Queue,
@@ -128,6 +129,39 @@ const createWebSocketError = (operation: WebSocketOperation, cause: string, orig
     timestamp: new Date()
   })
 
+/**
+ * Helper to get expected event type from command type
+ * Maps command types to their corresponding event types using Effect for proper error handling
+ */
+const getExpectedEventType = (command: AnyCommand): Effect.Effect<string, WebSocketError> => {
+  return Effect.sync(() =>
+    Match.value(command).pipe(
+      Match.when({ type: "announceRoom" }, () => "roomAnnounced"),
+      Match.when({ type: "requestJoin" }, () => "joinRoomResponse"), 
+      Match.when({ type: "refreshRooms" }, () => "refreshRooms"), // Fire-and-forget, no specific response
+      Match.when({ type: "initRoom" }, () => "roomInitialized"),
+      Match.when({ type: "requestDjTransport" }, () => "djTransportReady"),
+      Match.when({ type: "connectDjTransport" }, () => "transportConnected"),
+      Match.when({ type: "produce" }, () => "producerCreated"),
+      Match.when({ type: "pauseStream" }, () => "streamPaused"),
+      Match.when({ type: "resumeStream" }, () => "streamResumed"),
+      Match.when({ type: "closeRoom" }, () => "roomClosed"),
+      Match.when({ type: "initListener" }, () => "listenerTransportReady"),
+      Match.when({ type: "getRouterCapabilities" }, () => "routerCapabilities"),
+      Match.when({ type: "connectListenerTransport" }, () => "transportConnected"),
+      Match.when({ type: "requestConsumer" }, () => "consumerCreated"),
+      Match.when({ type: "resumeConsumer" }, () => "resumeConsumer"), // No specific response
+      Match.when({ type: "leaveRoom" }, () => "roomClosed"),
+      Match.exhaustive
+    )
+  ).pipe(
+    Effect.mapError(() => createWebSocketError(
+      WebSocketOperation.ENCODE,
+      `Unknown command type: ${command.type}`
+    ))
+  )
+}
+
 
 /**
  * Message processing fiber
@@ -143,16 +177,25 @@ const createMessageProcessor = (
   pendingRequests: Ref.Ref<HashMap.HashMap<string, Deferred.Deferred<unknown, WebSocketError>>>
 ): Effect.Effect<void, never, never> =>
   pipe(
-    Queue.take(messageQueue),
-    Effect.flatMap(rawMessage => 
-      Effect.try({
-        try: () => JSON.parse(rawMessage),
-        catch: (error) => ({
-          type: 'parse_error',
-          data: { error: String(error), rawMessage }
-        })
+    Effect.sync(() => console.info('🎯 WebSocketClient: Message processor waiting for message...')),
+    Effect.flatMap(() => Queue.take(messageQueue)),
+    Effect.flatMap(rawMessage => {
+      console.info('📥 WebSocketClient: Received raw message:', rawMessage)
+      return Effect.try({
+        try: () => {
+          const parsed = JSON.parse(rawMessage)
+          console.info('✅ WebSocketClient: JSON parsed successfully:', parsed)
+          return parsed
+        },
+        catch: (error) => {
+          console.error('❌ WebSocketClient: Failed to parse JSON:', error, rawMessage)
+          return {
+            type: 'parse_error',
+            data: { error: String(error), rawMessage }
+          }
+        }
       })
-    ),
+    }),
     Effect.flatMap(parsed => {
       // Ensure we have a proper message structure
       if (typeof parsed === 'object' && parsed !== null && 'type' in parsed) {
@@ -164,18 +207,22 @@ const createMessageProcessor = (
         return pipe(
           Ref.get(pendingRequests),
           Effect.flatMap(pendingMap => {
+            console.info('🔍 WebSocketClient: Looking for pending request for message type:', message.type)
+            console.info('🗂️ WebSocketClient: Available pending requests:', Array.from(HashMap.keys(pendingMap)))
+            
             const maybePending = HashMap.get(pendingMap, message.type)
             
             const completePending = Option.isSome(maybePending)
               ? pipe(
-                  Deferred.succeed(maybePending.value, message.data),
+                  Effect.sync(() => console.info('✅ WebSocketClient: Found matching pending request for:', message.type)),
+                  Effect.flatMap(() => Deferred.succeed(maybePending.value, message.data)),
                   Effect.flatMap(() => 
                     Ref.update(pendingRequests, map => 
                       HashMap.remove(map, message.type)
                     )
                   )
                 )
-              : Effect.void
+              : Effect.sync(() => console.info('❌ WebSocketClient: No pending request found for:', message.type))
             
             // Always broadcast to subscribers
             const broadcast = PubSub.publish(eventPubSub, message).pipe(
@@ -222,8 +269,9 @@ const setupWebSocketHandlers = (
     }
 
     ws.onmessage = (event) => {
+      console.info('🔔 WebSocket: Raw message received, offering to queue:', event.data)
       // Only offer to queue - no other processing
-      Effect.runSync(Queue.offer(messageQueue, event.data))
+      Effect.runFork(Queue.offer(messageQueue, event.data))
     }
   })
 
@@ -237,8 +285,19 @@ const make = Effect.gen(function* () {
   const messageQueue = yield* Queue.unbounded<string>()
   const eventPubSub = yield* PubSub.unbounded<ParsedMessage>()
   
-  // Start message processing fiber
-  yield* Effect.fork(createMessageProcessor(messageQueue, eventPubSub, pendingRequests))
+  // Start message processing fiber as daemon to prevent suspension
+  console.info('🚀 WebSocketClient: Starting message processor fiber')
+  const processorFiber = yield* Effect.forkDaemon(
+    Effect.gen(function* () {
+      console.info('🎯 WebSocketClient: Message processor fiber started successfully')
+      yield* createMessageProcessor(messageQueue, eventPubSub, pendingRequests)
+    }).pipe(
+      Effect.catchAll((error) => 
+        Effect.sync(() => console.error('💥 WebSocketClient: Message processor crashed:', error))
+      )
+    )
+  )
+  console.info('✅ WebSocketClient: Message processor daemon fiber created:', processorFiber)
   
   // Register cleanup finalizer
   yield* Effect.addFinalizer(() => 
@@ -341,24 +400,34 @@ const make = Effect.gen(function* () {
   const sendCommandFireForget = (command: AnyCommand): Effect.Effect<void, WebSocketError, never> =>
     Effect.gen(function* () {
       // Encode command using appropriate schema
+      console.info('🔄 WebSocketClient: Encoding command:', command.type, command)
       const encoded = yield* pipe(
         Effect.try(() => {
           if (S.is(DJCommandSchema)(command)) {
-            return S.encodeSync(DJCommandSchema)(command)
+            const result = S.encodeSync(DJCommandSchema)(command)
+            console.info('✅ WebSocketClient: DJ command encoded successfully:', result)
+            return result
           }
           if (S.is(ListenerCommandSchema)(command)) {
-            return S.encodeSync(ListenerCommandSchema)(command)
+            const result = S.encodeSync(ListenerCommandSchema)(command)
+            console.info('✅ WebSocketClient: Listener command encoded successfully:', result)
+            return result
           }
           if (S.is(LobbyCommandSchema)(command)) {
-            return S.encodeSync(LobbyCommandSchema)(command)
+            const result = S.encodeSync(LobbyCommandSchema)(command)
+            console.info('✅ WebSocketClient: Lobby command encoded successfully:', result)
+            return result
           }
           throw new Error("Unknown command type")
         }),
-        Effect.mapError(error => createWebSocketError(
-          WebSocketOperation.ENCODE,
-          'Failed to encode command',
-          error
-        ))
+        Effect.mapError(error => {
+          console.error('❌ WebSocketClient: Failed to encode command:', command.type, error)
+          return createWebSocketError(
+            WebSocketOperation.ENCODE,
+            'Failed to encode command',
+            error
+          )
+        })
       )
       yield* sendRawMessage(JSON.stringify(encoded))
     })
@@ -367,10 +436,17 @@ const make = Effect.gen(function* () {
     Effect.gen(function* () {
       const deferred = yield* Deferred.make<T, WebSocketError>()
       
-      // Register pending request using command type as key
-      yield* Ref.update(pendingRequests, map =>
-        HashMap.set(map, command.type, deferred as Deferred.Deferred<unknown, WebSocketError>)
-      )
+      // Get expected event type using the Effect-based helper
+      const eventType = yield* getExpectedEventType(command)
+      
+      console.info('🔄 WebSocketClient: Sending command:', command.type, 'expecting event type:', eventType)
+      
+      // Register pending request using expected event type as key
+      yield* Ref.update(pendingRequests, map => {
+        const newMap = HashMap.set(map, eventType, deferred as Deferred.Deferred<unknown, WebSocketError>)
+        console.info('📋 WebSocketClient: Registered pending request for event type:', eventType, 'Total pending:', HashMap.size(newMap))
+        return newMap
+      })
       
       // Send command
       yield* sendCommandFireForget(command)
@@ -382,11 +458,11 @@ const make = Effect.gen(function* () {
           // Cleanup pending request on timeout
           return Effect.gen(function* () {
             yield* Ref.update(pendingRequests, map => 
-              HashMap.remove(map, command.type)
+              HashMap.remove(map, eventType)
             )
             return yield* Effect.fail(createWebSocketError(
               WebSocketOperation.WAIT_FOR_EVENT,
-              `Timeout waiting for response to ${command.type}`
+              `Timeout waiting for response event: ${eventType}`
             ))
           })
         })
@@ -405,14 +481,22 @@ const make = Effect.gen(function* () {
         
         const subscription = yield* pipe(
           Stream.fromQueue(dequeue),
-          Stream.mapEffect(message => 
-            S.decode(eventSchema)(message.data).pipe(
+          Stream.mapEffect(message => {
+            console.info('🔄 WebSocketClient: Decoding message:', message.type, message.data)
+            return S.decode(eventSchema)(message.data).pipe(
               Effect.match({
-                onFailure: () => Option.none<T>(),
-                onSuccess: (event) => Option.some(event)
+                onFailure: (error) => {
+                  console.error('❌ WebSocketClient: Failed to decode message:', message.type, error, message.data)
+                  // TODO: Store decode error in connection adapter for UI display
+                  return Option.none<T>()
+                },
+                onSuccess: (event) => {
+                  console.info('✅ WebSocketClient: Message decoded successfully:', message.type, event)
+                  return Option.some(event)
+                }
               })
             )
-          ),
+          }),
           Stream.filter(Option.isSome),
           Stream.map(event => event.value),
           Stream.runForEach(event => Effect.sync(() => handler(event))),

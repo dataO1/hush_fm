@@ -12,7 +12,7 @@
  * - Lobby WebSocket management
  */
 
-import { Effect, Context, Layer, Option as O, Schema as S } from 'effect'
+import { Effect, Context, Layer, pipe, Schema as S, Option as O } from 'effect'
 import type { LobbyRoomInfoType } from '../../domain/schemas/lobby.schema'
 import { LobbyRoomInfo } from '../../domain/schemas/lobby.schema'
 import { config } from '../../config'
@@ -33,6 +33,26 @@ import { LobbyAdapter } from '../../stores'
 // Import only infrastructure via Context.Tag
 import { LobbyWebSocket, createWebSocketClientService } from '../infrastructure/WebSocketClient'
 import { listRooms } from '../generated/rooms/rooms'
+
+/**
+ * Middleware Pattern for Global Schema Logging
+ * Wraps schema make operations with detailed logging for debugging
+ */
+const withSchemaLogging = (schema: any, schemaName: string) => {
+  return (input: any) =>
+    pipe(
+      Effect.try(() => {
+        console.info(`🔄 Schema: Creating ${schemaName} with input:`, input)
+        return schema.make(input)
+      }),
+      Effect.tap((result) => 
+        Effect.sync(() => console.info(`✅ Schema: ${schemaName} created successfully:`, result))
+      ),
+      Effect.tapError((error) =>
+        Effect.sync(() => console.error(`❌ Schema: Failed to create ${schemaName}:`, error, 'Input:', input))
+      )
+    )
+}
 
 /**
  * Room announcement result
@@ -201,16 +221,27 @@ const LobbyServiceImpl = {
         ))
       }
 
-      // Send announce room command and wait for response
-      const result = yield* wsClient.sendCommand<RoomAnnouncedEvent>(
-        AnnounceRoomCommandSchema.make({
+      // Create command using logging wrapper
+      const makeAnnounceRoomCommand = withSchemaLogging(AnnounceRoomCommandSchema, 'AnnounceRoomCommand')
+      
+      const command = yield* pipe(
+        makeAnnounceRoomCommand({
           name: roomName,
           djName,
           sessionId,
-          description: description ? O.some(description) : O.none(),
-          tags: (tags && tags.length > 0) ? O.some(tags) : O.none()
-        })
-      ).pipe(
+          description: description ? O.some(description) : O.none(), // Use Option types for .make()
+          tags: (tags && tags.length > 0) ? O.some(tags) : O.none(), // Use Option types for .make()
+          type: "announceRoom" as const
+        }),
+        Effect.mapError((error) => new LobbyServiceError(
+          `Failed to create announce room command: ${error}`,
+          'announceRoom',
+          error
+        ))
+      )
+
+      // Send announce room command and wait for response
+      const result = yield* wsClient.sendCommand<RoomAnnouncedEvent>(command).pipe(
         Effect.mapError((error) => new LobbyServiceError(
           `Failed to announce room: ${error.cause}`,
           'announceRoom',

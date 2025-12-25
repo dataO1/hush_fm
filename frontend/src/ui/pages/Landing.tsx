@@ -1,8 +1,9 @@
 import { For, Show, createResource, createSignal, onCleanup, createContext, useContext, ParentComponent } from 'solid-js'
 import { useNavigate } from '@solidjs/router'
-import { Option as O, Effect, Context } from 'effect'
-import { useConnectionAdapter, useLobbyAdapter, useUserAdapter, useGlobalRuntime } from '../../App'
+import { Option as O, Effect, Context, ManagedRuntime, Layer } from 'effect'
+import { useConnectionAdapter, useLobbyAdapter, useUserAdapter } from '../../App'
 import { LobbyService, LobbyServiceLive } from '../../services/application/LobbyService'
+import { LobbyAdapter } from '../../stores'
 import ConnectionStatusDot from '../components/ConnectionStatusDot'
 import { RoomCard } from '../components/room/RoomCard'
 import type { LobbyRoomInfoType } from '../../domain/schemas/lobby.schema'
@@ -15,13 +16,15 @@ interface LobbyFeatureContextValue {
 const LobbyFeatureContext = createContext<LobbyFeatureContextValue>()
 
 const LobbyFeatureProvider: ParentComponent = (props) => {
-  // Get global runtime for accessing adapters
-  const globalRuntime = useGlobalRuntime()
-  
-  // Create lobby service directly using the global runtime (which has all adapters)
-  const lobbyService = globalRuntime.runSync(
-    Effect.provide(LobbyService, LobbyServiceLive)
+  // Create lobby service using scoped runtime to keep it alive for component lifecycle
+  // Provide all necessary adapter dependencies
+  const lobbyAdapter = useLobbyAdapter()
+  const lobbyServiceRuntime = ManagedRuntime.make(
+    LobbyServiceLive.pipe(
+      Layer.provide(Layer.succeed(LobbyAdapter, lobbyAdapter))
+    )
   )
+  const lobbyService = lobbyServiceRuntime.runSync(LobbyService)
   
   const services: LobbyFeatureContextValue = {
     lobbyService
@@ -32,6 +35,7 @@ const LobbyFeatureProvider: ParentComponent = (props) => {
     console.info('🏠 LobbyFeatureProvider: Cleaning up on unmount')
     try {
       await lobbyService.disconnectFromLobby().pipe(Effect.runPromise)
+      await lobbyServiceRuntime.dispose()
     } catch (error) {
       console.warn('⚠️ LobbyFeatureProvider: Error during cleanup:', error)
     }
