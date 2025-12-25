@@ -35,7 +35,7 @@ export class AudioPlaybackError extends Data.TaggedError('AudioPlaybackError')<{
  */
 export class AudioDeviceError extends Data.TaggedError('AudioDeviceError')<{
   readonly cause: string
-  readonly operation: 'enumerate' | 'getDefault' | 'getUserMedia' | 'preview' | 'stopPreview'
+  readonly operation: 'enumerate' | 'getDefault' | 'getUserMedia' | 'preview' | 'stopPreview' | 'requestPermission'
   readonly deviceId?: string
   readonly timestamp: Date
 }> {}

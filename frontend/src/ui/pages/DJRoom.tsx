@@ -1,11 +1,8 @@
 import { onCleanup, Show, createSignal, createEffect, createResource } from 'solid-js'
 import { useParams, useNavigate, useLocation } from '@solidjs/router'
-import { Option as O, Effect, Layer } from 'effect'
+import { Option as O, Effect } from 'effect'
 import { DeviceSelector } from '../components/controls/DeviceSelector'
 import { useConnectionAdapter, useAudioAdapter, useAudioClient, useRuntime } from '../../App'
-import { AudioClient } from '../../services/infrastructure/AudioClient'
-import { AudioClientLive } from '../../services/infrastructure/AudioClient'
-import { AudioAdapterLive } from '../../stores/audio/audio.adapter'
 import { UserService } from '../../services/application/UserService'
 import { WebrtcConnectionState, WsConnectionState } from '../../domain/schemas/connection.schema'
 import { Oscilloscope } from '../components/shared/Oscilloscope'
@@ -56,7 +53,6 @@ export default function DJRoom() {
 
   // Computed values from domain adapters (SolidJS 2025 + Effect Option patterns)
   const connectionState = () => connectionAdapter.getConnectionState()
-  const isStreaming = () => audioAdapter.isPlaying()
   const isConnecting = () => connectionAdapter.isConnecting()
   const isPaused = () => !audioAdapter.isPlaying()
   const selectedDeviceId = () => audioAdapter.getCurrentDeviceId()
@@ -134,76 +130,9 @@ export default function DJRoom() {
     setStreamingRequest({ roomId: currentRoomId, deviceId: String(deviceId) })
   }
 
-  // SolidJS 2025: Use signals and createResource for mute operations
-  const [muteRequest, setMuteRequest] = createSignal<{action: 'pause' | 'resume'} | null>(null)
-  
-  const [muteOperation] = createResource(muteRequest, async (request) => {
-    if (!request || !isStreaming()) return null
-    
-    console.info(`🎤 ${request.action === 'pause' ? 'Pausing' : 'Resuming'} DJ stream...`)
-    
-    // Use Effect pattern to control streaming  
-    const program = Effect.sync(() => {
-      if (request.action === 'pause') {
-        return audioClient.toggleAudioStreamPlaying(true)
-      } else {
-        return audioClient.toggleAudioStreamPlaying(false)
-      }
-    })
-    
-    const result = await runtime.runPromise(program)
-    
-    console.info('✅ DJ stream toggled successfully')
-    return result
-  })
-  
-  const toggleMute = () => {
-    if (!isStreaming()) return // Only allow mute when streaming
-    
-    const action = isPaused() ? 'resume' : 'pause'
-    setMuteRequest({ action })
-  }
-
-  // SolidJS 2025: Use signals and createResource for ending stream
-  const [endStreamRequest, setEndStreamRequest] = createSignal<boolean>(false)
-  
-  const [endStreamOperation] = createResource(endStreamRequest, async (shouldEnd) => {
-    if (!shouldEnd) return null
-    
-    console.info('🚪 Ending stream and closing DJ room')
-    
-    // Use Effect pattern to close DJ room
-    const program = UserService.pipe(
-      Effect.flatMap((service) => service.closeDJRoom())
-    )
-    
-    const result = await runtime.runPromise(program)
-    
-    console.info('✅ DJ room closed successfully')
-    
-    // Navigate back to lobby after successful cleanup
-    navigate('/')
-    return result
-  })
-  
-  const endStream = () => {
-    setEndStreamRequest(true)
-  }
 
   const goBack = () => {
     navigate('/')
-  }
-
-  const onDeviceSelected = (deviceId: string) => {
-    // Use AudioClient service to select the device
-    Effect.runPromise(
-      Effect.gen(function* () {
-        const audioClient = yield* AudioClient
-        yield* audioClient.selectDevice(deviceId)
-      }).pipe(
-        Effect.provide(Layer.merge(AudioClientLive, AudioAdapterLive))
-      )
-    ).catch(console.error)
   }
 
   return (
@@ -260,11 +189,13 @@ export default function DJRoom() {
                 />
               </div>
 
-              <DeviceSelector 
-                disabled={isStreaming()} 
-                audioAdapter={audioAdapter}
-                onDeviceSelected={onDeviceSelected}
-              />
+              {/* Show DeviceSelector only when WebRTC is not connected */}
+              <Show when={!connectionAdapter.isConnected()}>
+                <DeviceSelector 
+                  getAudioDevices={() => runtime.runPromise(audioClient.getAudioDevices())}
+                  selectDevice={(deviceId) => runtime.runPromise(audioClient.selectDevice(deviceId))}
+                />
+              </Show>
               
               {/* Audio Oscilloscope - SolidJS 2025 reactive signal pattern */}
               <Show when={O.getOrNull(audioClient.currentStream())} fallback={null}>
@@ -275,11 +206,15 @@ export default function DJRoom() {
                 )}
               </Show>
               
-              {/* Show Go Live button when not streaming */}
-              <Show when={!isStreaming()}>
+              {/* Show Go Live button when not connected and not connecting */}
+              <Show when={!connectionAdapter.isConnected() && !isConnecting()}>
                 <div class="text-center mt-4 sm:mt-6">
                   <button
-                    class="btn btn-primary btn-md sm:btn-lg w-full sm:w-auto px-8"
+                    class={`btn btn-md sm:btn-lg w-full sm:w-auto px-8 ${
+                      !selectedDeviceId() || isConnecting() || streamingOperation.loading 
+                        ? 'btn-disabled opacity-50 cursor-not-allowed' 
+                        : 'btn-primary hover:btn-primary-focus'
+                    }`}
                     onClick={startStreaming}
                     disabled={!selectedDeviceId() || isConnecting() || streamingOperation.loading}
                   >
@@ -305,46 +240,27 @@ export default function DJRoom() {
                     </div>
                   </Show>
                   <div class="text-xs sm:text-sm text-white/60 mt-2">
-                    Select an audio source to get started
+                    <Show when={!selectedDeviceId()} fallback="Ready to go live">
+                      Select an audio source to get started
+                    </Show>
                   </div>
                 </div>
               </Show>
 
-              {/* Stream Controls */}
-              <StreamControls 
-                isStreaming={isStreaming}
-                isPaused={isPaused}
-                isDisabled={() => connectionState()?.webrtcConnectionState === WebrtcConnectionState.ERROR || isConnecting() || muteOperation.loading || endStreamOperation.loading}
-                onToggleMute={toggleMute}
-                onEndStream={endStream}
-              />
-              
-              {/* Show operation loading states and errors */}
-              <Show when={muteOperation.loading}>
-                <div class="text-center text-sm text-white/70 mt-2">
-                  <span class="loading loading-spinner loading-sm mr-2"></span>
-                  {isPaused() ? 'Resuming...' : 'Pausing...'}
-                </div>
+              {/* Stream Controls - only show when connected */}
+              <Show when={connectionAdapter.isConnected()}>
+                <StreamControls 
+                  toggleMute={() => runtime.runPromise(audioClient.toggleAudioStreamPlaying(!audioAdapter.isPlaying()))}
+                  endStream={async () => {
+                    await runtime.runPromise(UserService.pipe(
+                      Effect.flatMap((service) => service.closeDJRoom())
+                    ))
+                    navigate('/')
+                  }}
+                  isPaused={isPaused}
+                />
               </Show>
               
-              <Show when={endStreamOperation.loading}>
-                <div class="text-center text-sm text-white/70 mt-2">
-                  <span class="loading loading-spinner loading-sm mr-2"></span>
-                  Ending stream...
-                </div>
-              </Show>
-              
-              <Show when={muteOperation.error}>
-                <div class="text-red-400 text-sm text-center mt-2">
-                  Failed to toggle mute: {muteOperation.error.message}
-                </div>
-              </Show>
-              
-              <Show when={endStreamOperation.error}>
-                <div class="text-red-400 text-sm text-center mt-2">
-                  Failed to end stream: {endStreamOperation.error.message}
-                </div>
-              </Show>
             </div>
           </div>
         </Show>

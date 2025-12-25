@@ -37,6 +37,17 @@ export const BrowserFingerprint = S.Struct({
 export type BrowserFingerprintType = S.Schema.Type<typeof BrowserFingerprint>
 
 /**
+ * Session ID Computation Result
+ * Contains the computed session ID along with fingerprint data and timestamp
+ */
+export const SessionIdComputation = S.Struct({
+  sessionId: S.String,
+  fingerprint: BrowserFingerprint,
+  computedAt: S.Date
+})
+export type SessionIdComputationType = S.Schema.Type<typeof SessionIdComputation>
+
+/**
  * User State containing session identity and preferences
  */
 export const UserState = S.Struct({

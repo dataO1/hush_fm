@@ -11,6 +11,85 @@ import { Schema as S } from 'effect'
 import { ConsumerParametersTransformSchema, DtlsParametersTransformSchema, RtpCapabilitiesTransformSchema, RtpParametersTransformSchema, TransportOptionsTransformSchema } from './mediasoup.schema'
 
 /**
+ * WebSocket Event Type Enums
+ * 
+ * Defines all possible event types as const objects for type safety.
+ * Use these instead of magic strings throughout the application.
+ * 
+ * Naming Convention:
+ * - Constants: WEBSOCKET_[CONTEXT]_EVENT_TYPES (e.g., WEBSOCKET_LOBBY_EVENT_TYPES)
+ * - Types: WebSocket[Context]EventType (e.g., WebSocketLobbyEventType)
+ * - Values: Use the actual string values from the backend protocol
+ */
+
+// Lobby Event Types - events received when connected to lobby WebSocket
+export const WEBSOCKET_LOBBY_EVENT_TYPES = {
+  ROOM_ADDED: 'roomAdded',
+  ROOM_UPDATED: 'roomUpdated', 
+  ROOM_REMOVED: 'roomRemoved',
+  JOIN_APPROVED: 'joinApproved',
+  ROOM_ANNOUNCED: 'roomAnnounced'
+} as const
+
+export type WebSocketLobbyEventType = typeof WEBSOCKET_LOBBY_EVENT_TYPES[keyof typeof WEBSOCKET_LOBBY_EVENT_TYPES]
+
+// DJ Event Types - events received when connected as a DJ to room WebSocket
+export const WEBSOCKET_DJ_EVENT_TYPES = {
+  ROOM_INITIALIZED: 'roomInitialized',
+  DJ_TRANSPORT_READY: 'djTransportReady',
+  TRANSPORT_CONNECTED: 'transportConnected',
+  PRODUCER_CREATED: 'producerCreated',
+  STREAM_PAUSED: 'streamPaused',
+  STREAM_RESUMED: 'streamResumed',
+  ROOM_CLOSED: 'roomClosed',
+  DJ_COMMAND_FAILED: 'djCommandFailed',
+  ROOM_NOT_FOUND: 'roomNotFound'
+} as const
+
+export type WebSocketDJEventType = typeof WEBSOCKET_DJ_EVENT_TYPES[keyof typeof WEBSOCKET_DJ_EVENT_TYPES]
+
+// Listener Event Types - events received when connected as a listener to room WebSocket
+export const WEBSOCKET_LISTENER_EVENT_TYPES = {
+  LISTENER_TRANSPORT_READY: 'listenerTransportReady',
+  JOIN_READY: 'joinReady',
+  TRANSPORT_CONNECTED: 'transportConnected',
+  CONSUMER_CREATED: 'consumerCreated',
+  ROUTER_CAPABILITIES: 'routerCapabilities',
+  LISTENER_COUNT_UPDATED: 'listenerCountUpdated',
+  STREAM_PAUSED: 'streamPaused',
+  STREAM_RESUMED: 'streamResumed',
+  ROOM_CLOSED: 'roomClosed',
+  LISTENER_COMMAND_FAILED: 'listenerCommandFailed',
+  ROOM_NOT_FOUND: 'roomNotFound'
+} as const
+
+export type WebSocketListenerEventType = typeof WEBSOCKET_LISTENER_EVENT_TYPES[keyof typeof WEBSOCKET_LISTENER_EVENT_TYPES]
+
+// Command Types - commands sent to WebSocket servers
+export const WEBSOCKET_COMMAND_TYPES = {
+  // DJ Commands
+  INIT_ROOM: 'initRoom',
+  REQUEST_DJ_TRANSPORT: 'requestDjTransport', 
+  CONNECT_DJ_TRANSPORT: 'connectDjTransport',
+  PRODUCE: 'produce',
+  PAUSE_STREAM: 'pauseStream',
+  RESUME_STREAM: 'resumeStream',
+  CLOSE_ROOM: 'closeRoom',
+  
+  // Listener Commands
+  INIT_LISTENER: 'initListener',
+  CONNECT_LISTENER_TRANSPORT: 'connectListenerTransport',
+  REQUEST_CONSUMER: 'requestConsumer',
+  RESUME_CONSUMER: 'resumeConsumer',
+  
+  // Lobby Commands
+  ANNOUNCE_ROOM: 'announceRoom',
+  JOIN_ROOM_REQUEST: 'joinRoomRequest'
+} as const
+
+export type WebSocketCommandType = typeof WEBSOCKET_COMMAND_TYPES[keyof typeof WEBSOCKET_COMMAND_TYPES]
+
+/**
  * Individual command and event schemas with type fields
  * Uses withConstructorDefault for commands to auto-inject type fields
  */
@@ -35,12 +114,29 @@ export type LobbyCommandType =
  */
 // Union type created from individual schemas below
 export type LobbyEventType =
+  | S.Schema.Type<typeof RoomAnnouncedEventSchema>
   | S.Schema.Type<typeof RoomAddedEventSchema>
   | S.Schema.Type<typeof RoomUpdatedEventSchema>
   | S.Schema.Type<typeof RoomRemovedEventSchema>
   | S.Schema.Type<typeof JoinRoomResponseEventSchema>
 
 // Individual Lobby Event Schemas for specific type safety
+export const RoomAnnouncedEventSchema = S.Struct({
+  room: S.Struct({
+    id: S.String,
+    name: S.String,
+    djName: S.String,
+    djId: S.String,
+    listenerCount: S.Number,
+    isStreaming: S.Boolean,
+    createdAt: S.String,
+    description: S.optional(S.String),
+    tags: S.Array(S.String)
+  }),
+  wsUrl: S.String,
+  type: S.Literal("roomAnnounced")
+})
+
 export const RoomAddedEventSchema = S.Struct({
   room: S.Struct({
     id: S.String,
@@ -80,9 +176,9 @@ export const JoinRoomResponseEventSchema = S.Struct({
   sessionId: S.String,
   roomId: S.String,
   success: S.Boolean,
-  error: S.Option(S.String),
-  listenerWebSocketUrl: S.Option(S.String),
-  room: S.Option(S.Struct({
+  error: S.OptionFromNullOr(S.String),
+  listenerWebSocketUrl: S.OptionFromNullOr(S.String),
+  room: S.OptionFromNullOr(S.Struct({
     id: S.String,
     name: S.String,
     djName: S.String,
@@ -97,6 +193,7 @@ export const JoinRoomResponseEventSchema = S.Struct({
 })
 
 // Individual Lobby Event Types
+export type RoomAnnouncedEvent = S.Schema.Type<typeof RoomAnnouncedEventSchema>
 export type RoomAddedEvent = S.Schema.Type<typeof RoomAddedEventSchema>
 export type RoomUpdatedEvent = S.Schema.Type<typeof RoomUpdatedEventSchema>
 export type RoomRemovedEvent = S.Schema.Type<typeof RoomRemovedEventSchema>
@@ -106,6 +203,7 @@ export type JoinRoomResponseEvent = S.Schema.Type<typeof JoinRoomResponseEventSc
  * Lobby Event Union Schema with discriminated type field
  */
 export const LobbyEventSchema = S.Union(
+  RoomAnnouncedEventSchema,
   RoomAddedEventSchema,
   RoomUpdatedEventSchema,
   RoomRemovedEventSchema,
@@ -117,8 +215,8 @@ export const AnnounceRoomCommandSchema = S.Struct({
   name: S.String,
   djName: S.String,
   sessionId: S.String,
-  description: S.Option(S.String),
-  tags: S.Array(S.String),
+  description: S.OptionFromNullOr(S.String),
+  tags: S.OptionFromNullOr(S.Array(S.String)),
   type: S.Literal("announceRoom").pipe(
     S.propertySignature,
     S.withConstructorDefault(() => "announceRoom" as const)
@@ -175,7 +273,6 @@ export type DJCommandType =
  */
 // Union type created from individual schemas below
 export type DJEventType =
-  | S.Schema.Type<typeof RoomAnnouncedEventSchema>
   | S.Schema.Type<typeof RoomInitializedEventSchema>
   | S.Schema.Type<typeof DjTransportReadyEventSchema>
   | S.Schema.Type<typeof TransportConnectedEventSchema>
@@ -187,22 +284,6 @@ export type DJEventType =
   | S.Schema.Type<typeof RoomNotFoundEventSchema>
 
 // Individual DJ Event Schemas for specific type safety
-export const RoomAnnouncedEventSchema = S.Struct({
-  room: S.Struct({
-    id: S.String,
-    name: S.String,
-    djName: S.String,
-    djId: S.String,
-    listenerCount: S.Number,
-    isStreaming: S.Boolean,
-    createdAt: S.String,
-    description: S.optional(S.String),
-    tags: S.Array(S.String)
-  }),
-  wsUrl: S.String,
-  type: S.Literal("roomAnnounced")
-})
-
 export const RoomInitializedEventSchema = S.Struct({
   roomId: S.String,
   rtpCapabilities: RtpCapabilitiesTransformSchema,
@@ -253,7 +334,6 @@ export const RoomNotFoundEventSchema = S.Struct({
 })
 
 // Individual DJ Event Types
-export type RoomAnnouncedEvent = S.Schema.Type<typeof RoomAnnouncedEventSchema>
 export type RoomInitializedEvent = S.Schema.Type<typeof RoomInitializedEventSchema>
 export type DjTransportReadyEvent = S.Schema.Type<typeof DjTransportReadyEventSchema>
 export type TransportConnectedEvent = S.Schema.Type<typeof TransportConnectedEventSchema>
@@ -268,7 +348,6 @@ export type RoomNotFoundEvent = S.Schema.Type<typeof RoomNotFoundEventSchema>
  * DJ Event Union Schema with discriminated type field
  */
 export const DJEventSchema = S.Union(
-  RoomAnnouncedEventSchema,
   RoomInitializedEventSchema,
   DjTransportReadyEventSchema,
   TransportConnectedEventSchema,
@@ -298,7 +377,7 @@ export const RequestDjTransportCommandSchema = S.Struct({
 })
 
 export const ConnectDjTransportCommandSchema = S.Struct({
-  transportId: S.Option(S.String),
+  transportId: S.OptionFromNullOr(S.String),
   dtlsParameters: DtlsParametersTransformSchema,
   type: S.Literal("connectDjTransport").pipe(
     S.propertySignature,
@@ -511,7 +590,7 @@ export const GetRouterCapabilitiesCommandSchema = S.Struct({
 })
 
 export const ConnectListenerTransportCommandSchema = S.Struct({
-  transportId: S.Option(S.String),
+  transportId: S.OptionFromNullOr(S.String),
   dtlsParameters: DtlsParametersTransformSchema,
   type: S.Literal("connectListenerTransport").pipe(
     S.propertySignature,

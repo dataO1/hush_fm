@@ -127,6 +127,37 @@ const createAudioClientImpl = (): AudioClientInterface => {
       audioAdapter.setPermission(state)
     })
 
+  // Helper to request microphone permission for device enumeration
+  const requestMicrophonePermission = (): Effect.Effect<boolean, AudioDeviceError, never> =>
+    Effect.tryPromise({
+      try: async () => {
+        try {
+          // Request minimal audio stream to get permission
+          const stream = await navigator.mediaDevices.getUserMedia({ 
+            audio: { 
+              echoCancellation: false,
+              noiseSuppression: false,
+              autoGainControl: false 
+            } 
+          })
+          
+          // Immediately stop the temporary stream
+          stream.getTracks().forEach(track => track.stop())
+          
+          console.info('🎧 AudioClient: Microphone permission granted for device enumeration')
+          return true
+        } catch (error) {
+          console.warn('🎧 AudioClient: Microphone permission denied:', error)
+          return false
+        }
+      },
+      catch: (error) => new AudioDeviceError({
+        cause: String(error),
+        operation: 'requestPermission',
+        timestamp: new Date()
+      })
+    })
+
   return {
     getAudioDevices: () =>
       Effect.gen(function* () {
@@ -135,7 +166,44 @@ const createAudioClientImpl = (): AudioClientInterface => {
         // Update permissions if available (don't fail if not supported)
         yield* updatePermissions()
         
-        const devices = yield* Effect.tryPromise({
+        // First attempt: try to enumerate devices
+        console.info('🎧 AudioClient: Attempting device enumeration...')
+        const initialDevices = yield* Effect.tryPromise({
+          try: async () => {
+            const devices = await navigator.mediaDevices.enumerateDevices()
+            return devices.filter(device => device.kind === 'audioinput')
+          },
+          catch: (error) => new AudioDeviceError({
+            cause: String(error),
+            operation: 'enumerate',
+            timestamp: new Date()
+          })
+        })
+        
+        // Check if device labels are available (indicates permission granted)
+        const hasLabels = initialDevices.some(device => device.label && device.label.trim() !== '')
+        
+        if (hasLabels) {
+          // We already have permission, return devices with labels
+          console.info('🎧 AudioClient: Device labels available, permission already granted')
+          audioAdapter.setAvailableDevices(initialDevices)
+          return initialDevices
+        }
+        
+        // No labels means no permission - request it
+        console.info('🎧 AudioClient: No device labels found, requesting microphone permission...')
+        const permissionGranted = yield* requestMicrophonePermission()
+        
+        if (!permissionGranted) {
+          // Permission denied - return devices without labels (best we can do)
+          console.warn('🎧 AudioClient: Permission denied, returning devices without labels')
+          audioAdapter.setAvailableDevices(initialDevices)
+          return initialDevices
+        }
+        
+        // Permission granted - enumerate again to get labels
+        console.info('🎧 AudioClient: Permission granted, re-enumerating devices...')
+        const devicesWithLabels = yield* Effect.tryPromise({
           try: async () => {
             const devices = await navigator.mediaDevices.enumerateDevices()
             const audioInputs = devices.filter(device => device.kind === 'audioinput')
@@ -149,7 +217,7 @@ const createAudioClientImpl = (): AudioClientInterface => {
           })
         })
         
-        return devices
+        return devicesWithLabels
       }),
 
     selectDevice: (deviceId: string) =>

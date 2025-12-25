@@ -57,7 +57,7 @@ export default function Landing() {
         service.announceRoom(
           data.name, 
           data.dj, 
-          userAdapter.getSessionId() ? O.getOrNull(userAdapter.getSessionId())! : 'anonymous',
+          O.getOrElse(userAdapter.getSessionId(), () => 'anonymous'),
           `${data.dj}'s room`,
           []
         )

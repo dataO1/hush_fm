@@ -18,6 +18,7 @@ import { LobbyService, LobbyServiceLive } from './services/application/LobbyServ
 import { WebSocketClientService, WebSocketClientServiceLive } from './services/infrastructure/WebSocketClient'
 import { MediaSoupClient, MediaSoupClientLive } from './services/infrastructure/MediaSoupClient'
 import { AudioClient, AudioClientLive } from './services/infrastructure/AudioClient'
+import { User } from './services/domain/User'
 
 // Create the complete application layer with all services and adapters
 const AppLayer = Layer.mergeAll(
@@ -117,11 +118,28 @@ export const useAudioClient = () => useServices().audioClient
 export const useRuntime = () => useServices().runtime
 
 function AppContent() {
-  // SolidJS 2025: No lifecycle service needed anymore
+  // Get services for initialization
+  const runtime = useRuntime()
+  const userAdapter = useUserAdapter()
+
+  // Initialize session ID on app mount
   onMount(async () => {
     try {
       console.info('🚀 Initializing HushFM app with SolidJS 2025 + Effect-TS architecture...')
-      console.info('📱 User session will be initialized on demand')
+      
+      // Check if session already exists
+      if (userAdapter.hasSession()) {
+        console.info('ℹ️ Session already exists, skipping initialization')
+      } else {
+        // Initialize user session with browser fingerprint
+        console.info('🔐 Initializing user session...')
+        const sessionComputation = await runtime.runPromise(User.computeSessionId())
+        
+        // Set session ID via adapter
+        userAdapter.setSessionId(sessionComputation.sessionId)
+        console.info('✅ User session initialized:', sessionComputation.sessionId)
+      }
+      
       console.info('✅ App initialization complete')
     } catch (error) {
       console.error('❌ Failed to initialize app:', error)

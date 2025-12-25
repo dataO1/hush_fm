@@ -17,11 +17,12 @@ import type { LobbyRoomInfoType } from '../../domain/schemas/lobby.schema'
 import { LobbyRoomInfo } from '../../domain/schemas/lobby.schema'
 import { config } from '../../config'
 
-// Import lobby command schemas for .make() construction
+// Import lobby command schemas for .make() construction and event enums
 import { 
   AnnounceRoomCommandSchema, 
   RequestJoinCommandSchema, 
-  RefreshRoomsCommandSchema 
+  RefreshRoomsCommandSchema,
+  WEBSOCKET_LOBBY_EVENT_TYPES
 } from '../../domain/schemas/shared/websocket.schema'
 
 // Import only adapters via Context.Tag
@@ -204,7 +205,7 @@ const LobbyServiceImpl = {
         djName,
         sessionId,
         description: description ? O.some(description) : O.none(),
-        tags: tags || []
+        tags: (tags && tags.length > 0) ? O.some(tags) : O.none()
       })).pipe(
         Effect.mapError((error) => new LobbyServiceError(
           `Failed to send announce room command: ${error.cause}`,
@@ -213,8 +214,8 @@ const LobbyServiceImpl = {
         ))
       )
 
-      // Wait for room announced event
-      const result = yield* wsClient.waitForLobbyEvent('roomAnnounced').pipe(
+      // Wait for room announced event on lobby WebSocket connection
+      const result = yield* wsClient.waitForLobbyEvent(WEBSOCKET_LOBBY_EVENT_TYPES.ROOM_ANNOUNCED).pipe(
         Effect.mapError((error) => new LobbyServiceError(
           `Failed to receive room announced event: ${error.cause}`,
           'announceRoom',
@@ -283,7 +284,7 @@ const LobbyServiceImpl = {
       )
 
       // Wait for join approved event
-      const result = yield* wsClient.waitForLobbyEvent('joinApproved').pipe(
+      const result = yield* wsClient.waitForLobbyEvent(WEBSOCKET_LOBBY_EVENT_TYPES.JOIN_APPROVED).pipe(
         Effect.mapError((error) => new LobbyServiceError(
           `Failed to receive join approved event: ${error.cause}`,
           'requestJoinRoom',

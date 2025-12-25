@@ -26,7 +26,7 @@ import { WebSocketClientService } from '../infrastructure/WebSocketClient'
 import { MediaSoupClient } from '../infrastructure/MediaSoupClient'
 import { AudioClient } from '../infrastructure/AudioClient'
 
-// Import WebSocket command schemas for S.make construction
+// Import WebSocket command schemas for S.make construction and event enums
 import { 
   InitRoomCommandSchema, 
   RequestDjTransportCommandSchema, 
@@ -36,7 +36,9 @@ import {
   InitListenerCommandSchema,
   ConnectListenerTransportCommandSchema,
   RequestConsumerCommandSchema,
-  ResumeConsumerCommandSchema
+  ResumeConsumerCommandSchema,
+  WEBSOCKET_DJ_EVENT_TYPES,
+  WEBSOCKET_LISTENER_EVENT_TYPES
 } from '../../domain/schemas/shared/websocket.schema'
 
 // Import domain schemas and types
@@ -98,14 +100,14 @@ const createUserServiceImpl = () => {
 
           // 2. Initialize room and get RTP capabilities
           yield* wsClient.sendDJCommand(InitRoomCommandSchema.make({ roomId }))
-          const rtpCapabilitiesEvent = yield* wsClient.waitForDJEvent('roomInitialized')
+          const rtpCapabilitiesEvent = yield* wsClient.waitForDJEvent(WEBSOCKET_DJ_EVENT_TYPES.ROOM_INITIALIZED)
 
           // 3. Initialize MediaSoup device
           yield* mediaSoupClient.initDevice(rtpCapabilitiesEvent.rtpCapabilities)
 
           // 4. Request transport from server
           yield* wsClient.sendDJCommand(RequestDjTransportCommandSchema.make({}))
-          const transportEvent = yield* wsClient.waitForDJEvent('djTransportReady')
+          const transportEvent = yield* wsClient.waitForDJEvent(WEBSOCKET_DJ_EVENT_TYPES.DJ_TRANSPORT_READY)
 
           // 5. Create send transport
           const transport = yield* mediaSoupClient.createSendTransport(transportEvent.transportOptions)
@@ -115,7 +117,7 @@ const createUserServiceImpl = () => {
             transportId: O.some(transport.id),
             dtlsParameters: transportEvent.transportOptions.dtlsParameters
           }))
-          yield* wsClient.waitForDJEvent('transportConnected')
+          yield* wsClient.waitForDJEvent(WEBSOCKET_DJ_EVENT_TYPES.TRANSPORT_CONNECTED)
           yield* mediaSoupClient.connectActiveTransport(transportEvent.transportOptions.dtlsParameters)
 
           // 7. Get audio stream if deviceId provided
@@ -148,7 +150,7 @@ const createUserServiceImpl = () => {
           yield* wsClient.sendDJCommand(ProduceCommandSchema.make({
             rtpParameters: producer.rtpParameters
           }))
-          const producerEvent = yield* wsClient.waitForDJEvent('producerCreated')
+          const producerEvent = yield* wsClient.waitForDJEvent(WEBSOCKET_DJ_EVENT_TYPES.PRODUCER_CREATED)
 
           return {
             roomId: producerEvent.roomId,
@@ -231,7 +233,7 @@ const createUserServiceImpl = () => {
 
         // 2. Initialize listener
         yield* wsClient.sendListenerCommand(InitListenerCommandSchema.make({}))
-        const joinReadyEvent = yield* wsClient.waitForListenerEvent('joinReady')
+        const joinReadyEvent = yield* wsClient.waitForListenerEvent(WEBSOCKET_LISTENER_EVENT_TYPES.JOIN_READY)
 
           // 3. Initialize MediaSoup device
           yield* mediaSoupClient.initDevice(joinReadyEvent.rtpCapabilities)
@@ -244,7 +246,7 @@ const createUserServiceImpl = () => {
             transportId: O.some(transport.id),
             dtlsParameters: joinReadyEvent.transportOptions.dtlsParameters
           }))
-          yield* wsClient.waitForListenerEvent('transportConnected')
+          yield* wsClient.waitForListenerEvent(WEBSOCKET_LISTENER_EVENT_TYPES.TRANSPORT_CONNECTED)
           yield* mediaSoupClient.connectActiveTransport(joinReadyEvent.transportOptions.dtlsParameters)
 
           // 6. Request consumer
@@ -252,7 +254,7 @@ const createUserServiceImpl = () => {
           yield* wsClient.sendListenerCommand(RequestConsumerCommandSchema.make({
             rtpCapabilities
           }))
-          const consumerEvent = yield* wsClient.waitForListenerEvent('consumerCreated')
+          const consumerEvent = yield* wsClient.waitForListenerEvent(WEBSOCKET_LISTENER_EVENT_TYPES.CONSUMER_CREATED)
 
           // 7. Create consumer (consumerParameters already has all required fields from transform)
           const consumer = yield* mediaSoupClient.createConsumer(consumerEvent.consumerParameters)
