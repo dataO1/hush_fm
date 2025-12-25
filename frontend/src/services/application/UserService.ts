@@ -26,7 +26,7 @@ import { WebSocketClientService } from '../infrastructure/WebSocketClient'
 import { MediaSoupClient } from '../infrastructure/MediaSoupClient'
 import { AudioClient } from '../infrastructure/AudioClient'
 
-// Import WebSocket command schemas for S.make construction and event enums
+// Import WebSocket command schemas for S.make construction and event types
 import { 
   InitRoomCommandSchema, 
   RequestDjTransportCommandSchema, 
@@ -37,8 +37,13 @@ import {
   ConnectListenerTransportCommandSchema,
   RequestConsumerCommandSchema,
   ResumeConsumerCommandSchema,
-  WEBSOCKET_DJ_EVENT_TYPES,
-  WEBSOCKET_LISTENER_EVENT_TYPES
+  // Event types
+  type RoomInitializedEvent,
+  type DjTransportReadyEvent,
+  type TransportConnectedEvent,
+  type ProducerCreatedEvent,
+  type JoinReadyEvent,
+  type ConsumerCreatedEvent
 } from '../../domain/schemas/shared/websocket.schema'
 
 // Import domain schemas and types
@@ -127,9 +132,12 @@ const createUserServiceImpl = () => {
 
         try {
           // 3. Initialize room and get RTP capabilities (WebSocket already connected from DJRoom mount)
-          console.info('📡 UserService: Initializing room...')
-          yield* wsClient.sendDJCommand(InitRoomCommandSchema.make({ roomId }))
-          const rtpCapabilitiesEvent = yield* wsClient.waitForDJEvent(WEBSOCKET_DJ_EVENT_TYPES.ROOM_INITIALIZED)
+          console.info('📡 UserService: Initializing room and waiting for capabilities...')
+          
+          // Send command and wait for response in one call
+          const rtpCapabilitiesEvent = yield* wsClient.sendCommand<RoomInitializedEvent>(
+            InitRoomCommandSchema.make({ roomId })
+          )
 
           // 4. Initialize MediaSoup device
           console.info('🎛️ UserService: Initializing MediaSoup device...')
@@ -137,32 +145,37 @@ const createUserServiceImpl = () => {
 
           // 5. Request transport from server
           console.info('🚛 UserService: Requesting transport...')
-          yield* wsClient.sendDJCommand(RequestDjTransportCommandSchema.make({}))
-          const transportEvent = yield* wsClient.waitForDJEvent(WEBSOCKET_DJ_EVENT_TYPES.DJ_TRANSPORT_READY)
+          
+          // Send command and wait for response in one call
+          const transportEvent = yield* wsClient.sendCommand<DjTransportReadyEvent>(
+            RequestDjTransportCommandSchema.make({})
+          )
 
           // 6. Create send transport WITH event handlers
           console.info('🔧 UserService: Creating send transport with event handlers...')
           const transport = yield* mediaSoupClient.createSendTransport(transportEvent.transportOptions, {
             onConnect: async (dtlsParameters) => {
-              console.info('🔗 UserService: Transport connect event - sending DTLS params to server')
+              console.info('🔗 UserService: Transport connect event - sending DTLS params')
+              
+              // Send command and wait for response in one call
               await Effect.runPromise(
-                wsClient.sendDJCommand(ConnectDjTransportCommandSchema.make({
-                  transportId: O.some(transport.id),
-                  dtlsParameters
-                }))
+                wsClient.sendCommand<TransportConnectedEvent>(
+                  ConnectDjTransportCommandSchema.make({
+                    transportId: O.some(transport.id),
+                    dtlsParameters
+                  })
+                )
               )
-              await Effect.runPromise(wsClient.waitForDJEvent(WEBSOCKET_DJ_EVENT_TYPES.TRANSPORT_CONNECTED))
               console.info('✅ UserService: Transport connected successfully')
             },
             onProduce: async (rtpParameters) => {
-              console.info('🎤 UserService: Transport produce event - sending RTP params to server')
-              await Effect.runPromise(
-                wsClient.sendDJCommand(ProduceCommandSchema.make({
-                  rtpParameters
-                }))
-              )
+              console.info('🎤 UserService: Transport produce event - sending RTP params')
+              
+              // Send command and wait for response in one call
               const producerEvent = await Effect.runPromise(
-                wsClient.waitForDJEvent(WEBSOCKET_DJ_EVENT_TYPES.PRODUCER_CREATED)
+                wsClient.sendCommand<ProducerCreatedEvent>(
+                  ProduceCommandSchema.make({ rtpParameters })
+                )
               )
               console.info('✅ UserService: Producer created successfully', { producerId: producerEvent.producerId })
               return producerEvent.producerId
@@ -254,8 +267,12 @@ const createUserServiceImpl = () => {
         yield* wsClient.connectRoom(listenerWebSocketUrl)
 
         // 2. Initialize listener
-        yield* wsClient.sendListenerCommand(InitListenerCommandSchema.make({}))
-        const joinReadyEvent = yield* wsClient.waitForListenerEvent(WEBSOCKET_LISTENER_EVENT_TYPES.JOIN_READY)
+        console.info('🔗 UserService: Initializing listener...')
+        
+        // Send command and wait for response in one call
+        const joinReadyEvent = yield* wsClient.sendCommand<JoinReadyEvent>(
+          InitListenerCommandSchema.make({})
+        )
 
           // 3. Initialize MediaSoup device
           yield* mediaSoupClient.initDevice(joinReadyEvent.rtpCapabilities)
@@ -264,19 +281,25 @@ const createUserServiceImpl = () => {
           const transport = yield* mediaSoupClient.createReceiveTransport(joinReadyEvent.transportOptions)
 
           // 5. Connect transport
-          yield* wsClient.sendListenerCommand(ConnectListenerTransportCommandSchema.make({
-            transportId: O.some(transport.id),
-            dtlsParameters: joinReadyEvent.transportOptions.dtlsParameters
-          }))
-          yield* wsClient.waitForListenerEvent(WEBSOCKET_LISTENER_EVENT_TYPES.TRANSPORT_CONNECTED)
+          console.info('🔗 UserService: Connecting transport...')
+          
+          // Send command and wait for response in one call
+          yield* wsClient.sendCommand<TransportConnectedEvent>(
+            ConnectListenerTransportCommandSchema.make({
+              transportId: O.some(transport.id),
+              dtlsParameters: joinReadyEvent.transportOptions.dtlsParameters
+            })
+          )
           yield* mediaSoupClient.connectActiveTransport(joinReadyEvent.transportOptions.dtlsParameters)
 
           // 6. Request consumer
+          console.info('🎧 UserService: Requesting consumer...')
           const rtpCapabilities = yield* mediaSoupClient.getDeviceCapabilities()
-          yield* wsClient.sendListenerCommand(RequestConsumerCommandSchema.make({
-            rtpCapabilities
-          }))
-          const consumerEvent = yield* wsClient.waitForListenerEvent(WEBSOCKET_LISTENER_EVENT_TYPES.CONSUMER_CREATED)
+          
+          // Send command and wait for response in one call
+          const consumerEvent = yield* wsClient.sendCommand<ConsumerCreatedEvent>(
+            RequestConsumerCommandSchema.make({ rtpCapabilities })
+          )
 
           // 7. Create consumer (consumerParameters already has all required fields from transform)
           const consumer = yield* mediaSoupClient.createConsumer(consumerEvent.consumerParameters)
