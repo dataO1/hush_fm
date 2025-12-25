@@ -16,16 +16,18 @@ import { AudioAdapter, AudioAdapterLive } from './stores/audio'
 export { UserServiceLive } from './services/application/UserService'
 export { LobbyServiceLive } from './services/application/LobbyService'
 export { MediaSoupClientLive } from './services/infrastructure/MediaSoupClient'
-export { AudioClientLive } from './services/infrastructure/AudioClient'
 import { User } from './services/domain/User'
+import { AudioClient, AudioClientLive } from './services/infrastructure/AudioClient'
 
-// Global Application Layer - Only true singletons (store adapters)
+// Global Application Layer - Only true singletons (store adapters + audio client)
 const GlobalAppLayer = Layer.mergeAll(
   // Store Adapters (global singletons - shared state)
   ConnectionAdapterLive,
   LobbyAdapterLive,
   UserAdapterLive,
-  AudioAdapterLive
+  AudioAdapterLive,
+  // Audio Client (global singleton - shared audio playback)
+  AudioClientLive
 )
 
 // Create managed runtime with global dependencies only
@@ -33,19 +35,22 @@ const globalRuntime = ManagedRuntime.make(GlobalAppLayer)
 
 // Feature-specific layers are now exported from individual service files
 
-// Get adapter types from Context.Tag (only global adapters)
+// Get adapter types from Context.Tag (global adapters + audio client)
 type ConnectionAdapterService = Context.Tag.Service<ConnectionAdapter>
 type LobbyAdapterService = Context.Tag.Service<LobbyAdapter>
 type UserAdapterService = Context.Tag.Service<UserAdapter>
 type AudioAdapterService = Context.Tag.Service<AudioAdapter>
+type AudioClientService = Context.Tag.Service<AudioClient>
 
-// Global service context types (only adapters)
+// Global service context types (adapters + audio client)
 interface GlobalServiceContextValue {
   // Adapters (globally available)
   connectionAdapter: ConnectionAdapterService
   lobbyAdapter: LobbyAdapterService
   userAdapter: UserAdapterService
   audioAdapter: AudioAdapterService
+  // Audio Client (globally available)
+  audioClient: AudioClientService
   // Global Runtime for Effect execution
   globalRuntime: typeof globalRuntime
 }
@@ -62,6 +67,8 @@ const GlobalServiceProvider: ParentComponent = (props) => {
     lobbyAdapter: globalRuntime.runSync(LobbyAdapter),
     userAdapter: globalRuntime.runSync(UserAdapter),
     audioAdapter: globalRuntime.runSync(AudioAdapter),
+    // Audio Client (globally available)
+    audioClient: globalRuntime.runSync(AudioClient),
     // Global Runtime
     globalRuntime
   }
@@ -82,11 +89,12 @@ export const useGlobalServices = () => {
   return context
 }
 
-// Individual hooks for global adapters only
+// Individual hooks for global adapters and audio client
 export const useConnectionAdapter = () => useGlobalServices().connectionAdapter
 export const useLobbyAdapter = () => useGlobalServices().lobbyAdapter
 export const useUserAdapter = () => useGlobalServices().userAdapter
 export const useAudioAdapter = () => useGlobalServices().audioAdapter
+export const useAudioClient = () => useGlobalServices().audioClient
 export const useGlobalRuntime = () => useGlobalServices().globalRuntime
 
 // Legacy hook for backward compatibility

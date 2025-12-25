@@ -24,7 +24,7 @@ import { ConnectionAdapter, UserAdapter, AudioAdapter } from '../../stores'
 // Import only infrastructure via Context.Tag
 import { UserWebSocket, createWebSocketClientService } from '../infrastructure/WebSocketClient'
 import { MediaSoupClient, MediaSoupClientLive } from '../infrastructure/MediaSoupClient'
-import { AudioClient, AudioClientLive } from '../infrastructure/AudioClient'
+import { AudioClient } from '../infrastructure/AudioClient'
 import { ConnectionAdapterLive } from '../../stores/connection/connection.adapter'
 
 // Import WebSocket command schemas for S.make construction and event types
@@ -577,7 +577,8 @@ export const UserFeatureLayer = Layer.scoped(
           Effect.provideService(UserAdapter, userAdapter),
           Effect.provideService(UserWebSocket, userWebSocket),
           Effect.provideService(MediaSoupClient, mediaSoupClient),
-          Effect.provideService(AudioClient, audioClient)
+          Effect.provideService(AudioClient, audioClient),
+          Effect.provideService(AudioAdapter, audioAdapter)
         ),
       closeDJRoom: () =>
         serviceImpl.closeDJRoom().pipe(
@@ -593,6 +594,7 @@ export const UserFeatureLayer = Layer.scoped(
           Effect.provideService(UserWebSocket, userWebSocket),
           Effect.provideService(MediaSoupClient, mediaSoupClient),
           Effect.provideService(AudioClient, audioClient),
+          Effect.provideService(AudioAdapter, audioAdapter),
           Effect.provideService(ConnectionAdapter, connectionAdapter)
         ),
       leaveListenerRoom: (listenerId: string) =>
@@ -600,7 +602,8 @@ export const UserFeatureLayer = Layer.scoped(
           Effect.provideService(ConnectionAdapter, connectionAdapter),
           Effect.provideService(UserWebSocket, userWebSocket),
           Effect.provideService(MediaSoupClient, mediaSoupClient),
-          Effect.provideService(AudioClient, audioClient)
+          Effect.provideService(AudioClient, audioClient),
+          Effect.provideService(AudioAdapter, audioAdapter)
         ),
       connect: (url: string) =>
         serviceImpl.connect(url).pipe(
@@ -625,11 +628,11 @@ export const UserFeatureLayer = Layer.scoped(
  *
  * Combines UserService with all its dependencies.
  * Use this in global layer compositions.
+ * Note: AudioClient is expected to be provided from global layer.
  */
 export const UserServiceLive = UserFeatureLayer.pipe(
   Layer.provide(Layer.mergeAll(
     Layer.scoped(UserWebSocket, createWebSocketClientService),
-    MediaSoupClientLive.pipe(Layer.provide(ConnectionAdapterLive)),
-    AudioClientLive
+    MediaSoupClientLive.pipe(Layer.provide(ConnectionAdapterLive))
   ))
 )

@@ -1,9 +1,9 @@
 import { Show, createResource, createSignal, onCleanup, createContext, useContext, ParentComponent } from 'solid-js'
 import { useParams, useNavigate, useLocation } from '@solidjs/router'
 import { Option, Effect, Context, ManagedRuntime, Layer } from 'effect'
-import { useConnectionAdapter, useAudioAdapter, useUserAdapter } from '../../App'
+import { useConnectionAdapter, useAudioAdapter, useUserAdapter, useAudioClient } from '../../App'
 import { UserService, UserServiceLive } from '../../services/application/UserService'
-import { AudioClient, AudioClientLive } from '../../services/infrastructure/AudioClient'
+import { AudioClient } from '../../services/infrastructure/AudioClient'
 import { AudioAdapter } from '../../stores/audio'
 import { UserAdapter, ConnectionAdapter } from '../../stores'
 import { WebrtcConnectionState } from '../../domain/schemas/connection.schema'
@@ -15,7 +15,6 @@ import { ConnectionStatusGroup } from '../components/streaming/ConnectionStatusG
 // User Feature Service Context (for Listener operations) - reuse same context as DJRoom
 interface UserFeatureContextValue {
   userService: Context.Tag.Service<UserService>
-  audioClient: Context.Tag.Service<AudioClient>
 }
 
 const UserFeatureContext = createContext<UserFeatureContextValue>()
@@ -26,26 +25,21 @@ const UserFeatureProvider: ParentComponent = (props) => {
   const userAdapter = useUserAdapter()
   const connectionAdapter = useConnectionAdapter()
   const audioAdapter = useAudioAdapter()
+  const audioClient = useAudioClient()
   
   const userServiceRuntime = ManagedRuntime.make(
     UserServiceLive.pipe(
       Layer.provide(Layer.succeed(UserAdapter, userAdapter)),
       Layer.provide(Layer.succeed(ConnectionAdapter, connectionAdapter)),
-      Layer.provide(Layer.succeed(AudioAdapter, audioAdapter))
-    )
-  )
-  const audioClientRuntime = ManagedRuntime.make(
-    AudioClientLive.pipe(
-      Layer.provide(Layer.succeed(AudioAdapter, audioAdapter))
+      Layer.provide(Layer.succeed(AudioAdapter, audioAdapter)),
+      Layer.provide(Layer.succeed(AudioClient, audioClient))
     )
   )
   
   const userService = userServiceRuntime.runSync(UserService)
-  const audioClient = audioClientRuntime.runSync(AudioClient)
   
   const services: UserFeatureContextValue = {
-    userService,
-    audioClient
+    userService
   }
   
   // Cleanup on unmount
@@ -54,7 +48,6 @@ const UserFeatureProvider: ParentComponent = (props) => {
     try {
       await userService.disconnect().pipe(Effect.runPromise)
       await userServiceRuntime.dispose()
-      await audioClientRuntime.dispose()
     } catch (error) {
       console.warn('⚠️ UserFeatureProvider: Error during cleanup:', error)
     }
@@ -86,7 +79,10 @@ function ListenerRoomContent() {
   const audioAdapter = useAudioAdapter()
   
   // Get scoped user feature services
-  const { userService, audioClient } = useUserFeature()
+  const { userService } = useUserFeature()
+  
+  // Get global audio client
+  const audioClient = useAudioClient()
 
   // Get data from navigation state (from Landing.tsx)
   const navigationState = location.state as {

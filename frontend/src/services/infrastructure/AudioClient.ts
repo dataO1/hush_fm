@@ -1,6 +1,6 @@
 /**
  * Audio Infrastructure Client
- * 
+ *
  * Infrastructure service that manages MediaStream and audio devices.
  * State is managed via AudioAdapter/Store.
  */
@@ -8,7 +8,7 @@
 import { Effect, Layer, Option as O, Context, pipe } from 'effect'
 import { createSignal } from 'solid-js'
 import { AudioAdapter } from '../../stores'
-import { 
+import {
   AudioDeviceError,
   AudioTrackError,
   AudioPlaybackError,
@@ -17,18 +17,18 @@ import {
 
 /**
  * Audio Client Interface
- * 
+ *
  * Infrastructure layer for audio device and stream management.
  * State is persisted in AudioAdapter/Store.
  */
 interface AudioClientInterface {
   // Device Management
   readonly getAudioDevices: () => Effect.Effect<
-    ReadonlyArray<MediaDeviceInfo>, 
-    AudioServiceError, 
+    ReadonlyArray<MediaDeviceInfo>,
+    AudioServiceError,
     AudioAdapter
   >
-  
+
   // Device Selection (for DJ mic input)
   // Updates state in AudioAdapter
   readonly selectDevice: (deviceId: string) => Effect.Effect<
@@ -36,7 +36,7 @@ interface AudioClientInterface {
     AudioServiceError,
     AudioAdapter
   >
-  
+
   // Remote Stream (for listener playback)
   // Updates state in AudioAdapter
   readonly connectRemoteStream: (stream: MediaStream) => Effect.Effect<
@@ -44,7 +44,7 @@ interface AudioClientInterface {
     AudioPlaybackError,
     AudioAdapter
   >
-  
+
   // Stop any active stream
   // Updates state in AudioAdapter
   readonly stopStream: () => Effect.Effect<
@@ -52,7 +52,7 @@ interface AudioClientInterface {
     never,
     AudioAdapter
   >
-  
+
   // Toggle playing state (pause/resume) without disconnecting
   // Updates state in AudioAdapter
   readonly toggleAudioStreamPlaying: (pause: boolean) => Effect.Effect<
@@ -60,7 +60,7 @@ interface AudioClientInterface {
     AudioServiceError,
     AudioAdapter
   >
-  
+
   // Reactive stream signal (for UI components)
   readonly currentStream: () => O.Option<MediaStream>
 }
@@ -79,7 +79,7 @@ export class AudioClient extends Context.Tag("@app/infrastructure/AudioClient")<
 const createAudioClientImpl = (): AudioClientInterface => {
   // Internal MediaStream reference - now reactive with SolidJS signal
   const [currentStream, setCurrentStream] = createSignal<O.Option<MediaStream>>(O.none())
-  
+
   // Internal audio element for playback (listener mode)
   let audioElement: O.Option<HTMLAudioElement> = O.none()
 
@@ -95,7 +95,7 @@ const createAudioClientImpl = (): AudioClientInterface => {
           }
         })
       )
-      
+
       pipe(
         audioElement,
         O.match({
@@ -106,7 +106,7 @@ const createAudioClientImpl = (): AudioClientInterface => {
           }
         })
       )
-      
+
       setCurrentStream(O.none())
     })
 
@@ -114,7 +114,7 @@ const createAudioClientImpl = (): AudioClientInterface => {
   const updatePermissions = (): Effect.Effect<void, never, AudioAdapter> =>
     Effect.gen(function* () {
       const audioAdapter = yield* AudioAdapter
-      
+
       const state: PermissionState = yield* Effect.promise(async () => {
         try {
           const permission = await navigator.permissions.query({ name: 'microphone' as PermissionName })
@@ -123,7 +123,7 @@ const createAudioClientImpl = (): AudioClientInterface => {
           return 'prompt' as PermissionState // Permissions API not supported, default to prompt
         }
       })
-      
+
       audioAdapter.setPermission(state)
     })
 
@@ -133,17 +133,17 @@ const createAudioClientImpl = (): AudioClientInterface => {
       try: async () => {
         try {
           // Request minimal audio stream to get permission
-          const stream = await navigator.mediaDevices.getUserMedia({ 
-            audio: { 
+          const stream = await navigator.mediaDevices.getUserMedia({
+            audio: {
               echoCancellation: false,
               noiseSuppression: false,
-              autoGainControl: false 
-            } 
+              autoGainControl: false
+            }
           })
-          
+
           // Immediately stop the temporary stream
           stream.getTracks().forEach(track => track.stop())
-          
+
           console.info('🎧 AudioClient: Microphone permission granted for device enumeration')
           return true
         } catch (error) {
@@ -162,10 +162,10 @@ const createAudioClientImpl = (): AudioClientInterface => {
     getAudioDevices: () =>
       Effect.gen(function* () {
         const audioAdapter = yield* AudioAdapter
-        
+
         // Update permissions if available (don't fail if not supported)
         yield* updatePermissions()
-        
+
         // First attempt: try to enumerate devices
         console.info('🎧 AudioClient: Attempting device enumeration...')
         const initialDevices = yield* Effect.tryPromise({
@@ -179,28 +179,28 @@ const createAudioClientImpl = (): AudioClientInterface => {
             timestamp: new Date()
           })
         })
-        
+
         // Check if device labels are available (indicates permission granted)
         const hasLabels = initialDevices.some(device => device.label && device.label.trim() !== '')
-        
+
         if (hasLabels) {
           // We already have permission, return devices with labels
           console.info('🎧 AudioClient: Device labels available, permission already granted')
           audioAdapter.setAvailableDevices(initialDevices)
           return initialDevices
         }
-        
+
         // No labels means no permission - request it
         console.info('🎧 AudioClient: No device labels found, requesting microphone permission...')
         const permissionGranted = yield* requestMicrophonePermission()
-        
+
         if (!permissionGranted) {
           // Permission denied - return devices without labels (best we can do)
           console.warn('🎧 AudioClient: Permission denied, returning devices without labels')
           audioAdapter.setAvailableDevices(initialDevices)
           return initialDevices
         }
-        
+
         // Permission granted - enumerate again to get labels
         console.info('🎧 AudioClient: Permission granted, re-enumerating devices...')
         const devicesWithLabels = yield* Effect.tryPromise({
@@ -216,46 +216,46 @@ const createAudioClientImpl = (): AudioClientInterface => {
             timestamp: new Date()
           })
         })
-        
+
         return devicesWithLabels
       }),
 
     selectDevice: (deviceId: string) =>
       Effect.gen(function* () {
         const audioAdapter = yield* AudioAdapter
-        
+
         // Stop any existing stream
         yield* stopCurrentStream()
-        
+
         // Update permissions if available
         yield* updatePermissions()
-        
+
         // Check stored constraints from adapter
         const storedConstraints = audioAdapter.getMediaTrackConstraints()
-        
+
         // Build constraints, preferring stored ones
         const audioConstraints = pipe(
           storedConstraints,
           O.getOrElse(() => ({
             deviceId: { exact: deviceId },
-            echoCancellation: true,
-            noiseSuppression: true,
-            autoGainControl: true
+            echoCancellation: false,
+            noiseSuppression: false,
+            autoGainControl: false
           }))
         )
-        
+
         const constraints: MediaStreamConstraints = {
           audio: audioConstraints,
           video: false
         }
-        
+
         const newStream = yield* Effect.tryPromise({
           try: async () => {
             const stream = await navigator.mediaDevices.getUserMedia(constraints)
-            
+
             // Update internal reference
             setCurrentStream(O.some(stream))
-            
+
             // Update state in adapter
             audioAdapter.setStreamState({
               playing: true,
@@ -266,7 +266,7 @@ const createAudioClientImpl = (): AudioClientInterface => {
               requiresUserGesture: false,
               permission: audioAdapter.getPermission()
             })
-            
+
             return stream
           },
           catch: (error) => new AudioTrackError({
@@ -275,17 +275,17 @@ const createAudioClientImpl = (): AudioClientInterface => {
             timestamp: new Date()
           })
         })
-        
+
         return newStream
       }),
 
     connectRemoteStream: (remoteStream: MediaStream) =>
       Effect.gen(function* () {
         const audioAdapter = yield* AudioAdapter
-        
+
         // Stop any existing stream
         yield* stopCurrentStream()
-        
+
         // Create audio element for playback if not exists
         audioElement = pipe(
           audioElement,
@@ -295,15 +295,15 @@ const createAudioClientImpl = (): AudioClientInterface => {
             return O.some(elem)
           })
         )
-        
+
         const elem = O.getOrThrow(audioElement)
         elem.srcObject = remoteStream
-        
+
         // Try to play with proper error handling
         yield* Effect.gen(function* () {
           try {
             yield* Effect.promise(() => elem.play())
-            
+
             // Update internal reference and state - successful playback
             setCurrentStream(O.some(remoteStream))
             audioAdapter.setStreamState({
@@ -315,14 +315,14 @@ const createAudioClientImpl = (): AudioClientInterface => {
               requiresUserGesture: false,
               permission: audioAdapter.getPermission()
             })
-            
+
             return
           } catch (error) {
             const errorStr = String(error)
-            const isAutoplayBlocked = errorStr.includes('play()') || 
+            const isAutoplayBlocked = errorStr.includes('play()') ||
                                      errorStr.includes('user gesture') ||
                                      errorStr.includes('Autoplay')
-            
+
             // Update internal reference and state
             setCurrentStream(O.some(remoteStream))
             audioAdapter.setStreamState({
@@ -334,7 +334,7 @@ const createAudioClientImpl = (): AudioClientInterface => {
               requiresUserGesture: isAutoplayBlocked,
               permission: audioAdapter.getPermission()
             })
-            
+
             // Only fail on non-autoplay errors
             if (!isAutoplayBlocked) {
               return yield* Effect.fail(new AudioPlaybackError({
@@ -351,25 +351,25 @@ const createAudioClientImpl = (): AudioClientInterface => {
     toggleAudioStreamPlaying: (pause: boolean) =>
       Effect.gen(function* () {
         const audioAdapter = yield* AudioAdapter
-        
+
         // Only for DJ mode - pause/resume MediaStream tracks
         yield* pipe(
           currentStream(),
           O.match({
-            onNone: () => 
+            onNone: () =>
               Effect.fail(new AudioPlaybackError({
                 cause: 'No active audio stream to toggle',
                 operation: pause ? 'pause' : 'play',
                 autoplayBlocked: false,
                 timestamp: new Date()
               })),
-            onSome: (stream) => 
+            onSome: (stream) =>
               Effect.sync(() => {
                 // Enable/disable audio tracks
                 stream.getAudioTracks().forEach(track => {
                   track.enabled = !pause
                 })
-                
+
                 // Update state in adapter
                 audioAdapter.updateStreamState({
                   playing: !pause
@@ -382,7 +382,7 @@ const createAudioClientImpl = (): AudioClientInterface => {
     stopStream: () =>
       Effect.gen(function* () {
         const audioAdapter = yield* AudioAdapter
-        
+
         // Stop MediaStream tracks
         pipe(
           currentStream(),
@@ -394,7 +394,7 @@ const createAudioClientImpl = (): AudioClientInterface => {
           })
         )
         setCurrentStream(O.none())
-        
+
         // Cleanup audio element
         pipe(
           audioElement,
@@ -406,7 +406,7 @@ const createAudioClientImpl = (): AudioClientInterface => {
             }
           })
         )
-        
+
         // Update state in adapter
         audioAdapter.setStreamState({
           playing: false,
@@ -425,7 +425,7 @@ const createAudioClientImpl = (): AudioClientInterface => {
 
 /**
  * Audio Client Layer
- * 
+ *
  * Live implementation that creates the client.
  */
 export const AudioClientLive = Layer.succeed(
