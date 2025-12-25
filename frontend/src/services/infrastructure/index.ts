@@ -8,4 +8,3 @@
 export * from './AudioClient'
 export * from './MediaSoupClient'
 export * from './WebSocketClient'
-export * from './WebRTCService'

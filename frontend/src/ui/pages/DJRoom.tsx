@@ -1,4 +1,4 @@
-import { onCleanup, Show, createSignal, createEffect, createResource, createContext, useContext, ParentComponent } from 'solid-js'
+import { onCleanup, onMount, Show, createSignal, createEffect, createResource, createContext, useContext, ParentComponent } from 'solid-js'
 import { useParams, useNavigate, useLocation } from '@solidjs/router'
 import { Option as O, Effect, Context, ManagedRuntime, Layer } from 'effect'
 import { DeviceSelector } from '../components/controls/DeviceSelector'
@@ -110,10 +110,10 @@ function DJRoomContent() {
     }
   })
 
-  // Connect to DJ WebSocket on mount
-  createEffect(async () => {
+  // Connect to DJ WebSocket once on mount
+  onMount(async () => {
     const djUrl = navigationState.djWebSocketUrl
-    if (djUrl && !connectionAdapter.isRoomConnected()) {
+    if (djUrl && !connectionAdapter.isConnecting() && !connectionAdapter.isRoomConnected()) {
       console.info('🔗 DJRoom: Connecting to DJ WebSocket on mount...', { djUrl })
       
       try {

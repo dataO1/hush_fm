@@ -29,7 +29,7 @@ import { LobbyServiceLive } from './services/application/LobbyService'
  * Following 2025 SolidJS + Effect-TS architecture pattern.
  */
 const InfrastructureLayer = Layer.mergeAll(
-  MediaSoupClientLive,
+  MediaSoupClientLive.pipe(Layer.provide(ConnectionAdapterLive)),
   AudioClientLive
 )
 

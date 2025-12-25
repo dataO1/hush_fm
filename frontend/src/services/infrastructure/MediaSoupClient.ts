@@ -21,6 +21,10 @@ import type {
   ConsumerOptionsType
 } from '../../domain/schemas/shared/mediasoup.schema'
 
+// Import connection state management
+import { ConnectionAdapter } from '../../stores/connection/connection.adapter'
+import { WebrtcConnectionState, TransportError } from '../../domain/schemas/connection.schema'
+
 /**
  * MediaSoup Infrastructure Error
  * Uses Effect Data.TaggedError for proper error handling
@@ -126,12 +130,86 @@ export class MediaSoupClient extends Context.Tag("@app/infrastructure/MediaSoupC
  * MediaSoup Client Implementation
  * Stores MediaSoup resources as private Effect Option fields
  */
-const createMediaSoupClientImpl = (): MediaSoupClientInterface => {
+const createMediaSoupClientImpl = (connectionAdapter: Context.Tag.Service<ConnectionAdapter>): MediaSoupClientInterface => {
   // Private state - single source of truth for MediaSoup resources
   let device = O.none<Device>()
   let activeTransport = O.none<types.Transport>()
   let activeProducer = O.none<types.Producer>()
   let activeConsumer = O.none<types.Consumer>()
+  let connectionTimeoutId = O.none<NodeJS.Timeout>()
+
+  // Helper function to clear connection timeout
+  const clearConnectionTimeout = () => {
+    pipe(
+      connectionTimeoutId,
+      O.match({
+        onNone: () => {},
+        onSome: (timeoutId) => {
+          clearTimeout(timeoutId)
+          connectionTimeoutId = O.none()
+        }
+      })
+    )
+  }
+
+  // Helper function to setup connection timeout
+  const setupConnectionTimeout = () => {
+    clearConnectionTimeout()
+    
+    const timeoutId = setTimeout(() => {
+      // Check actual connection state before setting error
+      const isCurrentlyConnected = connectionAdapter.isConnected()
+      
+      if (!isCurrentlyConnected) {
+        const error = new TransportError({
+          cause: 'WebRTC connection timeout after 30 seconds',
+          operation: 'connect',
+          direction: 'send',
+          timestamp: new Date()
+        })
+        
+        connectionAdapter.setConnectionError(error)
+        connectionAdapter.setWebRTCState(WebrtcConnectionState.DISCONNECTED)
+      }
+    }, 30000)
+    
+    connectionTimeoutId = O.some(timeoutId)
+  }
+
+  // Helper function to handle transport events
+  const handleTransportEvents = (transport: types.Transport) => {
+    // Handle connection state changes
+    transport.on('connectionstatechange', (state) => {
+      console.info('🔄 MediaSoup: Transport connection state changed:', state)
+      
+      switch (state) {
+        case 'connecting':
+          connectionAdapter.setWebRTCState(WebrtcConnectionState.CONNECTING)
+          break
+        case 'connected':
+          clearConnectionTimeout()
+          connectionAdapter.setWebRTCState(WebrtcConnectionState.CONNECTED)
+          connectionAdapter.clearError()
+          break
+        case 'failed':
+        case 'closed':
+          clearConnectionTimeout()
+          connectionAdapter.setWebRTCState(WebrtcConnectionState.DISCONNECTED)
+          break
+        case 'disconnected':
+          connectionAdapter.setWebRTCState(WebrtcConnectionState.DISCONNECTING)
+          break
+      }
+    })
+
+    // Handle ICE gathering state changes
+    transport.on('icegatheringstatechange', (state) => {
+      console.info('🧊 MediaSoup: ICE gathering state changed:', state)
+      if (state === 'complete' && transport.connectionState === 'connected') {
+        connectionAdapter.setWebRTCState(WebrtcConnectionState.CONNECTED)
+      }
+    })
+  }
 
   return {
     /**
@@ -207,13 +285,32 @@ const createMediaSoupClientImpl = (): MediaSoupClientInterface => {
                 if (handlers?.onConnect) {
                   transport.on('connect', ({ dtlsParameters }, callback, errback) => {
                     console.info('🔗 MediaSoup: Transport connect event fired')
-                    handlers.onConnect!(dtlsParameters)
+                    
+                    // Wrap in Effect for proper error handling
+                    const connectEffect = Effect.tryPromise({
+                      try: () => handlers.onConnect!(dtlsParameters),
+                      catch: (error) => new MediaSoupError({
+                        cause: `Transport connect handler failed: ${String(error)}`,
+                        operation: 'connectTransport',
+                        timestamp: new Date()
+                      })
+                    })
+                    
+                    Effect.runPromise(connectEffect)
                       .then(() => {
                         console.info('✅ MediaSoup: Transport connect callback succeeded')
                         callback()
                       })
                       .catch((error) => {
                         console.error('❌ MediaSoup: Transport connect callback failed:', error)
+                        // Update connection state on error
+                        connectionAdapter.setWebRTCState(WebrtcConnectionState.ERROR)
+                        connectionAdapter.setConnectionError(new TransportError({
+                          cause: `Transport connect failed: ${String(error)}`,
+                          operation: 'connect',
+                          direction: 'send',
+                          timestamp: new Date()
+                        }))
                         errback(error)
                       })
                   })
@@ -222,17 +319,44 @@ const createMediaSoupClientImpl = (): MediaSoupClientInterface => {
                 if (handlers?.onProduce) {
                   transport.on('produce', ({ kind, rtpParameters }, callback, errback) => {
                     console.info('🎤 MediaSoup: Transport produce event fired', { kind })
-                    handlers.onProduce!(rtpParameters, kind as types.MediaKind)
+                    
+                    // Wrap in Effect for proper error handling
+                    const produceEffect = Effect.tryPromise({
+                      try: () => handlers.onProduce!(rtpParameters, kind as types.MediaKind),
+                      catch: (error) => new MediaSoupError({
+                        cause: `Transport produce handler failed: ${String(error)}`,
+                        operation: 'createProducer',
+                        timestamp: new Date()
+                      })
+                    })
+                    
+                    Effect.runPromise(produceEffect)
                       .then((producerId) => {
                         console.info('✅ MediaSoup: Transport produce callback succeeded', { producerId })
                         callback({ id: producerId })
                       })
                       .catch((error) => {
                         console.error('❌ MediaSoup: Transport produce callback failed:', error)
+                        // Update connection state on error
+                        connectionAdapter.setWebRTCState(WebrtcConnectionState.ERROR)
+                        connectionAdapter.setConnectionError(new TransportError({
+                          cause: `Transport produce failed: ${String(error)}`,
+                          operation: 'create',
+                          direction: 'send',
+                          timestamp: new Date()
+                        }))
                         errback(error)
                       })
                   })
                 }
+
+                // Set up connection state monitoring
+                handleTransportEvents(transport)
+                setupConnectionTimeout()
+                
+                // Set initial connecting state
+                connectionAdapter.setWebRTCState(WebrtcConnectionState.CONNECTING)
+                connectionAdapter.clearError()
 
                 activeTransport = O.some(transport)
                 return transport
@@ -280,6 +404,14 @@ const createMediaSoupClientImpl = (): MediaSoupClientInterface => {
                   dtlsParameters: options.dtlsParameters as types.DtlsParameters,
                   sctpParameters:  undefined
                 })
+
+                // Set up connection state monitoring  
+                handleTransportEvents(transport)
+                setupConnectionTimeout()
+                
+                // Set initial connecting state
+                connectionAdapter.setWebRTCState(WebrtcConnectionState.CONNECTING)
+                connectionAdapter.clearError()
 
                 activeTransport = O.some(transport)
                 return transport
@@ -514,6 +646,8 @@ const createMediaSoupClientImpl = (): MediaSoupClientInterface => {
      * Clean up all resources
      */
     cleanup: () => Effect.sync(() => {
+      // Clear connection timeout
+      clearConnectionTimeout()
       // Close producer
       pipe(
         activeProducer,
@@ -559,7 +693,10 @@ const createMediaSoupClientImpl = (): MediaSoupClientInterface => {
  * Live implementation layer that provides the MediaSoupClient.
  * Use this in your app's main Layer composition.
  */
-export const MediaSoupClientLive = Layer.succeed(
+export const MediaSoupClientLive = Layer.effect(
   MediaSoupClient,
-  createMediaSoupClientImpl()
+  Effect.gen(function* () {
+    const connectionAdapter = yield* ConnectionAdapter
+    return createMediaSoupClientImpl(connectionAdapter)
+  })
 )

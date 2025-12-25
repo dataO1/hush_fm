@@ -25,6 +25,7 @@ import { ConnectionAdapter, UserAdapter, AudioAdapter } from '../../stores'
 import { UserWebSocket, createWebSocketClientService } from '../infrastructure/WebSocketClient'
 import { MediaSoupClient, MediaSoupClientLive } from '../infrastructure/MediaSoupClient'
 import { AudioClient, AudioClientLive } from '../infrastructure/AudioClient'
+import { ConnectionAdapterLive } from '../../stores/connection/connection.adapter'
 
 // Import WebSocket command schemas for S.make construction and event types
 import { 
@@ -487,7 +488,7 @@ export const UserFeatureLayer = Layer.scoped(
 export const UserServiceLive = UserFeatureLayer.pipe(
   Layer.provide(Layer.mergeAll(
     Layer.scoped(UserWebSocket, createWebSocketClientService),
-    MediaSoupClientLive,
+    MediaSoupClientLive.pipe(Layer.provide(ConnectionAdapterLive)),
     AudioClientLive
   ))
 )
