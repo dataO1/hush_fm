@@ -171,7 +171,11 @@ const createMessageProcessor = (
     Effect.sync(() => console.info('🎯 WebSocketClient: Message processor waiting for message...')),
     Effect.flatMap(() => {
       console.info('🔍 WebSocketClient: Taking message from queue...')
-      return Queue.take(messageQueue)
+      return Queue.take(messageQueue).pipe(
+        Effect.tapError((error) => Effect.sync(() => 
+          console.error('❌ WebSocketClient: Queue.take failed - queue may be shut down:', error)
+        ))
+      )
     }),
     Effect.tap((message) => Effect.sync(() => 
       console.info('✅ WebSocketClient: Message taken from queue successfully:', message)
@@ -328,19 +332,37 @@ const make = Effect.gen(function* () {
   )
   console.info('✅ WebSocketClient: Message processor daemon fiber created:', processorFiber)
   
-  // Register cleanup finalizer
+  // Register cleanup finalizer with proper order
   yield* Effect.addFinalizer(() => 
     Effect.gen(function* () {
       const maybeWs = yield* Ref.get(connectionState)
       console.info('🧹 WebSocketClient: Starting cleanup...')
+      
+      // 1. Close WebSocket connection first
       if (Option.isSome(maybeWs)) {
-        console.info('🧹 WebSocketClient: Closing existing WebSocket connection')
+        console.info('🧹 WebSocketClient: Closing WebSocket connection')
         yield* Effect.sync(() => maybeWs.value.close())
+        yield* Ref.set(connectionState, Option.none())
       }
+      
+      // 2. Wait a bit for pending operations to complete
+      yield* Effect.sleep(100) // 100ms grace period
+      
+      // 3. Then shutdown queue and pubsub
       console.info('🧹 WebSocketClient: Shutting down message queue')
-      yield* Queue.shutdown(messageQueue)
+      yield* Queue.shutdown(messageQueue).pipe(
+        Effect.catchAll((error) => 
+          Effect.sync(() => console.warn('⚠️ WebSocketClient: Queue shutdown error (may already be closed):', error))
+        )
+      )
+      
       console.info('🧹 WebSocketClient: Shutting down event PubSub')
-      yield* PubSub.shutdown(eventPubSub)
+      yield* PubSub.shutdown(eventPubSub).pipe(
+        Effect.catchAll((error) => 
+          Effect.sync(() => console.warn('⚠️ WebSocketClient: PubSub shutdown error (may already be closed):', error))
+        )
+      )
+      
       console.info('✅ WebSocketClient: Cleanup completed successfully')
     })
   )
@@ -473,6 +495,27 @@ const make = Effect.gen(function* () {
 
   const sendCommand = <T extends WebSocketEvent>(command: WebSocketCommand): Effect.Effect<T, WebSocketError, never> =>
     Effect.gen(function* () {
+      // 1. Validate WebSocket connection state
+      const currentWs = yield* Ref.get(connectionState)
+      if (Option.isNone(currentWs)) {
+        console.error('❌ WebSocketClient: Cannot send command - WebSocket not connected')
+        return yield* Effect.fail(createWebSocketError(
+          WebSocketOperation.SEND,
+          'WebSocket not connected'
+        ))
+      }
+
+      // 2. Check if WebSocket is in ready state
+      if (currentWs.value.readyState !== WebSocket.OPEN) {
+        console.error('❌ WebSocketClient: Cannot send command - WebSocket not in OPEN state:', currentWs.value.readyState)
+        return yield* Effect.fail(createWebSocketError(
+          WebSocketOperation.SEND,
+          `WebSocket not ready, state: ${currentWs.value.readyState}`
+        ))
+      }
+
+      console.info('✅ WebSocketClient: WebSocket connection validated for command:', command.type)
+      
       const deferred = yield* Deferred.make<T, WebSocketError>()
       
       // Get expected event type using the Effect-based helper

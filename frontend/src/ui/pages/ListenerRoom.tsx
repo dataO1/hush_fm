@@ -1,9 +1,11 @@
 import { Show, createResource, createSignal, onCleanup, createContext, useContext, ParentComponent } from 'solid-js'
 import { useParams, useNavigate, useLocation } from '@solidjs/router'
-import { Option, Effect, Context } from 'effect'
-import { useConnectionAdapter, useAudioAdapter, useGlobalRuntime } from '../../App'
+import { Option, Effect, Context, ManagedRuntime, Layer } from 'effect'
+import { useConnectionAdapter, useAudioAdapter, useUserAdapter } from '../../App'
 import { UserService, UserServiceLive } from '../../services/application/UserService'
 import { AudioClient, AudioClientLive } from '../../services/infrastructure/AudioClient'
+import { AudioAdapter } from '../../stores/audio'
+import { UserAdapter, ConnectionAdapter } from '../../stores'
 import { WebrtcConnectionState } from '../../domain/schemas/connection.schema'
 import { Oscilloscope } from '../components/shared/Oscilloscope'
 import { WebRTCErrorHandler } from '../components/WebRTCErrorHandler'
@@ -19,16 +21,27 @@ interface UserFeatureContextValue {
 const UserFeatureContext = createContext<UserFeatureContextValue>()
 
 const UserFeatureProvider: ParentComponent = (props) => {
-  // Get global runtime for accessing adapters
-  const globalRuntime = useGlobalRuntime()
+  // Create user feature services using scoped runtime to keep them alive for component lifecycle
+  // Provide all necessary adapter dependencies (same pattern as DJRoom)
+  const userAdapter = useUserAdapter()
+  const connectionAdapter = useConnectionAdapter()
+  const audioAdapter = useAudioAdapter()
   
-  // Create user feature services using the global runtime (which has all adapters)
-  const userService = globalRuntime.runSync(
-    Effect.provide(UserService, UserServiceLive)
+  const userServiceRuntime = ManagedRuntime.make(
+    UserServiceLive.pipe(
+      Layer.provide(Layer.succeed(UserAdapter, userAdapter)),
+      Layer.provide(Layer.succeed(ConnectionAdapter, connectionAdapter)),
+      Layer.provide(Layer.succeed(AudioAdapter, audioAdapter))
+    )
   )
-  const audioClient = globalRuntime.runSync(
-    Effect.provide(AudioClient, AudioClientLive)
+  const audioClientRuntime = ManagedRuntime.make(
+    AudioClientLive.pipe(
+      Layer.provide(Layer.succeed(AudioAdapter, audioAdapter))
+    )
   )
+  
+  const userService = userServiceRuntime.runSync(UserService)
+  const audioClient = audioClientRuntime.runSync(AudioClient)
   
   const services: UserFeatureContextValue = {
     userService,
@@ -40,6 +53,8 @@ const UserFeatureProvider: ParentComponent = (props) => {
     console.info('🏠 UserFeatureProvider: Cleaning up on unmount')
     try {
       await userService.disconnect().pipe(Effect.runPromise)
+      await userServiceRuntime.dispose()
+      await audioClientRuntime.dispose()
     } catch (error) {
       console.warn('⚠️ UserFeatureProvider: Error during cleanup:', error)
     }
@@ -127,7 +142,7 @@ function ListenerRoomContent() {
     })
     
     // 1. First ensure WebSocket is connected before starting join flow
-    const connectionAdapter = useConnectionAdapter()
+    // Use the connectionAdapter from the component scope (not a new instance)
     if (!connectionAdapter.isRoomConnected()) {
       console.info('🔗 ListenerRoom: Connecting to listener WebSocket before join...', { listenerWebSocketUrl })
       await userService.connect(listenerWebSocketUrl).pipe(Effect.runPromise)
