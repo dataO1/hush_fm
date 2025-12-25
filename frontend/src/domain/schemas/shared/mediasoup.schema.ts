@@ -180,7 +180,7 @@ export type RtpParametersType = S.Schema.Type<typeof RtpParametersSchema>
  * MediaSoup DTLS Parameters Schema (synchronized with mediasoup DtlsParameters)
  */
 export const DtlsParametersSchema = S.Struct({
-  role: S.Union(S.Literal('auto'), S.Literal('client'), S.Literal('server')),
+  role: S.optional(S.Union(S.Literal('auto'), S.Literal('client'), S.Literal('server'))),
   fingerprints: S.mutable(S.Array(S.Struct({
     algorithm: FingerprintAlgorithmSchema,
     value: S.String
@@ -533,7 +533,7 @@ export const TransportOptionsTransformSchema = S.transform(
         tcpType: candidate.tcpType !== undefined ? O.some(candidate.tcpType) : O.none()
       })),
       dtlsParameters: {
-        role: nativeData.dtlsParameters.role,
+        role: nativeData.dtlsParameters.role || 'auto',
         fingerprints: nativeData.dtlsParameters.fingerprints.map(fp => ({
           value: fp.value,
           algorithm: fp.algorithm
@@ -721,7 +721,7 @@ export const DtlsParametersTransformSchema = S.transform(
       }))
     }),
     encode: (nativeData) => ({
-      role: nativeData.role,
+      role: nativeData.role || 'auto', // Provide default when encoding to wire format
       fingerprints: nativeData.fingerprints.map(fp => ({
         algorithm: fp.algorithm,
         value: fp.value

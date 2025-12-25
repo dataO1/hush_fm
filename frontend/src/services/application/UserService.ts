@@ -16,7 +16,7 @@
  * - Cleanup and disconnection
  */
 
-import { Effect, Context, Layer, Option as O } from 'effect'
+import { Effect, Context, Layer, Option as O, pipe } from 'effect'
 
 // Import only adapters via Context.Tag
 import { ConnectionAdapter, UserAdapter, AudioAdapter } from '../../stores'
@@ -90,75 +90,97 @@ const createUserServiceImpl = () => {
         const audioClient = yield* AudioClient
         const userAdapter = yield* UserAdapter
 
+        console.info('🎤 UserService: Starting DJ room publishing flow...')
+
+        // 1. Check for existing audio stream first
+        const currentStreamOption = audioClient.currentStream()
+        const stream = yield* pipe(
+          currentStreamOption,
+          O.match({
+            onNone: () => deviceId ? audioClient.selectDevice(deviceId) : Effect.fail(new UserServiceError({
+              cause: 'No audio device selected and no deviceId provided',
+              operation: 'publishDJRoom',
+              role: 'dj' as UserRoleType,
+              timestamp: new Date()
+            })),
+            onSome: stream => {
+              console.info('✅ UserService: Using existing audio stream')
+              return Effect.succeed(stream)
+            }
+          })
+        )
+
+        // 2. Verify audio track exists
+        const audioTrack = stream.getAudioTracks()[0]
+        if (!audioTrack) {
+          return yield* Effect.fail(new UserServiceError({
+            cause: 'No audio track in stream',
+            operation: 'publishDJRoom',
+            role: 'dj' as UserRoleType,
+            timestamp: new Date()
+          }))
+        }
+
         // Set active state
         activeRole = O.some('dj' as UserRoleType)
         userAdapter.setCurrentRole('dj')
 
         try {
-          // 1. Connect WebSocket to room
-          yield* wsClient.connectRoom(djWebSocketUrl)
-
-          // 2. Initialize room and get RTP capabilities
+          // 3. Initialize room and get RTP capabilities (WebSocket already connected from DJRoom mount)
+          console.info('📡 UserService: Initializing room...')
           yield* wsClient.sendDJCommand(InitRoomCommandSchema.make({ roomId }))
           const rtpCapabilitiesEvent = yield* wsClient.waitForDJEvent(WEBSOCKET_DJ_EVENT_TYPES.ROOM_INITIALIZED)
 
-          // 3. Initialize MediaSoup device
+          // 4. Initialize MediaSoup device
+          console.info('🎛️ UserService: Initializing MediaSoup device...')
           yield* mediaSoupClient.initDevice(rtpCapabilitiesEvent.rtpCapabilities)
 
-          // 4. Request transport from server
+          // 5. Request transport from server
+          console.info('🚛 UserService: Requesting transport...')
           yield* wsClient.sendDJCommand(RequestDjTransportCommandSchema.make({}))
           const transportEvent = yield* wsClient.waitForDJEvent(WEBSOCKET_DJ_EVENT_TYPES.DJ_TRANSPORT_READY)
 
-          // 5. Create send transport
-          const transport = yield* mediaSoupClient.createSendTransport(transportEvent.transportOptions)
+          // 6. Create send transport WITH event handlers
+          console.info('🔧 UserService: Creating send transport with event handlers...')
+          const transport = yield* mediaSoupClient.createSendTransport(transportEvent.transportOptions, {
+            onConnect: async (dtlsParameters) => {
+              console.info('🔗 UserService: Transport connect event - sending DTLS params to server')
+              await Effect.runPromise(
+                wsClient.sendDJCommand(ConnectDjTransportCommandSchema.make({
+                  transportId: O.some(transport.id),
+                  dtlsParameters
+                }))
+              )
+              await Effect.runPromise(wsClient.waitForDJEvent(WEBSOCKET_DJ_EVENT_TYPES.TRANSPORT_CONNECTED))
+              console.info('✅ UserService: Transport connected successfully')
+            },
+            onProduce: async (rtpParameters) => {
+              console.info('🎤 UserService: Transport produce event - sending RTP params to server')
+              await Effect.runPromise(
+                wsClient.sendDJCommand(ProduceCommandSchema.make({
+                  rtpParameters
+                }))
+              )
+              const producerEvent = await Effect.runPromise(
+                wsClient.waitForDJEvent(WEBSOCKET_DJ_EVENT_TYPES.PRODUCER_CREATED)
+              )
+              console.info('✅ UserService: Producer created successfully', { producerId: producerEvent.producerId })
+              return producerEvent.producerId
+            }
+          })
 
-          // 6. Connect transport
-          yield* wsClient.sendDJCommand(ConnectDjTransportCommandSchema.make({
-            transportId: O.some(transport.id),
-            dtlsParameters: transportEvent.transportOptions.dtlsParameters
-          }))
-          yield* wsClient.waitForDJEvent(WEBSOCKET_DJ_EVENT_TYPES.TRANSPORT_CONNECTED)
-          yield* mediaSoupClient.connectActiveTransport(transportEvent.transportOptions.dtlsParameters)
-
-          // 7. Get audio stream if deviceId provided
-          const stream = deviceId ? yield* audioClient.selectDevice(deviceId) : yield* audioClient.currentStream().pipe(
-            O.match({
-              onNone: () => Effect.fail(new UserServiceError({
-                cause: 'No audio device selected',
-                operation: 'publishDJRoom',
-                role: 'dj' as UserRoleType,
-                timestamp: new Date()
-              })),
-              onSome: stream => Effect.succeed(stream)
-            })
-          )
-
-          // 8. Create producer from audio track
-          const audioTrack = stream.getAudioTracks()[0]
-          if (!audioTrack) {
-            throw new UserServiceError({
-              cause: 'No audio track in stream',
-              operation: 'publishDJRoom',
-              role: 'dj' as UserRoleType,
-              timestamp: new Date()
-            })
-          }
-
+          // 8. Create producer from audio track (this will trigger the events)
+          console.info('🎵 UserService: Creating producer...')
           const producer = yield* mediaSoupClient.createProducer(audioTrack)
 
-          // 9. Notify server about producer
-          yield* wsClient.sendDJCommand(ProduceCommandSchema.make({
-            rtpParameters: producer.rtpParameters
-          }))
-          const producerEvent = yield* wsClient.waitForDJEvent(WEBSOCKET_DJ_EVENT_TYPES.PRODUCER_CREATED)
-
           return {
-            roomId: producerEvent.roomId,
-            producerId: producerEvent.producerId,
+            roomId,
+            producerId: producer.id,
             djWebSocketUrl,
             publishedAt: new Date()
           }
         } catch (error) {
+          console.error('❌ UserService: Error in DJ publishing flow:', error)
           // Cleanup MediaSoup resources on error
           yield* mediaSoupClient.cleanup()
           activeRole = O.none()

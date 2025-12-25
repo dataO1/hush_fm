@@ -4,6 +4,7 @@ import { Option as O, Effect } from 'effect'
 import { DeviceSelector } from '../components/controls/DeviceSelector'
 import { useConnectionAdapter, useAudioAdapter, useAudioClient, useRuntime } from '../../App'
 import { UserService } from '../../services/application/UserService'
+import { WebSocketClientService } from '../../services/infrastructure/WebSocketClient'
 import { WebrtcConnectionState, WsConnectionState } from '../../domain/schemas/connection.schema'
 import { Oscilloscope } from '../components/shared/Oscilloscope'
 import { WebRTCErrorHandler } from '../components/WebRTCErrorHandler'
@@ -43,8 +44,28 @@ export default function DJRoom() {
     }
   })
 
+  // Connect to DJ WebSocket on mount
+  createEffect(() => {
+    const djUrl = navigationState.djWebSocketUrl
+    if (djUrl && !connectionAdapter.isRoomConnected()) {
+      console.info('🔗 DJRoom: Connecting to DJ WebSocket on mount...', { djUrl })
+      
+      const connectEffect = Effect.gen(function* () {
+        const wsClient = yield* WebSocketClientService
+        yield* wsClient.connectRoom(djUrl)
+        console.info('✅ DJRoom: DJ WebSocket connected successfully')
+      }).pipe(
+        Effect.catchAll((error) => {
+          console.error('❌ DJRoom: Failed to connect DJ WebSocket:', error)
+          return Effect.void
+        })
+      )
+      
+      runtime.runPromise(connectEffect)
+    }
+  })
 
-  // Component initialization completed - no async setup needed
+  // Component initialization completed
 
   onCleanup(() => {
     // SolidJS 2025: Cleanup handled by SolidJS onCleanup

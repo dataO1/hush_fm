@@ -44,9 +44,15 @@ export interface MediaSoupClientInterface {
   readonly initDevice: (rtpCapabilities: types.RtpCapabilities) => Effect.Effect<void, MediaSoupError>
 
   /**
-   * Create send transport for DJ
+   * Create send transport for DJ with event handlers
    */
-  readonly createSendTransport: (options: TransportOptionsType) => Effect.Effect<types.Transport, MediaSoupError>
+  readonly createSendTransport: (
+    options: TransportOptionsType,
+    handlers?: {
+      onConnect?: (dtlsParameters: types.DtlsParameters) => Promise<void>
+      onProduce?: (rtpParameters: types.RtpParameters, kind: types.MediaKind) => Promise<string>
+    }
+  ) => Effect.Effect<types.Transport, MediaSoupError>
 
   /**
    * Create receive transport for listener
@@ -162,9 +168,12 @@ const createMediaSoupClientImpl = (): MediaSoupClientInterface => {
       ),
 
     /**
-     * Create send transport for DJ
+     * Create send transport for DJ with event handlers
      */
-    createSendTransport: (options: TransportOptionsType) =>
+    createSendTransport: (options: TransportOptionsType, handlers?: {
+      onConnect?: (dtlsParameters: types.DtlsParameters) => Promise<void>
+      onProduce?: (rtpParameters: types.RtpParameters, kind: types.MediaKind) => Promise<string>
+    }) =>
       pipe(
         device,
         O.match({
@@ -193,6 +202,37 @@ const createMediaSoupClientImpl = (): MediaSoupClientInterface => {
                   dtlsParameters: options.dtlsParameters as types.DtlsParameters,
                   sctpParameters: undefined
                 })
+
+                // Set up event handlers if provided
+                if (handlers?.onConnect) {
+                  transport.on('connect', ({ dtlsParameters }, callback, errback) => {
+                    console.info('🔗 MediaSoup: Transport connect event fired')
+                    handlers.onConnect!(dtlsParameters)
+                      .then(() => {
+                        console.info('✅ MediaSoup: Transport connect callback succeeded')
+                        callback()
+                      })
+                      .catch((error) => {
+                        console.error('❌ MediaSoup: Transport connect callback failed:', error)
+                        errback(error)
+                      })
+                  })
+                }
+
+                if (handlers?.onProduce) {
+                  transport.on('produce', ({ kind, rtpParameters }, callback, errback) => {
+                    console.info('🎤 MediaSoup: Transport produce event fired', { kind })
+                    handlers.onProduce!(rtpParameters, kind as types.MediaKind)
+                      .then((producerId) => {
+                        console.info('✅ MediaSoup: Transport produce callback succeeded', { producerId })
+                        callback({ id: producerId })
+                      })
+                      .catch((error) => {
+                        console.error('❌ MediaSoup: Transport produce callback failed:', error)
+                        errback(error)
+                      })
+                  })
+                }
 
                 activeTransport = O.some(transport)
                 return transport

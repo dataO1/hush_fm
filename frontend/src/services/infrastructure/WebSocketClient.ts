@@ -190,6 +190,14 @@ type ConnectionState = {
 }
 
 /**
+ * Buffered event for handling race conditions
+ */
+type BufferedEvent = {
+  data: unknown
+  timestamp: Date
+}
+
+/**
  * WebSocket Client Implementation
  */
 const createWebSocketClientImpl = (): WebSocketClientServiceImpl => {
@@ -211,6 +219,37 @@ const createWebSocketClientImpl = (): WebSocketClientServiceImpl => {
   const djEventHandlers: Set<(data: unknown) => void> = new Set()
   const listenerEventHandlers: Set<(data: unknown) => void> = new Set()
   const lobbyEventHandlers: Set<(data: unknown) => void> = new Set()
+
+  // Event buffers to handle race conditions (circular buffers, max 20 events each)
+  const MAX_BUFFER_SIZE = 20
+  const djEventBuffer: BufferedEvent[] = []
+  const listenerEventBuffer: BufferedEvent[] = []
+  const lobbyEventBuffer: BufferedEvent[] = []
+
+  // Helper to add event to buffer (circular buffer logic)
+  const addToBuffer = (buffer: BufferedEvent[], data: unknown) => {
+    buffer.push({ data, timestamp: new Date() })
+    if (buffer.length > MAX_BUFFER_SIZE) {
+      buffer.shift() // Remove oldest event
+    }
+  }
+
+  // Helper to search and remove matching event from buffer
+  const findAndRemoveFromBuffer = (buffer: BufferedEvent[], eventType: string): unknown | null => {
+    const index = buffer.findIndex(bufferedEvent => {
+      const data = bufferedEvent.data
+      return typeof data === 'object' && data !== null && 'type' in data && (data as any).type === eventType
+    })
+    
+    if (index >= 0) {
+      const bufferedEvent = buffer.splice(index, 1)[0]
+      console.info(`🔍 WebSocketClient: Found buffered event of type ${eventType}, timestamp: ${bufferedEvent.timestamp.toISOString()}`)
+      return bufferedEvent.data
+    }
+    
+    return null
+  }
+
 
   // Generic helper functions
   const clearConnectionTimeout = (connectionType: ConnectionType): Effect.Effect<void, never, never> =>
@@ -276,9 +315,12 @@ const createWebSocketClientImpl = (): WebSocketClientServiceImpl => {
           }
           if (connectionType === 'lobby') {
             lobbyEventHandlers.clear()
+            lobbyEventBuffer.length = 0
           } else {
             djEventHandlers.clear()
             listenerEventHandlers.clear()
+            djEventBuffer.length = 0
+            listenerEventBuffer.length = 0
           }
         }
 
@@ -287,11 +329,15 @@ const createWebSocketClientImpl = (): WebSocketClientServiceImpl => {
             const data = JSON.parse(message.data)
             
             if (connectionType === 'lobby') {
-              // Lobby connection only handles lobby events
+              // Buffer lobby events and notify handlers
+              addToBuffer(lobbyEventBuffer, data)
               lobbyEventHandlers.forEach(handler => handler(data))
             } else {
-              // Room connection handles DJ and Listener events
-              // Pass raw data to handlers - they'll decode as needed
+              // Buffer DJ and Listener events and notify handlers  
+              // Both event types come through room connection, so buffer for both
+              addToBuffer(djEventBuffer, data)
+              addToBuffer(listenerEventBuffer, data)
+              
               djEventHandlers.forEach(handler => handler(data))
               listenerEventHandlers.forEach(handler => handler(data))
             }
@@ -464,22 +510,35 @@ const createWebSocketClientImpl = (): WebSocketClientServiceImpl => {
 
       if (connectionType === 'lobby') {
         lobbyEventHandlers.clear()
+        lobbyEventBuffer.length = 0
         connectionAdapter.setLobbyWSState(WsConnectionState.DISCONNECTED)
       } else {
         djEventHandlers.clear()
         listenerEventHandlers.clear()
+        djEventBuffer.length = 0
+        listenerEventBuffer.length = 0
         connectionAdapter.setRoomWSState(WsConnectionState.DISCONNECTED)
       }
     }) as Effect.Effect<void, never, never>
 
-  // Generic wait for event function (handles raw data)
+  // Generic wait for event function with buffering support
   const waitForEvent = (
     eventType: string,
     handlers: Set<(data: unknown) => void>,
+    buffer: BufferedEvent[],
     eventName: string,
     timeoutMs = 30000
-  ): Effect.Effect<unknown, WebSocketError, never> =>
-    Effect.async<unknown, WebSocketError>((resume) => {
+  ): Effect.Effect<unknown, WebSocketError, never> => {
+    // First check if event is already in buffer
+    const bufferedEvent = findAndRemoveFromBuffer(buffer, eventType)
+    if (bufferedEvent !== null) {
+      console.info(`🚀 WebSocketClient: Returning buffered ${eventName} event: ${eventType}`)
+      return Effect.succeed(bufferedEvent)
+    }
+
+    // If not in buffer, wait for new event
+    console.info(`⏳ WebSocketClient: Waiting for new ${eventName} event: ${eventType}`)
+    return Effect.async<unknown, WebSocketError>((resume) => {
       const timeoutId = setTimeout(() => {
         handlers.delete(eventHandler)
         resume(Effect.fail(createWebSocketError(
@@ -493,12 +552,14 @@ const createWebSocketClientImpl = (): WebSocketClientServiceImpl => {
         if (typeof data === 'object' && data !== null && 'type' in data && (data as any).type === eventType) {
           clearTimeout(timeoutId)
           handlers.delete(eventHandler)
+          console.info(`✅ WebSocketClient: Received new ${eventName} event: ${eventType}`)
           resume(Effect.succeed(data))
         }
       }
 
       handlers.add(eventHandler)
     })
+  }
 
   const service: WebSocketClientServiceImpl = {
     connectLobby: (url: string): Effect.Effect<void, WebSocketError, ConnectionAdapter> =>
@@ -510,6 +571,28 @@ const createWebSocketClientImpl = (): WebSocketClientServiceImpl => {
     connectRoom: (url: string): Effect.Effect<void, WebSocketError, ConnectionAdapter> =>
       Effect.gen(function* () {
         const connectionAdapter = yield* ConnectionAdapter
+        
+        // Check if already connected to this URL
+        const currentConnection = connections.room
+        const isAlreadyConnected = pipe(
+          currentConnection.websocket,
+          Option.match({
+            onNone: () => false,
+            onSome: (ws) => ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING
+          })
+        ) && pipe(
+          currentConnection.url,
+          Option.match({
+            onNone: () => false,
+            onSome: (currentUrl) => currentUrl === url
+          })
+        )
+
+        if (isAlreadyConnected) {
+          console.info('🔗 WebSocketClient: Already connected to room WebSocket, skipping connection')
+          return
+        }
+
         yield* createConnection(url, 'room', connectionAdapter)
       }) as Effect.Effect<void, WebSocketError, ConnectionAdapter>,
 
@@ -619,7 +702,7 @@ const createWebSocketClientImpl = (): WebSocketClientServiceImpl => {
       switch (eventType) {
         case WEBSOCKET_DJ_EVENT_TYPES.ROOM_INITIALIZED:
           return pipe(
-            waitForEvent(WEBSOCKET_DJ_EVENT_TYPES.ROOM_INITIALIZED, djEventHandlers, 'DJ', timeoutMs),
+            waitForEvent(WEBSOCKET_DJ_EVENT_TYPES.ROOM_INITIALIZED, djEventHandlers, djEventBuffer, 'DJ', timeoutMs),
             Effect.flatMap(data => 
               Effect.try({
                 try: () => S.decodeUnknownSync(RoomInitializedEventSchema)(data),
@@ -633,7 +716,7 @@ const createWebSocketClientImpl = (): WebSocketClientServiceImpl => {
           )
         case WEBSOCKET_DJ_EVENT_TYPES.DJ_TRANSPORT_READY:
           return pipe(
-            waitForEvent(WEBSOCKET_DJ_EVENT_TYPES.DJ_TRANSPORT_READY, djEventHandlers, 'DJ', timeoutMs),
+            waitForEvent(WEBSOCKET_DJ_EVENT_TYPES.DJ_TRANSPORT_READY, djEventHandlers, djEventBuffer, 'DJ', timeoutMs),
             Effect.flatMap(data => 
               Effect.try({
                 try: () => S.decodeUnknownSync(DjTransportReadyEventSchema)(data),
@@ -647,7 +730,7 @@ const createWebSocketClientImpl = (): WebSocketClientServiceImpl => {
           )
         case WEBSOCKET_DJ_EVENT_TYPES.TRANSPORT_CONNECTED:
           return pipe(
-            waitForEvent(WEBSOCKET_DJ_EVENT_TYPES.TRANSPORT_CONNECTED, djEventHandlers, 'DJ', timeoutMs),
+            waitForEvent(WEBSOCKET_DJ_EVENT_TYPES.TRANSPORT_CONNECTED, djEventHandlers, djEventBuffer, 'DJ', timeoutMs),
             Effect.flatMap(data => 
               Effect.try({
                 try: () => S.decodeUnknownSync(TransportConnectedEventSchema)(data),
@@ -661,7 +744,7 @@ const createWebSocketClientImpl = (): WebSocketClientServiceImpl => {
           )
         case WEBSOCKET_DJ_EVENT_TYPES.PRODUCER_CREATED:
           return pipe(
-            waitForEvent(WEBSOCKET_DJ_EVENT_TYPES.PRODUCER_CREATED, djEventHandlers, 'DJ', timeoutMs),
+            waitForEvent(WEBSOCKET_DJ_EVENT_TYPES.PRODUCER_CREATED, djEventHandlers, djEventBuffer, 'DJ', timeoutMs),
             Effect.flatMap(data => 
               Effect.try({
                 try: () => S.decodeUnknownSync(ProducerCreatedEventSchema)(data),
@@ -675,7 +758,7 @@ const createWebSocketClientImpl = (): WebSocketClientServiceImpl => {
           )
         case WEBSOCKET_DJ_EVENT_TYPES.STREAM_PAUSED:
           return pipe(
-            waitForEvent(WEBSOCKET_DJ_EVENT_TYPES.STREAM_PAUSED, djEventHandlers, 'DJ', timeoutMs),
+            waitForEvent(WEBSOCKET_DJ_EVENT_TYPES.STREAM_PAUSED, djEventHandlers, djEventBuffer, 'DJ', timeoutMs),
             Effect.flatMap(data => 
               Effect.try({
                 try: () => S.decodeUnknownSync(StreamPausedEventSchema)(data),
@@ -689,7 +772,7 @@ const createWebSocketClientImpl = (): WebSocketClientServiceImpl => {
           )
         case WEBSOCKET_DJ_EVENT_TYPES.STREAM_RESUMED:
           return pipe(
-            waitForEvent(WEBSOCKET_DJ_EVENT_TYPES.STREAM_RESUMED, djEventHandlers, 'DJ', timeoutMs),
+            waitForEvent(WEBSOCKET_DJ_EVENT_TYPES.STREAM_RESUMED, djEventHandlers, djEventBuffer, 'DJ', timeoutMs),
             Effect.flatMap(data => 
               Effect.try({
                 try: () => S.decodeUnknownSync(StreamResumedEventSchema)(data),
@@ -703,7 +786,7 @@ const createWebSocketClientImpl = (): WebSocketClientServiceImpl => {
           )
         case WEBSOCKET_DJ_EVENT_TYPES.ROOM_CLOSED:
           return pipe(
-            waitForEvent(WEBSOCKET_DJ_EVENT_TYPES.ROOM_CLOSED, djEventHandlers, 'DJ', timeoutMs),
+            waitForEvent(WEBSOCKET_DJ_EVENT_TYPES.ROOM_CLOSED, djEventHandlers, djEventBuffer, 'DJ', timeoutMs),
             Effect.flatMap(data => 
               Effect.try({
                 try: () => S.decodeUnknownSync(RoomClosedEventSchema)(data),
@@ -717,7 +800,7 @@ const createWebSocketClientImpl = (): WebSocketClientServiceImpl => {
           )
         case WEBSOCKET_DJ_EVENT_TYPES.DJ_COMMAND_FAILED:
           return pipe(
-            waitForEvent(WEBSOCKET_DJ_EVENT_TYPES.DJ_COMMAND_FAILED, djEventHandlers, 'DJ', timeoutMs),
+            waitForEvent(WEBSOCKET_DJ_EVENT_TYPES.DJ_COMMAND_FAILED, djEventHandlers, djEventBuffer, 'DJ', timeoutMs),
             Effect.flatMap(data => 
               Effect.try({
                 try: () => S.decodeUnknownSync(DJCommandFailedEventSchema)(data),
@@ -731,7 +814,7 @@ const createWebSocketClientImpl = (): WebSocketClientServiceImpl => {
           )
         case WEBSOCKET_DJ_EVENT_TYPES.ROOM_NOT_FOUND:
           return pipe(
-            waitForEvent(WEBSOCKET_DJ_EVENT_TYPES.ROOM_NOT_FOUND, djEventHandlers, 'DJ', timeoutMs),
+            waitForEvent(WEBSOCKET_DJ_EVENT_TYPES.ROOM_NOT_FOUND, djEventHandlers, djEventBuffer, 'DJ', timeoutMs),
             Effect.flatMap(data => 
               Effect.try({
                 try: () => S.decodeUnknownSync(RoomNotFoundEventSchema)(data),
@@ -756,7 +839,7 @@ const createWebSocketClientImpl = (): WebSocketClientServiceImpl => {
       switch (eventType) {
         case WEBSOCKET_LISTENER_EVENT_TYPES.JOIN_READY:
           return pipe(
-            waitForEvent(WEBSOCKET_LISTENER_EVENT_TYPES.JOIN_READY, listenerEventHandlers, 'Listener', timeoutMs),
+            waitForEvent(WEBSOCKET_LISTENER_EVENT_TYPES.JOIN_READY, listenerEventHandlers, listenerEventBuffer, 'Listener', timeoutMs),
             Effect.flatMap(data => 
               Effect.try({
                 try: () => S.decodeUnknownSync(JoinReadyEventSchema)(data),
@@ -770,7 +853,7 @@ const createWebSocketClientImpl = (): WebSocketClientServiceImpl => {
           )
         case WEBSOCKET_LISTENER_EVENT_TYPES.LISTENER_TRANSPORT_READY:
           return pipe(
-            waitForEvent(WEBSOCKET_LISTENER_EVENT_TYPES.LISTENER_TRANSPORT_READY, listenerEventHandlers, 'Listener', timeoutMs),
+            waitForEvent(WEBSOCKET_LISTENER_EVENT_TYPES.LISTENER_TRANSPORT_READY, listenerEventHandlers, listenerEventBuffer, 'Listener', timeoutMs),
             Effect.flatMap(data => 
               Effect.try({
                 try: () => S.decodeUnknownSync(ListenerTransportReadyEventSchema)(data),
@@ -784,7 +867,7 @@ const createWebSocketClientImpl = (): WebSocketClientServiceImpl => {
           )
         case WEBSOCKET_LISTENER_EVENT_TYPES.TRANSPORT_CONNECTED:
           return pipe(
-            waitForEvent(WEBSOCKET_LISTENER_EVENT_TYPES.TRANSPORT_CONNECTED, listenerEventHandlers, 'Listener', timeoutMs),
+            waitForEvent(WEBSOCKET_LISTENER_EVENT_TYPES.TRANSPORT_CONNECTED, listenerEventHandlers, listenerEventBuffer, 'Listener', timeoutMs),
             Effect.flatMap(data => 
               Effect.try({
                 try: () => S.decodeUnknownSync(ListenerTransportConnectedEventSchema)(data),
@@ -798,7 +881,7 @@ const createWebSocketClientImpl = (): WebSocketClientServiceImpl => {
           )
         case WEBSOCKET_LISTENER_EVENT_TYPES.CONSUMER_CREATED:
           return pipe(
-            waitForEvent(WEBSOCKET_LISTENER_EVENT_TYPES.CONSUMER_CREATED, listenerEventHandlers, 'Listener', timeoutMs),
+            waitForEvent(WEBSOCKET_LISTENER_EVENT_TYPES.CONSUMER_CREATED, listenerEventHandlers, listenerEventBuffer, 'Listener', timeoutMs),
             Effect.flatMap(data => 
               Effect.try({
                 try: () => S.decodeUnknownSync(ConsumerCreatedEventSchema)(data),
@@ -812,7 +895,7 @@ const createWebSocketClientImpl = (): WebSocketClientServiceImpl => {
           )
         case WEBSOCKET_LISTENER_EVENT_TYPES.ROUTER_CAPABILITIES:
           return pipe(
-            waitForEvent(WEBSOCKET_LISTENER_EVENT_TYPES.ROUTER_CAPABILITIES, listenerEventHandlers, 'Listener', timeoutMs),
+            waitForEvent(WEBSOCKET_LISTENER_EVENT_TYPES.ROUTER_CAPABILITIES, listenerEventHandlers, listenerEventBuffer, 'Listener', timeoutMs),
             Effect.flatMap(data => 
               Effect.try({
                 try: () => S.decodeUnknownSync(RouterCapabilitiesEventSchema)(data),
@@ -826,7 +909,7 @@ const createWebSocketClientImpl = (): WebSocketClientServiceImpl => {
           )
         case WEBSOCKET_LISTENER_EVENT_TYPES.LISTENER_COUNT_UPDATED:
           return pipe(
-            waitForEvent(WEBSOCKET_LISTENER_EVENT_TYPES.LISTENER_COUNT_UPDATED, listenerEventHandlers, 'Listener', timeoutMs),
+            waitForEvent(WEBSOCKET_LISTENER_EVENT_TYPES.LISTENER_COUNT_UPDATED, listenerEventHandlers, listenerEventBuffer, 'Listener', timeoutMs),
             Effect.flatMap(data => 
               Effect.try({
                 try: () => S.decodeUnknownSync(ListenerCountUpdatedEventSchema)(data),
@@ -840,7 +923,7 @@ const createWebSocketClientImpl = (): WebSocketClientServiceImpl => {
           )
         case WEBSOCKET_LISTENER_EVENT_TYPES.STREAM_PAUSED:
           return pipe(
-            waitForEvent(WEBSOCKET_LISTENER_EVENT_TYPES.STREAM_PAUSED, listenerEventHandlers, 'Listener', timeoutMs),
+            waitForEvent(WEBSOCKET_LISTENER_EVENT_TYPES.STREAM_PAUSED, listenerEventHandlers, listenerEventBuffer, 'Listener', timeoutMs),
             Effect.flatMap(data => 
               Effect.try({
                 try: () => S.decodeUnknownSync(ListenerStreamPausedEventSchema)(data),
@@ -854,7 +937,7 @@ const createWebSocketClientImpl = (): WebSocketClientServiceImpl => {
           )
         case WEBSOCKET_LISTENER_EVENT_TYPES.STREAM_RESUMED:
           return pipe(
-            waitForEvent(WEBSOCKET_LISTENER_EVENT_TYPES.STREAM_RESUMED, listenerEventHandlers, 'Listener', timeoutMs),
+            waitForEvent(WEBSOCKET_LISTENER_EVENT_TYPES.STREAM_RESUMED, listenerEventHandlers, listenerEventBuffer, 'Listener', timeoutMs),
             Effect.flatMap(data => 
               Effect.try({
                 try: () => S.decodeUnknownSync(ListenerStreamResumedEventSchema)(data),
@@ -868,7 +951,7 @@ const createWebSocketClientImpl = (): WebSocketClientServiceImpl => {
           )
         case WEBSOCKET_LISTENER_EVENT_TYPES.ROOM_CLOSED:
           return pipe(
-            waitForEvent(WEBSOCKET_LISTENER_EVENT_TYPES.ROOM_CLOSED, listenerEventHandlers, 'Listener', timeoutMs),
+            waitForEvent(WEBSOCKET_LISTENER_EVENT_TYPES.ROOM_CLOSED, listenerEventHandlers, listenerEventBuffer, 'Listener', timeoutMs),
             Effect.flatMap(data => 
               Effect.try({
                 try: () => S.decodeUnknownSync(ListenerRoomClosedEventSchema)(data),
@@ -882,7 +965,7 @@ const createWebSocketClientImpl = (): WebSocketClientServiceImpl => {
           )
         case WEBSOCKET_LISTENER_EVENT_TYPES.LISTENER_COMMAND_FAILED:
           return pipe(
-            waitForEvent(WEBSOCKET_LISTENER_EVENT_TYPES.LISTENER_COMMAND_FAILED, listenerEventHandlers, 'Listener', timeoutMs),
+            waitForEvent(WEBSOCKET_LISTENER_EVENT_TYPES.LISTENER_COMMAND_FAILED, listenerEventHandlers, listenerEventBuffer, 'Listener', timeoutMs),
             Effect.flatMap(data => 
               Effect.try({
                 try: () => S.decodeUnknownSync(ListenerCommandFailedEventSchema)(data),
@@ -896,7 +979,7 @@ const createWebSocketClientImpl = (): WebSocketClientServiceImpl => {
           )
         case WEBSOCKET_LISTENER_EVENT_TYPES.ROOM_NOT_FOUND:
           return pipe(
-            waitForEvent(WEBSOCKET_LISTENER_EVENT_TYPES.ROOM_NOT_FOUND, listenerEventHandlers, 'Listener', timeoutMs),
+            waitForEvent(WEBSOCKET_LISTENER_EVENT_TYPES.ROOM_NOT_FOUND, listenerEventHandlers, listenerEventBuffer, 'Listener', timeoutMs),
             Effect.flatMap(data => 
               Effect.try({
                 try: () => S.decodeUnknownSync(ListenerRoomNotFoundEventSchema)(data),
@@ -921,7 +1004,7 @@ const createWebSocketClientImpl = (): WebSocketClientServiceImpl => {
       switch (eventType) {
         case WEBSOCKET_LOBBY_EVENT_TYPES.ROOM_ANNOUNCED:
           return pipe(
-            waitForEvent(WEBSOCKET_LOBBY_EVENT_TYPES.ROOM_ANNOUNCED, lobbyEventHandlers, 'Lobby', timeoutMs),
+            waitForEvent(WEBSOCKET_LOBBY_EVENT_TYPES.ROOM_ANNOUNCED, lobbyEventHandlers, lobbyEventBuffer, 'Lobby', timeoutMs),
             Effect.flatMap(data => 
               Effect.try({
                 try: () => S.decodeUnknownSync(RoomAnnouncedEventSchema)(data),
@@ -935,7 +1018,7 @@ const createWebSocketClientImpl = (): WebSocketClientServiceImpl => {
           )
         case WEBSOCKET_LOBBY_EVENT_TYPES.ROOM_ADDED:
           return pipe(
-            waitForEvent(WEBSOCKET_LOBBY_EVENT_TYPES.ROOM_ADDED, lobbyEventHandlers, 'Lobby', timeoutMs),
+            waitForEvent(WEBSOCKET_LOBBY_EVENT_TYPES.ROOM_ADDED, lobbyEventHandlers, lobbyEventBuffer, 'Lobby', timeoutMs),
             Effect.flatMap(data => 
               Effect.try({
                 try: () => S.decodeUnknownSync(RoomAddedEventSchema)(data),
@@ -949,7 +1032,7 @@ const createWebSocketClientImpl = (): WebSocketClientServiceImpl => {
           )
         case WEBSOCKET_LOBBY_EVENT_TYPES.ROOM_UPDATED:
           return pipe(
-            waitForEvent(WEBSOCKET_LOBBY_EVENT_TYPES.ROOM_UPDATED, lobbyEventHandlers, 'Lobby', timeoutMs),
+            waitForEvent(WEBSOCKET_LOBBY_EVENT_TYPES.ROOM_UPDATED, lobbyEventHandlers, lobbyEventBuffer, 'Lobby', timeoutMs),
             Effect.flatMap(data => 
               Effect.try({
                 try: () => S.decodeUnknownSync(RoomUpdatedEventSchema)(data),
@@ -963,7 +1046,7 @@ const createWebSocketClientImpl = (): WebSocketClientServiceImpl => {
           )
         case WEBSOCKET_LOBBY_EVENT_TYPES.ROOM_REMOVED:
           return pipe(
-            waitForEvent(WEBSOCKET_LOBBY_EVENT_TYPES.ROOM_REMOVED, lobbyEventHandlers, 'Lobby', timeoutMs),
+            waitForEvent(WEBSOCKET_LOBBY_EVENT_TYPES.ROOM_REMOVED, lobbyEventHandlers, lobbyEventBuffer, 'Lobby', timeoutMs),
             Effect.flatMap(data => 
               Effect.try({
                 try: () => S.decodeUnknownSync(RoomRemovedEventSchema)(data),
@@ -977,7 +1060,7 @@ const createWebSocketClientImpl = (): WebSocketClientServiceImpl => {
           )
         case WEBSOCKET_LOBBY_EVENT_TYPES.JOIN_APPROVED:
           return pipe(
-            waitForEvent(WEBSOCKET_LOBBY_EVENT_TYPES.JOIN_APPROVED, lobbyEventHandlers, 'Lobby', timeoutMs),
+            waitForEvent(WEBSOCKET_LOBBY_EVENT_TYPES.JOIN_APPROVED, lobbyEventHandlers, lobbyEventBuffer, 'Lobby', timeoutMs),
             Effect.flatMap(data => 
               Effect.try({
                 try: () => S.decodeUnknownSync(JoinRoomResponseEventSchema)(data),
