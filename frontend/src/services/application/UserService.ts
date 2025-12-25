@@ -22,9 +22,9 @@ import { Effect, Context, Layer, Option as O, pipe } from 'effect'
 import { ConnectionAdapter, UserAdapter, AudioAdapter } from '../../stores'
 
 // Import only infrastructure via Context.Tag
-import { WebSocketClientService } from '../infrastructure/WebSocketClient'
-import { MediaSoupClient } from '../infrastructure/MediaSoupClient'
-import { AudioClient } from '../infrastructure/AudioClient'
+import { UserWebSocket, createWebSocketClientService } from '../infrastructure/WebSocketClient'
+import { MediaSoupClient, MediaSoupClientLive } from '../infrastructure/MediaSoupClient'
+import { AudioClient, AudioClientLive } from '../infrastructure/AudioClient'
 
 // Import WebSocket command schemas for S.make construction and event types
 import { 
@@ -42,6 +42,7 @@ import {
   type DjTransportReadyEvent,
   type TransportConnectedEvent,
   type ProducerCreatedEvent,
+  type RoomClosedEvent,
   type JoinReadyEvent,
   type ConsumerCreatedEvent
 } from '../../domain/schemas/shared/websocket.schema'
@@ -52,6 +53,7 @@ import {
   type UserRoleType,
   type DJPublishResultType
 } from '../../domain/schemas/user.schema'
+import { WsConnectionState } from '../../domain/schemas/connection.schema'
 /**
  * User Service Context Tag
  *
@@ -62,16 +64,17 @@ export class UserService extends Context.Tag("@app/services/UserService")<
   UserService,
   {
     // DJ Operations
-    readonly publishDJRoom: (roomId: string, djWebSocketUrl: string, deviceId?: string) => Effect.Effect<DJPublishResultType, UserServiceError, UserAdapter | WebSocketClientService | MediaSoupClient | AudioClient>
-    readonly closeDJRoom: () => Effect.Effect<void, UserServiceError, ConnectionAdapter | AudioAdapter | WebSocketClientService | AudioClient | MediaSoupClient>
+    readonly publishDJRoom: (roomId: string, djWebSocketUrl: string, deviceId?: string) => Effect.Effect<DJPublishResultType, UserServiceError, never>
+    readonly closeDJRoom: () => Effect.Effect<void, UserServiceError, never>
 
     // Listener Operations
-    readonly joinRoomAsListener: (roomId: string, sessionId: string, listenerWebSocketUrl: string) => Effect.Effect<{ readonly listenerId: string; readonly roomId: string; readonly sessionId: string; readonly joinedAt: Date }, UserServiceError, UserAdapter | WebSocketClientService | MediaSoupClient | AudioClient>
-    readonly leaveListenerRoom: (listenerId: string) => Effect.Effect<void, UserServiceError, ConnectionAdapter | WebSocketClientService | AudioClient | MediaSoupClient>
+    readonly joinRoomAsListener: (roomId: string, sessionId: string, listenerWebSocketUrl: string) => Effect.Effect<{ readonly listenerId: string; readonly roomId: string; readonly sessionId: string; readonly joinedAt: Date }, UserServiceError, never>
+    readonly leaveListenerRoom: (listenerId: string) => Effect.Effect<void, UserServiceError, never>
 
     // Shared Operations
-    readonly disconnect: () => Effect.Effect<void, UserServiceError, WebSocketClientService | ConnectionAdapter>
-    readonly getCurrentRole: () => Effect.Effect<UserRoleType | null, never, ConnectionAdapter>
+    readonly connect: (url: string) => Effect.Effect<void, UserServiceError, never>
+    readonly disconnect: () => Effect.Effect<void, UserServiceError, never>
+    readonly getCurrentRole: () => Effect.Effect<UserRoleType | null, never, never>
   }
 >() {}
 
@@ -90,7 +93,7 @@ const createUserServiceImpl = () => {
 
     publishDJRoom: (roomId: string, djWebSocketUrl: string, deviceId?: string) =>
       Effect.gen(function* () {
-        const wsClient = yield* WebSocketClientService
+        const wsClient = yield* UserWebSocket
         const mediaSoupClient = yield* MediaSoupClient
         const audioClient = yield* AudioClient
         const userAdapter = yield* UserAdapter
@@ -200,18 +203,18 @@ const createUserServiceImpl = () => {
 
           throw error
         }
-      }) as Effect.Effect<DJPublishResultType, UserServiceError, UserAdapter | WebSocketClientService | MediaSoupClient | AudioClient>,
+      }) as Effect.Effect<DJPublishResultType, UserServiceError, UserAdapter | UserWebSocket | MediaSoupClient | AudioClient>,
 
     closeDJRoom: () =>
       Effect.gen(function* () {
         const connectionAdapter = yield* ConnectionAdapter
-        const wsClient = yield* WebSocketClientService
+        const wsClient = yield* UserWebSocket
         const audioClient = yield* AudioClient
         const mediaSoupClient = yield* MediaSoupClient
 
         // Send close command if connected
         if (connectionAdapter.isRoomConnected()) {
-          yield* wsClient.sendDJCommand(CloseRoomCommandSchema.make({})).pipe(
+          yield* wsClient.sendCommand<RoomClosedEvent>(CloseRoomCommandSchema.make({})).pipe(
             Effect.mapError((error) => new UserServiceError({
               cause: `Failed to send close room command: ${error}`,
               role: 'dj',
@@ -235,7 +238,7 @@ const createUserServiceImpl = () => {
         yield* audioClient.stopStream()
 
         // Disconnect WebSocket
-        yield* wsClient.disconnectRoom().pipe(
+        yield* wsClient.disconnect().pipe(
           Effect.mapError((error) => new UserServiceError({
             cause: `Failed to disconnect room WebSocket: ${error}`,
             role: 'dj',
@@ -254,7 +257,7 @@ const createUserServiceImpl = () => {
 
     joinRoomAsListener: (roomId: string, sessionId: string, listenerWebSocketUrl: string) =>
       Effect.gen(function* () {
-        const wsClient = yield* WebSocketClientService
+        const wsClient = yield* UserWebSocket
         const mediaSoupClient = yield* MediaSoupClient
         const audioClient = yield* AudioClient
         const userAdapter = yield* UserAdapter
@@ -264,7 +267,7 @@ const createUserServiceImpl = () => {
         userAdapter.setCurrentRole('listener')
 
         // 1. Connect WebSocket to room
-        yield* wsClient.connectRoom(listenerWebSocketUrl)
+        yield* wsClient.connect(listenerWebSocketUrl)
 
         // 2. Initialize listener
         console.info('🔗 UserService: Initializing listener...')
@@ -310,7 +313,7 @@ const createUserServiceImpl = () => {
 
           // 9. Resume consumer if needed
           if (consumer.paused) {
-            yield* wsClient.sendListenerCommand(ResumeConsumerCommandSchema.make({
+            yield* wsClient.sendCommandFireForget(ResumeConsumerCommandSchema.make({
               consumerId: consumer.id
             }))
           }
@@ -339,12 +342,12 @@ const createUserServiceImpl = () => {
             }))
           })
         )
-      ) as Effect.Effect<{ readonly listenerId: string; readonly roomId: string; readonly sessionId: string; readonly joinedAt: Date }, UserServiceError, UserAdapter | WebSocketClientService | MediaSoupClient | AudioClient>,
+      ) as Effect.Effect<{ readonly listenerId: string; readonly roomId: string; readonly sessionId: string; readonly joinedAt: Date }, UserServiceError, UserAdapter | UserWebSocket | MediaSoupClient | AudioClient>,
 
     leaveListenerRoom: (_listenerId: string) =>
       Effect.gen(function* () {
         const connectionAdapter = yield* ConnectionAdapter
-        const wsClient = yield* WebSocketClientService
+        const wsClient = yield* UserWebSocket
         const audioClient = yield* AudioClient
         const mediaSoupClient = yield* MediaSoupClient
 
@@ -355,32 +358,51 @@ const createUserServiceImpl = () => {
         yield* mediaSoupClient.cleanup()
 
         // Disconnect WebSocket
-        yield* wsClient.disconnectRoom()
+        yield* wsClient.disconnect()
 
         // Reset state
         connectionAdapter.resetRoom()
         activeRole = O.none()
-      }) as Effect.Effect<void, UserServiceError, ConnectionAdapter | WebSocketClientService | AudioClient | MediaSoupClient>,
+      }) as Effect.Effect<void, UserServiceError, ConnectionAdapter | UserWebSocket | AudioClient | MediaSoupClient>,
 
 
     // ============= Shared Operations =============
 
+    connect: (url: string) =>
+      Effect.gen(function* () {
+        const wsClient = yield* UserWebSocket
+        const connectionAdapter = yield* ConnectionAdapter
+
+        // Connect to the user WebSocket
+        yield* wsClient.connect(url).pipe(
+          Effect.mapError((error) => new UserServiceError({
+            cause: `Failed to connect to user WebSocket: ${error}`,
+            operation: 'connect',
+            role: O.getOrNull(activeRole) || 'unknown' as UserRoleType,
+            timestamp: new Date()
+          }))
+        )
+
+        // Update connection state
+        connectionAdapter.setRoomWSState(WsConnectionState.CONNECTED)
+      }) as Effect.Effect<void, UserServiceError, UserWebSocket | ConnectionAdapter>,
+
     disconnect: () =>
       Effect.gen(function* () {
-        const wsClient = yield* WebSocketClientService
+        const wsClient = yield* UserWebSocket
         const connectionAdapter = yield* ConnectionAdapter
 
         // Disconnect based on active connections
         if (connectionAdapter.isLobbyConnected()) {
-          yield* wsClient.disconnectLobby()
+          yield* wsClient.disconnect()
         }
 
         if (connectionAdapter.isRoomConnected()) {
-          yield* wsClient.disconnectRoom()
+          yield* wsClient.disconnect()
         }
 
         activeRole = O.none()
-      }) as Effect.Effect<void, UserServiceError, WebSocketClientService | ConnectionAdapter>,
+      }) as Effect.Effect<void, UserServiceError, UserWebSocket | ConnectionAdapter>,
 
     getCurrentRole: () =>
       Effect.succeed(O.getOrNull(activeRole)) as Effect.Effect<UserRoleType | null, never, ConnectionAdapter>
@@ -388,15 +410,84 @@ const createUserServiceImpl = () => {
 }
 
 /**
- * User Service Layer
- *
- * Live implementation layer that provides the UserService.
- * Use this in your app's main Layer composition.
- *
- * Note: AudioClient and other dependencies are resolved via Context.Tag
- * when the service methods are called, not at layer construction time.
+ * User Feature Layer
+ * 
+ * Scoped layer that provides UserService with its UserWebSocket dependency.
+ * Should be provided at the route level (DJRoom, ListenerRoom) for proper scoping.
  */
-export const UserServiceLive = Layer.succeed(
-  UserService,
-  createUserServiceImpl()
+export const UserFeatureLayer = Layer.scoped(
+  UserService, 
+  Effect.gen(function* () {
+    // Resolve dependencies within this layer context
+    const connectionAdapter = yield* ConnectionAdapter
+    const userAdapter = yield* UserAdapter
+    const audioAdapter = yield* AudioAdapter
+    const userWebSocket = yield* UserWebSocket
+    const mediaSoupClient = yield* MediaSoupClient
+    const audioClient = yield* AudioClient
+    
+    // Get the service implementation
+    const serviceImpl = createUserServiceImpl()
+    
+    // Return service implementation with resolved dependencies provided to each method
+    return {
+      publishDJRoom: (roomId: string, djWebSocketUrl: string, deviceId?: string) =>
+        serviceImpl.publishDJRoom(roomId, djWebSocketUrl, deviceId).pipe(
+          Effect.provideService(UserAdapter, userAdapter),
+          Effect.provideService(UserWebSocket, userWebSocket),
+          Effect.provideService(MediaSoupClient, mediaSoupClient),
+          Effect.provideService(AudioClient, audioClient)
+        ),
+      closeDJRoom: () =>
+        serviceImpl.closeDJRoom().pipe(
+          Effect.provideService(ConnectionAdapter, connectionAdapter),
+          Effect.provideService(AudioAdapter, audioAdapter),
+          Effect.provideService(UserWebSocket, userWebSocket),
+          Effect.provideService(MediaSoupClient, mediaSoupClient),
+          Effect.provideService(AudioClient, audioClient)
+        ),
+      joinRoomAsListener: (roomId: string, sessionId: string, listenerWebSocketUrl: string) =>
+        serviceImpl.joinRoomAsListener(roomId, sessionId, listenerWebSocketUrl).pipe(
+          Effect.provideService(UserAdapter, userAdapter),
+          Effect.provideService(UserWebSocket, userWebSocket),
+          Effect.provideService(MediaSoupClient, mediaSoupClient),
+          Effect.provideService(AudioClient, audioClient)
+        ),
+      leaveListenerRoom: (listenerId: string) =>
+        serviceImpl.leaveListenerRoom(listenerId).pipe(
+          Effect.provideService(ConnectionAdapter, connectionAdapter),
+          Effect.provideService(UserWebSocket, userWebSocket),
+          Effect.provideService(MediaSoupClient, mediaSoupClient),
+          Effect.provideService(AudioClient, audioClient)
+        ),
+      connect: (url: string) =>
+        serviceImpl.connect(url).pipe(
+          Effect.provideService(UserWebSocket, userWebSocket),
+          Effect.provideService(ConnectionAdapter, connectionAdapter)
+        ),
+      disconnect: () =>
+        serviceImpl.disconnect().pipe(
+          Effect.provideService(UserWebSocket, userWebSocket),
+          Effect.provideService(ConnectionAdapter, connectionAdapter)
+        ),
+      getCurrentRole: () =>
+        serviceImpl.getCurrentRole().pipe(
+          Effect.provideService(ConnectionAdapter, connectionAdapter)
+        )
+    } satisfies Context.Tag.Service<UserService>
+  })
+)
+
+/**
+ * Complete User Layer with All Dependencies
+ * 
+ * Combines UserService with all its dependencies.
+ * Use this in global layer compositions.
+ */
+export const UserServiceLive = UserFeatureLayer.pipe(
+  Layer.provide(Layer.mergeAll(
+    Layer.scoped(UserWebSocket, createWebSocketClientService),
+    MediaSoupClientLive,
+    AudioClientLive
+  ))
 )

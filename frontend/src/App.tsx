@@ -12,114 +12,89 @@ import { LobbyAdapter, LobbyAdapterLive } from './stores/lobby'
 import { UserAdapter, UserAdapterLive } from './stores/user'
 import { AudioAdapter, AudioAdapterLive } from './stores/audio'
 
-// Import all services
-import { UserService, UserServiceLive } from './services/application/UserService'
-import { LobbyService, LobbyServiceLive } from './services/application/LobbyService'
-import { WebSocketClientService, WebSocketClientServiceLive } from './services/infrastructure/WebSocketClient'
-import { MediaSoupClient, MediaSoupClientLive } from './services/infrastructure/MediaSoupClient'
-import { AudioClient, AudioClientLive } from './services/infrastructure/AudioClient'
+// Export service layers for scoped use in components
+export { UserServiceLive } from './services/application/UserService'
+export { LobbyServiceLive } from './services/application/LobbyService'
+export { MediaSoupClientLive } from './services/infrastructure/MediaSoupClient'
+export { AudioClientLive } from './services/infrastructure/AudioClient'
 import { User } from './services/domain/User'
 
-// Create the complete application layer with all services and adapters
-const AppLayer = Layer.mergeAll(
-  // Store Adapters
+// Global Application Layer - Only true singletons (store adapters)
+const GlobalAppLayer = Layer.mergeAll(
+  // Store Adapters (global singletons - shared state)
   ConnectionAdapterLive,
   LobbyAdapterLive,
   UserAdapterLive,
-  AudioAdapterLive,
-  // Application Services
-  UserServiceLive,
-  LobbyServiceLive,
-  // Infrastructure Services
-  WebSocketClientServiceLive,
-  MediaSoupClientLive,
-  AudioClientLive
+  AudioAdapterLive
 )
 
-// Create managed runtime with all dependencies
-const runtime = ManagedRuntime.make(AppLayer)
+// Create managed runtime with global dependencies only
+const globalRuntime = ManagedRuntime.make(GlobalAppLayer)
 
-// Get service types from Context.Tag
+// Feature-specific layers are now exported from individual service files
+
+// Get adapter types from Context.Tag (only global adapters)
 type ConnectionAdapterService = Context.Tag.Service<ConnectionAdapter>
 type LobbyAdapterService = Context.Tag.Service<LobbyAdapter>
 type UserAdapterService = Context.Tag.Service<UserAdapter>
 type AudioAdapterService = Context.Tag.Service<AudioAdapter>
-type UserServiceType = Context.Tag.Service<UserService>
-type LobbyServiceType = Context.Tag.Service<LobbyService>
-type WebSocketClientServiceType = Context.Tag.Service<WebSocketClientService>
-type MediaSoupClientType = Context.Tag.Service<MediaSoupClient>
-type AudioClientType = Context.Tag.Service<AudioClient>
 
-// Service context types
-interface ServiceContextValue {
-  // Adapters
+// Global service context types (only adapters)
+interface GlobalServiceContextValue {
+  // Adapters (globally available)
   connectionAdapter: ConnectionAdapterService
   lobbyAdapter: LobbyAdapterService
   userAdapter: UserAdapterService
   audioAdapter: AudioAdapterService
-  // Application Services
-  userService: UserServiceType
-  lobbyService: LobbyServiceType
-  // Infrastructure Services
-  webSocketClient: WebSocketClientServiceType
-  mediaSoupClient: MediaSoupClientType
-  audioClient: AudioClientType
-  // Runtime for Effect execution
-  runtime: typeof runtime
+  // Global Runtime for Effect execution
+  globalRuntime: typeof globalRuntime
 }
 
 // Create context
-const ServiceContext = createContext<ServiceContextValue>()
+const GlobalServiceContext = createContext<GlobalServiceContextValue>()
 
-// Provider component
-const ServiceProvider: ParentComponent = (props) => {
-  // Get all services and adapters from runtime
-  const services: ServiceContextValue = {
-    // Adapters
-    connectionAdapter: runtime.runSync(ConnectionAdapter),
-    lobbyAdapter: runtime.runSync(LobbyAdapter),
-    userAdapter: runtime.runSync(UserAdapter),
-    audioAdapter: runtime.runSync(AudioAdapter),
-    // Application Services
-    userService: runtime.runSync(UserService),
-    lobbyService: runtime.runSync(LobbyService),
-    // Infrastructure Services
-    webSocketClient: runtime.runSync(WebSocketClientService),
-    mediaSoupClient: runtime.runSync(MediaSoupClient),
-    audioClient: runtime.runSync(AudioClient),
-    // Runtime
-    runtime
+// Global Provider component (for shared services only)
+const GlobalServiceProvider: ParentComponent = (props) => {
+  // Get global services and adapters from runtime
+  const services: GlobalServiceContextValue = {
+    // Adapters (globally available)
+    connectionAdapter: globalRuntime.runSync(ConnectionAdapter),
+    lobbyAdapter: globalRuntime.runSync(LobbyAdapter),
+    userAdapter: globalRuntime.runSync(UserAdapter),
+    audioAdapter: globalRuntime.runSync(AudioAdapter),
+    // Global Runtime
+    globalRuntime
   }
 
   return (
-    <ServiceContext.Provider value={services}>
+    <GlobalServiceContext.Provider value={services}>
       {props.children}
-    </ServiceContext.Provider>
+    </GlobalServiceContext.Provider>
   )
 }
 
-// Hook to use services
-export const useServices = () => {
-  const context = useContext(ServiceContext)
+// Hook to use global services
+export const useGlobalServices = () => {
+  const context = useContext(GlobalServiceContext)
   if (!context) {
-    throw new Error('useServices must be used within ServiceProvider')
+    throw new Error('useGlobalServices must be used within GlobalServiceProvider')
   }
   return context
 }
 
-// Individual hooks for convenience
-export const useConnectionAdapter = () => useServices().connectionAdapter
-export const useLobbyAdapter = () => useServices().lobbyAdapter
-export const useUserAdapter = () => useServices().userAdapter
-export const useAudioAdapter = () => useServices().audioAdapter
-export const useUserService = () => useServices().userService
-export const useLobbyService = () => useServices().lobbyService
-export const useAudioClient = () => useServices().audioClient
-export const useRuntime = () => useServices().runtime
+// Individual hooks for global adapters only
+export const useConnectionAdapter = () => useGlobalServices().connectionAdapter
+export const useLobbyAdapter = () => useGlobalServices().lobbyAdapter
+export const useUserAdapter = () => useGlobalServices().userAdapter
+export const useAudioAdapter = () => useGlobalServices().audioAdapter
+export const useGlobalRuntime = () => useGlobalServices().globalRuntime
+
+// Legacy hook for backward compatibility
+export const useRuntime = () => useGlobalServices().globalRuntime
 
 function AppContent() {
   // Get services for initialization
-  const runtime = useRuntime()
+  const runtime = useGlobalRuntime()
   const userAdapter = useUserAdapter()
 
   // Initialize session ID on app mount
@@ -165,9 +140,9 @@ function AppContent() {
 
 function App() {
   return (
-    <ServiceProvider>
+    <GlobalServiceProvider>
       <AppContent />
-    </ServiceProvider>
+    </GlobalServiceProvider>
   )
 }
 

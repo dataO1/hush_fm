@@ -1,24 +1,77 @@
-import { For, Show, createResource, createSignal } from 'solid-js'
+import { For, Show, createResource, createSignal, onCleanup, createContext, useContext, ParentComponent } from 'solid-js'
 import { useNavigate } from '@solidjs/router'
-import { Option as O, Effect } from 'effect'
-import { useConnectionAdapter, useLobbyAdapter, useUserAdapter, useRuntime } from '../../App'
-import { LobbyService } from '../../services/application/LobbyService'
+import { Option as O, Effect, Context } from 'effect'
+import { useConnectionAdapter, useLobbyAdapter, useUserAdapter, useGlobalRuntime } from '../../App'
+import { LobbyService, LobbyServiceLive } from '../../services/application/LobbyService'
 import ConnectionStatusDot from '../components/ConnectionStatusDot'
 import { RoomCard } from '../components/room/RoomCard'
 import type { LobbyRoomInfoType } from '../../domain/schemas/lobby.schema'
 
-export default function Landing() {
-  const navigate = useNavigate()
+// Lobby Feature Service Context
+interface LobbyFeatureContextValue {
+  lobbyService: Context.Tag.Service<LobbyService>
+}
 
-  // SolidJS 2025: Use Effect services through hooks
+const LobbyFeatureContext = createContext<LobbyFeatureContextValue>()
+
+const LobbyFeatureProvider: ParentComponent = (props) => {
+  // Get global runtime for accessing adapters
+  const globalRuntime = useGlobalRuntime()
+  
+  // Create lobby service directly using the global runtime (which has all adapters)
+  const lobbyService = globalRuntime.runSync(
+    Effect.provide(LobbyService, LobbyServiceLive)
+  )
+  
+  const services: LobbyFeatureContextValue = {
+    lobbyService
+  }
+  
+  // Cleanup on unmount
+  onCleanup(async () => {
+    console.info('🏠 LobbyFeatureProvider: Cleaning up on unmount')
+    try {
+      await lobbyService.disconnectFromLobby().pipe(Effect.runPromise)
+    } catch (error) {
+      console.warn('⚠️ LobbyFeatureProvider: Error during cleanup:', error)
+    }
+  })
+  
+  return (
+    <LobbyFeatureContext.Provider value={services}>
+      {props.children}
+    </LobbyFeatureContext.Provider>
+  )
+}
+
+const useLobbyFeature = () => {
+  const context = useContext(LobbyFeatureContext)
+  if (!context) {
+    throw new Error('useLobbyFeature must be used within LobbyFeatureProvider')
+  }
+  return context
+}
+
+function LandingContent() {
+  const navigate = useNavigate()
 
   // Use adapters for reactive state (read-only)
   const connectionAdapter = useConnectionAdapter()
   const lobbyAdapter = useLobbyAdapter()
   const userAdapter = useUserAdapter()
   
-  // Get runtime for Effect execution
-  const runtime = useRuntime()
+  // Get scoped lobby service
+  const { lobbyService } = useLobbyFeature()
+  
+  // Set up cleanup when the component unmounts
+  onCleanup(async () => {
+    console.info('🏠 Landing: Cleaning up on component unmount')
+    try {
+      await lobbyService.disconnectFromLobby().pipe(Effect.runPromise)
+    } catch (error) {
+      console.warn('⚠️ Landing: Error during cleanup:', error)
+    }
+  })
 
   // SolidJS 2025: Use createResource for lobby initialization
   const [lobbyInitialization] = createResource(async () => {
@@ -33,13 +86,11 @@ export default function Landing() {
     console.info(`  🎤 DJ streaming: ${isDJStreaming}`)
     console.info(`  🎧 Has active listeners: ${hasActiveListeners}`)
     
-    // Use Effect pattern to connect to lobby
+    // Use scoped lobby service to connect
     console.info('🏠 Landing: Connecting to lobby')
-    const program = LobbyService.pipe(
-      Effect.flatMap((service) => service.connectToLobby())
+    return await lobbyService.connectToLobby().pipe(
+      Effect.runPromise
     )
-    
-    return await runtime.runPromise(program)
   })
 
 
@@ -51,20 +102,16 @@ export default function Landing() {
     
     console.info('🏠 Creating room via Lobby Application Service...')
     
-    // Use Effect pattern to announce room creation
-    const program = LobbyService.pipe(
-      Effect.flatMap((service) => 
-        service.announceRoom(
-          data.name, 
-          data.dj, 
-          O.getOrElse(userAdapter.getSessionId(), () => 'anonymous'),
-          `${data.dj}'s room`,
-          []
-        )
-      )
+    // Use scoped lobby service to announce room creation
+    const result = await lobbyService.announceRoom(
+      data.name, 
+      data.dj, 
+      O.getOrElse(userAdapter.getSessionId(), () => 'anonymous'),
+      `${data.dj}'s room`,
+      []
+    ).pipe(
+      Effect.runPromise
     )
-    
-    const result = await runtime.runPromise(program)
     
     // Close modal and navigate to DJ room
     closeModal()
@@ -124,20 +171,16 @@ export default function Landing() {
         console.info('🔄 Reconnecting to own DJ room via room announcement:', roomId)
         
         try {
-          // Use Effect pattern to announce room reconnection
-          const program = LobbyService.pipe(
-            Effect.flatMap((service) => 
-              service.announceRoom(
-                room.name,
-                room.djName,
-                sessionId,
-                O.getOrNull(room.description) || undefined,
-                [...(room.tags || [])]
-              )
-            )
+          // Use scoped lobby service to announce room reconnection
+          const result = await lobbyService.announceRoom(
+            room.name,
+            room.djName,
+            sessionId,
+            O.getOrNull(room.description) || undefined,
+            [...(room.tags || [])]
+          ).pipe(
+            Effect.runPromise
           )
-          
-          const result = await runtime.runPromise(program)
           
           navigate(`/dj/${result.roomId}`, {
             state: { djWebSocketUrl: result.djWebSocketUrl }
@@ -158,12 +201,10 @@ export default function Landing() {
       }
       
       try {
-        // Use Effect pattern to request join room
-        const program = LobbyService.pipe(
-          Effect.flatMap((service) => service.requestJoinRoom(roomId, sessionId))
+        // Use scoped lobby service to request join room
+        const joinResult = await lobbyService.requestJoinRoom(roomId, sessionId).pipe(
+          Effect.runPromise
         )
-        
-        const joinResult = await runtime.runPromise(program)
         
         if (joinResult && joinResult.listenerWebSocketUrl) {
           console.info('✅ Join request successful, navigating to listener room')
@@ -226,12 +267,10 @@ export default function Landing() {
     // Fetcher function that calls the service
     async (source) => {
       const sessionId = O.getOrNull(source.sessionId)
-      // Use Effect pattern to sort rooms
-      const program = LobbyService.pipe(
-        Effect.flatMap((service) => service.sortRoomsForUser(source.rooms, sessionId || '', undefined))
+      // Use scoped lobby service to sort rooms
+      return await lobbyService.sortRoomsForUser(source.rooms, sessionId || '', undefined).pipe(
+        Effect.runPromise
       )
-      
-      return await runtime.runPromise(program)
     }
   )
 
@@ -410,5 +449,13 @@ export default function Landing() {
         </dialog>
       </div>
     </div>
+  )
+}
+
+export default function Landing() {
+  return (
+    <LobbyFeatureProvider>
+      <LandingContent />
+    </LobbyFeatureProvider>
   )
 }

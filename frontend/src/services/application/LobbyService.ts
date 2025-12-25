@@ -28,10 +28,10 @@ import {
 } from '../../domain/schemas/shared/websocket.schema'
 
 // Import only adapters via Context.Tag
-import { LobbyAdapter, ConnectionAdapter } from '../../stores'
+import { LobbyAdapter } from '../../stores'
 
 // Import only infrastructure via Context.Tag
-import { WebSocketClientService } from '../infrastructure/WebSocketClient'
+import { LobbyWebSocket, createWebSocketClientService } from '../infrastructure/WebSocketClient'
 import { listRooms } from '../generated/rooms/rooms'
 
 /**
@@ -68,12 +68,12 @@ export interface RoomJoinResult {
 export class LobbyService extends Context.Tag("@app/services/LobbyService")<
   LobbyService,
   {
-    readonly connectToLobby: () => Effect.Effect<void, LobbyServiceError, ConnectionAdapter | WebSocketClientService>
-    readonly disconnectFromLobby: () => Effect.Effect<void, LobbyServiceError, ConnectionAdapter | WebSocketClientService>
+    readonly connectToLobby: () => Effect.Effect<void, LobbyServiceError, never>
+    readonly disconnectFromLobby: () => Effect.Effect<void, LobbyServiceError, never>
     readonly getRoomList: () => Effect.Effect<ReadonlyArray<LobbyRoomInfoType>, LobbyServiceError, never>
-    readonly announceRoom: (roomName: string, djName: string, sessionId: string, description?: string, tags?: string[]) => Effect.Effect<RoomAnnouncementResult, LobbyServiceError, LobbyAdapter | WebSocketClientService>
-    readonly requestJoinRoom: (roomId: string, sessionId: string) => Effect.Effect<RoomJoinResult, LobbyServiceError, WebSocketClientService>
-    readonly refreshRoomList: () => Effect.Effect<void, LobbyServiceError, WebSocketClientService>
+    readonly announceRoom: (roomName: string, djName: string, sessionId: string, description?: string, tags?: string[]) => Effect.Effect<RoomAnnouncementResult, LobbyServiceError, never>
+    readonly requestJoinRoom: (roomId: string, sessionId: string) => Effect.Effect<RoomJoinResult, LobbyServiceError, never>
+    readonly refreshRoomList: () => Effect.Effect<void, LobbyServiceError, never>
     readonly sortRoomsForUser: (rooms: any[], sessionId: string, activeListenerRoomId?: string) => Effect.Effect<any[], LobbyServiceError, never>
   }
 >() {}
@@ -106,11 +106,11 @@ const LobbyServiceImpl = {
     Effect.gen(function* () {
       console.info('🏠 Lobby Service: Connecting to lobby')
 
-      const wsClient = yield* WebSocketClientService
+      const wsClient = yield* LobbyWebSocket
 
       // Connect to lobby WebSocket - wsClient handles all connection state management
       const lobbyUrl = `${config.websocket.baseUrl}/ws/lobby`
-      yield* wsClient.connectLobby(lobbyUrl).pipe(
+      yield* wsClient.connect(lobbyUrl).pipe(
         Effect.mapError((error) => new LobbyServiceError(
           `Failed to connect to lobby: ${error}`,
           'connectToLobby',
@@ -128,10 +128,10 @@ const LobbyServiceImpl = {
     Effect.gen(function* () {
       console.info('🏠 Lobby Service: Disconnecting from lobby')
 
-      const wsClient = yield* WebSocketClientService
+      const wsClient = yield* LobbyWebSocket
 
       // Disconnect from lobby - wsClient handles all connection state management
-      yield* wsClient.disconnectLobby().pipe(
+      yield* wsClient.disconnect().pipe(
         Effect.mapError((error) => new LobbyServiceError(
           `Failed to disconnect from lobby: ${error}`,
           'disconnectFromLobby',
@@ -177,7 +177,7 @@ const LobbyServiceImpl = {
       console.info(`🎵 Lobby Service: Announcing room: ${roomName}`)
 
       const lobbyAdapter = yield* LobbyAdapter
-      const wsClient = yield* WebSocketClientService
+      const wsClient = yield* LobbyWebSocket
 
       // Validate inputs
       if (!roomName.trim()) {
@@ -249,7 +249,7 @@ const LobbyServiceImpl = {
     Effect.gen(function* () {
       console.info(`🎧 Lobby Service: Requesting to join room: ${roomId}`)
 
-      const wsClient = yield* WebSocketClientService
+      const wsClient = yield* LobbyWebSocket
 
       // Validate inputs
       if (!roomId.trim()) {
@@ -298,10 +298,10 @@ const LobbyServiceImpl = {
     Effect.gen(function* () {
       console.info('🔄 Lobby Service: Refreshing room list')
 
-      const wsClient = yield* WebSocketClientService
+      const wsClient = yield* LobbyWebSocket
 
       // Send refresh rooms command
-      yield* wsClient.sendLobbyCommand(RefreshRoomsCommandSchema.make({})).pipe(
+      yield* wsClient.sendCommandFireForget(RefreshRoomsCommandSchema.make({})).pipe(
         Effect.mapError((error) => new LobbyServiceError(
           `Failed to send refresh rooms command: ${error.cause}`,
           'refreshRoomList',
@@ -347,11 +347,44 @@ const LobbyServiceImpl = {
 
 
 /**
- * Lobby Service Live Layer
- *
- * Provides the LobbyService implementation through Effect Layer system.
+ * Lobby Feature Layer
+ * 
+ * Provides LobbyService with all its dependencies properly injected.
+ * When dependencies are provided through this layer, the service interface becomes pure (never dependencies).
  */
-export const LobbyServiceLive = Layer.succeed(
-  LobbyService,
-  LobbyServiceImpl
+export const LobbyFeatureLayer = Layer.scoped(
+  LobbyService, 
+  Effect.gen(function* () {
+    // Resolve dependencies within this layer context
+    const lobbyAdapter = yield* LobbyAdapter
+    const lobbyWebSocket = yield* LobbyWebSocket
+    
+    // Return service implementation with resolved dependencies provided to each method
+    return {
+      connectToLobby: () => Effect.provideService(LobbyServiceImpl.connectToLobby(), LobbyWebSocket, lobbyWebSocket),
+      disconnectFromLobby: () => Effect.provideService(LobbyServiceImpl.disconnectFromLobby(), LobbyWebSocket, lobbyWebSocket),
+      getRoomList: () => LobbyServiceImpl.getRoomList(),
+      announceRoom: (roomName: string, djName: string, sessionId: string, description?: string, tags?: string[]) => 
+        Effect.provideService(
+          Effect.provideService(LobbyServiceImpl.announceRoom(roomName, djName, sessionId, description, tags), LobbyWebSocket, lobbyWebSocket),
+          LobbyAdapter,
+          lobbyAdapter
+        ),
+      requestJoinRoom: (roomId: string, sessionId: string) => 
+        Effect.provideService(LobbyServiceImpl.requestJoinRoom(roomId, sessionId), LobbyWebSocket, lobbyWebSocket),
+      refreshRoomList: () => Effect.provideService(LobbyServiceImpl.refreshRoomList(), LobbyWebSocket, lobbyWebSocket),
+      sortRoomsForUser: (rooms: any[], sessionId: string, activeListenerRoomId?: string) => 
+        LobbyServiceImpl.sortRoomsForUser(rooms, sessionId, activeListenerRoomId)
+    } satisfies Context.Tag.Service<LobbyService>
+  })
+)
+
+/**
+ * Complete Lobby Layer with All Dependencies
+ * 
+ * Combines LobbyService with all its dependencies (LobbyWebSocket and LobbyAdapter).
+ * Use this in global layer compositions.
+ */
+export const LobbyServiceLive = LobbyFeatureLayer.pipe(
+  Layer.provide(Layer.scoped(LobbyWebSocket, createWebSocketClientService))
 )

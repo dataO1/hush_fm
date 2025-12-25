@@ -6,7 +6,7 @@ import App from './App'
 import 'solid-devtools'
 
 // Infrastructure Layers
-import { WebSocketClientServiceLive } from './services/infrastructure/WebSocketClient'
+// WebSocketClient is now provided directly to services, not globally
 import { MediaSoupClientLive } from './services/infrastructure/MediaSoupClient'
 import { AudioClientLive } from './services/infrastructure/AudioClient'
 
@@ -29,7 +29,6 @@ import { LobbyServiceLive } from './services/application/LobbyService'
  * Following 2025 SolidJS + Effect-TS architecture pattern.
  */
 const InfrastructureLayer = Layer.mergeAll(
-  WebSocketClientServiceLive,
   MediaSoupClientLive,
   AudioClientLive
 )

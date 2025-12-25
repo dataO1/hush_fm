@@ -1,17 +1,66 @@
-import { Show, createResource, createSignal } from 'solid-js'
+import { Show, createResource, createSignal, onCleanup, createContext, useContext, ParentComponent } from 'solid-js'
 import { useParams, useNavigate, useLocation } from '@solidjs/router'
-import { Option } from 'effect'
-import { useConnectionAdapter, useAudioClient, useAudioAdapter } from '../../App'
-import { useRuntime } from '../../App'
-import { UserService } from '../../services/application/UserService'
-import { Effect } from 'effect'
+import { Option, Effect, Context } from 'effect'
+import { useConnectionAdapter, useAudioAdapter, useGlobalRuntime } from '../../App'
+import { UserService, UserServiceLive } from '../../services/application/UserService'
+import { AudioClient, AudioClientLive } from '../../services/infrastructure/AudioClient'
 import { WebrtcConnectionState } from '../../domain/schemas/connection.schema'
 import { Oscilloscope } from '../components/shared/Oscilloscope'
 import { WebRTCErrorHandler } from '../components/WebRTCErrorHandler'
 import { RoomHeader } from '../components/room/RoomHeader'
 import { ConnectionStatusGroup } from '../components/streaming/ConnectionStatusGroup'
 
-export default function ListenerRoom() {
+// User Feature Service Context (for Listener operations) - reuse same context as DJRoom
+interface UserFeatureContextValue {
+  userService: Context.Tag.Service<UserService>
+  audioClient: Context.Tag.Service<AudioClient>
+}
+
+const UserFeatureContext = createContext<UserFeatureContextValue>()
+
+const UserFeatureProvider: ParentComponent = (props) => {
+  // Get global runtime for accessing adapters
+  const globalRuntime = useGlobalRuntime()
+  
+  // Create user feature services using the global runtime (which has all adapters)
+  const userService = globalRuntime.runSync(
+    Effect.provide(UserService, UserServiceLive)
+  )
+  const audioClient = globalRuntime.runSync(
+    Effect.provide(AudioClient, AudioClientLive)
+  )
+  
+  const services: UserFeatureContextValue = {
+    userService,
+    audioClient
+  }
+  
+  // Cleanup on unmount
+  onCleanup(async () => {
+    console.info('🏠 UserFeatureProvider: Cleaning up on unmount')
+    try {
+      await userService.disconnect().pipe(Effect.runPromise)
+    } catch (error) {
+      console.warn('⚠️ UserFeatureProvider: Error during cleanup:', error)
+    }
+  })
+  
+  return (
+    <UserFeatureContext.Provider value={services}>
+      {props.children}
+    </UserFeatureContext.Provider>
+  )
+}
+
+const useUserFeature = () => {
+  const context = useContext(UserFeatureContext)
+  if (!context) {
+    throw new Error('useUserFeature must be used within UserFeatureProvider')
+  }
+  return context
+}
+
+function ListenerRoomContent() {
   const params = useParams()
   const navigate = useNavigate()
   const location = useLocation()
@@ -19,13 +68,10 @@ export default function ListenerRoom() {
   // SolidJS 2025: Use Effect services through hooks
   // Use adapters for reactive state (read-only)
   const connectionAdapter = useConnectionAdapter()
-  const audioClient = useAudioClient()
-  
-  // Get runtime for Effect execution  
-  const runtime = useRuntime()
-  
-  // Get audio adapter for checking user gesture requirement
   const audioAdapter = useAudioAdapter()
+  
+  // Get scoped user feature services
+  const { userService, audioClient } = useUserFeature()
 
   // Get data from navigation state (from Landing.tsx)
   const navigationState = location.state as {
@@ -103,14 +149,11 @@ export default function ListenerRoom() {
       isReturning: !!isReturning
     })
     
-    // Use Effect pattern to join room as listener
-    const program = UserService.pipe(
-      Effect.flatMap((service) => 
-        service.joinRoomAsListener(roomId(), sessionId, listenerWebSocketUrl)
-      )
-    )
-    
-    const result = await runtime.runPromise(program)
+    const result = await userService.joinRoomAsListener(
+      roomId(), 
+      sessionId, 
+      listenerWebSocketUrl
+    ).pipe(Effect.runPromise)
 
     console.info('✅ Listener join flow completed successfully')
     return result
@@ -139,12 +182,8 @@ export default function ListenerRoom() {
     const listenerId = roomId()
     if (listenerId) {
       console.info('📡 Calling leaveRoomAndNavigate Application Service')
-      // Use Effect pattern to leave room
-      const program = UserService.pipe(
-        Effect.flatMap((service) => service.leaveListenerRoom(listenerId))
-      )
       
-      const result = await runtime.runPromise(program)
+      const result = await userService.leaveListenerRoom(listenerId).pipe(Effect.runPromise)
       console.info('✅ Leave room Application Service completed')
       
       // Navigate back to lobby after successful cleanup
@@ -162,6 +201,16 @@ export default function ListenerRoom() {
   const leaveRoom = () => {
     setLeaveRoomRequest(true)
   }
+
+  // Cleanup on component unmount
+  onCleanup(async () => {
+    console.info('🧹 ListenerRoom: Component cleanup - disconnecting user service')
+    try {
+      await userService.disconnect().pipe(Effect.runPromise)
+    } catch (error) {
+      console.warn('⚠️ ListenerRoom: Error during cleanup:', error)
+    }
+  })
 
   // Ensure this return block replaces your current broken return
   return (
@@ -329,5 +378,13 @@ export default function ListenerRoom() {
         </div>
       </Show>
     </div>
+  )
+}
+
+export default function ListenerRoom() {
+  return (
+    <UserFeatureProvider>
+      <ListenerRoomContent />
+    </UserFeatureProvider>
   )
 }

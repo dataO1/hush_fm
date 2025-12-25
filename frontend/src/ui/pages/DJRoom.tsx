@@ -1,10 +1,12 @@
-import { onCleanup, Show, createSignal, createEffect, createResource } from 'solid-js'
+import { onCleanup, Show, createSignal, createEffect, createResource, createContext, useContext, ParentComponent } from 'solid-js'
 import { useParams, useNavigate, useLocation } from '@solidjs/router'
-import { Option as O, Effect } from 'effect'
+import { Option as O, Effect, Context } from 'effect'
 import { DeviceSelector } from '../components/controls/DeviceSelector'
-import { useConnectionAdapter, useAudioAdapter, useAudioClient, useRuntime } from '../../App'
-import { UserService } from '../../services/application/UserService'
-import { WebSocketClientService } from '../../services/infrastructure/WebSocketClient'
+import { useConnectionAdapter, useAudioAdapter, useGlobalRuntime } from '../../App'
+import { UserService, UserServiceLive } from '../../services/application/UserService'
+import { AudioClient, AudioClientLive } from '../../services/infrastructure/AudioClient'
+import { AudioAdapter } from '../../stores/audio'
+// WebSocketClient is now provided directly via UserService, not imported here
 import { WebrtcConnectionState, WsConnectionState } from '../../domain/schemas/connection.schema'
 import { Oscilloscope } from '../components/shared/Oscilloscope'
 import { WebRTCErrorHandler } from '../components/WebRTCErrorHandler'
@@ -12,7 +14,57 @@ import { RoomHeader } from '../components/room/RoomHeader'
 import { ConnectionStatusGroup } from '../components/streaming/ConnectionStatusGroup'
 import { StreamControls } from '../components/streaming/StreamControls'
 
-export default function DJRoom() {
+// User Feature Service Context (for DJ operations)
+interface UserFeatureContextValue {
+  userService: Context.Tag.Service<UserService>
+  audioClient: Context.Tag.Service<AudioClient>
+}
+
+const UserFeatureContext = createContext<UserFeatureContextValue>()
+
+const UserFeatureProvider: ParentComponent = (props) => {
+  // Get global runtime for accessing adapters
+  const globalRuntime = useGlobalRuntime()
+  
+  // Create user feature services using the global runtime (which has all adapters)
+  const userService = globalRuntime.runSync(
+    Effect.provide(UserService, UserServiceLive)
+  )
+  const audioClient = globalRuntime.runSync(
+    Effect.provide(AudioClient, AudioClientLive)
+  )
+  
+  const services: UserFeatureContextValue = {
+    userService,
+    audioClient
+  }
+  
+  // Cleanup on unmount
+  onCleanup(async () => {
+    console.info('🏠 UserFeatureProvider: Cleaning up on unmount')
+    try {
+      await userService.disconnect().pipe(Effect.runPromise)
+    } catch (error) {
+      console.warn('⚠️ UserFeatureProvider: Error during cleanup:', error)
+    }
+  })
+  
+  return (
+    <UserFeatureContext.Provider value={services}>
+      {props.children}
+    </UserFeatureContext.Provider>
+  )
+}
+
+const useUserFeature = () => {
+  const context = useContext(UserFeatureContext)
+  if (!context) {
+    throw new Error('useUserFeature must be used within UserFeatureProvider')
+  }
+  return context
+}
+
+function DJRoomContent() {
   const params = useParams()
   const navigate = useNavigate()
   const location = useLocation()
@@ -22,10 +74,10 @@ export default function DJRoom() {
   // Use adapters for reactive state (read-only)
   const connectionAdapter = useConnectionAdapter()
   const audioAdapter = useAudioAdapter()
-  const audioClient = useAudioClient()
+  const globalRuntime = useGlobalRuntime()
   
-  // Get runtime for Effect execution
-  const runtime = useRuntime()
+  // Get scoped user feature services
+  const { userService, audioClient } = useUserFeature()
 
   // Get navigation state (from Landing.tsx room creation)
   const navigationState = location.state as {
@@ -45,31 +97,30 @@ export default function DJRoom() {
   })
 
   // Connect to DJ WebSocket on mount
-  createEffect(() => {
+  createEffect(async () => {
     const djUrl = navigationState.djWebSocketUrl
     if (djUrl && !connectionAdapter.isRoomConnected()) {
       console.info('🔗 DJRoom: Connecting to DJ WebSocket on mount...', { djUrl })
       
-      const connectEffect = Effect.gen(function* () {
-        const wsClient = yield* WebSocketClientService
-        yield* wsClient.connectRoom(djUrl)
+      try {
+        await userService.connect(djUrl).pipe(Effect.runPromise)
         console.info('✅ DJRoom: DJ WebSocket connected successfully')
-      }).pipe(
-        Effect.catchAll((error) => {
-          console.error('❌ DJRoom: Failed to connect DJ WebSocket:', error)
-          return Effect.void
-        })
-      )
-      
-      runtime.runPromise(connectEffect)
+      } catch (error) {
+        console.error('❌ DJRoom: Failed to connect DJ WebSocket:', error)
+      }
     }
   })
 
   // Component initialization completed
 
-  onCleanup(() => {
+  onCleanup(async () => {
     // SolidJS 2025: Cleanup handled by SolidJS onCleanup
-    console.info('🧹 DJRoom: Component cleanup')
+    console.info('🧹 DJRoom: Component cleanup - disconnecting user service')
+    try {
+      await userService.disconnect().pipe(Effect.runPromise)
+    } catch (error) {
+      console.warn('⚠️ DJRoom: Error during cleanup:', error)
+    }
   })
 
   // Computed values from domain adapters (SolidJS 2025 + Effect Option patterns)
@@ -121,14 +172,11 @@ export default function DJRoom() {
     
     console.info('🎤 Starting DJ stream via Application Service...')
     
-    // Use Effect pattern to access UserService
-    const program = UserService.pipe(
-      Effect.flatMap((service) => 
-        service.publishDJRoom(request.roomId, navigationState.djWebSocketUrl!, request.deviceId)
-      )
-    )
-    
-    const result = await runtime.runPromise(program)
+    const result = await userService.publishDJRoom(
+      request.roomId, 
+      navigationState.djWebSocketUrl!, 
+      request.deviceId
+    ).pipe(Effect.runPromise)
     
     console.info('✅ DJ stream started successfully')
     return result
@@ -213,8 +261,12 @@ export default function DJRoom() {
               {/* Show DeviceSelector only when WebRTC is not connected */}
               <Show when={!connectionAdapter.isConnected()}>
                 <DeviceSelector 
-                  getAudioDevices={() => runtime.runPromise(audioClient.getAudioDevices())}
-                  selectDevice={(deviceId) => runtime.runPromise(audioClient.selectDevice(deviceId))}
+                  getAudioDevices={async () => await globalRuntime.runPromise(
+                    Effect.provideService(audioClient.getAudioDevices(), AudioAdapter, audioAdapter)
+                  )}
+                  selectDevice={async (deviceId) => await globalRuntime.runPromise(
+                    Effect.provideService(audioClient.selectDevice(deviceId), AudioAdapter, audioAdapter)
+                  )}
                 />
               </Show>
               
@@ -271,11 +323,13 @@ export default function DJRoom() {
               {/* Stream Controls - only show when connected */}
               <Show when={connectionAdapter.isConnected()}>
                 <StreamControls 
-                  toggleMute={() => runtime.runPromise(audioClient.toggleAudioStreamPlaying(!audioAdapter.isPlaying()))}
+                  toggleMute={async () => {
+                    await globalRuntime.runPromise(
+                      Effect.provideService(audioClient.toggleAudioStreamPlaying(!audioAdapter.isPlaying()), AudioAdapter, audioAdapter)
+                    )
+                  }}
                   endStream={async () => {
-                    await runtime.runPromise(UserService.pipe(
-                      Effect.flatMap((service) => service.closeDJRoom())
-                    ))
+                    await userService.closeDJRoom().pipe(Effect.runPromise)
                     navigate('/')
                   }}
                   isPaused={isPaused}
@@ -287,5 +341,13 @@ export default function DJRoom() {
         </Show>
       </div>
     </div>
+  )
+}
+
+export default function DJRoom() {
+  return (
+    <UserFeatureProvider>
+      <DJRoomContent />
+    </UserFeatureProvider>
   )
 }
