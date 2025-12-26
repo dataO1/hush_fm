@@ -1,17 +1,14 @@
 /**
  * Domain Schemas Index
  * 
- * Centralized exports for all domain schemas and their validators.
+ * Central export point for all domain schemas
  */
 
-// Lobby Domain
+// Core Domain Schemas
+export * from './audio.schema'
+export * from './connection.schema'
 export * from './lobby.schema'
+export * from './user.schema'
 
-// Room Domain  
-export * from './room.schema'
-
-// DJ Domain (18-step flow)
-export * from './dj.schema'
-
-// Listener Domain (10-step flow)
-export * from './listener.schema'
+// Shared Foundation Schemas
+export * from './shared'

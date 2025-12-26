@@ -2,54 +2,75 @@
  * Connection Status Dot Component
  * 
  * A reusable component that shows connection status as a colored, pulsing dot.
- * Uses stores for state knowledge and is read-only.
+ * Pure component that only uses props - no direct store access.
  * 
  * Colors:
- * - Green (pulsing): Connected/Active
+ * - Green (pulsing): Streaming/Active
  * - Blue (pulsing): Connecting/Setup
- * - Yellow (solid): Muted/Paused
+ * - Yellow (solid): Paused/Muted
  * - Red (pulsing): Error/Disconnected
  */
 
 import { createMemo } from 'solid-js'
-import { createLobbyStore } from '../../stores/lobby.store'
+import { WebrtcConnectionState } from '../../domain/schemas/connection.schema'
 
 interface ConnectionStatusDotProps {
-  /** Optional override for connection state (for DJ/Listener specific states) */
-  connectionState?: 'connected' | 'connecting' | 'muted' | 'error' | 'disconnected' | 'streaming' | 'paused' | 'setup'
+  /** Reactive getter for WebRTC connection state */
+  webrtcState: () => WebrtcConnectionState
+  /** Reactive getter for audio pause state */
+  isPaused?: () => boolean
   /** Size variant */
   size?: 'sm' | 'md' | 'lg'
-  /** Optional tooltip text */
+  /** Optional tooltip text override */
   title?: string
 }
 
 export default function ConnectionStatusDot(props: ConnectionStatusDotProps) {
-  const lobbyStore = createLobbyStore()
-  
-  // Determine the status from props or lobby store
+  // Map WebRTC connection state to visual status
   const status = createMemo(() => {
-    if (props.connectionState) {
-      return props.connectionState
+    const webrtcState = props.webrtcState()
+    const paused = props.isPaused?.() ?? false
+    
+    // Handle combined audio pause + streaming state
+    if (webrtcState === WebrtcConnectionState.STREAMING && paused) {
+      return 'paused'
     }
     
-    // Default to lobby connection state
-    const connectionState = lobbyStore.state.connection.state
-    if (lobbyStore.connectionError) {
-      return 'error'
-    }
-    
-    switch (connectionState) {
-      case 'connected':
-        return 'connected'
-      case 'connecting':
-      case 'reconnecting':
+    // Map WebRTC states to visual states
+    switch (webrtcState) {
+      case WebrtcConnectionState.STREAMING:
+        return 'streaming'
+      case WebrtcConnectionState.CONNECTED:
+        return 'setup'
+      case WebrtcConnectionState.CONNECTING:
+      case WebrtcConnectionState.DISCONNECTING:
         return 'connecting'
-      case 'error':
+      case WebrtcConnectionState.PAUSED:
+        return 'paused'
+      case WebrtcConnectionState.ERROR:
         return 'error'
-      case 'disconnected':
+      case WebrtcConnectionState.DISCONNECTED:
       default:
         return 'disconnected'
     }
+  })
+  
+  // Get status text for accessibility
+  const statusText = createMemo(() => {
+    const webrtcState = props.webrtcState()
+    const paused = props.isPaused?.() ?? false
+    
+    if (webrtcState === WebrtcConnectionState.STREAMING && paused) {
+      return 'MUTED'
+    }
+    if (webrtcState === WebrtcConnectionState.STREAMING) {
+      return 'STREAMING'
+    }
+    if (webrtcState === WebrtcConnectionState.CONNECTED || webrtcState === WebrtcConnectionState.CONNECTING) {
+      return 'SETUP'
+    }
+    
+    return webrtcState || 'DISCONNECTED'
   })
   
   // Size classes
@@ -65,30 +86,31 @@ export default function ConnectionStatusDot(props: ConnectionStatusDotProps) {
     }
   })
   
-  // Status-specific classes
+  // Status-specific classes with gruvbox colors
   const statusClasses = createMemo(() => {
     switch (status()) {
-      case 'connected':
       case 'streaming':
-        return 'bg-green-500 animate-pulse'
+        return 'bg-gruvbox-green-bright animate-pulse'
       case 'connecting':
       case 'setup':
-        return 'bg-blue-500 animate-pulse'
-      case 'muted':
+        return 'bg-gruvbox-blue-bright animate-pulse'
       case 'paused':
-        return 'bg-yellow-500'
+        return 'bg-gruvbox-yellow-bright'
       case 'error':
-        return 'bg-red-500 animate-pulse'
+        return 'bg-gruvbox-red-bright animate-pulse'
       case 'disconnected':
       default:
-        return 'bg-red-500 animate-pulse'
+        return 'bg-gruvbox-red animate-pulse'
     }
   })
   
+  // SolidJS 2025: Use Show for conditional rendering and better accessibility
   return (
     <div 
       class={`rounded-full ${sizeClasses()} ${statusClasses()}`}
-      title={props.title}
+      title={props.title || `Connection Status: ${statusText()}`}
+      role="status"
+      aria-label={`Connection Status: ${statusText()}`}
     />
   )
 }

@@ -1,3 +1,133 @@
 @import "tailwindcss/base";
 @import "tailwindcss/components";
 @import "tailwindcss/utilities";
+
+@layer components {
+  /* Layout Components - removed circular dependency */
+  
+  .card-glass {
+    @apply bg-gruvbox-bg-1/80 backdrop-blur-sm border border-gruvbox-bg-3/60 rounded-sm;
+  }
+  
+  .modal-glass {
+    @apply bg-gruvbox-bg-1/90 backdrop-blur-md border border-gruvbox-bg-3/80 rounded-sm;
+  }
+  
+  .overlay-glass {
+    @apply bg-gruvbox-bg-hard/70 backdrop-blur-sm;
+  }
+
+  /* Brand Text */
+  .text-brand {
+    @apply text-gruvbox-yellow-bright;
+  }
+
+  /* Room Status Components */
+  .room-dj {
+    @apply bg-gruvbox-yellow-bright/25 border-gruvbox-yellow/60 hover:border-gruvbox-yellow-bright/80 hover:bg-gruvbox-yellow-bright/35 animate-music-pulse rounded-sm;
+  }
+  
+  .room-listener {
+    @apply bg-gruvbox-green-bright/20 border-gruvbox-green/50 hover:border-gruvbox-green-bright/70 hover:bg-gruvbox-green-bright/30 animate-music-pulse rounded-sm;
+  }
+  
+  .room-default {
+    @apply bg-gruvbox-bg-2/40 border border-gruvbox-bg-3/50 hover:border-gruvbox-bg-4/70 hover:bg-gruvbox-bg-2/60 rounded-sm;
+  }
+
+  /* Form Components */
+  .input-hush {
+    @apply bg-gruvbox-bg-1 border-2 border-gruvbox-bg-3 text-gruvbox-fg placeholder-gruvbox-fg-4;
+    @apply focus:border-gruvbox-yellow-bright focus:bg-gruvbox-bg-2 focus:outline-none;
+    @apply disabled:bg-gruvbox-bg-hard disabled:text-gruvbox-fg-4 disabled:border-gruvbox-bg-2 disabled:cursor-not-allowed;
+    @apply transition-all duration-150 ease-in-out rounded-sm;
+  }
+
+  .select-hush {
+    @apply bg-gruvbox-bg-1 border-2 border-gruvbox-bg-3 text-gruvbox-fg;
+    @apply focus:border-gruvbox-yellow-bright focus:bg-gruvbox-bg-2 focus:outline-none;
+    @apply disabled:bg-gruvbox-bg-hard disabled:text-gruvbox-fg-4 disabled:border-gruvbox-bg-2 disabled:cursor-not-allowed;
+    @apply transition-all duration-150 ease-in-out rounded-sm;
+    @apply appearance-none cursor-pointer;
+  }
+
+  .label-hush {
+    @apply text-gruvbox-fg-2 font-medium text-sm;
+  }
+
+  /* DaisyUI Form Overrides */
+  .select {
+    @apply bg-gruvbox-bg-1 border-2 border-gruvbox-bg-3 text-gruvbox-fg;
+    @apply focus:border-gruvbox-yellow-bright focus:bg-gruvbox-bg-2 focus:outline-none;
+    @apply disabled:bg-gruvbox-bg-hard disabled:text-gruvbox-fg-4 disabled:border-gruvbox-bg-2 disabled:cursor-not-allowed;
+    @apply transition-all duration-150 ease-in-out rounded-sm;
+    @apply shadow-none;
+  }
+
+  .select option {
+    @apply bg-gruvbox-bg-1 text-gruvbox-fg;
+  }
+
+  .input {
+    @apply bg-gruvbox-bg-1 border-2 border-gruvbox-bg-3 text-gruvbox-fg;
+    @apply focus:border-gruvbox-yellow-bright focus:bg-gruvbox-bg-2 focus:outline-none;
+    @apply disabled:bg-gruvbox-bg-hard disabled:text-gruvbox-fg-4 disabled:border-gruvbox-bg-2 disabled:cursor-not-allowed;
+    @apply transition-all duration-150 ease-in-out rounded-sm;
+    @apply shadow-none;
+  }
+
+  .label-text {
+    @apply text-gruvbox-fg-2 font-medium;
+  }
+
+  .form-control {
+    @apply space-y-2;
+  }
+  
+  /* Vintage Button Styles */
+  .btn-hush {
+    @apply bg-gruvbox-yellow-bright hover:bg-gruvbox-yellow border-0 text-gruvbox-bg-hard font-medium;
+    @apply shadow-none hover:shadow-none;
+    @apply transition-all duration-150 ease-in-out;
+    @apply active:scale-95;
+  }
+  
+  .btn-hush-secondary {
+    @apply bg-gruvbox-bg-3 hover:bg-gruvbox-bg-4 border-0 text-gruvbox-fg;
+    @apply shadow-none hover:shadow-none;
+    @apply transition-all duration-150 ease-in-out;
+    @apply active:scale-95;
+  }
+
+  /* Vintage DaisyUI Button Overrides */
+  .btn {
+    @apply shadow-none border-0 font-medium;
+    @apply transition-all duration-150 ease-in-out;
+    @apply active:scale-95;
+  }
+
+  .btn-primary {
+    @apply bg-gruvbox-yellow hover:bg-gruvbox-yellow-bright border-0 text-gruvbox-bg-hard;
+  }
+
+  .btn-ghost {
+    @apply border-0 bg-transparent hover:bg-gruvbox-bg-3;
+  }
+
+  .btn-outline {
+    @apply bg-gruvbox-bg-3 hover:bg-gruvbox-bg-4 border-0 text-gruvbox-fg;
+  }
+
+  .btn-circle {
+    @apply border-0;
+  }
+
+  .btn-square {
+    @apply border-0 aspect-square rounded-sm;
+  }
+
+  /* Error Panel */
+  .error-panel {
+    @apply bg-gruvbox-red/20 border border-gruvbox-red-bright text-gruvbox-fg rounded-sm;
+  }
+}

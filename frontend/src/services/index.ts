@@ -1,17 +1,16 @@
 /**
- * Services Index
- * 
- * Centralized exports for all services.
+ * Services Index - SolidJS 2025 Architecture
+ *
+ * Exports for the three-layer service architecture:
+ * - Infrastructure: Technical operations (WebSocket, HTTP, MediaSoup, Audio, Browser)
+ * - Domain: Business logic (Room, Stream, User, Connection, Audio)
+ * - Application: Orchestration (DJ, Listener, Lobby, Lifecycle)
  */
 
-// WebSocket Service
-export * from './websocket/websocket.service'
-
-// API Services
+// API Services (used by Infrastructure layer)
 export * from './api'
-export * from './lobby-service'
 
-// Flow Services  
-export * from './flows/lobby-flows.service'
-export * from './flows/dj-flows.service'
-export * from './flows/listener-flows.service'
+// Three-layer SolidJS 2025 Architecture
+export * from './infrastructure'
+// Domain services are in domain/schemas
+export * from './application'

@@ -13,19 +13,20 @@ directly
 9. frontend use send transport and calls produce({}) with client encodings, codec options (so opus bitrate etc, which the client decides, based on the mediainput) which fires of two events(connect &
    produce)
 10. frontend connect handler returns dtlsparams
-11. frontend send dtls to backend (via message)
-12. backend calls connect({dtlsparams}) on the previously created sendtransport
+13. backend calls connect({dtlsparams}) on the previously created sendtransport
     for the dj
-13. frontend produce handler returns parameters(kind, rtpparams), callback and errback
-14. frontend send parameters to backend (via message)
-15. backend calls produce() on send transport and passin parameters ({kind,
+14. frontend produce handler returns parameters(kind, rtpparams), callback and errback
+15. frontend send parameters to backend (via message)
+12. frontend send dtls to backend (via message)
+16. backend calls produce() on send transport and passin parameters ({kind,
     rtpParameters}), which creates server side producer
-16. backend then saves the producerid in the room, marks the room as public and
+17. backend then saves the producerid in the room, marks the room as public and
     sends the producerid to the dj and publishes the room
-17. frontend: on receiving the producerid, we can call the previously received
+11. frontend waits for webrtc connection to be established
+18. frontend: on receiving the producerid, we can call the previously received
     callback method, which lets the local producer know that the server is ready
     and provides it the producer id
-18. also handle the errback method in case we encounter an error: in this case,
+19. also handle the errback method in case we encounter an error: in this case,
     cancel the room creation, cleanup room (via message)
 
 

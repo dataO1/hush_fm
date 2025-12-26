@@ -1,8 +1,8 @@
 import { Show } from 'solid-js'
-import type { WebRTCError } from '../../domain/schemas/room.schema'
+import type { ConnectionError } from '../../domain/schemas/connection.schema'
 
 interface WebRTCErrorHandlerProps {
-  error: WebRTCError | null
+  error: ConnectionError | null
   onDismiss?: () => void
   onCancel?: () => void
   show?: boolean
@@ -10,27 +10,35 @@ interface WebRTCErrorHandlerProps {
 
 export function WebRTCErrorHandler(props: WebRTCErrorHandlerProps) {
 
-  const getErrorTitle = (error: WebRTCError) => {
-    switch (error.type) {
-      case 'transport_connection':
+  const getErrorTitle = (error: ConnectionError) => {
+    switch (error._tag) {
+      case 'TransportError':
         return 'Connection Failed'
-      case 'producer_creation':
+      case 'ProducerError':
         return 'Audio Stream Failed'
-      case 'device_initialization':
+      case 'MediaSoupDeviceError':
         return 'Device Error'
+      case 'ConsumerError':
+        return 'Playback Error'
+      case 'WebSocketError':
+        return 'Network Error'
       default:
         return 'WebRTC Error'
     }
   }
 
-  const getErrorDescription = (error: WebRTCError) => {
-    switch (error.type) {
-      case 'transport_connection':
+  const getErrorDescription = (error: ConnectionError) => {
+    switch (error._tag) {
+      case 'TransportError':
         return 'Could not connect to streaming server. Check your internet connection.'
-      case 'producer_creation':
+      case 'ProducerError':
         return 'Unable to access microphone. Check device permissions.'
-      case 'device_initialization':
+      case 'MediaSoupDeviceError':
         return 'Microphone not found. Check device connection.'
+      case 'ConsumerError':
+        return 'Could not receive audio stream. Connection may be unstable.'
+      case 'WebSocketError':
+        return 'Network connection lost. Attempting to reconnect...'
       default:
         return 'Connection failed. Please try again.'
     }
@@ -39,8 +47,8 @@ export function WebRTCErrorHandler(props: WebRTCErrorHandlerProps) {
 
   return (
     <Show when={props.error && (props.show !== false)}>
-      <div class="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-        <div class="card bg-white/10 backdrop-blur-sm border border-white/20 shadow-xl max-w-sm w-full mx-4 animate-in fade-in-0 zoom-in-95 duration-200">
+      <div class="fixed inset-0 overlay-glass z-50 flex items-center justify-center p-4">
+        <div class="card card-glass shadow-xl max-w-sm w-full mx-4 animate-in fade-in-0 zoom-in-95 duration-200">
           <div class="card-body p-6 text-center">
             
             {/* Error Icon */}
@@ -53,17 +61,17 @@ export function WebRTCErrorHandler(props: WebRTCErrorHandlerProps) {
             </div>
             
             {/* Title and Message */}
-            <h3 class="text-lg sm:text-xl font-semibold text-white mb-2">
+            <h3 class="text-lg sm:text-xl font-semibold text-gruvbox-fg mb-2">
               {props.error ? getErrorTitle(props.error) : 'Connection Error'}
             </h3>
-            <p class="text-sm sm:text-base text-white/70 mb-4 leading-relaxed">
+            <p class="text-sm sm:text-base text-gruvbox-fg-3 mb-4 leading-relaxed">
               {props.error ? getErrorDescription(props.error) : 'Unknown error'}
             </p>
 
             {/* Error Details */}
             <Show when={props.error?.message}>
-              <div class="bg-white/5 rounded-lg p-3 mb-4 border border-white/10">
-                <p class="text-xs sm:text-sm font-mono text-white/60 break-words">
+              <div class="bg-gruvbox-bg-1/50 rounded-lg p-3 mb-4 border border-gruvbox-bg-3/30">
+                <p class="text-xs sm:text-sm font-mono text-gruvbox-fg-4 break-words">
                   {props.error?.message}
                 </p>
               </div>
@@ -73,7 +81,7 @@ export function WebRTCErrorHandler(props: WebRTCErrorHandlerProps) {
             <div class="flex flex-col sm:flex-row gap-2 justify-center">
               <Show when={props.onCancel}>
                 <button 
-                  class="btn btn-outline btn-md w-full sm:w-auto border-red-500 text-red-500 hover:bg-red-500 hover:text-white"
+                  class="btn btn-outline btn-md w-full sm:w-auto border-gruvbox-red-bright text-gruvbox-red-bright hover:bg-gruvbox-red-bright hover:text-gruvbox-bg-hard"
                   onClick={props.onCancel}
                 >
                   Cancel

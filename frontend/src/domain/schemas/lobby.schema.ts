@@ -1,139 +1,70 @@
 /**
  * Lobby Domain Schema
- * 
+ *
  * Pure state definitions for lobby functionality including room listings,
  * lobby WebSocket connections, and room discovery.
- * 
- * This schema uses Effect Schema for validation and type safety.
- * NO service calls or side effects - pure data models only.
+ * Uses shared schema patterns and proper external type synchronization.
+ *
+ * Pattern: S.Schema.Type<> for store inference, S.Encoded vs S.Type for API boundaries
  */
 
-import { Schema as S } from 'effect'
-import { Option } from 'effect'
-
-/**
- * WebSocket connection states
- */
-export const WSConnectionState = S.Literal(
-  'disconnected',
-  'connecting', 
-  'connected',
-  'error',
-  'reconnecting'
-)
-export type WSConnectionState = S.Schema.Type<typeof WSConnectionState>
+import { Schema as S, Option as O, Data } from 'effect'
 
 /**
- * Lobby WebSocket connection state
+ * Lobby Room Info Schema
+ * Handles API wire format transformation automatically
+ * - description: converts null/undefined to Option<string>
+ * - createdAt: converts ISO string to Date
+ * - isPublic: defaults to true for all API rooms
  */
-export const LobbyConnectionState = S.Struct({
-  state: WSConnectionState,
-  websocket: S.Option(S.instanceOf(WebSocket)), // WebSocket instance
-  lastConnectedAt: S.Option(S.Date),
-  connectionAttempts: S.Number,
-  lastError: S.Option(S.String)
+export const LobbyRoomInfo = S.Struct({
+  id: S.String,
+  name: S.String,
+  djName: S.String,
+  djId: S.String,
+  description: S.OptionFromNullOr(S.String),
+  tags: S.Array(S.String),
+  listenerCount: S.Number,
+  isStreaming: S.Boolean,
+  createdAt: S.DateFromString,
+  isPublic: S.optionalWith(S.Boolean, { default: () => true })
 })
-export type LobbyConnectionState = S.Schema.Type<typeof LobbyConnectionState>
-
-/**
- * Room discovery and listings state
- */
-export const RoomDiscoveryState = S.Struct({
-  availableRooms: S.Record({ key: S.String, value: S.Unknown }), // Record<string, RoomInfo> keyed by room ID - using unknown to avoid circular import
-  loading: S.Boolean,
-  lastRefreshAt: S.Option(S.Date),
-  refreshError: S.Option(S.String)
-})
-export type RoomDiscoveryState = S.Schema.Type<typeof RoomDiscoveryState>
-
-/**
- * Room creation state
- */
-export const RoomCreationState = S.Struct({
-  creating: S.Boolean,
-  creationError: S.Option(S.String),
-  lastCreatedRoomId: S.Option(S.String)
-})
-export type RoomCreationState = S.Schema.Type<typeof RoomCreationState>
+export type LobbyRoomInfoType = S.Schema.Type<typeof LobbyRoomInfo>
 
 /**
  * Complete Lobby Domain State
- * 
- * Contains all state related to lobby functionality:
- * - WebSocket connection to lobby
- * - Room discovery and listings  
- * - Room creation flow
- * - Message history for debugging
+ *
+ * Uses S.Schema.Type<> pattern for store inference.
+ * Store will use: createStore<LobbyStateType>(createInitialLobbyState())
  */
 export const LobbyState = S.Struct({
-  // Connection state
-  connection: LobbyConnectionState,
-  
-  // Room discovery
-  discovery: RoomDiscoveryState,
-  
-  // Room creation
-  creation: RoomCreationState,
-  
-  // Message history (for debugging)
-  messageHistory: S.Array(S.Struct({
-    timestamp: S.Date,
-    type: S.String,
-    message: S.Unknown
-  })),
-  
-  // Last activity tracking
-  lastActivityAt: S.Date
+  rooms: S.Array(LobbyRoomInfo),
+  loading: S.Boolean,
+  creatingRoom: S.Boolean,
+  creationError: S.Option(S.String),
+  lastCreatedRoomId: S.Option(S.String)
 })
-export type LobbyState = S.Schema.Type<typeof LobbyState>
+export type LobbyStateType = S.Schema.Type<typeof LobbyState>
+export type LobbyStateEncoded = S.Schema.Encoded<typeof LobbyState>
 
 /**
- * Initial lobby state factory
+ * Initial Lobby state factory for stores
+ *
+ * Returns clean application state (S.Schema.Type<> format)
+ * Store pattern: const [lobbyState, setLobbyState] = createStore<LobbyStateType>(createInitialLobbyState())
  */
-export const createInitialLobbyState = (): LobbyState => ({
-  connection: {
-    state: 'disconnected',
-    websocket: Option.none(),
-    lastConnectedAt: Option.none(),
-    connectionAttempts: 0,
-    lastError: Option.none()
-  },
-  discovery: {
-    availableRooms: {},
-    loading: false,
-    lastRefreshAt: Option.none(),
-    refreshError: Option.none()
-  },
-  creation: {
-    creating: false,
-    creationError: Option.none(),
-    lastCreatedRoomId: Option.none()
-  },
-  messageHistory: [],
-  lastActivityAt: new Date()
+export const createInitialLobbyState = (): LobbyStateType => ({
+  rooms: [],
+  loading: false,
+  creatingRoom: false,
+  creationError: O.none(),
+  lastCreatedRoomId: O.none()
 })
 
-/**
- * Lobby state validators
- */
-export const LobbyStateValidators = {
-  /**
-   * Validate complete lobby state
-   */
-  validateLobbyState: S.decodeUnknown(LobbyState),
-  
-  /**
-   * Validate connection state only
-   */
-  validateConnectionState: S.decodeUnknown(LobbyConnectionState),
-  
-  /**
-   * Validate room discovery state only  
-   */
-  validateDiscoveryState: S.decodeUnknown(RoomDiscoveryState),
-  
-  /**
-   * Validate room creation state only
-   */
-  validateCreationState: S.decodeUnknown(RoomCreationState)
-}
+
+export class RoomCreationError extends Data.TaggedError('RoomCreationError')<{
+  readonly cause: string
+  readonly roomName?: string
+  readonly operation: string
+  readonly timestamp: Date
+}> {}

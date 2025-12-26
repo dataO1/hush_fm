@@ -1,28 +1,131 @@
 import { Router, Route } from '@solidjs/router'
-import { Suspense, onMount } from 'solid-js'
-import { Effect } from 'effect'
+import { Suspense, onMount, createContext, useContext, ParentComponent } from 'solid-js'
+import { Layer, ManagedRuntime, Context } from 'effect'
 import Landing from './ui/pages/Landing'
 import DJRoom from './ui/pages/DJRoom'
 import ListenerRoom from './ui/pages/ListenerRoom'
 import AppLayout from './ui/layouts/AppLayout'
-import { getUserStore } from './stores/user.store'
-import { initializeUserSession } from './services/user.service'
 
-function App() {
-  // Initialize user session on app startup
+// Import all adapters
+import { ConnectionAdapter, ConnectionAdapterLive } from './stores/connection'
+import { LobbyAdapter, LobbyAdapterLive } from './stores/lobby'
+import { UserAdapter, UserAdapterLive } from './stores/user'
+import { AudioAdapter, AudioAdapterLive } from './stores/audio'
+
+// Export service layers for scoped use in components (NOT global instances)
+export { UserServiceLive } from './services/application/UserService'
+export { LobbyServiceLive } from './services/application/LobbyService'
+export { MediaSoupClientLive } from './services/infrastructure/MediaSoupClient'
+import { User } from './services/domain/User'
+import { AudioClient, AudioClientLive } from './services/infrastructure/AudioClient'
+
+// Global Application Layer - Only true singletons (store adapters + audio client)
+const GlobalAppLayer = Layer.mergeAll(
+  // Store Adapters (global singletons - shared state)
+  ConnectionAdapterLive,
+  LobbyAdapterLive,
+  UserAdapterLive,
+  AudioAdapterLive,
+  // Audio Client (global singleton - shared audio playback)
+  AudioClientLive
+)
+
+// Create managed runtime with global dependencies only
+const globalRuntime = ManagedRuntime.make(GlobalAppLayer)
+
+// Feature-specific layers are now exported from individual service files
+
+// Get adapter types from Context.Tag (global adapters + audio client)
+type ConnectionAdapterService = Context.Tag.Service<ConnectionAdapter>
+type LobbyAdapterService = Context.Tag.Service<LobbyAdapter>
+type UserAdapterService = Context.Tag.Service<UserAdapter>
+type AudioAdapterService = Context.Tag.Service<AudioAdapter>
+type AudioClientService = Context.Tag.Service<AudioClient>
+
+// Global service context types (adapters + audio client)
+interface GlobalServiceContextValue {
+  // Adapters (globally available)
+  connectionAdapter: ConnectionAdapterService
+  lobbyAdapter: LobbyAdapterService
+  userAdapter: UserAdapterService
+  audioAdapter: AudioAdapterService
+  // Audio Client (globally available)
+  audioClient: AudioClientService
+  // Global Runtime for Effect execution
+  globalRuntime: typeof globalRuntime
+}
+
+// Create context
+const GlobalServiceContext = createContext<GlobalServiceContextValue>()
+
+// Global Provider component (for shared services only)
+const GlobalServiceProvider: ParentComponent = (props) => {
+  // Get global services and adapters from runtime
+  const services: GlobalServiceContextValue = {
+    // Adapters (globally available)
+    connectionAdapter: globalRuntime.runSync(ConnectionAdapter),
+    lobbyAdapter: globalRuntime.runSync(LobbyAdapter),
+    userAdapter: globalRuntime.runSync(UserAdapter),
+    audioAdapter: globalRuntime.runSync(AudioAdapter),
+    // Audio Client (globally available)
+    audioClient: globalRuntime.runSync(AudioClient),
+    // Global Runtime
+    globalRuntime
+  }
+
+  return (
+    <GlobalServiceContext.Provider value={services}>
+      {props.children}
+    </GlobalServiceContext.Provider>
+  )
+}
+
+// Hook to use global services
+export const useGlobalServices = () => {
+  const context = useContext(GlobalServiceContext)
+  if (!context) {
+    throw new Error('useGlobalServices must be used within GlobalServiceProvider')
+  }
+  return context
+}
+
+// Individual hooks for global adapters and audio client
+export const useConnectionAdapter = () => useGlobalServices().connectionAdapter
+export const useLobbyAdapter = () => useGlobalServices().lobbyAdapter
+export const useUserAdapter = () => useGlobalServices().userAdapter
+export const useAudioAdapter = () => useGlobalServices().audioAdapter
+export const useAudioClient = () => useGlobalServices().audioClient
+export const useGlobalRuntime = () => useGlobalServices().globalRuntime
+
+// Legacy hook for backward compatibility
+export const useRuntime = () => useGlobalServices().globalRuntime
+
+function AppContent() {
+  // Get services for initialization
+  const runtime = useGlobalRuntime()
+  const userAdapter = useUserAdapter()
+
+  // Initialize session ID on app mount
   onMount(async () => {
-    const userStore = getUserStore()
-    
     try {
-      console.info('🚀 Initializing HushFM app with user session...')
+      console.info('🚀 Initializing HushFM app with SolidJS 2025 + Effect-TS architecture...')
       
-      // Compute session ID from browser fingerprint
-      await Effect.runPromise(initializeUserSession(userStore))
+      // Check if session already exists
+      if (userAdapter.hasSession()) {
+        console.info('ℹ️ Session already exists, skipping initialization')
+      } else {
+        // Initialize user session with browser fingerprint
+        console.info('🔐 Initializing user session...')
+        const sessionComputation = await runtime.runPromise(User.computeSessionId())
+        
+        // Set session ID via adapter
+        userAdapter.setSessionId(sessionComputation.sessionId)
+        console.info('✅ User session initialized:', sessionComputation.sessionId)
+      }
       
       console.info('✅ App initialization complete')
     } catch (error) {
-      console.error('❌ Failed to initialize user session:', error)
-      // App can still function without session ID, it will be computed when needed
+      console.error('❌ Failed to initialize app:', error)
     }
   })
 
@@ -40,6 +143,14 @@ function App() {
         <Route path="/listen/:roomId" component={ListenerRoom} />
       </Router>
     </Suspense>
+  )
+}
+
+function App() {
+  return (
+    <GlobalServiceProvider>
+      <AppContent />
+    </GlobalServiceProvider>
   )
 }
 

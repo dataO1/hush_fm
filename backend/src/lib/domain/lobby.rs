@@ -184,16 +184,34 @@ impl Lobby {
     pub async fn close_room(&self, room_id: &Uuid) -> Result<()> {
         tracing::info!("Starting room closure process for room {}", room_id);
 
-        // Get room and perform cleanup
+        // Get room and check if we need to broadcast removal
         if let Some(room_arc) = self.get_room(room_id) {
+            // Check if room is public before cleanup (so we know if lobby clients should be notified)
+            let should_broadcast = {
+                let room_guard = room_arc.read().await;
+                room_guard.is_public()
+            };
+
+            // CRITICAL: Broadcast room removal BEFORE cleanup so lobby clients receive the event
+            // If we broadcast after close_room(), the lobby WebSocket connections will already be closed
+            if should_broadcast {
+                let _ = self.broadcast_tx.send(LobbyEvent::RoomRemoved {
+                    room_id: room_id.to_string(),
+                });
+                tracing::info!("Broadcasted room removal to lobby before cleanup for room {}", room_id);
+            }
+
+            // Now perform the comprehensive room cleanup (ejecting listeners, stopping streams, etc.)
             {
                 let mut room = room_arc.write().await;
-                // Call the room's comprehensive close method
                 room.close_room().await?;
             }
 
-            // Remove room from lobby after cleanup
-            self.remove_room(room_id).await;
+            // Remove room from lobby (skip broadcast since we already did it above)
+            if let Some((_, removed_room_arc)) = self.rooms.remove(room_id) {
+                tracing::info!("Room {} removed from lobby after cleanup", room_id);
+                drop(removed_room_arc); // Explicitly drop the room reference
+            }
 
             tracing::info!("Room {} closed and removed from lobby successfully", room_id);
             Ok(())

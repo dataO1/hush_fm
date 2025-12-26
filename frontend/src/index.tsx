@@ -1,8 +1,54 @@
 /* @refresh reload */
 import { render } from 'solid-js/web'
+import { Layer, ManagedRuntime } from 'effect'
 import './index.css'
 import App from './App'
 import 'solid-devtools'
+
+// Infrastructure Layers
+// WebSocketClient is now provided directly to services, not globally
+import { MediaSoupClientLive } from './services/infrastructure/MediaSoupClient'
+import { AudioClientLive } from './services/infrastructure/AudioClient'
+
+// Store Adapter Layers
+import { 
+  AudioAdapterLive,
+  ConnectionAdapterLive,
+  LobbyAdapterLive,
+  UserAdapterLive 
+} from './stores'
+
+// Note: UserService and LobbyService are now scoped to specific components
+// They are not provided globally to avoid multiple WebSocket connections
+
+/**
+ * Main Layer Composition
+ * 
+ * Combines all Effect-TS layers into a single source of truth.
+ * Following 2025 SolidJS + Effect-TS architecture pattern.
+ */
+const InfrastructureLayer = Layer.mergeAll(
+  MediaSoupClientLive.pipe(Layer.provide(ConnectionAdapterLive)),
+  AudioClientLive
+)
+
+const StoreAdapterLayer = Layer.mergeAll(
+  AudioAdapterLive,
+  ConnectionAdapterLive,
+  LobbyAdapterLive,
+  UserAdapterLive
+)
+
+// No global application services - they are scoped to components
+
+// Complete application layer with proper dependency flow:
+// Infrastructure → Store Adapters (Application Services are component-scoped)
+export const MainLayer = StoreAdapterLayer.pipe(
+  Layer.provide(InfrastructureLayer)
+)
+
+// Create the runtime that components will use
+export const runtime = ManagedRuntime.make(MainLayer)
 
 // Enable MediaSoup client debug logging in all builds
 try {

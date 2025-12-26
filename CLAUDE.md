@@ -4,42 +4,60 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-HushFM is a live audio streaming platform being rewritten from Python to Rust. The architecture follows a clean separation between backend (Rust + Axum + Mediasoup) and frontend (SolidJS + Effect-TS + Mediasoup Client).
+HushFM is a live audio streaming platform with a Rust backend and SolidJS frontend. The architecture follows a clean separation between backend (Rust + Axum + Mediasoup) and frontend (SolidJS + Effect-TS + Mediasoup Client).
 
 ## Architecture
 
 ### Backend (Rust)
 - **Stack**: Rust, Axum web framework, Mediasoup for WebRTC
 - **Core Pattern**: Atomic Room Publication - rooms only appear publicly after DJ successfully establishes WebRTC transport and creates a Producer
-- **State Management**: Enhanced with Arc<RwLock<RoomState>>, DashMap, and multi-channel broadcasting
+- **State Management**: Arc<RwLock<RoomState>>, DashMap for concurrent collections, tokio-stream for broadcasting
 - **Network**: Local WiFi optimization (empty ICE servers), WebRTC with DTLS security
 
 ### Frontend (SolidJS + Effect-TS)
-- **Stack**: SolidJS, Effect-TS 3.0, Mediasoup Client, Orval (OpenAPI generation)
-- **State Management**: Fine-grained reactivity with signals/stores, NO destructuring before use
+- **Stack**: SolidJS, Effect-TS 3.11+, Mediasoup Client, Orval (OpenAPI generation)
+- **State Management**: Domain-separated stores with SolidJS signals/stores, NO destructuring before use
+- **Service Layer**: Services orchestrate multiple stores, handle API calls and business logic
 - **Error Handling**: Effect-TS pipe patterns with centralized error recovery
 - **Type Safety**: End-to-end from backend OpenAPI to frontend with Orval generation
 
+### Store Architecture (Clean UI → Service → Store)
+
+The frontend has been refactored from a monolithic room store to domain-separated stores:
+
+#### Domain Stores
+- **`connection.store.ts`** - Pure connection state management
+- **`webrtc.store.ts`** - WebRTC transport status and timeout management
+- **`room-metadata.store.ts`** - Room information and streaming status  
+- **`dj.store.ts`** - DJ state with embedded MediaSoup state
+- **`listeners.store.ts`** - Listener collection management
+
+#### Service Pattern
+Services orchestrate multiple stores without stores knowing about each other:
+```typescript
+// Services coordinate store updates
+export const publishDJRoom = (roomId: string, deviceId?: string) => {
+  stores.connection.connect(roomId, 'dj')
+  stores.dj.setFlowStep('connecting')
+  stores.webrtc.setStatus('connecting')
+  // ... orchestration logic
+}
+```
+
 ### Key Framework Decisions
 
-#### SolidJS Patterns (2024-2025)
+#### SolidJS Patterns
 - **Signals for Primitives**: `const [value, setValue] = createSignal(initial)`
 - **Stores for Objects**: `const [store, setStore] = createStore({})`
 - **Fine-grained Updates**: Access store properties directly, avoid destructuring
-- **Context API**: Use for global state sharing without props drilling
-- **Lazy Creation**: Signals created on-demand for optimal performance
+- **Context API**: Store providers with type-safe hooks
+- **Memos in Stores**: Use `createMemo()` for derived state calculations
 
 #### Effect-TS 3.0 Patterns
+- **Service Definition**: Use `Effect.Service` class pattern for dependency injection
 - **Pipe Composition**: `pipe(Effect.succeed(value), Effect.andThen(fn), Effect.catchAll(handler))`
-- **Error Channel Operations**: Centralized error handling with recovery strategies
-- **Resource Management**: Automatic cleanup with finalizers and interruption
-- **Type Safety**: Full type inference through pipe chains
-
-#### OpenAPI Integration
-- **Orval**: Auto-generate TypeScript clients from backend OpenAPI spec
-- **Custom Mutator**: Effect-TS wrapper for fetch operations
-- **Type Validation**: Runtime validation with compile-time guarantees
-- **Real-time Updates**: Combine REST (Orval) + WebSocket (manual) for full coverage
+- **Option Types**: Use `Option.Option<T>` instead of nullable types throughout
+- **Schema Validation**: Effect Schema for runtime validation with type inference
 
 ### Key Invariants
 - Public rooms ALWAYS have a valid router and audio_producer
@@ -47,177 +65,125 @@ HushFM is a live audio streaming platform being rewritten from Python to Rust. T
 - Stream control uses pause/resume (not close/reopen) for performance
 - Frontend state is event-driven with fine-grained reactivity
 - All async operations wrapped in Effect for composable error handling
+- Stores never contain Effects, only pure state transitions
 
 ## Development Commands
 
 ### Backend (Rust)
-- `cargo check` - Type checking and basic compilation
-- `cargo run` - Run the backend server
-- `cargo test` - Run tests
+```bash
+cd backend
+cargo check         # Type checking and basic compilation
+cargo run          # Run the backend server (port 3000)
+cargo test         # Run tests
+cargo build --release  # Production build with optimizations
+```
 
 ### Frontend (TypeScript/SolidJS)
-- `npm run dev` - Start development server
-- `npm run generate:api` - Generate OpenAPI client with Orval
-- `npm run dev:api` - Watch mode for API generation
-- `npm run build` - Production build
-- `npm run type-check` - TypeScript type checking
+```bash
+cd frontend
+npm run dev        # Start development server (port 5173)
+npm run build      # Production build
+npm run type-check # TypeScript type checking
+npm run generate:api  # Generate OpenAPI client with Orval
+npm run dev:api    # Watch mode for API generation
+```
 
 ### Development Environment
-- Nix flake setup (`.envrc` indicates direnv/nix usage)
-- Python 3.11 for mediasoup build compatibility
+- Uses Nix flake setup (`.envrc` with `use flake`)
+- Python 3.11 required for mediasoup build compatibility
+- Local development: listen/bind IP should be 127.0.0.1
+- Production: listen IP 0.0.0.0, announced IP from environment variable
 
 ## Project Structure
 
-This is currently a blank slate for the rust-rewrite branch. The technical specification in README.md defines the target architecture for:
+### Backend Structure
+```
+backend/
+├── src/
+│   ├── main.rs           # Entry point with Axum server setup
+│   ├── lib/              # Core library modules
+│   │   ├── models/       # Data models and schemas
+│   │   ├── handlers/     # HTTP/WebSocket handlers
+│   │   ├── services/     # Business logic and Mediasoup integration
+│   │   └── state/        # Application state management
+```
 
-1. **Room State Management**: Setup vs Public status with mandatory producers
-2. **WebRTC Flow**: Atomic publication pattern for reliability  
-3. **Stream Control**: Pause/resume without connection teardown
-4. **Error Handling**: Effect-based error handling with cleanup sequences
+### Frontend Structure  
+```
+frontend/
+├── src/
+│   ├── stores/           # Domain-separated reactive stores
+│   │   ├── adapters/     # Store implementation adapters
+│   │   └── *.store.ts    # Individual domain stores
+│   ├── services/         # Business logic and orchestration
+│   │   ├── application/  # Use-case orchestrators
+│   │   ├── domain/       # Business rules
+│   │   └── infrastructure/ # API/WebSocket clients
+│   ├── domain/
+│   │   └── schemas/      # Effect Schema definitions
+│   └── ui/
+│       ├── components/   # Reusable components
+│       └── pages/        # Route pages (Landing, DJRoom, ListenerRoom)
+```
 
-## Notes for Implementation
+## Technical Specification Highlights
+
+### Atomic Room Publication Pattern
+1. **Init**: DJ sends InitRoom, backend creates Router and Transport (Room in Setup state)
+2. **Connect**: DJ connects Transport via DTLS
+3. **Produce**: DJ creates Producer, backend marks room as Public
+4. **Broadcast**: Room appears in public list only after Producer exists
+
+### WebRTC Flow
+- **Local Network Optimization**: Empty ICE servers for WiFi/LAN deployment
+- **Transport Management**: WebRtcTransport with host candidates only
+- **Stream Control**: pause()/resume() instead of close/reopen
+- **Error Recovery**: AbortRoom command on publish failures
+
+## Critical Implementation Notes
 
 ### Backend
-- Follow the atomic room publication pattern described in README.md
+- Follow atomic room publication pattern from README.md
 - Use Arc<RwLock<RoomState>> for thread-safe state management
 - Implement proper cleanup on publish failures (AbortRoom command)
-- Maintain the invariant that public rooms always have active audio producers
-- Local network optimization (empty ICE servers configuration for WebRTC)
+- Local network optimization with empty ICE servers configuration
 
 ### Frontend
 - **CRITICAL**: Never destructure store properties before use (breaks reactivity)
 - Use Effect-TS pipe patterns for all async operations
-- Wrap mediasoup-client with reactive signals for state updates
-- Generate API clients with Orval from backend OpenAPI spec
-- Implement proper error boundaries with Effect error handling
-- Use Context API for global state sharing
+- Services orchestrate stores, components only read stores and call services
+- Use Context API for global state sharing, not prop drilling
 - Keep UI components pure (presentation only)
-- use internal events and endpoints for the asyncapi specification but make sure to follow the following guidelines: Rule 1: Use Stable Serialization
+- Always initialize stores with complete objects matching their types
 
-Bad (leaks Rust internals):
+### API Generation
+- Backend exposes OpenAPI spec for REST endpoints
+- Frontend uses Orval to generate TypeScript clients
+- Custom Effect-TS mutator wraps fetch operations
+- AsyncAPI 3.0 specification for WebSocket events
 
-rust
-pub struct Room {
-    pub id: Uuid, // Serializes to complex object in some formats
-    pub created_at: DateTime<Utc>, // RFC3339 string
-}
+### Error Handling Strategy
+- Services use Effect.catchAll for recovery strategies
+- Stores remain in consistent state on errors
+- UI shows appropriate feedback via ErrorBoundary
+- WebRTC errors trigger reconnection flows
 
-Good (stable JSON representation):
+## Common Pitfalls to Avoid
 
-rust
-#[derive(Serialize, Deserialize, JsonSchema)]
-pub struct Room {
-    #[serde(serialize_with = "serialize_uuid_as_string")]
-    #[schemars(with = "String")] // AsyncAPI sees "string", not object
-    pub id: Uuid,
-    
-    #[serde(rename = "createdAt")] // camelCase for frontend
-    pub created_at: String, // Pre-format as ISO8601
-}
+1. **Store Anti-Patterns**
+   - ❌ Cross-store reactions with createEffect
+   - ❌ Components orchestrating multiple stores
+   - ❌ Destructuring store properties before use
+   - ✅ Services orchestrate, stores are passive
 
-Rule 2: Mark Internal Fields
+2. **Effect-TS Usage**
+   - ❌ Mixing Promises and Effects without proper wrapping
+   - ❌ Using nullable types instead of Option
+   - ✅ Consistent Option types throughout
+   - ✅ Effect.gen for complex async flows
 
-Use #[serde(skip)] for things clients shouldn't see:
-
-rust
-pub struct Room {
-    pub id: Uuid,
-    pub name: String,
-    pub listener_count: usize,
-    
-    // Hidden from AsyncAPI
-    #[serde(skip)]
-    #[schemars(skip)]
-    pub(crate) router: Router, // Mediasoup router (internal)
-    
-    #[serde(skip)]
-    pub(crate) listeners: DashMap<String, Listener>, // Full state
-}
-
-Rule 3: Separate Read/Write Models (CQRS-lite)
-
-For complex entities, use different types for commands vs. events:
-
-rust
-// Command (client → server)
-#[derive(Deserialize, JsonSchema)]
-pub struct CreateRoomCommand {
-    pub name: String,
-    // Only fields client can set
-}
-
-// Event (server → client)
-#[derive(Serialize, JsonSchema)]
-pub struct RoomCreatedEvent {
-    pub room_id: String,
-    pub name: String,
-    pub dj_name: String,
-    pub created_at: String,
-    // Full read model
-}
-
-// Internal domain
-struct Room {
-    // Can have 50 fields, clients don't see them
-}
-
-Rule 4: Version at the Message Level
-
-Instead of API v1/v2, version messages:
-
-rust
-#[derive(Serialize, Deserialize, JsonSchema)]
-#[serde(tag = "type")]
-pub enum ClientMessage {
-    JoinRoom { room_id: String },
-- Architectural Context: SolidJS + Effect TS Frontend
-
-Architecture: Functional Core (Effect), Reactive Shell (SolidJS).
-Pattern: Separates State (Stores), Logic (Services), and Definitions (Schemas).
-Core Components & Roles
-
-    Domain Schemas (The Model - src/domain/schemas/)
-
-        Tool: Effect.Schema (or Zod).
-
-        Role: Stateless data definitions, validation logic, and type inference.
-
-        Rule: Defines what valid data looks like (mirrors Rust backend types).
-
-    Services (The Controller - src/services/)
-
-        Tool: Effect.Service / Effect.Layer.
-
-        Role: Stateless orchestration, side effects (API calls), and business logic.
-
-        Rule: Pure logic only. Never holds state. Validates inputs via Schemas, executes logic, and commits results to Stores.
-
-    Stores (The State - src/stores/)
-
-        Tool: SolidJS Store / Signal.
-
-        Role: Single source of truth. Acts as an in-memory database.
-
-        Rule: Domain-centric, not UI-centric. Normalized structure (dictionaries by ID). Mutated only by Services on success.
-
-    Components (The View - src/ui/)
-
-        Tool: Solid Components + createMemo.
-
-        Role: Reactive rendering.
-
-        Rule: Read-only. Derives UI state from Domain Stores using createMemo (Selectors). Triggers Service flows via event handlers.
-
-Data Flow (Unidirectional)
-
-    Trigger: UI Component invokes a Service function (e.g., UserService.updateProfile(data)).
-
-    Read/Validate: Service validates inputs against Schema and (optionally) reads current Store state.
-
-    Compute: Service executes logic (API calls, calculations) using Effect.gen.
-
-    Write: On success, Service updates the Store.
-
-    React: Store updates trigger UI re-renders automatically.
-- the ui layer should never call websockets/api directly, it should always use the service effects! the store should never contain effects, only pure state transitions, the state should contain as pure effect code as possible but can of course contain side effects
-- listen/bind ip and announced needs to be 127.0.0.1 for local dev!! for production the listen ip should be 0.0.0.0 for listening to all all incoming traffic and announced ip needs to be the real ip of the server coming from the env variable.
+3. **WebRTC Management**
+   - ❌ Closing transports on stream pause
+   - ❌ Creating multiple device instances
+   - ✅ Single device, pause/resume producers
+   - ✅ Proper cleanup on disconnection

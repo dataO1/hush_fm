@@ -1,27 +1,99 @@
-import { onMount, onCleanup, Show, createSignal, createEffect } from 'solid-js'
+import { onCleanup, onMount, Show, createSignal, createEffect, createResource, createContext, useContext, ParentComponent } from 'solid-js'
 import { useParams, useNavigate, useLocation } from '@solidjs/router'
-import { Effect, Option } from 'effect'
+import { Option as O, Effect, Context, ManagedRuntime, Layer } from 'effect'
 import { DeviceSelector } from '../components/controls/DeviceSelector'
-import { getRoomStore } from '../../stores/room.store'
-import { publishDJRoom, toggleDJStream, closeDJRoom } from '../../services/flows/dj-flows.service'
-import { ConnectionState, type WebRTCError } from '../../domain/schemas/room.schema'
-import type { DJState } from '../../domain/schemas/dj.schema'
-import ConnectionStatusDot from '../components/ConnectionStatusDot'
+import { useConnectionAdapter, useAudioAdapter, useUserAdapter, useGlobalRuntime, useAudioClient } from '../../App'
+import { UserService, UserServiceLive } from '../../services/application/UserService'
+import { AudioClient } from '../../services/infrastructure/AudioClient'
+import { AudioAdapter } from '../../stores/audio'
+import { UserAdapter, ConnectionAdapter } from '../../stores'
+// WebSocketClient is now provided directly via UserService, not imported here
+import { WebrtcConnectionState, WsConnectionState } from '../../domain/schemas/connection.schema'
 import { Oscilloscope } from '../components/shared/Oscilloscope'
 import { WebRTCErrorHandler } from '../components/WebRTCErrorHandler'
-import { getNavigationCleanupService } from '../../services/navigation-cleanup.service'
+import { RoomHeader } from '../components/room/RoomHeader'
+import { ConnectionStatusGroup } from '../components/streaming/ConnectionStatusGroup'
+import { StreamControls } from '../components/streaming/StreamControls'
 
-export default function DJRoom() {
+// User Feature Service Context (for DJ operations)
+interface UserFeatureContextValue {
+  userService: Context.Tag.Service<UserService>
+}
+
+const UserFeatureContext = createContext<UserFeatureContextValue>()
+
+const UserFeatureProvider: ParentComponent = (props) => {
+  // Create user feature services using scoped runtime to keep them alive for component lifecycle
+  // Provide all necessary adapter dependencies
+  const userAdapter = useUserAdapter()
+  const connectionAdapter = useConnectionAdapter()
+  const audioAdapter = useAudioAdapter()
+  const audioClient = useAudioClient()
+  
+  const userServiceRuntime = ManagedRuntime.make(
+    UserServiceLive.pipe(
+      Layer.provide(Layer.succeed(UserAdapter, userAdapter)),
+      Layer.provide(Layer.succeed(ConnectionAdapter, connectionAdapter)),
+      Layer.provide(Layer.succeed(AudioAdapter, audioAdapter)),
+      Layer.provide(Layer.succeed(AudioClient, audioClient))
+    )
+  )
+  
+  const userService = userServiceRuntime.runSync(UserService)
+  
+  const services: UserFeatureContextValue = {
+    userService
+  }
+  
+  // Cleanup on unmount
+  onCleanup(async () => {
+    console.info('🏠 UserFeatureProvider: Cleaning up on unmount')
+    try {
+      await userService.disconnect().pipe(Effect.runPromise)
+      await userServiceRuntime.dispose()
+    } catch (error) {
+      console.warn('⚠️ UserFeatureProvider: Error during cleanup:', error)
+    }
+  })
+  
+  return (
+    <UserFeatureContext.Provider value={services}>
+      {props.children}
+    </UserFeatureContext.Provider>
+  )
+}
+
+const useUserFeature = () => {
+  const context = useContext(UserFeatureContext)
+  if (!context) {
+    throw new Error('useUserFeature must be used within UserFeatureProvider')
+  }
+  return context
+}
+
+function DJRoomContent() {
   const params = useParams()
   const navigate = useNavigate()
   const location = useLocation()
 
-  // Use room store for DJ state management - all state comes from here
-  const roomStore = getRoomStore()
+  // SolidJS 2025: Use Effect services through hooks
+
+  // Use adapters for reactive state (read-only)
+  const connectionAdapter = useConnectionAdapter()
+  const audioAdapter = useAudioAdapter()
+  const globalRuntime = useGlobalRuntime()
+  
+  // Get scoped user feature services
+  const { userService } = useUserFeature()
+  
+  // Get global audio client
+  const audioClient = useAudioClient()
 
   // Get navigation state (from Landing.tsx room creation)
   const navigationState = location.state as {
     djWebSocketUrl?: string
+    roomName?: string
+    djName?: string
   } || {}
 
   const [isRedirecting, setIsRedirecting] = createSignal(false)
@@ -29,105 +101,80 @@ export default function DJRoom() {
   // Router state guard - redirect to lobby if missing critical state  
   createEffect(() => {
     // Check if we have valid navigation state to be in DJ room
-    if (!navigationState.djWebSocketUrl && connectionState() === ConnectionState.DISCONNECTED) {
+    if (!navigationState.djWebSocketUrl && connectionState()?.roomWsState === WsConnectionState.DISCONNECTED) {
       console.info('No valid DJ WebSocket URL detected, redirecting to lobby')
       setIsRedirecting(true)
       setTimeout(() => navigate('/'), 1000) // Brief delay to show redirect message
     }
   })
 
-
-  // Register with global navigation service and initialize room
+  // Connect to DJ WebSocket once on mount
   onMount(async () => {
-    // 1. Register component with global navigation cleanup service
-    // Note: DJ cleanup only resets local state (preserves backend room for other listeners)
-    try {
-      const navigationService = getNavigationCleanupService()
+    const djUrl = navigationState.djWebSocketUrl
+    if (djUrl && !connectionAdapter.isConnecting() && !connectionAdapter.isRoomConnected()) {
+      console.info('🔗 DJRoom: Connecting to DJ WebSocket on mount...', { djUrl })
       
-      // Register with initLocalStore only (NO backend cleanup for DJ navigation)
-      await Effect.runPromise(
-        navigationService.registerComponent('dj-room', navigationService.initLocalStore(), location.pathname)
-      )
-      console.info('🔧 DJRoom: Component registered with global navigation service (local reset only)')
-    } catch (error) {
-      console.error('❌ Failed to register with navigation service:', error)
-    }
-    
-    // 2. Initialize room as ready for streaming setup
-    try {
-      roomStore.actions.setConnectionState(ConnectionState.IDLE)
-    } catch (err: any) {
-      console.error('Failed to initialize DJ room:', err)
-      roomStore.actions.setConnectionState(ConnectionState.ERROR)
+      try {
+        await userService.connect(djUrl).pipe(Effect.runPromise)
+        console.info('✅ DJRoom: DJ WebSocket connected successfully')
+      } catch (error) {
+        console.error('❌ DJRoom: Failed to connect DJ WebSocket:', error)
+      }
     }
   })
+
+  // Component initialization completed
 
   onCleanup(async () => {
-    // Unregister from global navigation service
+    // SolidJS 2025: Cleanup handled by SolidJS onCleanup
+    console.info('🧹 DJRoom: Component cleanup - disconnecting user service')
     try {
-      const navigationService = getNavigationCleanupService()
-      await Effect.runPromise(navigationService.unregisterComponent('dj-room'))
-      console.info('🧹 DJRoom: Component unregistered from global navigation service')
+      await userService.disconnect().pipe(Effect.runPromise)
     } catch (error) {
-      console.error('❌ Failed to unregister from navigation service:', error)
+      console.warn('⚠️ DJRoom: Error during cleanup:', error)
     }
   })
 
-  // Computed values from store
-  const connectionState = () => roomStore.connectionState
-  const isStreaming = () => roomStore.isDJStreaming
-  const djError = () => roomStore.djError
-  const isConnecting = () => roomStore.isConnecting
-  const isPaused = () => roomStore.isPaused
-  const selectedDeviceId = () => roomStore.selectedDeviceId
+  // Computed values from domain adapters (SolidJS 2025 + Effect Option patterns)
+  const connectionState = () => connectionAdapter.getConnectionState()
+  const isConnecting = () => connectionAdapter.isConnecting()
+  const isPaused = () => !audioAdapter.isPlaying()
+  const selectedDeviceId = () => audioAdapter.getCurrentDeviceId()
   
-  // WebRTC error state
-  const webrtcError = () => roomStore.webrtcError
-  const hasWebRTCError = () => roomStore.hasWebRTCError
+  // Connection error state  
+  const connectionError = () => O.getOrNull(connectionAdapter.getError())
+  const hasConnectionError = () => connectionAdapter.hasError()
   
-  // Room information - get room ID from store metadata or fallback to params
-  const roomMetadata = () => roomStore.roomMetadata
-  const roomId = () => roomMetadata()?.id || params.roomId
-  const roomName = () => roomMetadata()?.name || `Room ${roomId()}`
-  const djName = () => roomMetadata()?.djName || 'DJ'
+  // SolidJS 2025: Use reactive computeds with proper Option handling
+  const roomId = () => params.roomId
+  
+  // Use Show components for Optional room metadata in template
+  // Note: Room metadata would come from a room adapter if needed
 
-  // Helper to convert ConnectionState to dot status
-  const getDotStatus = () => {
-    const state = connectionState()
-    if (state === ConnectionState.STREAMING && isPaused()) return 'paused'
-    if (state === ConnectionState.STREAMING) return 'streaming'
-    if (state === ConnectionState.PAUSED) return 'paused'
-    if (state === ConnectionState.ERROR) return 'error'
-    if (state === ConnectionState.CONNECTED || state === ConnectionState.IDLE) return 'setup'
-    if (state === ConnectionState.CONNECTING || state === ConnectionState.DISCONNECTING) return 'connecting'
-    return 'disconnected'
-  }
+  // Get WebRTC state getter for connection dot
+  const getWebrtcState = () => connectionState()?.webrtcConnectionState || WebrtcConnectionState.DISCONNECTED
 
-  // Helper to get status text for accessibility
-  const getStatusText = () => {
-    const state = connectionState()
-    if (state === ConnectionState.STREAMING && isPaused()) return 'MUTED'
-    if (state === ConnectionState.STREAMING) return 'LIVE'
-    if (state === ConnectionState.IDLE) return 'SETUP'
-    return state
-  }
+  // Audio stream is accessed directly via signal in template
 
-  // Get DJ audio stream from room store
-  const djAudioStream = () => {
-    const dj = roomStore.djState as DJState | null
-    if (!dj) return null
+  // SolidJS 2025: Use signals and createResource for streaming operations
+  const [streamingRequest, setStreamingRequest] = createSignal<{roomId: string, deviceId: string} | null>(null)
+  
+  const [streamingOperation] = createResource(streamingRequest, async (request) => {
+    if (!request) return null
     
-    // Get stream from the DJ's streams state
-    const streamsOption = dj.streams
-    if (Option.isNone(streamsOption)) return null
+    console.info('🎤 Starting DJ stream via Application Service...')
     
-    const streams = Option.getOrNull(streamsOption)
-    if (!streams) return null
+    const result = await userService.publishDJRoom(
+      request.roomId, 
+      navigationState.djWebSocketUrl!, 
+      request.deviceId
+    ).pipe(Effect.runPromise)
     
-    return Option.getOrNull(streams.localStream) as MediaStream | null
-  }
-
-  const startStreaming = async () => {
+    console.info('✅ DJ stream started successfully')
+    return result
+  })
+  
+  const startStreaming = () => {
     const deviceId = selectedDeviceId()
     if (!deviceId) {
       console.error('Please select an audio device first')
@@ -139,89 +186,32 @@ export default function DJRoom() {
       console.error('Room ID is required')
       return
     }
-
-    try {
-      // Start DJ publishing flow - service will handle WebSocket connection and state
-      await Effect.runPromise(
-        publishDJRoom(roomStore, currentRoomId, String(deviceId))
-      )
-
-    } catch (err: any) {
-      console.error('Failed to start streaming:', err)
-      // Error state is handled by the store via the service
-    }
+    
+    // Trigger the resource by setting the signal
+    setStreamingRequest({ roomId: currentRoomId, deviceId: String(deviceId) })
   }
 
-  const toggleMute = async () => {
-    if (!isStreaming()) return // Only allow mute when streaming
-
-    try {
-      await Effect.runPromise(toggleDJStream(roomStore))
-    } catch (err: any) {
-      console.error('Failed to toggle mute:', err)
-    }
-  }
-
-  const endStream = async () => {
-    try {
-      // Get DJ WebSocket from store  
-      const djState = roomStore.djState as DJState | null
-      if (!djState) {
-        console.warn('No DJ state found for room closure')
-        navigate('/')
-        return
-      }
-
-      let djWebSocket: WebSocket | null = null
-      Option.match(djState.websocket.websocket, {
-        onSome: (ws) => { djWebSocket = ws as WebSocket },
-        onNone: () => { djWebSocket = null }
-      })
-      
-      if (!djWebSocket) {
-        console.warn('No valid DJ WebSocket found for room closure')
-        navigate('/')
-        return
-      }
-
-      // Use proper cleanup service following the established pattern
-      console.info('🚪 Ending stream and closing DJ room')
-      await Effect.runPromise(closeDJRoom(roomStore, djWebSocket))
-      console.info('✅ DJ room closed successfully')
-      
-      // Navigate back to lobby after successful cleanup
-      navigate('/')
-    } catch (error) {
-      console.error('❌ Failed to end stream and close room:', error)
-      // Navigate anyway to prevent stuck state
-      navigate('/')
-    }
-  }
 
   const goBack = () => {
     navigate('/')
   }
 
-  const onDeviceSelected = (deviceId: string) => {
-    roomStore.actions.setSelectedDeviceId(deviceId)
-  }
-
   return (
-    <div class="min-h-screen bg-gradient-to-br from-purple-900 via-blue-900 to-indigo-900 text-white p-4 sm:p-6">
+    <div class="min-h-screen bg-hush-main text-gruvbox-fg p-4 sm:p-6">
       
       <div class="max-w-sm sm:max-w-md lg:max-w-lg mx-auto">
         <Show when={isRedirecting()}>
-          <div class="card bg-white/10 backdrop-blur-sm border border-white/20">
+          <div class="card card-glass">
             <div class="card-body text-center py-8">
               <div class="loading loading-spinner loading-lg mx-auto mb-4"></div>
               <div class="text-lg sm:text-xl font-bold">Returning to lobby...</div>
-              <div class="text-sm text-white/70 mt-2">Please create a new room</div>
+              <div class="text-sm text-gruvbox-fg-3 mt-2">Please create a new room</div>
             </div>
           </div>
         </Show>
 
         <Show when={!isRedirecting() && isConnecting()}>
-          <div class="card bg-white/10 backdrop-blur-sm border border-white/20">
+          <div class="card card-glass">
             <div class="card-body text-center py-8">
               <div class="loading loading-spinner loading-lg mx-auto mb-4"></div>
               <h2 class="text-lg sm:text-xl">Connecting...</h2>
@@ -229,64 +219,73 @@ export default function DJRoom() {
           </div>
         </Show>
 
-        <Show when={djError()}>
-          <div class="alert alert-error mb-4 text-sm sm:text-base">
-            <span>{String(djError() || 'An error occurred')}</span>
-            <button class="btn btn-sm btn-circle" onClick={() => roomStore.actions.clearDJError()}>✕</button>
-          </div>
-        </Show>
+        {/* Stream errors now handled globally in AppLayout */}
 
         {/* WebRTC Error Handler */}
         <WebRTCErrorHandler 
-          error={webrtcError() as WebRTCError | null}
-          show={hasWebRTCError()}
-          onDismiss={() => roomStore.actions.clearWebRTCStatus()}
+          error={connectionError()}
+          show={hasConnectionError()}
+          onDismiss={() => connectionAdapter.clearError()}
           onCancel={() => navigate('/')}
         />
 
         <Show when={!isRedirecting() && !isConnecting()}>
-          <div class="card bg-white/10 backdrop-blur-sm border border-white/20">
+          <div class="card card-glass">
             <div class="card-body p-4 sm:p-6">
               
-              {/* Room Header */}
-              <div class="text-center mb-4 sm:mb-6">
-                <h1 class="text-lg sm:text-xl font-semibold text-white/90 mb-1">{roomName()}</h1>
-                <p class="text-sm text-white/60">DJ: {djName()}</p>
-              </div>
-              <div class="flex justify-between items-center mb-4 sm:mb-6">
-                <button class="btn btn-sm sm:btn-md btn-ghost text-white hover:bg-white/20" onClick={goBack}>←</button>
-                <div class="flex items-center gap-2">
-                  <ConnectionStatusDot 
-                    connectionState={getDotStatus()}
-                    size="md"
-                    title={getStatusText()}
-                  />
-                  <span class="text-xs sm:text-sm font-medium">{getStatusText()}</span>
-                </div>
+              {/* Back Button */}
+              <div class="flex justify-start mb-4">
+                <button class="btn btn-sm sm:btn-md btn-ghost text-gruvbox-fg hover:bg-gruvbox-bg-2/60" onClick={goBack}>←</button>
               </div>
 
-              <DeviceSelector 
-                disabled={isStreaming()} 
-                roomStore={roomStore} 
-                onDeviceSelected={onDeviceSelected}
+              {/* Room Header */}
+              <RoomHeader 
+                roomName={() => navigationState.roomName || `Room ${roomId()}`}
+                variant="center"
               />
-              
-              {/* Audio Oscilloscope - show when audio stream is available (preview or streaming) */}
-              <Show when={djAudioStream()}>
-                <div class="w-full mb-4">
-                  <Oscilloscope stream={djAudioStream()!} height={60} class="mb-0" />
-                </div>
+
+              {/* Status Indicator - single source of truth from connection state */}
+              <ConnectionStatusGroup 
+                webrtcState={getWebrtcState}
+                isPaused={isPaused}
+                dotSize="lg"
+                layout="vertical"
+              />
+
+              {/* Show DeviceSelector only when WebRTC is not connected */}
+              <Show when={!connectionAdapter.isConnected()}>
+                <DeviceSelector 
+                  getAudioDevices={async () => await globalRuntime.runPromise(
+                    Effect.provideService(audioClient.getAudioDevices(), AudioAdapter, audioAdapter)
+                  )}
+                  selectDevice={async (deviceId) => await globalRuntime.runPromise(
+                    Effect.provideService(audioClient.selectDevice(deviceId), AudioAdapter, audioAdapter)
+                  )}
+                />
               </Show>
               
-              {/* Show Go Live button when not streaming */}
-              <Show when={!isStreaming()}>
+              {/* Audio Oscilloscope - SolidJS 2025 reactive signal pattern */}
+              <Show when={O.getOrNull(audioClient.currentStream())} fallback={null}>
+                {(stream) => (
+                  <div class="w-full">
+                    <Oscilloscope stream={stream()} height={60} class="mb-0" />
+                  </div>
+                )}
+              </Show>
+              
+              {/* Show Go Live button when not connected and not connecting */}
+              <Show when={!connectionAdapter.isConnected() && !isConnecting()}>
                 <div class="text-center mt-4 sm:mt-6">
                   <button
-                    class="btn btn-primary btn-md sm:btn-lg w-full sm:w-auto px-8"
+                    class={`btn btn-md sm:btn-lg w-full sm:w-auto px-8 ${
+                      !selectedDeviceId() || isConnecting() || streamingOperation.loading 
+                        ? 'btn-disabled opacity-50 cursor-not-allowed' 
+                        : 'btn-primary hover:btn-primary-focus'
+                    }`}
                     onClick={startStreaming}
-                    disabled={!selectedDeviceId() || isConnecting()}
+                    disabled={!selectedDeviceId() || isConnecting() || streamingOperation.loading}
                   >
-                    {isConnecting() ? (
+                    {(isConnecting() || streamingOperation.loading) ? (
                       <>
                         <span class="loading loading-spinner loading-sm"></span>
                         <span class="ml-2">Connecting...</span>
@@ -300,59 +299,57 @@ export default function DJRoom() {
                       </>
                     )}
                   </button>
-                  <div class="text-xs sm:text-sm text-white/60 mt-2">
-                    Select an audio source to get started
+                  
+                  {/* Show streaming operation errors */}
+                  <Show when={streamingOperation.error}>
+                    <div class="text-red-400 text-sm mt-2">
+                      Failed to start streaming: {streamingOperation.error.message}
+                    </div>
+                  </Show>
+                  <div class="text-xs sm:text-sm text-gruvbox-fg-3 mt-2">
+                    <Show when={!selectedDeviceId()} fallback="Ready to go live">
+                      Select an audio source to get started
+                    </Show>
                   </div>
                 </div>
               </Show>
 
-              {/* Show streaming controls when streaming */}
-              <Show when={isStreaming()}>
-                <div class="flex flex-col sm:flex-row gap-3 justify-center items-center mt-6">
-                  
-                  {/* Mute/Unmute Button */}
-                  <button
-                    class={`btn btn-md sm:btn-lg gap-2 w-full sm:w-auto sm:min-w-32 ${
-                      isPaused() ? 'btn-warning hover:btn-warning' : 'btn-success hover:btn-success'
-                    }`}
-                    onClick={toggleMute}
-                    disabled={connectionState() === ConnectionState.ERROR || isConnecting()}
-                  >
-                    {isPaused() ? (
-                      <>
-                        <svg class="w-4 h-4 sm:w-5 sm:h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path stroke-linecap="round" stroke-linejoin="round" stroke-width={2} d="M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z" />
-                          <path stroke-linecap="round" stroke-linejoin="round" stroke-width={2} d="M17 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2" />
-                        </svg>
-                        <span class="text-sm sm:text-base">Unmute</span>
-                      </>
-                    ) : (
-                      <>
-                        <svg class="w-4 h-4 sm:w-5 sm:h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path stroke-linecap="round" stroke-linejoin="round" stroke-width={2} d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z" />
-                        </svg>
-                        <span class="text-sm sm:text-base">Mute</span>
-                      </>
-                    )}
-                  </button>
-
-                  {/* End Stream Button */}
-                  <button 
-                    class="btn btn-outline btn-error btn-md sm:btn-lg gap-2 w-full sm:w-auto border-red-500 text-red-500 hover:bg-red-500 hover:text-white" 
-                    onClick={endStream}
-                  >
-                    <svg class="w-4 h-4 sm:w-5 sm:h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width={2} d="M6 18L18 6M6 6l12 12" />
-                    </svg>
-                    <span class="text-sm sm:text-base">End Stream</span>
-                  </button>
-                  
-                </div>
+              {/* Stream Controls - only show when connected */}
+              <Show when={connectionAdapter.isConnected()}>
+                <StreamControls 
+                  toggleMute={async () => {
+                    // Send pause/resume command to server as oneshot command
+                    const isPausedNow = isPaused()
+                    try {
+                      if (isPausedNow) {
+                        await userService.resumeStream().pipe(Effect.runPromise)
+                      } else {
+                        await userService.pauseStream().pipe(Effect.runPromise)
+                      }
+                    } catch (error) {
+                      console.error('❌ Failed to toggle mute:', error)
+                    }
+                  }}
+                  endStream={async () => {
+                    await userService.closeDJRoom().pipe(Effect.runPromise)
+                    navigate('/')
+                  }}
+                  isPaused={isPaused}
+                />
               </Show>
+              
             </div>
           </div>
         </Show>
       </div>
     </div>
+  )
+}
+
+export default function DJRoom() {
+  return (
+    <UserFeatureProvider>
+      <DJRoomContent />
+    </UserFeatureProvider>
   )
 }

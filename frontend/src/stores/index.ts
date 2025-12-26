@@ -1,14 +1,13 @@
 /**
- * Stores Index
+ * Store Adapters Index
  * 
- * Centralized exports for the 2 main reactive stores.
- * These stores bridge between pure domain schemas and the UI.
- * 
- * Architecture:
- * - Lobby Store: Lobby WebSocket + room discovery (basic RoomInfo[])
- * - Room Store: Current room with DJ + Listeners (embedded MediaSoup state)
+ * Central export point for all store adapters.
+ * Services and UI components import adapters through this index.
+ * Store implementations remain encapsulated within their folders.
  */
 
-// Main stores (only 2)
-export * from './lobby.store'
-export * from './room.store'
+// Re-export all adapters and their live layers
+export { AudioAdapter, AudioAdapterLive } from './audio'
+export { ConnectionAdapter, ConnectionAdapterLive } from './connection'
+export { LobbyAdapter, LobbyAdapterLive } from './lobby'
+export { UserAdapter, UserAdapterLive } from './user'

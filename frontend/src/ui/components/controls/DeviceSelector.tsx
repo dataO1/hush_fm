@@ -1,151 +1,142 @@
-import { createSignal, For, Show, onMount } from 'solid-js'
-import { Effect } from 'effect'
-import type { RoomStore } from '../../../stores/room.store'
-import { previewAudioDevice } from '../../../services/flows/dj-flows.service'
-
-type AudioDevice = {
-  deviceId: string
-  label: string
-  groupId: string
-}
+import { For, Show, createSignal, onMount } from 'solid-js'
 
 type Props = {
-  disabled?: boolean
-  roomStore: RoomStore
-  onDeviceSelected?: (deviceId: string) => void
+  getAudioDevices: () => Promise<ReadonlyArray<MediaDeviceInfo>>
+  selectDevice: (deviceId: string) => Promise<MediaStream>
 }
 
 export function DeviceSelector(props: Props) {
-  const [devices, setDevices] = createSignal<AudioDevice[]>([])
-  const [isLoading, setIsLoading] = createSignal(false)
+  // Local component state
+  const [devices, setDevices] = createSignal<ReadonlyArray<MediaDeviceInfo>>([])
+  const [selectedDeviceId, setSelectedDeviceId] = createSignal<string>('')
+  const [isLoading, setIsLoading] = createSignal(true)
   const [error, setError] = createSignal<string | null>(null)
-  const [selectedDevice, setSelectedDevice] = createSignal<string>('')
+  const [isSelecting, setIsSelecting] = createSignal(false)
+  const [permissionStatus, setPermissionStatus] = createSignal<'checking' | 'granted' | 'denied' | 'prompt'>('checking')
 
-  onMount(() => {
-    loadAudioDevices()
-  })
-
-  // DISABLED: Component-level cleanup to preserve streams during navigation
-  // This should only be called as part of explicit session cleanup, not route changes
-  /*
-  onCleanup(() => {
-    // Stop preview stream when component unmounts
-    Effect.runPromise(stopDevicePreview(props.roomStore))
-      .catch(err => console.error('Error stopping device preview:', err))
-  })
-  */
-
-  const loadAudioDevices = async () => {
-    setIsLoading(true)
-    setError(null)
-
+  // Enumerate devices on mount
+  onMount(async () => {
     try {
-      // Request audio input permission first
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+      setIsLoading(true)
+      setError(null)
+      setPermissionStatus('checking')
+      console.info('🎧 DeviceSelector: Enumerating audio devices...')
       
-      // Stop the temporary stream
-      stream.getTracks().forEach(track => track.stop())
-
-      // Enumerate devices
-      const deviceList = await navigator.mediaDevices.enumerateDevices()
-      const audioInputs = deviceList
-        .filter(device => device.kind === 'audioinput' && device.deviceId !== 'default')
-        .map(device => ({
-          deviceId: device.deviceId,
-          label: device.label || `Audio Source ${device.deviceId.slice(0, 5)}`,
-          groupId: device.groupId,
-        }))
-
-      setDevices(audioInputs)
-
-      // Auto-select first device if none selected
-      if (audioInputs.length > 0 && !selectedDevice()) {
-        const firstDevice = audioInputs[0].deviceId
-        setSelectedDevice(firstDevice)
-        
-        // Start preview for first device and notify parent
-        await handleDeviceSelection(firstDevice)
+      const audioDevices = await props.getAudioDevices()
+      console.info('🎧 DeviceSelector: Found devices:', audioDevices.map(d => ({
+        deviceId: d.deviceId.slice(0, 8) + '...',
+        label: d.label || 'Unnamed device',
+        kind: d.kind
+      })))
+      
+      // Check if we got device labels (indicates permission was granted)
+      const hasLabels = audioDevices.some(device => device.label && device.label.trim() !== '')
+      setPermissionStatus(hasLabels ? 'granted' : 'denied')
+      
+      setDevices(audioDevices)
+      
+      if (!hasLabels && audioDevices.length > 0) {
+        console.warn('🎧 DeviceSelector: Devices found but no labels - permission may be denied')
+        setError('Microphone permission required to see device names. Please allow access when prompted.')
       }
     } catch (err) {
-      setError('Audio input access denied')
-      console.error('Error loading audio devices:', err)
+      const errorMessage = `Failed to enumerate audio devices: ${err}`
+      setError(errorMessage)
+      setPermissionStatus('denied')
+      console.error('❌ DeviceSelector: Failed to enumerate audio devices:', err)
     } finally {
       setIsLoading(false)
     }
-  }
+  })
 
-  const handleDeviceSelection = async (deviceId: string) => {
-    try {
-      // Only start preview if DJ is not currently streaming
-      if (!props.roomStore.isDJStreaming) {
-        // Start preview stream for the selected device
-        await Effect.runPromise(previewAudioDevice(props.roomStore, deviceId))
-      }
-      
-      // Always notify parent component of device selection
-      props.onDeviceSelected?.(deviceId)
-    } catch (err) {
-      console.error('Failed to preview device:', err)
-      setError(`Failed to preview device: ${err instanceof Error ? err.message : 'Unknown error'}`)
-    }
-  }
-  
-  const handleDeviceChange = (event: Event) => {
+  const handleDeviceChange = async (event: Event) => {
     const target = event.target as HTMLSelectElement
     const deviceId = target.value
     
-    setSelectedDevice(deviceId)
-    handleDeviceSelection(deviceId)
+    if (!deviceId) return
+
+    const selectedDevice = devices().find(d => d.deviceId === deviceId)
+    console.info('🎧 DeviceSelector: User selected device:', {
+      deviceId: deviceId.slice(0, 8) + '...',
+      label: selectedDevice?.label || 'Unknown device'
+    })
+
+    try {
+      setIsSelecting(true)
+      setError(null)
+      await props.selectDevice(deviceId)
+      setSelectedDeviceId(deviceId)
+      console.info('✅ DeviceSelector: Device selection successful')
+    } catch (err) {
+      setError(`Failed to select audio device: ${err}`)
+      console.error('❌ DeviceSelector: Failed to select audio device:', err)
+      // Reset selection on error
+      setSelectedDeviceId('')
+      target.value = ''
+    } finally {
+      setIsSelecting(false)
+    }
   }
 
   return (
-    <div class="form-control w-full">
+    <div class="form-control w-full mb-4">
       <label class="label">
-        <span class="label-text">Audio Source</span>
+        <span class="label-hush">Audio Source</span>
       </label>
       
-      <Show
-        when={!isLoading()}
-        fallback={
-          <div class="flex items-center gap-2">
-            <span class="loading loading-spinner loading-sm"></span>
-            <span class="text-sm">Loading devices...</span>
-          </div>
-        }
+      <select
+        class="select-hush w-full px-3 py-2"
+        value={selectedDeviceId()}
+        onChange={handleDeviceChange}
+        disabled={isLoading() || isSelecting()}
       >
-        <Show
-          when={!error()}
-          fallback={
-            <div class="alert alert-error">
-              <span>{error()}</span>
-              <button 
-                class="btn btn-sm" 
-                onClick={loadAudioDevices}
-                disabled={props.disabled}
-              >
-                Retry
-              </button>
-            </div>
+        <option disabled value="">
+          {isLoading() 
+            ? 'Loading devices...' 
+            : permissionStatus() === 'denied' && devices().length > 0
+            ? 'Select audio source (names hidden - permission required)'
+            : 'Select audio source'
           }
-        >
-          <select
-            class="select select-bordered w-full"
-            value={selectedDevice()}
-            onChange={handleDeviceChange}
-            disabled={props.disabled || isLoading()}
-          >
-            <option disabled value="">
-              Select audio source
+        </option>
+        <For each={devices()}>
+          {(device) => (
+            <option value={device.deviceId}>
+              {device.label || `Audio Source ${device.deviceId.slice(0, 8)}...`}
             </option>
-            <For each={devices()}>
-              {(device) => (
-                <option value={device.deviceId}>
-                  {device.label}
-                </option>
-              )}
-            </For>
-          </select>
-        </Show>
+          )}
+        </For>
+      </select>
+      
+      
+      {/* Show selection loading state */}
+      <Show when={isSelecting()}>
+        <div class="flex items-center text-sm text-gruvbox-fg-3 mt-2">
+          <span class="loading loading-spinner loading-xs mr-2"></span>
+          Selecting device...
+        </div>
+      </Show>
+      
+      {/* Show permission status info */}
+      <Show when={permissionStatus() === 'checking'}>
+        <div class="flex items-center text-sm text-gruvbox-fg-3 mt-2">
+          <span class="loading loading-spinner loading-xs mr-2"></span>
+          Checking microphone permissions...
+        </div>
+      </Show>
+      
+      <Show when={permissionStatus() === 'denied' && devices().length > 0 && !error()}>
+        <div class="alert alert-info mt-2">
+          <span class="text-sm">
+            🎤 Microphone access needed to show device names. Device selection still works with generic names.
+          </span>
+        </div>
+      </Show>
+      
+      {/* Show error if any */}
+      <Show when={error()}>
+        <div class="alert alert-warning mt-2">
+          <span class="text-sm">{error()}</span>
+        </div>
       </Show>
     </div>
   )
