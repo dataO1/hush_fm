@@ -108,20 +108,22 @@ function LandingContent() {
   })
 
   // SolidJS 2025: Use signals for form state and createResource for room creation
-  const [roomCreationData, setRoomCreationData] = createSignal<{name: string, dj: string} | null>(null)
+  const [roomCreationData, setRoomCreationData] = createSignal<{name: string, tags: string[]} | null>(null)
   
   const [roomCreation] = createResource(roomCreationData, async (data) => {
     if (!data) return null
     
     console.info('🏠 Creating room via Lobby Application Service...')
     
+    const defaultDJName = 'DJ'
+    
     // Use scoped lobby service to announce room creation
     const result = await lobbyService.announceRoom(
       data.name, 
-      data.dj, 
+      defaultDJName, 
       O.getOrElse(userAdapter.getSessionId(), () => 'anonymous'),
-      `${data.dj}'s room`,
-      []
+      `${defaultDJName}'s room`,
+      data.tags
     ).pipe(
       Effect.runPromise
     )
@@ -146,15 +148,20 @@ function LandingContent() {
     const form = e.target as HTMLFormElement
     const formData = new FormData(form)
     const name = (formData.get('roomName') as string)?.trim()
-    const dj = (formData.get('djName') as string)?.trim()
+    const tagsInput = (formData.get('tags') as string)?.trim()
     
-    if (!name || !dj) {
-      console.error('Please enter both room name and DJ name')
+    if (!name) {
+      console.error('Please enter a room name')
       return
     }
     
+    // Parse tags from comma-separated input
+    const tags = tagsInput
+      ? tagsInput.split(',').map(tag => tag.trim()).filter(tag => tag.length > 0)
+      : []
+    
     // Trigger the resource by setting the signal
-    setRoomCreationData({ name, dj })
+    setRoomCreationData({ name, tags })
   }
 
   // SolidJS 2025: Handle room interaction using Application Services
@@ -283,17 +290,36 @@ function LandingContent() {
     () => ({ 
       rooms: availableRooms(), 
       sessionId: userAdapter.getSessionId(), 
-      isRoomConnected: connectionAdapter.isRoomConnected() 
+      isRoomConnected: connectionAdapter.isRoomConnected(),
+      currentRoomId: connectionAdapter.getCurrentRoomId()
     }),
     // Fetcher function that calls the service
     async (source) => {
       const sessionId = O.getOrNull(source.sessionId)
-      // Use scoped lobby service to sort rooms
-      return await lobbyService.sortRoomsForUser(source.rooms, sessionId || '', undefined).pipe(
+      const activeListenerRoomId = O.getOrNull(source.currentRoomId) || undefined
+      // Use scoped lobby service to sort rooms with current room ID for highlighting
+      return await lobbyService.sortRoomsForUser(source.rooms, sessionId || '', activeListenerRoomId).pipe(
         Effect.runPromise
       )
     }
   )
+
+  // Check if user is actively engaged (DJ or listener)
+  const isActivelyEngaged = () => {
+    const sessionId = O.getOrNull(userAdapter.getSessionId())
+    const currentRoomId = O.getOrNull(connectionAdapter.getCurrentRoomId())
+    const rooms = sortedRooms()
+    
+    if (!sessionId || !rooms) return false
+    
+    // Check if user is DJ in any room
+    const isDJInRoom = rooms.some(room => room.djId === sessionId)
+    
+    // Check if user is actively listening
+    const isActiveListener = !!currentRoomId && connectionAdapter.isRoomConnected()
+    
+    return isDJInRoom || isActiveListener
+  }
 
   return (
     <div class="min-h-screen bg-gradient-to-br from-purple-900 via-blue-900 to-indigo-900 text-white">
@@ -369,8 +395,13 @@ function LandingContent() {
               </div>
               <button
                 onClick={openModal}
-                class="btn btn-circle btn-primary btn-sm sm:btn-md lg:btn-lg"
-                title="Create New Room"
+                class={`btn btn-circle btn-sm sm:btn-md lg:btn-lg ${
+                  isActivelyEngaged() 
+                    ? 'btn-disabled opacity-50 cursor-not-allowed' 
+                    : 'btn-primary'
+                }`}
+                title={isActivelyEngaged() ? "Leave current room to create a new one" : "Create New Room"}
+                disabled={isActivelyEngaged()}
               >
                 <svg class="w-4 h-4 sm:w-6 sm:h-6 lg:w-8 lg:h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path stroke-linecap="round" stroke-linejoin="round" stroke-width={2} d="M12 4v16m8-8H4" />
@@ -390,12 +421,19 @@ function LandingContent() {
                 }
               >
                 <For each={sortedRooms()}>
-                  {(room) => (
-                    <RoomCard 
-                      room={room}
-                      onJoin={handleRoomAction}
-                    />
-                  )}
+                  {(room) => {
+                    const sessionId = O.getOrNull(userAdapter.getSessionId())
+                    const currentRoomId = O.getOrNull(connectionAdapter.getCurrentRoomId())
+                    
+                    return (
+                      <RoomCard 
+                        room={room}
+                        onJoin={handleRoomAction}
+                        isDJRoom={sessionId ? room.djId === sessionId : false}
+                        isActiveListenerRoom={currentRoomId ? room.id === currentRoomId : false}
+                      />
+                    )
+                  }}
                 </For>
               </Show>
             </div>
@@ -424,17 +462,6 @@ function LandingContent() {
             
             <form id="createRoomForm" onSubmit={handleCreateRoom} class="space-y-5 sm:space-y-6">
               <div>
-                <label class="block text-sm sm:text-base font-medium mb-3 text-white/90">Your Name (DJ)</label>
-                <input
-                  type="text"
-                  name="djName"
-                  placeholder="Enter your DJ name"
-                  class="input w-full bg-white/10 border border-white/20 text-white placeholder-white/60 focus:border-pink-500 focus:outline-none rounded-lg px-4 py-3 text-sm sm:text-base"
-                  required
-                />
-              </div>
-              
-              <div>
                 <label class="block text-sm sm:text-base font-medium mb-3 text-white/90">Room Name</label>
                 <input
                   type="text"
@@ -443,6 +470,17 @@ function LandingContent() {
                   class="input w-full bg-white/10 border border-white/20 text-white placeholder-white/60 focus:border-pink-500 focus:outline-none rounded-lg px-4 py-3 text-sm sm:text-base"
                   required
                 />
+              </div>
+              
+              <div>
+                <label class="block text-sm sm:text-base font-medium mb-3 text-white/90">Tags (optional)</label>
+                <input
+                  type="text"
+                  name="tags"
+                  placeholder="house, techno, ambient (comma-separated)"
+                  class="input w-full bg-white/10 border border-white/20 text-white placeholder-white/60 focus:border-pink-500 focus:outline-none rounded-lg px-4 py-3 text-sm sm:text-base"
+                />
+                <p class="text-xs text-white/60 mt-2">Add tags to help listeners find your room</p>
               </div>
             </form>
 

@@ -118,7 +118,6 @@ function ListenerRoomContent() {
   // Room information from params and navigation state
   const roomId = () => params.roomId
   const roomName = () => navigationState.roomInfo?.name || `Room ${roomId()}`
-  const djName = () => navigationState.roomInfo?.djName || 'DJ'
 
   // Get WebRTC state getter for connection dot
   const getWebrtcState = () => connectionState()?.webrtcConnectionState || WebrtcConnectionState.DISCONNECTED
@@ -287,7 +286,6 @@ function ListenerRoomContent() {
             {/* Room Header */}
             <RoomHeader 
               roomName={roomName}
-              djName={djName}
               variant="center"
             />
 

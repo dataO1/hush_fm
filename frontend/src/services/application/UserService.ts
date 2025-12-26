@@ -381,6 +381,13 @@ const createUserServiceImpl = () => {
           webrtcState: connectionState.webrtcConnectionState
         })
 
+        // Check if we already have an active WebRTC connection
+        if (connectionAdapter.isRoomConnected()) {
+          console.info('✅ UserService: Already connected to room, skipping handshake')
+          connectionAdapter.setCurrentRoomId(roomId)
+          return { listenerId: sessionId, roomId, sessionId, joinedAt: new Date() }
+        }
+
         // 2. Request RTP capabilities from backend
         console.info('🎛️ UserService: Requesting router RTP capabilities...')
         // Create command using logging wrapper
@@ -550,6 +557,10 @@ const createUserServiceImpl = () => {
         }
 
         console.info('✅ UserService: Listener successfully joined room')
+        
+        // Track current room for lobby highlighting
+        connectionAdapter.setCurrentRoomId(roomId)
+        
         const listenerId = `${sessionId}-${roomId}`
         return {
           listenerId,

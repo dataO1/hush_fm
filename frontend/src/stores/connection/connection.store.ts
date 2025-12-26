@@ -27,6 +27,10 @@ export interface ConnectionActions {
   setLobbyWSState: (state: WsConnectionState) => void
   setRoomWSState: (state: WsConnectionState) => void
 
+  // Room tracking
+  setCurrentRoomId: (roomId: string) => void
+  clearCurrentRoomId: () => void
+
   // Error management
   setConnectionError: (error: ConnectionError | null) => void
   clearError: () => void
@@ -63,6 +67,7 @@ export interface DualConnectionState {
   webrtcConnectionState: WebrtcConnectionState  // Single, for room only
   lobbyWsState: WsConnectionState              // Lobby WebSocket
   roomWsState: WsConnectionState               // Room WebSocket
+  currentRoomId: Option.Option<string>         // Track active room ID for highlighting
   lastError: Option.Option<ConnectionError>
 }
 
@@ -73,6 +78,7 @@ const createInitialConnectionState = (): DualConnectionState => ({
   webrtcConnectionState: WebrtcConnectionState.DISCONNECTED,
   lobbyWsState: WsConnectionState.DISCONNECTED,
   roomWsState: WsConnectionState.DISCONNECTED,
+  currentRoomId: Option.none(),
   lastError: Option.none()
 })
 
@@ -107,6 +113,18 @@ export const createConnectionStore = (): ConnectionStore => {
 
     setRoomWSState: (newState: WsConnectionState) => {
       setState('roomWsState', newState)
+      // Clear room ID when disconnecting
+      if (newState === WsConnectionState.DISCONNECTED) {
+        setState('currentRoomId', Option.none())
+      }
+    },
+
+    setCurrentRoomId: (roomId: string) => {
+      setState('currentRoomId', Option.some(roomId))
+    },
+
+    clearCurrentRoomId: () => {
+      setState('currentRoomId', Option.none())
     },
 
     setConnectionError: (error: ConnectionError | null) => {
@@ -135,6 +153,7 @@ export const createConnectionStore = (): ConnectionStore => {
     resetRoom: () => {
       setState('roomWsState', WsConnectionState.DISCONNECTED)
       setState('webrtcConnectionState', WebrtcConnectionState.DISCONNECTED)
+      setState('currentRoomId', Option.none())
       setState('lastError', Option.none())
     }
   }

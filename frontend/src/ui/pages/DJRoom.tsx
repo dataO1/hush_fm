@@ -236,7 +236,6 @@ function DJRoomContent() {
               {/* Room Header */}
               <RoomHeader 
                 roomName={() => navigationState.roomName || `Room ${roomId()}`}
-                djName={() => navigationState.djName || 'DJ'}
                 variant="center"
                 class="mb-4 sm:mb-6"
               />

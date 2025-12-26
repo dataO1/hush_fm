@@ -26,6 +26,8 @@ import {
   // Event types  
   type RoomAnnouncedEvent,
   type RoomAddedEvent,
+  type RoomUpdatedEvent,
+  type RoomRemovedEvent,
   type JoinRoomResponseEvent
 } from '../../domain/schemas/shared/websocket.schema'
 
@@ -140,6 +142,38 @@ const createLobbyServiceImpl = () => {
       }).pipe(
         Effect.mapError((error) => new LobbyServiceError(
           `Failed to subscribe to room events: ${error}`,
+          'connectToLobby',
+          error
+        ))
+      )
+
+      // Subscribe to roomUpdated events
+      yield* wsClient.subscribe('roomUpdated', (event: RoomUpdatedEvent) => {
+        console.info('🔄 Lobby Service: Room updated event received:', event.room)
+        
+        // Transform domain event to LobbyRoomInfo format
+        const lobbyRoom: LobbyRoomInfoType = {
+          ...event.room,
+          createdAt: new Date(event.room.createdAt),
+          isPublic: true, // Rooms in roomUpdated events are always public
+        }
+        
+        lobbyAdapter.updateRoom(lobbyRoom)
+      }).pipe(
+        Effect.mapError((error) => new LobbyServiceError(
+          `Failed to subscribe to room updated events: ${error}`,
+          'connectToLobby',
+          error
+        ))
+      )
+
+      // Subscribe to roomRemoved events
+      yield* wsClient.subscribe('roomRemoved', (event: RoomRemovedEvent) => {
+        console.info('🗑️ Lobby Service: Room removed event received:', event.roomId)
+        lobbyAdapter.removeRoom(event.roomId)
+      }).pipe(
+        Effect.mapError((error) => new LobbyServiceError(
+          `Failed to subscribe to room removed events: ${error}`,
           'connectToLobby',
           error
         ))
@@ -385,23 +419,37 @@ const createLobbyServiceImpl = () => {
   /**
    * Sort rooms for user with personalized logic
    */
-  sortRoomsForUser: (rooms: any[], _sessionId: string, activeListenerRoomId?: string) =>
+  sortRoomsForUser: (rooms: any[], sessionId: string, activeListenerRoomId?: string) =>
     Effect.gen(function* () {
-      console.info('🔄 Lobby Service: Sorting rooms for user')
+      console.info('🔄 Lobby Service: Sorting rooms for user', { 
+        roomCount: rooms.length, 
+        activeListenerRoomId,
+        sessionId 
+      })
 
-      // Simple sorting logic - put user's rooms first, then by listener count
+      // Enhanced sorting logic - prioritize user's rooms, then by listener count
       const sortedRooms = rooms.slice().sort((a, b) => {
-        // Put active listener room first
+        // Highest priority: Rooms where user is the DJ (by djId/sessionId match)
+        const aIsUserDJ = a.djId === sessionId
+        const bIsUserDJ = b.djId === sessionId
+        if (aIsUserDJ && !bIsUserDJ) return -1
+        if (bIsUserDJ && !aIsUserDJ) return 1
+
+        // Second priority: Active listener room (room the user is currently listening to)
         if (activeListenerRoomId) {
-          if (a.roomId === activeListenerRoomId) return -1
-          if (b.roomId === activeListenerRoomId) return 1
+          if (a.id === activeListenerRoomId) return -1
+          if (b.id === activeListenerRoomId) return 1
         }
 
-        // Then sort by listener count (descending)
+        // Finally: Sort by listener count (descending) for better discovery
         return (b.listenerCount || 0) - (a.listenerCount || 0)
       })
 
-      console.info('✅ Lobby Service: Rooms sorted successfully')
+      console.info('✅ Lobby Service: Rooms sorted successfully', { 
+        sortedCount: sortedRooms.length,
+        firstRoom: sortedRooms[0]?.name,
+        userDjRooms: sortedRooms.filter(r => r.djId === sessionId).map(r => r.name)
+      })
       return sortedRooms
     }).pipe(
       Effect.catchAll((error) =>

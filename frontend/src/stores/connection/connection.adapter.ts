@@ -23,6 +23,7 @@ export class ConnectionAdapter extends Context.Tag("@app/adapters/ConnectionAdap
     // State access
     getConnectionState: () => DualConnectionState
     getError: () => Option.Option<ConnectionError>
+    getCurrentRoomId: () => Option.Option<string>
 
     // WebRTC (room only)
     setWebRTCState: (state: WebrtcConnectionState) => void
@@ -30,6 +31,10 @@ export class ConnectionAdapter extends Context.Tag("@app/adapters/ConnectionAdap
     // WebSocket (dual)
     setLobbyWSState: (state: WsConnectionState) => void
     setRoomWSState: (state: WsConnectionState) => void
+
+    // Room tracking
+    setCurrentRoomId: (roomId: string) => void
+    clearCurrentRoomId: () => void
 
     // Connection status
     isLobbyConnected: () => boolean
@@ -67,6 +72,10 @@ const createConnectionAdapterImpl = () => {
       return connectionStore.connectionError()
     },
 
+    getCurrentRoomId: () => {
+      return connectionStore.state.currentRoomId
+    },
+
     // WebRTC state management (room only)
     setWebRTCState: (state: WebrtcConnectionState) => {
       connectionStore.actions.setWebRTCState(state)
@@ -79,6 +88,14 @@ const createConnectionAdapterImpl = () => {
 
     setRoomWSState: (state: WsConnectionState) => {
       connectionStore.actions.setRoomWSState(state)
+    },
+
+    setCurrentRoomId: (roomId: string) => {
+      connectionStore.actions.setCurrentRoomId(roomId)
+    },
+
+    clearCurrentRoomId: () => {
+      connectionStore.actions.clearCurrentRoomId()
     },
 
     // Connection status

@@ -10,8 +10,6 @@ import type { JSX } from 'solid-js'
 interface RoomHeaderProps {
   /** Reactive getter for room name */
   roomName: () => string
-  /** Reactive getter for DJ name */
-  djName: () => string
   /** Layout variant */
   variant?: 'center' | 'left'
   /** Additional CSS classes */
@@ -24,12 +22,9 @@ export function RoomHeader(props: RoomHeaderProps): JSX.Element {
   
   return (
     <div class={`${textAlignClass()} ${props.class || ''}`}>
-      <h1 class="text-lg sm:text-xl font-semibold text-white/90 mb-1">
+      <h1 class="text-lg sm:text-xl font-semibold text-white/90">
         {props.roomName()}
       </h1>
-      <p class="text-sm text-white/60">
-        DJ: {props.djName()}
-      </p>
     </div>
   )
 }
