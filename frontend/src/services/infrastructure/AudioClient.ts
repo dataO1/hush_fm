@@ -240,7 +240,11 @@ const createAudioClientImpl = (): AudioClientInterface => {
             deviceId: { exact: deviceId },
             echoCancellation: false,
             noiseSuppression: false,
-            autoGainControl: false
+            autoGainControl: false,
+            // Advanced 2025 optimizations:
+            latency: 0,
+            sampleRate: 48000,
+            channelCount: 2,
           }))
         )
 

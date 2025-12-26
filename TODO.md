@@ -1,14 +1,3 @@
-# Migration to better solidjs
-- [ ] Adjust Services to use new Schema.Service pattern instead of manual layer
-  + Tag.
-- [ ] Adjust services to use the new websocketclient correctly with command
-  schemas.
-- [ ] Create a WebrtcService, which handles the event handlers and cleanup etc,
-  then remove direct fields this from the store and only keep ui required status.
-- [ ] Use conditional context injection for services, to be only initiated in certain routes. for example. for example the dj application service, which can then inject the websocketclient with the right url from the route params. we can remove websocket and service related things from the schema and store then. (https://www.google.com/search?q=how+should+i+handle+service+injection+in+solidj+with+requirements%3F+for+example+only+on+a+route%2C+that+has+an+url+parameter%2C+which+a+websocketclient+service+requires.&client=firefox-b-d&sca_esv=50ea77102f6ce127&channel=entpr&sxsrf=AE3TifMhTT5hvrQ0QDxgigCE54qc5eH08Q%3A1766488680937&udm=50&fbs=AIIjpHxU7SXXniUZfeShr2fp4giZ1Y6MJ25_tmWITc7uy4KIemkjk18Cn72Gp24fGkjjh6w8f_UmwvItOb-_M1yJww2SjGV8ZKbU4oS5Th-nIEousNh4akm2HdhdcqnPYY5MOPvlpEvL-IplYx00cbkjRJ-i_U682BXjicGzqsz8IiN83NMslbXZjmipEC18JghemD6lEXDc&aep=1&ntc=1&sa=X&ved=2ahUKEwjmx86Sy9ORAxUJ0wIHHayEAKAQ2J8OegQIDhAE&biw=1886&bih=930&dpr=1&mtid=bHpKaajOB8Xsi-gPyqCHsAI&mstk=AUtExfBolgXxB3D5P1ZHuG_-X3hmp761e_2NnE08JC-rgJE-BhXCmdfhVTaMm0G3Bi75EcPGvVQheSDSpXxFT7Qur7I5KcpKYc1FriCf6mlLTupx8ZgYPRQnUf6K8S5hlAvj-xBeT4ZzfRba3E4ZJEFP8aZGWh77RNsVfu3JyvHKsa24wdlHq4bfxa7xd9gyqp3Dg1aiu24u19SMlaPLbjnVk3YuvFiiVhLKjuf2SKxVQHlIJvI289K6x8YTwgNEn0j-FobYIIRu4WVXhvxB_gC9ip6p5Lw817GcEUN36vrLbWoITtecRUIfUdOqjld-k0zaSSsUPUZD4oAImg&csuir=1)
-- [ ] Use Schema.make where relevant (ie room creation etc) to validate schema.
-
-
 
 # TODOS
 - [ ] Create a proper readme, with sections for architectur explanation, usage

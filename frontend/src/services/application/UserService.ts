@@ -204,7 +204,12 @@ const createUserServiceImpl = () => {
 
           // 8. Create producer from audio track (this will trigger the events)
           console.info('🎵 UserService: Creating producer...')
-          const producer = yield* mediaSoupClient.createProducer(audioTrack)
+          const producer = yield* mediaSoupClient.createProducer(audioTrack, {codecOptions: {
+            opusStereo: true,
+            opusFec: true, // Forward Error Correction
+            opusDtx: false, // Explicitly disable DTX
+            opusMaxAverageBitrate: 128000 // Target 128kbps for high-quality music
+          }})
 
           return {
             roomId,
@@ -241,7 +246,7 @@ const createUserServiceImpl = () => {
               timestamp: new Date()
             }))
           )
-          
+
           yield* wsClient.sendCommand<RoomClosedEvent>(closeRoomCommand).pipe(
             Effect.mapError((error) => new UserServiceError({
               cause: `Failed to send close room command: ${error}`,
@@ -298,9 +303,9 @@ const createUserServiceImpl = () => {
         // 1. Starting listener join flow (WebSocket should be connected by now)
         console.info('🔗 UserService: Starting listener join flow...')
         const connectionState = connectionAdapter.getConnectionState()
-        console.info('🔍 UserService: Connection state debug:', { 
-          roomWsState: connectionState.roomWsState, 
-          webrtcState: connectionState.webrtcConnectionState 
+        console.info('🔍 UserService: Connection state debug:', {
+          roomWsState: connectionState.roomWsState,
+          webrtcState: connectionState.webrtcConnectionState
         })
 
         // 2. Request RTP capabilities from backend
@@ -308,7 +313,7 @@ const createUserServiceImpl = () => {
         // Create command using logging wrapper
         const makeGetRouterCapabilitiesCommand = withSchemaLogging(GetRouterCapabilitiesCommandSchema, 'GetRouterCapabilitiesCommand')
         const getRouterCapabilitiesCommand = yield* makeGetRouterCapabilitiesCommand({ roomId })
-        
+
         const routerCapabilitiesEvent = yield* wsClient.sendCommand<RouterCapabilitiesEvent>(
           getRouterCapabilitiesCommand
         ).pipe(
@@ -336,7 +341,7 @@ const createUserServiceImpl = () => {
         // Create command using logging wrapper
         const makeInitListenerCommand = withSchemaLogging(InitListenerCommandSchema, 'InitListenerCommand')
         const initListenerCommand = yield* makeInitListenerCommand({})
-        
+
         const transportEvent = yield* wsClient.sendCommand<ListenerTransportReadyEvent>(
           initListenerCommand
         ).pipe(
@@ -357,14 +362,14 @@ const createUserServiceImpl = () => {
             // Use Effect for proper error handling instead of Promise
             // Create command using logging wrapper inside Promise context
             const makeConnectListenerTransportCommand = withSchemaLogging(ConnectListenerTransportCommandSchema, 'ConnectListenerTransportCommand')
-            
+
             return Effect.runPromise(
               Effect.gen(function* () {
                 const connectTransportCommand = yield* makeConnectListenerTransportCommand({
                   transportId: O.some(transportEvent.transportOptions.id),
                   dtlsParameters
                 })
-                
+
                 return yield* wsClient.sendCommand<TransportConnectedEvent>(connectTransportCommand)
               }).pipe(
                 Effect.tap(() => Effect.sync(() =>
@@ -398,7 +403,7 @@ const createUserServiceImpl = () => {
         // Create command using logging wrapper
         const makeRequestConsumerCommand = withSchemaLogging(RequestConsumerCommandSchema, 'RequestConsumerCommand')
         const requestConsumerCommand = yield* makeRequestConsumerCommand({ rtpCapabilities })
-        
+
         const consumerEvent = yield* wsClient.sendCommand<ConsumerCreatedEvent>(
           requestConsumerCommand
         ).pipe(
@@ -451,7 +456,7 @@ const createUserServiceImpl = () => {
           const resumeConsumerCommand = yield* makeResumeConsumerCommand({
             consumerId: consumer.id
           })
-          
+
           yield* wsClient.sendCommandFireForget(resumeConsumerCommand).pipe(
             Effect.mapError((error) => new UserServiceError({
               cause: `Failed to resume consumer: ${error}`,
