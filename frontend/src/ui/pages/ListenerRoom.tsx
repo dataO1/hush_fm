@@ -298,15 +298,14 @@ function ListenerRoomContent() {
               layout="vertical"
             />
 
-            {/* Audio Oscilloscope - SolidJS 2025 reactive signal pattern */}
-            <Show when={Option.getOrNull(audioClient.currentStream())} fallback={null}>
+            {/* Audio Oscilloscope - only show when stream exists AND user interaction is available */}
+            <Show when={!audioAdapter.requiresUserGesture() && Option.getOrNull(audioClient.currentStream())} fallback={null}>
               {(stream) => (
                 <div class="w-full">
                   <Oscilloscope 
                     stream={stream()}
                     height={60} 
                     class="mb-0"
-                    userGestureAvailable={!audioAdapter.requiresUserGesture()}
                   />
                 </div>
               )}

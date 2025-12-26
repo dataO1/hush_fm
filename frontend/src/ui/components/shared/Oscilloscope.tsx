@@ -4,7 +4,6 @@ interface OscilloscopeProps {
   stream?: MediaStream
   class?: string
   height?: number
-  userGestureAvailable?: boolean // Pass this from parent component
 }
 
 export function Oscilloscope(props: OscilloscopeProps) {
@@ -150,18 +149,11 @@ export function Oscilloscope(props: OscilloscopeProps) {
     lastFrameTime = 0
   }
 
-  // React to stream changes and user gesture availability
+  // React to stream changes
   createEffect(() => {
     if (props.stream) {
       cleanup() // Clean up previous instance
-
-      if (props.userGestureAvailable !== false) {
-        // User gesture available or not specified, setup oscilloscope
-        setupOscilloscope()
-      } else {
-        // No user gesture available, skip oscilloscope setup
-        console.info('Oscilloscope setup deferred - no user gesture available')
-      }
+      setupOscilloscope()
     } else {
       cleanup()
     }
@@ -177,7 +169,7 @@ export function Oscilloscope(props: OscilloscopeProps) {
       canvas.style.height = `${props.height || 60}px`
     }
 
-    if (props.stream && canvasRef && props.userGestureAvailable !== false) {
+    if (props.stream && canvasRef) {
       setupOscilloscope()
     }
   })
