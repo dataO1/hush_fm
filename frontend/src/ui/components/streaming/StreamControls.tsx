@@ -52,7 +52,7 @@ export function StreamControls(props: StreamControlsProps): JSX.Element {
 
       {/* End Stream Button */}
       <button 
-        class="btn btn-outline btn-error btn-md sm:btn-lg gap-2 w-full sm:w-auto border-red-500 text-red-500 hover:bg-red-500 hover:text-white" 
+        class="btn btn-outline btn-error btn-md sm:btn-lg gap-2 w-full sm:w-auto border-gruvbox-red-bright text-gruvbox-red-bright hover:bg-gruvbox-red-bright hover:text-gruvbox-bg-hard" 
         onClick={() => props.endStream()}
       >
         <svg class="w-4 h-4 sm:w-5 sm:h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">

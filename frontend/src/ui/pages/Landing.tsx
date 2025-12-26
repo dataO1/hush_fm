@@ -165,58 +165,59 @@ function LandingContent() {
   }
 
   // SolidJS 2025: Handle room interaction using Application Services
-  const handleRoomAction = async (roomId: string, room: LobbyRoomInfoType) => {
+  const handleRoomAction = async (roomId: string, room: LobbyRoomInfoType, isDJRoom: boolean, isActiveListenerRoom: boolean) => {
     try {
-      console.info('🏠 Processing room action via Application Services...', { roomId })
+      console.info('🏠 Processing room action via Application Services...', { roomId, isDJRoom, isActiveListenerRoom })
+      
+      // Get session ID for both DJ and listener flows
+      const currentSessionId = userAdapter.getSessionId()
+      const sessionId = O.getOrNull(currentSessionId)
       
       // Check if this is an active listener room (navigation only)
-      const isActiveListener = connectionAdapter.isRoomConnected()
-      if (isActiveListener && roomId) {
+      if (isActiveListenerRoom) {
         console.info('🎧 Navigating back to active listener room:', roomId)
         navigate(`/listen/${roomId}`)
         return
       }
       
-      // Check if this is our own DJ room (DJ reconnection) 
-      const currentSessionId = userAdapter.getSessionId()
-      const currentRole = userAdapter.getCurrentRole()
-      const isStreaming = O.getOrNull(currentRole) === 'dj'
-      const isDJConnected = connectionAdapter.isConnected()
-      
-      if (isStreaming && isDJConnected) {
-        console.info('🎤 Navigating back to active DJ room:', roomId)
-        navigate(`/dj/${roomId}`)
-        return
-      }
-      
-      // Check if this is the user's own room for DJ reconnection
-      const sessionId = O.getOrNull(currentSessionId)
-      if (sessionId && room.djId === sessionId) {
-        console.info('🔄 Reconnecting to own DJ room via room announcement:', roomId)
+      // Check if this is the user's own DJ room
+      if (isDJRoom) {
+        console.info('🎤 Navigating to own DJ room:', roomId)
         
-        try {
-          // Use scoped lobby service to announce room reconnection
-          const result = await lobbyService.announceRoom(
-            room.name,
-            room.djName,
-            sessionId,
-            O.getOrNull(room.description) || undefined,
-            [...(room.tags || [])]
-          ).pipe(
-            Effect.runPromise
-          )
-          
-          navigate(`/dj/${result.roomId}`, {
-            state: { 
-              djWebSocketUrl: result.djWebSocketUrl,
-              roomName: result.roomName,
-              djName: result.djName
-            }
-          })
-          console.info('✅ DJ room reconnection successful')
+        // Check if we need to reconnect or can navigate directly
+        const isConnected = connectionAdapter.isConnected()
+        
+        if (isConnected) {
+          // Already connected, just navigate
+          navigate(`/dj/${roomId}`)
           return
-        } catch (error) {
-          console.error('❌ Failed to reconnect to DJ room:', error)
+        } else {
+          // Need to reconnect via room announcement
+          try {
+            console.info('🔄 Reconnecting to own DJ room via room announcement:', roomId)
+            const result = await lobbyService.announceRoom(
+              room.name,
+              room.djName,
+              sessionId,
+              O.getOrNull(room.description) || undefined,
+              [...(room.tags || [])]
+            ).pipe(
+              Effect.runPromise
+            )
+            
+            navigate(`/dj/${result.roomId}`, {
+              state: { 
+                djWebSocketUrl: result.djWebSocketUrl,
+                roomName: result.roomName,
+                djName: result.djName
+              }
+            })
+            console.info('✅ DJ room reconnection successful')
+            return
+          } catch (error) {
+            console.error('❌ Failed to reconnect to DJ room:', error)
+            // Fall through to listener join if reconnection fails
+          }
         }
       }
       
@@ -322,25 +323,25 @@ function LandingContent() {
   }
 
   return (
-    <div class="min-h-screen bg-gradient-to-br from-purple-900 via-blue-900 to-indigo-900 text-white">
+    <div class="min-h-screen bg-hush-main text-gruvbox-fg">
       <div class="container mx-auto px-4 sm:px-6 lg:px-8 py-4 sm:py-6 lg:py-8">
         {/* Header */}
         <div class="text-center mb-6 sm:mb-8">
-          <h1 class="text-3xl sm:text-4xl lg:text-5xl font-bold mb-2 bg-gradient-to-r from-pink-500 to-violet-500 bg-clip-text text-transparent">
+          <h1 class="text-3xl sm:text-4xl lg:text-5xl font-bold mb-2 text-brand">
             HushFM
           </h1>
-          <p class="text-sm sm:text-base text-gray-400">Live Audio Streaming</p>
+          <p class="text-sm sm:text-base text-gruvbox-fg-3">Live Audio Streaming</p>
         </div>
 
         {/* Error Display using SolidJS Show for Option types */}
         <Show when={connectionError()}>
           {(error) => (
-            <div class="bg-red-500/20 border border-red-500 text-red-100 px-4 py-3 rounded mb-6">
+            <div class="error-panel px-4 py-3 rounded mb-6">
               <div class="flex justify-between items-center">
                 <span>{String(error())}</span>
                 <button 
                   onClick={() => connectionAdapter.clearError()}
-                  class="text-red-200 hover:text-white"
+                  class="text-gruvbox-red-bright hover:text-gruvbox-fg"
                 >
                   ✕
                 </button>
@@ -351,12 +352,12 @@ function LandingContent() {
         
         <Show when={creationError()}>
           {(error) => (
-            <div class="bg-red-500/20 border border-red-500 text-red-100 px-4 py-3 rounded mb-6">
+            <div class="error-panel px-4 py-3 rounded mb-6">
               <div class="flex justify-between items-center">
                 <span>{String(error())}</span>
                 <button 
                   onClick={() => connectionAdapter.clearError()}
-                  class="text-red-200 hover:text-white"
+                  class="text-gruvbox-red-bright hover:text-gruvbox-fg"
                 >
                   ✕
                 </button>
@@ -366,12 +367,12 @@ function LandingContent() {
         </Show>
         
         <Show when={roomCreation.error}>
-          <div class="bg-red-500/20 border border-red-500 text-red-100 px-4 py-3 rounded mb-6">
+          <div class="error-panel px-4 py-3 rounded mb-6">
             <div class="flex justify-between items-center">
               <span>Failed to create room: {roomCreation.error?.message}</span>
               <button 
                 onClick={() => setRoomCreationData(null)}
-                class="text-red-200 hover:text-white"
+                class="text-gruvbox-red-bright hover:text-gruvbox-fg"
               >
                 ✕
               </button>
@@ -383,7 +384,7 @@ function LandingContent() {
         {/* Simplified Single Column Layout */}
         <div class="max-w-4xl mx-auto">
           {/* Live Rooms Section */}
-          <div class="bg-white/10 backdrop-blur-sm rounded-xl sm:rounded-2xl p-4 sm:p-6 lg:p-8 border border-white/20">
+          <div class="card-glass rounded-xl sm:rounded-2xl p-4 sm:p-6 lg:p-8">
             <div class="flex justify-between items-center mb-4 sm:mb-6">
               <div class="flex items-center gap-2 sm:gap-3">
                 <ConnectionStatusDot 
@@ -395,7 +396,7 @@ function LandingContent() {
               </div>
               <button
                 onClick={openModal}
-                class={`btn btn-circle btn-sm sm:btn-md lg:btn-lg ${
+                class={`btn btn-square btn-sm sm:btn-md lg:btn-lg ${
                   isActivelyEngaged() 
                     ? 'btn-disabled opacity-50 cursor-not-allowed' 
                     : 'btn-primary'
@@ -413,7 +414,7 @@ function LandingContent() {
               <Show 
                 when={sortedRooms() && sortedRooms()!.length > 0}
                 fallback={
-                  <div class="text-center text-gray-400 py-6 sm:py-8">
+                  <div class="text-center text-gruvbox-fg-4 py-6 sm:py-8">
                     <Show when={sortedRooms.loading || isLoading()} fallback="No rooms available. Create the first one!">
                       Loading rooms...
                     </Show>
@@ -428,7 +429,11 @@ function LandingContent() {
                     return (
                       <RoomCard 
                         room={room}
-                        onJoin={handleRoomAction}
+                        onJoin={(roomId, roomInfo) => {
+                          const isDJRoom = sessionId ? room.djId === sessionId : false
+                          const isActiveListenerRoom = currentRoomId ? room.id === currentRoomId : false
+                          handleRoomAction(roomId, roomInfo, isDJRoom, isActiveListenerRoom)
+                        }}
                         isDJRoom={sessionId ? room.djId === sessionId : false}
                         isActiveListenerRoom={currentRoomId ? room.id === currentRoomId : false}
                       />
@@ -441,55 +446,55 @@ function LandingContent() {
         </div>
 
         {/* Create Room Modal */}
-        <dialog id="createRoomModal" class="modal modal-backdrop:bg-black/50">
-          <div class="modal-box max-w-sm sm:max-w-md bg-white/10 backdrop-blur-md border border-white/20 text-white rounded-2xl p-6 sm:p-8 shadow-2xl">
-            <h3 class="font-bold text-xl sm:text-2xl mb-6 text-center bg-gradient-to-r from-pink-500 to-violet-500 bg-clip-text text-transparent">Start Streaming</h3>
+        <dialog id="createRoomModal" class="modal">
+          <div class="modal-box max-w-sm sm:max-w-md modal-glass text-gruvbox-fg p-6 sm:p-8">
+            <h3 class="font-bold text-xl sm:text-2xl mb-6 text-center text-brand">Start Streaming</h3>
             
             {/* Error Display in Modal using proper Show for Option types */}
             <Show when={creationError()}>
               {(error) => (
-                <div class="bg-red-500/20 border border-red-500 text-red-100 px-4 py-3 rounded-lg mb-6">
+                <div class="error-panel px-4 py-3 mb-6">
                   <span class="text-sm sm:text-base">{String(error())}</span>
                 </div>
               )}
             </Show>
             
             <Show when={roomCreation.error}>
-              <div class="bg-red-500/20 border border-red-500 text-red-100 px-4 py-3 rounded-lg mb-6">
+              <div class="error-panel px-4 py-3 rounded-lg mb-6">
                 <span class="text-sm sm:text-base">Failed to create room: {roomCreation.error?.message}</span>
               </div>
             </Show>
             
             <form id="createRoomForm" onSubmit={handleCreateRoom} class="space-y-5 sm:space-y-6">
               <div>
-                <label class="block text-sm sm:text-base font-medium mb-3 text-white/90">Room Name</label>
+                <label class="block text-sm sm:text-base font-medium mb-3 text-gruvbox-fg-1">Room Name</label>
                 <input
                   type="text"
                   name="roomName"
                   placeholder="Enter room name"
-                  class="input w-full bg-white/10 border border-white/20 text-white placeholder-white/60 focus:border-pink-500 focus:outline-none rounded-lg px-4 py-3 text-sm sm:text-base"
+                  class="input w-full input-hush px-4 py-3 text-sm sm:text-base"
                   required
                 />
               </div>
               
               <div>
-                <label class="block text-sm sm:text-base font-medium mb-3 text-white/90">Tags (optional)</label>
+                <label class="block text-sm sm:text-base font-medium mb-3 text-gruvbox-fg-1">Tags (optional)</label>
                 <input
                   type="text"
                   name="tags"
                   placeholder="house, techno, ambient (comma-separated)"
-                  class="input w-full bg-white/10 border border-white/20 text-white placeholder-white/60 focus:border-pink-500 focus:outline-none rounded-lg px-4 py-3 text-sm sm:text-base"
+                  class="input w-full input-hush px-4 py-3 text-sm sm:text-base"
                 />
-                <p class="text-xs text-white/60 mt-2">Add tags to help listeners find your room</p>
+                <p class="text-xs text-gruvbox-fg-3 mt-2">Add tags to help listeners find your room</p>
               </div>
             </form>
 
-            <div class="flex flex-col sm:flex-row gap-3 mt-8">
+            <div class="flex justify-center mt-8">
               <button
                 type="submit"
                 form="createRoomForm"
                 disabled={isCreating()}
-                class="btn bg-gradient-to-r from-pink-500 to-violet-500 hover:from-pink-600 hover:to-violet-600 border-0 text-white font-medium w-full sm:flex-1 py-3 rounded-lg text-sm sm:text-base disabled:opacity-50"
+                class="btn btn-hush w-full py-3 text-sm sm:text-base disabled:opacity-50"
               >
                 <Show when={isCreating()} fallback="Create Room & Start Streaming">
                   <>
@@ -498,15 +503,6 @@ function LandingContent() {
                   </>
                 </Show>
               </button>
-              <form method="dialog" class="w-full sm:w-auto">
-                <button 
-                  type="button" 
-                  onClick={closeModal}
-                  class="btn bg-white/10 hover:bg-white/20 border border-white/20 text-white w-full sm:w-auto py-3 rounded-lg text-sm sm:text-base"
-                >
-                  Cancel
-                </button>
-              </form>
             </div>
           </div>
         </dialog>

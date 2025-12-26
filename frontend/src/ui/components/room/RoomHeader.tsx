@@ -22,7 +22,7 @@ export function RoomHeader(props: RoomHeaderProps): JSX.Element {
   
   return (
     <div class={`${textAlignClass()} ${props.class || ''}`}>
-      <h1 class="text-lg sm:text-xl font-semibold text-white/90">
+      <h1 class="text-lg sm:text-xl font-semibold text-gruvbox-fg">
         {props.roomName()}
       </h1>
     </div>

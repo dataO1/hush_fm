@@ -110,7 +110,7 @@ export function DeviceSelector(props: Props) {
       
       {/* Show selection loading state */}
       <Show when={isSelecting()}>
-        <div class="flex items-center text-sm text-white/70 mt-2">
+        <div class="flex items-center text-sm text-gruvbox-fg-3 mt-2">
           <span class="loading loading-spinner loading-xs mr-2"></span>
           Selecting device...
         </div>
@@ -118,7 +118,7 @@ export function DeviceSelector(props: Props) {
       
       {/* Show permission status info */}
       <Show when={permissionStatus() === 'checking'}>
-        <div class="flex items-center text-sm text-white/70 mt-2">
+        <div class="flex items-center text-sm text-gruvbox-fg-3 mt-2">
           <span class="loading loading-spinner loading-xs mr-2"></span>
           Checking microphone permissions...
         </div>

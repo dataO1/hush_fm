@@ -179,7 +179,7 @@ export function Oscilloscope(props: OscilloscopeProps) {
   })
 
   return (
-    <div class={`bg-white/5 backdrop-blur-sm border border-white/10 rounded-lg p-3 ${props.class || ''}`}>
+    <div class={`card-glass rounded-lg p-3 ${props.class || ''}`}>
       <canvas
         ref={canvasRef}
         class="w-full"

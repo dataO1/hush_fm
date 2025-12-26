@@ -197,21 +197,21 @@ function DJRoomContent() {
   }
 
   return (
-    <div class="min-h-screen bg-gradient-to-br from-purple-900 via-blue-900 to-indigo-900 text-white p-4 sm:p-6">
+    <div class="min-h-screen bg-hush-main text-gruvbox-fg p-4 sm:p-6">
       
       <div class="max-w-sm sm:max-w-md lg:max-w-lg mx-auto">
         <Show when={isRedirecting()}>
-          <div class="card bg-white/10 backdrop-blur-sm border border-white/20">
+          <div class="card card-glass">
             <div class="card-body text-center py-8">
               <div class="loading loading-spinner loading-lg mx-auto mb-4"></div>
               <div class="text-lg sm:text-xl font-bold">Returning to lobby...</div>
-              <div class="text-sm text-white/70 mt-2">Please create a new room</div>
+              <div class="text-sm text-gruvbox-fg-3 mt-2">Please create a new room</div>
             </div>
           </div>
         </Show>
 
         <Show when={!isRedirecting() && isConnecting()}>
-          <div class="card bg-white/10 backdrop-blur-sm border border-white/20">
+          <div class="card card-glass">
             <div class="card-body text-center py-8">
               <div class="loading loading-spinner loading-lg mx-auto mb-4"></div>
               <h2 class="text-lg sm:text-xl">Connecting...</h2>
@@ -230,24 +230,27 @@ function DJRoomContent() {
         />
 
         <Show when={!isRedirecting() && !isConnecting()}>
-          <div class="card bg-white/10 backdrop-blur-sm border border-white/20">
+          <div class="card card-glass">
             <div class="card-body p-4 sm:p-6">
               
+              {/* Back Button */}
+              <div class="flex justify-start mb-4">
+                <button class="btn btn-sm sm:btn-md btn-ghost text-gruvbox-fg hover:bg-gruvbox-bg-2/60" onClick={goBack}>←</button>
+              </div>
+
               {/* Room Header */}
               <RoomHeader 
                 roomName={() => navigationState.roomName || `Room ${roomId()}`}
                 variant="center"
-                class="mb-4 sm:mb-6"
               />
-              <div class="flex justify-between items-center mb-4 sm:mb-6">
-                <button class="btn btn-sm sm:btn-md btn-ghost text-white hover:bg-white/20" onClick={goBack}>←</button>
-                <ConnectionStatusGroup 
-                  webrtcState={getWebrtcState}
-                  isPaused={isPaused}
-                  dotSize="md"
-                  layout="horizontal"
-                />
-              </div>
+
+              {/* Status Indicator - single source of truth from connection state */}
+              <ConnectionStatusGroup 
+                webrtcState={getWebrtcState}
+                isPaused={isPaused}
+                dotSize="lg"
+                layout="vertical"
+              />
 
               {/* Show DeviceSelector only when WebRTC is not connected */}
               <Show when={!connectionAdapter.isConnected()}>
@@ -264,7 +267,7 @@ function DJRoomContent() {
               {/* Audio Oscilloscope - SolidJS 2025 reactive signal pattern */}
               <Show when={O.getOrNull(audioClient.currentStream())} fallback={null}>
                 {(stream) => (
-                  <div class="w-full mb-4">
+                  <div class="w-full">
                     <Oscilloscope stream={stream()} height={60} class="mb-0" />
                   </div>
                 )}
@@ -303,7 +306,7 @@ function DJRoomContent() {
                       Failed to start streaming: {streamingOperation.error.message}
                     </div>
                   </Show>
-                  <div class="text-xs sm:text-sm text-white/60 mt-2">
+                  <div class="text-xs sm:text-sm text-gruvbox-fg-3 mt-2">
                     <Show when={!selectedDeviceId()} fallback="Ready to go live">
                       Select an audio source to get started
                     </Show>

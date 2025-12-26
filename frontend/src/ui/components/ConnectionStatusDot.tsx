@@ -86,21 +86,21 @@ export default function ConnectionStatusDot(props: ConnectionStatusDotProps) {
     }
   })
   
-  // Status-specific classes
+  // Status-specific classes with gruvbox colors
   const statusClasses = createMemo(() => {
     switch (status()) {
       case 'streaming':
-        return 'bg-green-500 animate-pulse'
+        return 'bg-gruvbox-green-bright animate-pulse'
       case 'connecting':
       case 'setup':
-        return 'bg-blue-500 animate-pulse'
+        return 'bg-gruvbox-blue-bright animate-pulse'
       case 'paused':
-        return 'bg-yellow-500'
+        return 'bg-gruvbox-yellow-bright'
       case 'error':
-        return 'bg-red-500 animate-pulse'
+        return 'bg-gruvbox-red-bright animate-pulse'
       case 'disconnected':
       default:
-        return 'bg-red-500 animate-pulse'
+        return 'bg-gruvbox-red animate-pulse'
     }
   })
   

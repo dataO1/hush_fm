@@ -243,7 +243,7 @@ function ListenerRoomContent() {
 
   // Ensure this return block replaces your current broken return
   return (
-    <div class="h-screen w-full bg-gradient-to-br from-purple-900 via-blue-900 to-indigo-900 text-white flex flex-col items-center justify-center p-4 sm:p-6">
+    <div class="h-screen w-full bg-hush-main text-gruvbox-fg flex flex-col items-center justify-center p-4 sm:p-6">
 
       {/* Audio managed by consumer service - no DOM element needed here */}
 
@@ -256,7 +256,7 @@ function ListenerRoomContent() {
       />
 
       <Show when={isConnecting() || joinRoomOperation.loading}>
-        <div class="card bg-white/10 backdrop-blur-sm border border-white/20">
+        <div class="card card-glass">
           <div class="card-body text-center py-8">
             <div class="loading loading-spinner loading-lg mx-auto mb-4"></div>
             <div class="text-lg sm:text-xl font-bold">Connecting...</div>
@@ -280,7 +280,7 @@ function ListenerRoomContent() {
       </Show>
 
       <Show when={!isConnecting() && !joinRoomOperation.loading && !joinRoomOperation.error}>
-        <div class="card bg-white/10 backdrop-blur-sm border border-white/20 shadow-xl max-w-sm sm:max-w-md w-full mx-4">
+        <div class="card card-glass shadow-xl max-w-sm sm:max-w-md w-full mx-4">
           <div class="card-body flex flex-col items-center gap-6 sm:gap-8 p-4 sm:p-6">
             
             {/* Room Header */}
@@ -338,7 +338,7 @@ function ListenerRoomContent() {
             {/* Leave Button */}
             <button
                 onClick={leaveRoom}
-                class="btn btn-outline btn-sm sm:btn-md mt-4 w-full sm:w-auto border-red-500 text-red-500 hover:bg-red-500 hover:text-white"
+                class="btn btn-outline btn-sm sm:btn-md mt-4 w-full sm:w-auto border-gruvbox-red-bright text-gruvbox-red-bright hover:bg-gruvbox-red-bright hover:text-gruvbox-bg-hard"
                 disabled={leaveRoomOperation.loading}
             >
                 {leaveRoomOperation.loading ? (

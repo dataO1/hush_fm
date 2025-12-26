@@ -9,7 +9,6 @@
 import { Show } from 'solid-js'
 import type { JSX } from 'solid-js'
 import { WebrtcConnectionState } from '../../../domain/schemas/connection.schema'
-import { Option } from 'effect'
 import ConnectionStatusDot from '../ConnectionStatusDot'
 import type { LobbyRoomInfoType } from '../../../domain/schemas/lobby.schema'
 
@@ -27,23 +26,23 @@ interface RoomCardProps {
 }
 
 export function RoomCard(props: RoomCardProps): JSX.Element {
-  const handleJoinClick = () => {
+  const handleCardClick = () => {
     props.onJoin(props.room.id, props.room)
   }
 
   // Apply highlighting based on room status
   const getCardClasses = () => {
-    let baseClasses = "rounded-lg p-3 sm:p-4 transition-colors"
+    let baseClasses = "p-3 sm:p-4 transition-colors cursor-pointer"
     
     if (props.isDJRoom) {
-      // DJ's own room - blue highlight
-      baseClasses += " bg-blue-500/20 border-blue-500/50 hover:border-blue-500/70"
+      // DJ's own room - orange/red highlight with music pulse
+      baseClasses += " room-dj"
     } else if (props.isActiveListenerRoom) {
-      // Currently listening room - green highlight  
-      baseClasses += " bg-green-500/20 border-green-500/50 hover:border-green-500/70"
+      // Currently listening room - green highlight with music pulse
+      baseClasses += " room-listener"
     } else {
       // Default styling
-      baseClasses += " bg-white/5 border border-white/10 hover:border-white/20"
+      baseClasses += " room-default"
     }
     
     if (props.class) {
@@ -54,7 +53,10 @@ export function RoomCard(props: RoomCardProps): JSX.Element {
   }
 
   return (
-    <div class={getCardClasses()}>
+    <div 
+      class={getCardClasses()}
+      onClick={handleCardClick}
+    >
       <div class="flex justify-between items-start mb-2 sm:mb-3">
         <div class="flex-1 min-w-0">
           <div class="flex items-center gap-2 mb-1">
@@ -73,7 +75,7 @@ export function RoomCard(props: RoomCardProps): JSX.Element {
           <Show when={props.room.tags && props.room.tags.length > 0}>
             <div class="flex flex-wrap gap-1 mb-2">
               {props.room.tags.map((tag) => (
-                <span class="text-xs px-2 py-1 bg-white/10 text-white/80 rounded-full">
+                <span class="text-xs px-2 py-1 bg-gruvbox-bg-2/60 text-gruvbox-fg-3 rounded-sm">
                   {tag}
                 </span>
               ))}
@@ -81,28 +83,11 @@ export function RoomCard(props: RoomCardProps): JSX.Element {
           </Show>
         </div>
         <div class="text-right ml-2 shrink-0">
-          <div class="text-xs sm:text-sm text-gray-400">
+          <div class="text-xs sm:text-sm text-gruvbox-fg-4">
             {props.room.listenerCount || 0} listeners
           </div>
         </div>
       </div>
-      
-      <button
-        onClick={handleJoinClick}
-        class={`w-full font-medium py-2 px-3 sm:px-4 rounded transition-colors text-sm sm:text-base text-white ${
-          props.isDJRoom 
-            ? "bg-orange-600 hover:bg-orange-700"
-            : props.isActiveListenerRoom
-            ? "bg-orange-600 hover:bg-orange-700" 
-            : "bg-green-500 hover:bg-green-600"
-        }`}
-      >
-        {props.isDJRoom 
-          ? "Continue Streaming" 
-          : props.isActiveListenerRoom 
-          ? "Continue Listening"
-          : "Join Room"}
-      </button>
     </div>
   )
 }
