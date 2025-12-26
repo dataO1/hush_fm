@@ -42,6 +42,8 @@ import { listRooms } from '../generated/rooms/rooms'
  */
 export interface RoomAnnouncementResult {
   roomId: string
+  roomName: string
+  djName: string
   djWebSocketUrl: string
   announcedAt: Date
 }
@@ -278,6 +280,8 @@ const createLobbyServiceImpl = () => {
 
       const announcementResult: RoomAnnouncementResult = {
         roomId: result.room.id,
+        roomName,
+        djName,
         djWebSocketUrl: result.wsUrl,
         announcedAt: new Date()
       }

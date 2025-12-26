@@ -33,6 +33,8 @@ import {
   RequestDjTransportCommandSchema,
   ConnectDjTransportCommandSchema,
   ProduceCommandSchema,
+  PauseStreamCommandSchema,
+  ResumeStreamCommandSchema,
   CloseRoomCommandSchema,
   InitListenerCommandSchema,
   GetRouterCapabilitiesCommandSchema,
@@ -45,10 +47,14 @@ import {
   type DjTransportReadyEvent,
   type TransportConnectedEvent,
   type ProducerCreatedEvent,
+  type StreamPausedEvent,
+  type StreamResumedEvent,
   type RoomClosedEvent,
   type ListenerTransportReadyEvent,
   type RouterCapabilitiesEvent,
-  type ConsumerCreatedEvent
+  type ConsumerCreatedEvent,
+  type ListenerStreamPausedEvent,
+  type ListenerStreamResumedEvent
 } from '../../domain/schemas/shared/websocket.schema'
 
 // Import domain schemas and types
@@ -57,7 +63,7 @@ import {
   type UserRoleType,
   type DJPublishResultType
 } from '../../domain/schemas/user.schema'
-import { WsConnectionState } from '../../domain/schemas/connection.schema'
+import { WebrtcConnectionState, WsConnectionState } from '../../domain/schemas/connection.schema'
 
 /**
  * User Service Context Tag
@@ -71,6 +77,8 @@ export class UserService extends Context.Tag("@app/services/UserService")<
     // DJ Operations
     readonly publishDJRoom: (roomId: string, djWebSocketUrl: string, deviceId?: string) => Effect.Effect<DJPublishResultType, UserServiceError, never>
     readonly closeDJRoom: () => Effect.Effect<void, UserServiceError, never>
+    readonly pauseStream: () => Effect.Effect<void, UserServiceError, never>
+    readonly resumeStream: () => Effect.Effect<void, UserServiceError, never>
 
     // Listener Operations
     readonly joinRoomAsListener: (roomId: string, sessionId: string) => Effect.Effect<{ readonly listenerId: string; readonly roomId: string; readonly sessionId: string; readonly joinedAt: Date }, UserServiceError, never>
@@ -102,6 +110,7 @@ const createUserServiceImpl = () => {
         const mediaSoupClient = yield* MediaSoupClient
         const audioClient = yield* AudioClient
         const userAdapter = yield* UserAdapter
+        const connectionAdapter = yield* ConnectionAdapter
 
         console.info('🎤 UserService: Starting DJ room publishing flow...')
 
@@ -198,6 +207,11 @@ const createUserServiceImpl = () => {
                 wsClient.sendCommand<ProducerCreatedEvent>(produceCommand)
               )
               console.info('✅ UserService: Producer created successfully', { producerId: producerEvent.producerId })
+              
+              // Update connection state to STREAMING after successful producer creation
+              connectionAdapter.setWebRTCState(WebrtcConnectionState.STREAMING)
+              console.info('🎯 UserService: Updated connection state to STREAMING')
+              
               return producerEvent.producerId
             }
           })
@@ -210,6 +224,11 @@ const createUserServiceImpl = () => {
             opusDtx: false, // Explicitly disable DTX
             opusMaxAverageBitrate: 128000 // Target 128kbps for high-quality music
           }})
+
+          // Ensure audio adapter shows as playing when streaming starts
+          const audioAdapter = yield* AudioAdapter
+          audioAdapter.updateStreamState({ playing: true })
+          console.info('🎯 UserService: Updated audio adapter state to playing')
 
           return {
             roomId,
@@ -284,6 +303,60 @@ const createUserServiceImpl = () => {
         connectionAdapter.resetRoom()
         activeRole = O.none()
       }),
+
+    pauseStream: () =>
+      Effect.gen(function* () {
+        const wsClient = yield* UserWebSocket
+        const audioAdapter = yield* AudioAdapter
+        
+        console.info('⏸️ UserService: Sending pause stream command...')
+        
+        // Update local state optimistically (for UI responsiveness)
+        audioAdapter.updateStreamState({ playing: false })
+        
+        // Create command using logging wrapper
+        const makePauseStreamCommand = withSchemaLogging(PauseStreamCommandSchema, 'PauseStreamCommand')
+        const pauseStreamCommand = yield* makePauseStreamCommand({})
+        
+        // Send as fire-forget command (oneshot)
+        yield* wsClient.sendCommandFireForget(pauseStreamCommand).pipe(
+          Effect.mapError((error) => new UserServiceError({
+            cause: `Failed to pause stream: ${error}`,
+            role: 'dj',
+            operation: 'pauseStream',
+            timestamp: new Date()
+          }))
+        )
+        
+        console.info('✅ UserService: Stream pause command sent')
+      }) as Effect.Effect<void, UserServiceError, UserWebSocket | AudioAdapter>,
+
+    resumeStream: () =>
+      Effect.gen(function* () {
+        const wsClient = yield* UserWebSocket
+        const audioAdapter = yield* AudioAdapter
+        
+        console.info('▶️ UserService: Sending resume stream command...')
+        
+        // Update local state optimistically (for UI responsiveness)
+        audioAdapter.updateStreamState({ playing: true })
+        
+        // Create command using logging wrapper
+        const makeResumeStreamCommand = withSchemaLogging(ResumeStreamCommandSchema, 'ResumeStreamCommand')
+        const resumeStreamCommand = yield* makeResumeStreamCommand({})
+        
+        // Send as fire-forget command (oneshot)
+        yield* wsClient.sendCommandFireForget(resumeStreamCommand).pipe(
+          Effect.mapError((error) => new UserServiceError({
+            cause: `Failed to resume stream: ${error}`,
+            role: 'dj',
+            operation: 'resumeStream',
+            timestamp: new Date()
+          }))
+        )
+        
+        console.info('✅ UserService: Stream resume command sent')
+      }) as Effect.Effect<void, UserServiceError, UserWebSocket | AudioAdapter>,
 
 
     // ============= Listener Operations =============
@@ -435,6 +508,15 @@ const createUserServiceImpl = () => {
             timestamp: new Date()
           }))
         )
+        
+        // Update connection state to STREAMING after successful consumer creation
+        connectionAdapter.setWebRTCState(WebrtcConnectionState.STREAMING)
+        console.info('🎯 UserService: Updated listener connection state to STREAMING')
+        
+        // Set audio adapter to playing when listener starts streaming
+        const audioAdapter = yield* AudioAdapter
+        audioAdapter.updateStreamState({ playing: true })
+        console.info('🎯 UserService: Updated listener audio adapter state to playing')
 
         // 8. Connect remote stream for audio playback
         console.info('🔊 UserService: Connecting audio stream...')
@@ -529,6 +611,30 @@ const createUserServiceImpl = () => {
           }))
         )
 
+        // Subscribe to stream pause/resume events for logging (don't update local state)
+        // Note: These events are for information only - local mute state is controlled by the UI
+        yield* wsClient.subscribe('streamPaused', (event: StreamPausedEvent | ListenerStreamPausedEvent) => {
+          console.info('⏸️ UserService: Stream paused event received (server confirmation):', event.roomId)
+        }).pipe(
+          Effect.mapError((error) => new UserServiceError({
+            cause: `Failed to subscribe to streamPaused events: ${error}`,
+            operation: 'connect',
+            role: O.getOrNull(activeRole) || 'unknown' as UserRoleType,
+            timestamp: new Date()
+          }))
+        )
+
+        yield* wsClient.subscribe('streamResumed', (event: StreamResumedEvent | ListenerStreamResumedEvent) => {
+          console.info('▶️ UserService: Stream resumed event received (server confirmation):', event.roomId)
+        }).pipe(
+          Effect.mapError((error) => new UserServiceError({
+            cause: `Failed to subscribe to streamResumed events: ${error}`,
+            operation: 'connect',
+            role: O.getOrNull(activeRole) || 'unknown' as UserRoleType,
+            timestamp: new Date()
+          }))
+        )
+
         // Update connection state
         connectionAdapter.setRoomWSState(WsConnectionState.CONNECTED)
       }) as Effect.Effect<void, UserServiceError, UserWebSocket | ConnectionAdapter>,
@@ -583,7 +689,8 @@ export const UserFeatureLayer = Layer.scoped(
           Effect.provideService(UserWebSocket, userWebSocket),
           Effect.provideService(MediaSoupClient, mediaSoupClient),
           Effect.provideService(AudioClient, audioClient),
-          Effect.provideService(AudioAdapter, audioAdapter)
+          Effect.provideService(AudioAdapter, audioAdapter),
+          Effect.provideService(ConnectionAdapter, connectionAdapter)
         ),
       closeDJRoom: () =>
         serviceImpl.closeDJRoom().pipe(
@@ -592,6 +699,16 @@ export const UserFeatureLayer = Layer.scoped(
           Effect.provideService(UserWebSocket, userWebSocket),
           Effect.provideService(MediaSoupClient, mediaSoupClient),
           Effect.provideService(AudioClient, audioClient)
+        ),
+      pauseStream: () =>
+        serviceImpl.pauseStream().pipe(
+          Effect.provideService(UserWebSocket, userWebSocket),
+          Effect.provideService(AudioAdapter, audioAdapter)
+        ),
+      resumeStream: () =>
+        serviceImpl.resumeStream().pipe(
+          Effect.provideService(UserWebSocket, userWebSocket),
+          Effect.provideService(AudioAdapter, audioAdapter)
         ),
       joinRoomAsListener: (roomId: string, sessionId: string) =>
         serviceImpl.joinRoomAsListener(roomId, sessionId).pipe(

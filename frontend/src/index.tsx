@@ -18,9 +18,8 @@ import {
   UserAdapterLive 
 } from './stores'
 
-// Application Service Layers
-import { UserServiceLive } from './services/application/UserService'
-import { LobbyServiceLive } from './services/application/LobbyService'
+// Note: UserService and LobbyService are now scoped to specific components
+// They are not provided globally to avoid multiple WebSocket connections
 
 /**
  * Main Layer Composition
@@ -40,15 +39,11 @@ const StoreAdapterLayer = Layer.mergeAll(
   UserAdapterLive
 )
 
-const ApplicationServiceLayer = Layer.mergeAll(
-  UserServiceLive,
-  LobbyServiceLive
-)
+// No global application services - they are scoped to components
 
 // Complete application layer with proper dependency flow:
-// Infrastructure → Store Adapters → Application Services
-export const MainLayer = ApplicationServiceLayer.pipe(
-  Layer.provide(StoreAdapterLayer),
+// Infrastructure → Store Adapters (Application Services are component-scoped)
+export const MainLayer = StoreAdapterLayer.pipe(
   Layer.provide(InfrastructureLayer)
 )
 

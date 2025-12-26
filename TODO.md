@@ -1,24 +1,15 @@
 
+
+
 # TODOS
 - [ ] Create a proper readme, with sections for architectur explanation, usage
   explanation, deploument (with the weird build steps we have to make due to
   aarch on pi etc). important settings for the flake
 
 # Performance
-- [ ] Frontend eats resources, check whether its the oscilloscope and if this is
-  due to signals/store updates?
+
 # Bugs
 ## Critical
-- [x] the dj getusermedia is asking for video permissions both on firefox and
-  chrome, we only want audio!
-- [x] when a page in the frontend is requested make sure to properly initialize
-  the store with an empty state. currently when connected as a listener with a
-  succeeded active webrtc connection to the dj, then pressing back to the lobby,
-  the webrtc connection is still active and i still hear audio (tested only on
-  firefox on linux and ios, but on mobile chrome it worked). check if this
-  should be done on page load (so when pressing back if page load should trigger
-  and reset to page specific state, ie in lobby only connect lobby websocket,
-  and reset room state with all listener and dj states) or unload.
 - [ ] waveform oscilloscope only works on chrome based browsers but not for
   firefox based browsers! research why.
 - [ ] on mobile the stream is running perfectly in the background, also in

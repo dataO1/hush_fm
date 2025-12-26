@@ -65,7 +65,11 @@ export const createLobbyStore = () => {
     },
 
     addRoom: (room: LobbyRoomInfoType) => {
-      setState({ rooms: [...state.rooms, room] })
+      // Check if room already exists to prevent duplicates
+      const existingRoom = state.rooms.find(r => r.id === room.id)
+      if (!existingRoom) {
+        setState({ rooms: [...state.rooms, room] })
+      }
     },
 
     updateRoom: (room: LobbyRoomInfoType) => {
@@ -92,6 +96,10 @@ export const createLobbyStore = () => {
   const lastCreatedRoomId = () => Option.getOrNull(state.lastCreatedRoomId)
   const sortedRoomsByListenerCount = () => 
     state.rooms.slice().sort((a, b) => (b.listenerCount || 0) - (a.listenerCount || 0))
+  
+  // Set-like behavior for efficient duplicate checking and lookups
+  const roomIds = () => new Set(state.rooms.map(r => r.id))
+  const hasRoom = (roomId: string) => roomIds().has(roomId)
 
   return {
     // Reactive state (read-only)
@@ -105,7 +113,11 @@ export const createLobbyStore = () => {
     isCreating,
     creationError,
     lastCreatedRoomId,
-    sortedRoomsByListenerCount
+    sortedRoomsByListenerCount,
+    
+    // Set-like behavior
+    roomIds,
+    hasRoom
   }
 }
 

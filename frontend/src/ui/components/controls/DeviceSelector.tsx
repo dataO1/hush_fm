@@ -107,13 +107,6 @@ export function DeviceSelector(props: Props) {
         </For>
       </select>
       
-      {/* Show loading state */}
-      <Show when={isLoading()}>
-        <div class="flex items-center text-sm text-white/70 mt-2">
-          <span class="loading loading-spinner loading-xs mr-2"></span>
-          Enumerating audio devices...
-        </div>
-      </Show>
       
       {/* Show selection loading state */}
       <Show when={isSelecting()}>

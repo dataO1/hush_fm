@@ -129,7 +129,11 @@ function LandingContent() {
     // Close modal and navigate to DJ room
     closeModal()
     navigate(`/dj/${result.roomId}`, {
-      state: { djWebSocketUrl: result.djWebSocketUrl }
+      state: { 
+        djWebSocketUrl: result.djWebSocketUrl,
+        roomName: result.roomName,
+        djName: result.djName
+      }
     })
     
     console.info('✅ Room created successfully:', result.roomId)
@@ -196,7 +200,11 @@ function LandingContent() {
           )
           
           navigate(`/dj/${result.roomId}`, {
-            state: { djWebSocketUrl: result.djWebSocketUrl }
+            state: { 
+              djWebSocketUrl: result.djWebSocketUrl,
+              roomName: result.roomName,
+              djName: result.djName
+            }
           })
           console.info('✅ DJ room reconnection successful')
           return
@@ -370,7 +378,7 @@ function LandingContent() {
               </button>
             </div>
 
-            <div class="space-y-2 sm:space-y-3 max-h-64 sm:max-h-80 lg:max-h-96 overflow-y-auto">
+            <div class="space-y-2 sm:space-y-3">
               <Show 
                 when={sortedRooms() && sortedRooms()!.length > 0}
                 fallback={

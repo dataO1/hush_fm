@@ -12,7 +12,7 @@ import { LobbyAdapter, LobbyAdapterLive } from './stores/lobby'
 import { UserAdapter, UserAdapterLive } from './stores/user'
 import { AudioAdapter, AudioAdapterLive } from './stores/audio'
 
-// Export service layers for scoped use in components
+// Export service layers for scoped use in components (NOT global instances)
 export { UserServiceLive } from './services/application/UserService'
 export { LobbyServiceLive } from './services/application/LobbyService'
 export { MediaSoupClientLive } from './services/infrastructure/MediaSoupClient'

@@ -11,8 +11,15 @@ import { Oscilloscope } from '../components/shared/Oscilloscope'
 import { WebRTCErrorHandler } from '../components/WebRTCErrorHandler'
 import { RoomHeader } from '../components/room/RoomHeader'
 import { ConnectionStatusGroup } from '../components/streaming/ConnectionStatusGroup'
+import { UserInteractionModal } from '../components/UserInteractionModal'
+import { config } from '../../config'
 
-// User Feature Service Context (for Listener operations) - reuse same context as DJRoom
+// Utility function to construct WebSocket URLs from route params  
+const constructListenerWebSocketUrl = (roomId: string, sessionId: string): string => {
+  return `${config.websocket.baseUrl}/ws/listener/${roomId}/${sessionId}`
+}
+
+// User Feature Service Context (for Listener operations) - only User service needed
 interface UserFeatureContextValue {
   userService: Context.Tag.Service<UserService>
 }
@@ -68,6 +75,7 @@ const useUserFeature = () => {
   return context
 }
 
+
 function ListenerRoomContent() {
   const params = useParams()
   const navigate = useNavigate()
@@ -77,6 +85,7 @@ function ListenerRoomContent() {
   // Use adapters for reactive state (read-only)
   const connectionAdapter = useConnectionAdapter()
   const audioAdapter = useAudioAdapter()
+  const userAdapter = useUserAdapter()
   
   // Get scoped user feature services
   const { userService } = useUserFeature()
@@ -118,36 +127,61 @@ function ListenerRoomContent() {
 
   // SolidJS 2025: Use createResource for room joining with connection setup
   const [joinRoomOperation] = createResource(async () => {
-    const sessionId = navigationState.sessionId
-    const listenerWebSocketUrl = navigationState.listenerWebSocketUrl
+    let sessionId = navigationState.sessionId
+    let listenerWebSocketUrl = navigationState.listenerWebSocketUrl
     const roomInfo = navigationState.roomInfo
     const isReturning = navigationState.isReturning
+    const currentRoomId = roomId()
 
+    // Handle missing data (direct URL access or reload)
     if (!sessionId || !listenerWebSocketUrl) {
-      console.error('Missing required data for listener join:', { sessionId, listenerWebSocketUrl })
-      navigate('/')
-      return null
+      console.info('🔄 ListenerRoom: Missing session data, inferring from URL...', {
+        roomId: currentRoomId,
+        hasSessionId: !!sessionId,
+        hasWebSocketUrl: !!listenerWebSocketUrl
+      })
+      
+      // Use existing session ID from user adapter (global session)
+      if (!sessionId) {
+        const existingSessionId = userAdapter.getSessionId()
+        if (Option.isSome(existingSessionId)) {
+          sessionId = existingSessionId.value
+          console.info('🆔 ListenerRoom: Using existing session ID from user adapter:', sessionId)
+        } else {
+          console.error('❌ ListenerRoom: No session ID available - user not initialized')
+          navigate('/')
+          return null
+        }
+      }
+      
+      // Construct WebSocket URL directly from route params (no lobby service needed)
+      try {
+        listenerWebSocketUrl = constructListenerWebSocketUrl(currentRoomId, sessionId)
+        console.info('✅ ListenerRoom: Constructed listener WebSocket URL from route params:', listenerWebSocketUrl)
+        
+      } catch (error) {
+        console.error('❌ ListenerRoom: Failed to construct listener connection URL:', error)
+        navigate('/')
+        return null
+      }
     }
     
     console.info('🎧 Starting listener join flow via Application Service:', {
-      roomId: roomId(),
+      roomId: currentRoomId,
       sessionId: sessionId,
       listenerWebSocketUrl: listenerWebSocketUrl,
       hasRoomInfo: !!roomInfo,
       isReturning: !!isReturning
     })
     
-    // 1. First ensure WebSocket is connected before starting join flow
-    // Use the connectionAdapter from the component scope (not a new instance)
-    if (!connectionAdapter.isRoomConnected()) {
-      console.info('🔗 ListenerRoom: Connecting to listener WebSocket before join...', { listenerWebSocketUrl })
-      await userService.connect(listenerWebSocketUrl).pipe(Effect.runPromise)
-      console.info('✅ ListenerRoom: Listener WebSocket connected successfully')
-    }
+    // Connect to WebSocket and start join flow - services handle internal state/checks
+    console.info('🔗 ListenerRoom: Connecting to listener WebSocket...', { listenerWebSocketUrl })
+    await userService.connect(listenerWebSocketUrl).pipe(Effect.runPromise)
+    console.info('✅ ListenerRoom: Listener WebSocket connected successfully')
     
-    // 2. Now start the join flow
+    // Start the join flow
     const result = await userService.joinRoomAsListener(
-      roomId(), 
+      currentRoomId, 
       sessionId
     ).pipe(Effect.runPromise)
 
@@ -278,68 +312,30 @@ function ListenerRoomContent() {
               )}
             </Show>
 
-            {/* User Interaction Modal (Only if autoplay blocked) */}
-            <Show when={audioAdapter.requiresUserGesture()}>
-              {/* Modal Background Overlay - Click outside to resume */}
-              <div 
-                class="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4"
-                onClick={() => {
-                  // Just close the modal - user gesture has been provided
-                  console.log('User clicked to close modal')
-                }}
-              >
-                {/* Modal Container */}
-                <div 
-                  class="card bg-white/10 backdrop-blur-sm border border-white/20 shadow-xl max-w-sm w-full mx-4 animate-in fade-in-0 zoom-in-95 duration-200"
-                  onClick={(e) => e.stopPropagation()}
-                >
-                  <div class="card-body p-6 text-center">
-                    
-                    {/* Icon */}
-                    <div class="flex justify-center mb-4">
-                      <div class="w-16 h-16 bg-primary/20 rounded-full flex items-center justify-center">
-                        <svg class="w-8 h-8 text-primary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path stroke-linecap="round" stroke-linejoin="round" stroke-width={2} d="M15.536 8.464a5 5 0 010 7.072m2.828-9.9a9 9 0 010 14.142M9 9a3 3 0 000 6h3v-6H9zM21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                        </svg>
-                      </div>
-                    </div>
-                    
-                    {/* Title and Message */}
-                    <h3 class="text-lg sm:text-xl font-semibold text-white mb-2">
-                      Enable Audio Playback
-                    </h3>
-                    <p class="text-sm sm:text-base text-white/70 mb-6 leading-relaxed">
-                      Your browser requires user interaction before playing audio. Click anywhere to start listening to the live stream.
-                    </p>
-                    
-                    {/* Action Button */}
-                    <button
-                      onClick={() => {
-                  // Just close the modal - user gesture has been provided
-                  console.log('User clicked to close modal')
-                }}
-                      class="btn btn-primary btn-lg w-full gap-2 text-base"
-                      disabled={audioAdapter.requiresUserGesture()}
-                    >
-                      {audioAdapter.requiresUserGesture() ? (
-                        <>
-                          <span class="loading loading-spinner loading-sm"></span>
-                          Resuming...
-                        </>
-                      ) : (
-                        <>
-                          <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width={2} d="M14.828 14.828a4 4 0 01-5.656 0M9 10h1m4 0h1m-6 4h2m4 0h2M7 7h10a2 2 0 012 2v8a2 2 0 01-2 2H7a2 2 0 01-2-2V9a2 2 0 012-2z" />
-                          </svg>
-                          Resume Audio
-                        </>
-                      )}
-                    </button>
-                    
-                  </div>
-                </div>
-              </div>
-            </Show>
+            {/* User Interaction Modal */}
+            <UserInteractionModal
+              requiresUserInteraction={audioAdapter.requiresUserGesture()}
+              roomName={roomName()}
+              onEnableAudio={async () => {
+                try {
+                  // Clear the requiresUserGesture flag and try to resume audio playback
+                  audioAdapter.updateStreamState({ requiresUserGesture: false })
+                  
+                  // Try to resume the stream if there's one available
+                  const currentStream = audioClient.currentStream()
+                  if (Option.isSome(currentStream)) {
+                    console.info('🔊 ListenerRoom: Attempting to resume audio after user interaction')
+                    await audioClient.connectRemoteStream(currentStream.value).pipe(
+                      Effect.provideService(AudioAdapter, audioAdapter),
+                      Effect.runPromise
+                    )
+                  }
+                } catch (error) {
+                  console.error('❌ Failed to enable audio after user interaction:', error)
+                }
+              }}
+              onCancel={() => navigate('/')}
+            />
 
 
             {/* Leave Button */}

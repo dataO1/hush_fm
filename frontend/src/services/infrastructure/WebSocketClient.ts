@@ -332,23 +332,52 @@ const make = Effect.gen(function* () {
   )
   console.info('✅ WebSocketClient: Message processor daemon fiber created:', processorFiber)
   
-  // Register cleanup finalizer with proper order
+  // Register cleanup finalizer with proper order and aggressive cleanup
   yield* Effect.addFinalizer(() => 
     Effect.gen(function* () {
       const maybeWs = yield* Ref.get(connectionState)
-      console.info('🧹 WebSocketClient: Starting cleanup...')
+      console.info('🧹 WebSocketClient: Starting finalizer cleanup...')
       
-      // 1. Close WebSocket connection first
+      // 1. Aggressively close WebSocket connection
       if (Option.isSome(maybeWs)) {
-        console.info('🧹 WebSocketClient: Closing WebSocket connection')
-        yield* Effect.sync(() => maybeWs.value.close())
+        console.info('🧹 WebSocketClient: Force closing WebSocket connection')
+        yield* Effect.sync(() => {
+          const ws = maybeWs.value
+          // Remove all event handlers to prevent lingering callbacks
+          ws.onopen = null
+          ws.onclose = null
+          ws.onerror = null
+          ws.onmessage = null
+          // Force close with non-normal code to ensure immediate termination
+          ws.close(1001, 'Service disposing')
+        })
         yield* Ref.set(connectionState, Option.none())
       }
       
-      // 2. Wait a bit for pending operations to complete
-      yield* Effect.sleep(100) // 100ms grace period
+      // 2. Clear all pending requests immediately
+      console.info('🧹 WebSocketClient: Force clearing pending requests')
+      const pendingMap = yield* Ref.get(pendingRequests)
+      const pendingCount = HashMap.size(pendingMap)
+      if (pendingCount > 0) {
+        console.info(`🧹 WebSocketClient: Force failing ${pendingCount} pending requests`)
+        yield* Effect.forEach(
+          HashMap.values(pendingMap),
+          (deferred) => Deferred.fail(deferred, createWebSocketError(
+            WebSocketOperation.SEND,
+            'Service disposing - connection terminated'
+          )).pipe(Effect.catchAll(() => Effect.void))
+        )
+      }
+      yield* Ref.set(pendingRequests, HashMap.empty())
       
-      // 3. Then shutdown queue and pubsub
+      // 3. Clear event callbacks
+      console.info('🧹 WebSocketClient: Force clearing event callbacks')
+      yield* Ref.set(eventCallbacks, HashMap.empty())
+      
+      // 4. Wait a bit for cleanup to propagate
+      yield* Effect.sleep(50) // Shorter grace period
+      
+      // 5. Shutdown infrastructure
       console.info('🧹 WebSocketClient: Shutting down message queue')
       yield* Queue.shutdown(messageQueue).pipe(
         Effect.catchAll((error) => 
@@ -363,7 +392,7 @@ const make = Effect.gen(function* () {
         )
       )
       
-      console.info('✅ WebSocketClient: Cleanup completed successfully')
+      console.info('✅ WebSocketClient: Finalizer cleanup completed successfully')
     })
   )
 
@@ -422,11 +451,37 @@ const make = Effect.gen(function* () {
 
   const disconnect = (): Effect.Effect<void, never, never> =>
     Effect.gen(function* () {
+      console.info('🔌 WebSocketClient: Starting disconnect sequence')
+      
+      // 1. Close WebSocket connection first
       const maybeWs = yield* Ref.get(connectionState)
       if (Option.isSome(maybeWs)) {
+        console.info('🔌 WebSocketClient: Closing WebSocket connection')
         yield* Effect.sync(() => maybeWs.value.close())
       }
       yield* Ref.set(connectionState, Option.none())
+      
+      // 2. Clear pending requests to prevent memory leaks
+      console.info('🔌 WebSocketClient: Clearing pending requests')
+      const pendingMap = yield* Ref.get(pendingRequests)
+      const pendingCount = HashMap.size(pendingMap)
+      if (pendingCount > 0) {
+        console.info(`🔌 WebSocketClient: Found ${pendingCount} pending requests, failing them`)
+        yield* Effect.forEach(
+          HashMap.values(pendingMap),
+          (deferred) => Deferred.fail(deferred, createWebSocketError(
+            WebSocketOperation.SEND,
+            'WebSocket disconnected'
+          )).pipe(Effect.catchAll(() => Effect.void))
+        )
+      }
+      yield* Ref.set(pendingRequests, HashMap.empty())
+      
+      // 3. Clear event callbacks
+      console.info('🔌 WebSocketClient: Clearing event callbacks')
+      yield* Ref.set(eventCallbacks, HashMap.empty())
+      
+      console.info('✅ WebSocketClient: Disconnect sequence completed')
     })
 
   const sendRawMessage = (message: string): Effect.Effect<void, WebSocketError, never> =>

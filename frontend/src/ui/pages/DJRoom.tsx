@@ -92,6 +92,8 @@ function DJRoomContent() {
   // Get navigation state (from Landing.tsx room creation)
   const navigationState = location.state as {
     djWebSocketUrl?: string
+    roomName?: string
+    djName?: string
   } || {}
 
   const [isRedirecting, setIsRedirecting] = createSignal(false)
@@ -233,8 +235,8 @@ function DJRoomContent() {
               
               {/* Room Header */}
               <RoomHeader 
-                roomName={() => `Room ${roomId()}`}
-                djName={() => 'DJ'}
+                roomName={() => navigationState.roomName || `Room ${roomId()}`}
+                djName={() => navigationState.djName || 'DJ'}
                 variant="center"
                 class="mb-4 sm:mb-6"
               />
@@ -314,9 +316,17 @@ function DJRoomContent() {
               <Show when={connectionAdapter.isConnected()}>
                 <StreamControls 
                   toggleMute={async () => {
-                    await globalRuntime.runPromise(
-                      Effect.provideService(audioClient.toggleAudioStreamPlaying(!audioAdapter.isPlaying()), AudioAdapter, audioAdapter)
-                    )
+                    // Send pause/resume command to server as oneshot command
+                    const isPausedNow = isPaused()
+                    try {
+                      if (isPausedNow) {
+                        await userService.resumeStream().pipe(Effect.runPromise)
+                      } else {
+                        await userService.pauseStream().pipe(Effect.runPromise)
+                      }
+                    } catch (error) {
+                      console.error('❌ Failed to toggle mute:', error)
+                    }
                   }}
                   endStream={async () => {
                     await userService.closeDJRoom().pipe(Effect.runPromise)
