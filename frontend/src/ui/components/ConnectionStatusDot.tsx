@@ -1,9 +1,9 @@
 /**
  * Connection Status Dot Component
- * 
+ *
  * A reusable component that shows connection status as a colored, pulsing dot.
  * Pure component that only uses props - no direct store access.
- * 
+ *
  * Colors:
  * - Green (pulsing): Streaming/Active
  * - Blue (pulsing): Connecting/Setup
@@ -30,21 +30,20 @@ export default function ConnectionStatusDot(props: ConnectionStatusDotProps) {
   const status = createMemo(() => {
     const webrtcState = props.webrtcState()
     const paused = props.isPaused?.() ?? false
-    
+
     // Handle combined audio pause + streaming state
     if (webrtcState === WebrtcConnectionState.STREAMING && paused) {
       return 'paused'
     }
-    
+
     // Map WebRTC states to visual states
     switch (webrtcState) {
       case WebrtcConnectionState.STREAMING:
-        return 'streaming'
       case WebrtcConnectionState.CONNECTED:
-        return 'setup'
+        return 'streaming'
       case WebrtcConnectionState.CONNECTING:
       case WebrtcConnectionState.DISCONNECTING:
-        return 'connecting'
+        return 'setup'
       case WebrtcConnectionState.PAUSED:
         return 'paused'
       case WebrtcConnectionState.ERROR:
@@ -54,12 +53,12 @@ export default function ConnectionStatusDot(props: ConnectionStatusDotProps) {
         return 'disconnected'
     }
   })
-  
+
   // Get status text for accessibility
   const statusText = createMemo(() => {
     const webrtcState = props.webrtcState()
     const paused = props.isPaused?.() ?? false
-    
+
     if (webrtcState === WebrtcConnectionState.STREAMING && paused) {
       return 'MUTED'
     }
@@ -69,10 +68,10 @@ export default function ConnectionStatusDot(props: ConnectionStatusDotProps) {
     if (webrtcState === WebrtcConnectionState.CONNECTED || webrtcState === WebrtcConnectionState.CONNECTING) {
       return 'SETUP'
     }
-    
+
     return webrtcState || 'DISCONNECTED'
   })
-  
+
   // Size classes
   const sizeClasses = createMemo(() => {
     switch (props.size || 'md') {
@@ -85,7 +84,7 @@ export default function ConnectionStatusDot(props: ConnectionStatusDotProps) {
         return 'w-3 h-3'
     }
   })
-  
+
   // Status-specific classes with gruvbox colors
   const statusClasses = createMemo(() => {
     switch (status()) {
@@ -103,10 +102,10 @@ export default function ConnectionStatusDot(props: ConnectionStatusDotProps) {
         return 'bg-gruvbox-red animate-pulse'
     }
   })
-  
+
   // SolidJS 2025: Use Show for conditional rendering and better accessibility
   return (
-    <div 
+    <div
       class={`rounded-full ${sizeClasses()} ${statusClasses()}`}
       title={props.title || `Connection Status: ${statusText()}`}
       role="status"

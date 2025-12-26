@@ -22,6 +22,7 @@ use api::api::rooms::rooms_router;
 use api::api::openapi::ApiDoc;
 use lib::domain::Lobby;
 use lib::config::Config;
+use lib::audio;
 use api::ws::{ws_handler, listener_handler, lobby_handler};
 
 #[tokio::main]
@@ -43,6 +44,18 @@ async fn main() -> anyhow::Result<()> {
 
     // Initialize application state with configuration
     let lobby = Lobby::new().await?;
+
+    // Start audio bot with default room (optional - server continues if audio fails)
+    let _audio_bot = match audio::start_audio_bot_room(&lobby).await {
+        Ok(bot) => {
+            tracing::info!("🎵 Audio bot started successfully - room ID: {}", bot.room_id());
+            Some(bot)
+        }
+        Err(e) => {
+            tracing::warn!("⚠️ Audio bot failed to start: {} - Server will continue without local audio", e);
+            None  // Server continues without audio bot
+        }
+    };
 
     // Setup CORS based on configuration
     let is_local_dev = config.host_name() == "localhost" || config.host_name() == "127.0.0.1";

@@ -60,6 +60,12 @@
           buildInputs = with pkgs; [
             openssl
             openssl.dev
+            
+            # Audio system libraries for CPAL/ALSA and Opus
+            alsa-lib
+            alsa-lib.dev
+            libopus
+            libopus.dev
           ];
 
           # Environment variables for mediasoup build
