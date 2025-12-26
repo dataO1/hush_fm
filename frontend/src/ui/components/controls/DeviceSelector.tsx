@@ -79,13 +79,13 @@ export function DeviceSelector(props: Props) {
   }
 
   return (
-    <div class="form-control w-full">
+    <div class="form-control w-full mb-4">
       <label class="label">
-        <span class="label-text">Audio Source</span>
+        <span class="label-hush">Audio Source</span>
       </label>
       
       <select
-        class="select select-bordered w-full"
+        class="select-hush w-full px-3 py-2"
         value={selectedDeviceId()}
         onChange={handleDeviceChange}
         disabled={isLoading() || isSelecting()}

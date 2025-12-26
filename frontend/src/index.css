@@ -19,12 +19,12 @@
 
   /* Brand Text */
   .text-brand {
-    @apply text-gruvbox-orange-bright;
+    @apply text-gruvbox-yellow-bright;
   }
 
   /* Room Status Components */
   .room-dj {
-    @apply bg-gruvbox-orange-bright/25 border-gruvbox-orange/60 hover:border-gruvbox-orange-bright/80 hover:bg-gruvbox-orange-bright/35 animate-music-pulse rounded-sm;
+    @apply bg-gruvbox-yellow-bright/25 border-gruvbox-yellow/60 hover:border-gruvbox-yellow-bright/80 hover:bg-gruvbox-yellow-bright/35 animate-music-pulse rounded-sm;
   }
   
   .room-listener {
@@ -37,12 +37,56 @@
 
   /* Form Components */
   .input-hush {
-    @apply bg-gruvbox-bg-1/60 border border-gruvbox-bg-3/60 text-gruvbox-fg placeholder-gruvbox-fg-4 focus:border-gruvbox-yellow-bright focus:outline-none rounded-sm;
+    @apply bg-gruvbox-bg-1 border-2 border-gruvbox-bg-3 text-gruvbox-fg placeholder-gruvbox-fg-4;
+    @apply focus:border-gruvbox-yellow-bright focus:bg-gruvbox-bg-2 focus:outline-none;
+    @apply disabled:bg-gruvbox-bg-hard disabled:text-gruvbox-fg-4 disabled:border-gruvbox-bg-2 disabled:cursor-not-allowed;
+    @apply transition-all duration-150 ease-in-out rounded-sm;
+  }
+
+  .select-hush {
+    @apply bg-gruvbox-bg-1 border-2 border-gruvbox-bg-3 text-gruvbox-fg;
+    @apply focus:border-gruvbox-yellow-bright focus:bg-gruvbox-bg-2 focus:outline-none;
+    @apply disabled:bg-gruvbox-bg-hard disabled:text-gruvbox-fg-4 disabled:border-gruvbox-bg-2 disabled:cursor-not-allowed;
+    @apply transition-all duration-150 ease-in-out rounded-sm;
+    @apply appearance-none cursor-pointer;
+  }
+
+  .label-hush {
+    @apply text-gruvbox-fg-2 font-medium text-sm;
+  }
+
+  /* DaisyUI Form Overrides */
+  .select {
+    @apply bg-gruvbox-bg-1 border-2 border-gruvbox-bg-3 text-gruvbox-fg;
+    @apply focus:border-gruvbox-yellow-bright focus:bg-gruvbox-bg-2 focus:outline-none;
+    @apply disabled:bg-gruvbox-bg-hard disabled:text-gruvbox-fg-4 disabled:border-gruvbox-bg-2 disabled:cursor-not-allowed;
+    @apply transition-all duration-150 ease-in-out rounded-sm;
+    @apply shadow-none;
+  }
+
+  .select option {
+    @apply bg-gruvbox-bg-1 text-gruvbox-fg;
+  }
+
+  .input {
+    @apply bg-gruvbox-bg-1 border-2 border-gruvbox-bg-3 text-gruvbox-fg;
+    @apply focus:border-gruvbox-yellow-bright focus:bg-gruvbox-bg-2 focus:outline-none;
+    @apply disabled:bg-gruvbox-bg-hard disabled:text-gruvbox-fg-4 disabled:border-gruvbox-bg-2 disabled:cursor-not-allowed;
+    @apply transition-all duration-150 ease-in-out rounded-sm;
+    @apply shadow-none;
+  }
+
+  .label-text {
+    @apply text-gruvbox-fg-2 font-medium;
+  }
+
+  .form-control {
+    @apply space-y-2;
   }
   
   /* Vintage Button Styles */
   .btn-hush {
-    @apply bg-gruvbox-orange-bright hover:bg-gruvbox-yellow-bright border-0 text-gruvbox-bg-hard font-medium;
+    @apply bg-gruvbox-yellow-bright hover:bg-gruvbox-yellow border-0 text-gruvbox-bg-hard font-medium;
     @apply shadow-none hover:shadow-none;
     @apply transition-all duration-150 ease-in-out;
     @apply active:scale-95;

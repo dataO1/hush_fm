@@ -58,7 +58,7 @@ export function UserInteractionModal(props: UserInteractionModalProps): JSX.Elem
         
         {/* Icon */}
         <div class="text-center mb-6">
-          <div class="w-16 h-16 mx-auto bg-gruvbox-orange-bright rounded-sm flex items-center justify-center mb-4">
+          <div class="w-16 h-16 mx-auto bg-gruvbox-yellow-bright rounded-sm flex items-center justify-center mb-4">
             <svg class="w-8 h-8 text-gruvbox-bg-hard" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width={2} d="M15.536 8.464a5 5 0 010 7.072m2.828-9.9a9 9 0 010 14.142M8.464 8.464a5 5 0 000 7.072m-2.828-9.9a9 9 0 000 14.142" />
             </svg>
