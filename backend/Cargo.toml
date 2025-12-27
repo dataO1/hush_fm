@@ -65,6 +65,7 @@ cpal = "0.17"                    # Audio device capture
 audiopus = "0.3.0-rc.0"         # Opus codec bindings (prerelease)
 ringbuf = "0.3"                 # Lock-free SPSC ring buffer
 bytes = "1"                     # For RTP packet manipulation
+thread-priority = "1"            # Real-time thread priority for audio capture
 
 [dev-dependencies]
 tokio-test = "0.4"

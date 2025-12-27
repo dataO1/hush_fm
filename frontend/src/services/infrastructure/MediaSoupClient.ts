@@ -534,6 +534,28 @@ const createMediaSoupClientImpl = (connectionAdapter: Context.Tag.Service<Connec
               }),
               Effect.map(consumer => {
                 activeConsumer = O.some(consumer)
+                
+                // Configure low-latency audio settings for optimal WiFi 6 performance
+                if (consumer.track && consumer.track.kind === 'audio') {
+                  try {
+                    // Get RTCRtpReceiver for playout delay configuration
+                    const receiver = consumer.rtpReceiver
+                    if (receiver && typeof receiver.playoutDelayHint !== 'undefined') {
+                      // Set to 0 for immediate playback (saves 200-500ms on WiFi 6)
+                      receiver.playoutDelayHint = 0
+                      console.info('🎧 Set playoutDelayHint to 0 for low latency')
+                    }
+                    
+                    // Set jitter buffer delay for newer browsers (Chrome/Edge)
+                    if (receiver && typeof receiver.jitterBufferDelayHint !== 'undefined') {
+                      receiver.jitterBufferDelayHint = 0
+                      console.info('🎧 Set jitterBufferDelayHint to 0 for minimal buffering')
+                    }
+                  } catch (error) {
+                    console.warn('⚠️ Failed to configure low-latency audio settings:', error)
+                  }
+                }
+                
                 return consumer
               })
             )

@@ -60,7 +60,7 @@
           buildInputs = with pkgs; [
             openssl
             openssl.dev
-            
+
             # Audio system libraries for CPAL/ALSA and Opus
             alsa-lib
             alsa-lib.dev
@@ -84,9 +84,20 @@
           HUSHFM_MEDIASOUP_LISTEN_IP = "127.0.0.1";
           HUSHFM_MEDIASOUP_ENABLE_TCP = "true";
           HUSHFM_MEDIASOUP_EXPOSE_INTERNAL_IP = "false";
-          
+
           # Monitoring configuration for localhost development
           HUSHFM_STALE_LISTENER_TIMEOUT = "0";
+
+          # Audio optimization configuration
+          HUSHFM_OPUS_BITRATE = "256000";        # 256kbps for transparent quality
+          HUSHFM_OPUS_COMPLEXITY = "8";          # High quality, less CPU
+          HUSHFM_OPUS_ENABLE_FEC = "false";      # No FEC on WiFi 6
+          HUSHFM_OPUS_ENABLE_VBR = "true";       # Constrained VBR
+          HUSHFM_OPUS_FRAME_DURATION = "10";     # 20ms frames (10ms experimental)
+          HUSHFM_AUDIO_BUFFER_SIZE = "1024";     # CPAL buffer size in frames
+          HUSHFM_RING_BUFFER_CAPACITY = "4800";  # 100ms buffer
+          HUSHFM_ENABLE_THREAD_PRIORITY = "true"; # Real-time priority
+          HUSHFM_DSCP_MARKING = "46";            # QoS EF marking
 
           shellHook = ''
             echo "🎵 HushFM Development Environment"
@@ -267,10 +278,10 @@
             HUSHFM_MEDIASOUP_LISTEN_IP = cfg.mediasoup.listenIp;
             HUSHFM_MEDIASOUP_ENABLE_TCP = if cfg.mediasoup.enableTcp then "true" else "false";
             HUSHFM_MEDIASOUP_EXPOSE_INTERNAL_IP = if cfg.mediasoup.exposeInternalIp then "true" else "false";
-            
+
             # Monitoring configuration
             HUSHFM_STALE_LISTENER_TIMEOUT = toString cfg.monitoring.staleListenerTimeout;
-            
+
             # Enable trace level logging for production debugging
             RUST_LOG = "trace";
           };

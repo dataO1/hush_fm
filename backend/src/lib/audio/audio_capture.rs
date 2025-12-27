@@ -10,12 +10,13 @@ use cpal::{
 };
 use ringbuf::{SharedRb, Producer, Consumer, Rb};
 use anyhow::{Result, Context};
+use thread_priority::{ThreadPriority, ThreadPriorityValue, set_current_thread_priority};
 
-/// Audio capture configuration optimized for Opus encoding
+use crate::lib::config::Config;
+
+/// Audio capture configuration constants
 const SAMPLE_RATE: u32 = 48000;    // Opus native sample rate
 const CHANNELS: u16 = 2;           // Stereo audio
-const FRAMES_PER_BUFFER: usize = 960; // 20ms at 48kHz (Opus frame size)
-const RING_BUFFER_CAPACITY: usize = 9600; // ~200ms of audio for low-latency streaming (10 frames)
 
 /// Audio capture system with ring buffer for thread-safe audio transfer
 pub struct AudioCapture {
@@ -165,14 +166,21 @@ impl AudioCapture {
 
     /// Create audio stream and ring buffer for a specific device
     fn create_audio_stream(device: &Device) -> Result<(Stream, Consumer<f32, std::sync::Arc<SharedRb<f32, Vec<std::mem::MaybeUninit<f32>>>>>)> {
+        let config_global = Config::global();
+        
         // Configure audio stream for Opus-compatible settings
         let config = Self::create_stream_config(device)?;
         
         tracing::info!("🎤 Audio config: {}Hz, {} channels", config.sample_rate, config.channels);
 
-        // Create ring buffer for lock-free audio transfer  
-        let ring_buffer = SharedRb::<f32, Vec<std::mem::MaybeUninit<f32>>>::new(RING_BUFFER_CAPACITY);
+        // Create ring buffer for lock-free audio transfer using configurable capacity
+        let ring_buffer_capacity = config_global.ring_buffer_capacity() as usize;
+        let ring_buffer = SharedRb::<f32, Vec<std::mem::MaybeUninit<f32>>>::new(ring_buffer_capacity);
         let (ring_producer, ring_consumer) = ring_buffer.split();
+
+        tracing::info!("🎤 Ring buffer capacity: {} samples ({:.1}ms)", 
+                      ring_buffer_capacity, 
+                      (ring_buffer_capacity as f32) / (SAMPLE_RATE as f32 * CHANNELS as f32) * 1000.0);
 
         // Build input stream with f32 samples (CPAL handles conversion)
         let stream = Self::build_f32_stream(device, &config, ring_producer)?;
@@ -182,13 +190,15 @@ impl AudioCapture {
 
     /// Create optimal stream configuration for Opus encoding
     fn create_stream_config(device: &Device) -> Result<StreamConfig> {
+        let config_global = Config::global();
+        
         // Get supported input configurations
         let mut supported_configs = device
             .supported_input_configs()
             .context("Failed to get supported input configurations")?;
 
         // Find a configuration that supports our target sample rate
-        let config = supported_configs
+        let supported_config = supported_configs
             .find(|config| {
                 config.min_sample_rate() <= SAMPLE_RATE 
                 && config.max_sample_rate() >= SAMPLE_RATE
@@ -197,20 +207,65 @@ impl AudioCapture {
             .context("No suitable audio configuration found (need 48kHz stereo support)")?;
 
         // Build final configuration optimized for low-latency streaming
-        let final_channels = CHANNELS.min(config.channels());
+        let final_channels = CHANNELS.min(supported_config.channels());
         
-        // For stereo (2 channels): CPAL expects total sample count per callback
-        // 960 frames * 2 channels = 1920 total samples per 20ms period
-        let total_samples_per_period = (FRAMES_PER_BUFFER as u32) * (final_channels as u32);
+        // Check supported buffer size range
+        let supported_buffer_size = supported_config.buffer_size();
+        tracing::info!("🎤 Device supported buffer size: {:?}", supported_buffer_size);
         
-        tracing::info!("🎤 Stream config: {}Hz, {} channels, {} samples per period", 
-                      SAMPLE_RATE, final_channels, total_samples_per_period);
+        // Determine optimal buffer size
+        let requested_buffer_frames = config_global.audio_buffer_size() as u32;
+        let buffer_size = match supported_buffer_size {
+            cpal::SupportedBufferSize::Range { min, max } => {
+                let total_samples_requested = requested_buffer_frames * (final_channels as u32);
+                
+                // For small buffer sizes (< 1024 frames), use Default to avoid CPAL/ALSA conflicts
+                if requested_buffer_frames < 1024 {
+                    tracing::info!("🎤 Using Default buffer size for small requests ({} frames) to avoid CPAL/ALSA conflicts", 
+                                  requested_buffer_frames);
+                    cpal::BufferSize::Default
+                } else if total_samples_requested >= *min && total_samples_requested <= *max {
+                    tracing::info!("🎤 Using requested buffer size: {} frames ({} samples)", 
+                                  requested_buffer_frames, total_samples_requested);
+                    cpal::BufferSize::Fixed(total_samples_requested)
+                } else {
+                    let clamped_samples = total_samples_requested.clamp(*min, *max);
+                    let clamped_frames = clamped_samples / (final_channels as u32);
+                    tracing::warn!("🎤 Requested buffer size {} samples out of range [{}, {}], using {} samples ({} frames)", 
+                                  total_samples_requested, min, max, clamped_samples, clamped_frames);
+                    cpal::BufferSize::Fixed(clamped_samples)
+                }
+            },
+            cpal::SupportedBufferSize::Unknown => {
+                tracing::warn!("🎤 Device buffer size unknown, using default");
+                cpal::BufferSize::Default
+            }
+        };
+        
+        let (final_buffer_frames, final_buffer_samples) = match &buffer_size {
+            cpal::BufferSize::Fixed(samples) => {
+                let frames = samples / (final_channels as u32);
+                (frames, *samples)
+            },
+            cpal::BufferSize::Default => {
+                // For default, we don't know the exact size until runtime
+                (0, 0) // Will be determined by CPAL
+            }
+        };
+        
+        if final_buffer_frames > 0 {
+            tracing::info!("🎤 Stream config: {}Hz, {} channels, {} frames ({} samples, {:.1}ms)", 
+                          SAMPLE_RATE, final_channels, final_buffer_frames, final_buffer_samples,
+                          (final_buffer_frames as f32) / (SAMPLE_RATE as f32) * 1000.0);
+        } else {
+            tracing::info!("🎤 Stream config: {}Hz, {} channels, buffer size determined by device", 
+                          SAMPLE_RATE, final_channels);
+        }
         
         Ok(StreamConfig {
             channels: final_channels,
             sample_rate: SAMPLE_RATE,
-            // Use total sample count (frames * channels) for CPAL buffer size
-            buffer_size: cpal::BufferSize::Fixed(total_samples_per_period),
+            buffer_size,
         })
     }
 
@@ -220,8 +275,10 @@ impl AudioCapture {
         config: &StreamConfig,
         mut ring_producer: Producer<f32, std::sync::Arc<SharedRb<f32, Vec<std::mem::MaybeUninit<f32>>>>>
     ) -> Result<Stream> {
+        let config_global = Config::global();
+        
         // Create error counter for rate limiting ALSA errors and diagnostic counters
-        use std::sync::{Arc, atomic::{AtomicUsize, AtomicU64, Ordering}};
+        use std::sync::{Arc, atomic::{AtomicUsize, AtomicU64, AtomicBool, Ordering}};
         let error_count = Arc::new(AtomicUsize::new(0));
         let error_count_clone = error_count.clone();
         
@@ -230,9 +287,24 @@ impl AudioCapture {
         let callback_count_clone = callback_count.clone();
         let total_samples_clone = total_samples_written.clone();
         
+        // Thread priority setup
+        let thread_priority_enabled = config_global.enable_thread_priority();
+        let thread_priority_set = Arc::new(AtomicBool::new(false));
+        let thread_priority_set_clone = thread_priority_set.clone();
+        
         let stream = device.build_input_stream(
             config,
             move |data: &[f32], _: &cpal::InputCallbackInfo| {
+                // Set real-time thread priority once
+                if thread_priority_enabled && !thread_priority_set_clone.load(Ordering::Relaxed) {
+                    if let Err(e) = set_current_thread_priority(ThreadPriority::Max) {
+                        eprintln!("⚠️ Failed to set real-time thread priority: {}", e);
+                    } else {
+                        eprintln!("🎤 Set audio thread to real-time priority");
+                    }
+                    thread_priority_set_clone.store(true, Ordering::Relaxed);
+                }
+                
                 // Real-time audio callback - never block!
                 let callback_num = callback_count_clone.fetch_add(1, Ordering::Relaxed);
                 
@@ -279,7 +351,5 @@ impl AudioCapture {
 
 }
 
-/// Audio capture frame size constants
-pub const OPUS_FRAME_SIZE: usize = FRAMES_PER_BUFFER; // 960 samples for 20ms
-pub const OPUS_SAMPLE_RATE: u32 = SAMPLE_RATE;        // 48000 Hz
-pub const OPUS_CHANNELS: usize = CHANNELS as usize;   // 2 channels (stereo)
+/// Audio capture constants
+pub const OPUS_SAMPLE_RATE: u32 = SAMPLE_RATE; // 48000 Hz

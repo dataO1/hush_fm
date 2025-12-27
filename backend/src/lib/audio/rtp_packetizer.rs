@@ -15,18 +15,30 @@ pub struct RtpPacketizer {
     ssrc: u32,
     /// RTP sequence number (incremented for each packet)
     sequence_number: u16,
-    /// RTP timestamp (incremented by 960 for each 20ms frame at 48kHz)
+    /// RTP timestamp (incremented by frame_size for each frame at 48kHz)
     timestamp: u32,
+    /// Timestamp increment per frame (depends on frame duration)
+    timestamp_increment: u32,
+    /// DSCP marking for QoS
+    dscp_marking: u8,
 }
 
 impl RtpPacketizer {
-    /// Create new RTP packetizer with fixed configuration for Opus
-    pub fn new() -> Self {
+    /// Create new RTP packetizer with configurable frame duration for Opus
+    /// 
+    /// # Arguments
+    /// * `frame_duration_ms` - Frame duration in milliseconds (10, 20, or 40)
+    pub fn new(frame_duration_ms: u32) -> Self {
+        // Calculate timestamp increment: 48000 Hz * frame_duration_seconds
+        let timestamp_increment = 48000 * frame_duration_ms / 1000;
+        
         Self {
             payload_type: 100, // Standard dynamic payload type for Opus
             ssrc: 1111,        // Fixed SSRC for audio bot
             sequence_number: 0,
             timestamp: 0,
+            timestamp_increment,
+            dscp_marking: 46, // Default to EF (Expedited Forwarding) for audio
         }
     }
 
@@ -73,7 +85,7 @@ impl RtpPacketizer {
 
         // Update counters for next packet
         self.sequence_number = self.sequence_number.wrapping_add(1);
-        self.timestamp = self.timestamp.wrapping_add(960); // 20ms at 48kHz
+        self.timestamp = self.timestamp.wrapping_add(self.timestamp_increment);
 
         Ok(packet.freeze())
     }
@@ -86,5 +98,20 @@ impl RtpPacketizer {
     /// Get current sequence number (for debugging/monitoring)
     pub fn current_sequence(&self) -> u16 {
         self.sequence_number
+    }
+
+    /// Set DSCP marking for QoS
+    pub fn set_dscp_marking(&mut self, dscp: u8) {
+        self.dscp_marking = dscp;
+    }
+
+    /// Get DSCP marking value
+    pub fn dscp_marking(&self) -> u8 {
+        self.dscp_marking
+    }
+
+    /// Get timestamp increment per frame
+    pub fn timestamp_increment(&self) -> u32 {
+        self.timestamp_increment
     }
 }

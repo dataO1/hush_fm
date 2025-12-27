@@ -83,6 +83,17 @@ pub struct Config {
     
     // Monitoring Configuration
     stale_listener_timeout: ConfigValue<Duration>,
+    
+    // Audio Configuration
+    opus_bitrate: ConfigValue<u32>,
+    opus_complexity: ConfigValue<u32>,
+    opus_enable_fec: ConfigValue<bool>,
+    opus_enable_vbr: ConfigValue<bool>,
+    opus_frame_duration: ConfigValue<u32>,
+    audio_buffer_size: ConfigValue<u32>,
+    ring_buffer_capacity: ConfigValue<u32>,
+    enable_thread_priority: ConfigValue<bool>,
+    dscp_marking: ConfigValue<u8>,
 }
 
 /// Global singleton instance
@@ -179,6 +190,70 @@ impl Config {
             stale_listener_timeout_secs.source
         );
 
+        // Audio Configuration
+        let opus_bitrate = Self::parse_env_var_with_default(
+            "HUSHFM_OPUS_BITRATE",
+            "256000",
+            256000,
+            &mut warnings
+        );
+
+        let opus_complexity = Self::parse_env_var_with_default(
+            "HUSHFM_OPUS_COMPLEXITY",
+            "8",
+            8,
+            &mut warnings
+        );
+
+        let opus_enable_fec = Self::parse_env_var_with_default(
+            "HUSHFM_OPUS_ENABLE_FEC",
+            "false",
+            false,
+            &mut warnings
+        );
+
+        let opus_enable_vbr = Self::parse_env_var_with_default(
+            "HUSHFM_OPUS_ENABLE_VBR",
+            "true",
+            true,
+            &mut warnings
+        );
+
+        let opus_frame_duration = Self::parse_env_var_with_default(
+            "HUSHFM_OPUS_FRAME_DURATION",
+            "20",
+            20,
+            &mut warnings
+        );
+
+        let audio_buffer_size = Self::parse_env_var_with_default(
+            "HUSHFM_AUDIO_BUFFER_SIZE",
+            "512",
+            512,
+            &mut warnings
+        );
+
+        let ring_buffer_capacity = Self::parse_env_var_with_default(
+            "HUSHFM_RING_BUFFER_CAPACITY",
+            "4800",
+            4800,
+            &mut warnings
+        );
+
+        let enable_thread_priority = Self::parse_env_var_with_default(
+            "HUSHFM_ENABLE_THREAD_PRIORITY",
+            "true",
+            true,
+            &mut warnings
+        );
+
+        let dscp_marking = Self::parse_env_var_with_default(
+            "HUSHFM_DSCP_MARKING",
+            "46",
+            46,
+            &mut warnings
+        );
+
         let config = Config {
             backend_port,
             frontend_port,
@@ -189,6 +264,15 @@ impl Config {
             mediasoup_enable_tcp,
             mediasoup_expose_internal_ip,
             stale_listener_timeout,
+            opus_bitrate,
+            opus_complexity,
+            opus_enable_fec,
+            opus_enable_vbr,
+            opus_frame_duration,
+            audio_buffer_size,
+            ring_buffer_capacity,
+            enable_thread_priority,
+            dscp_marking,
         };
 
         // Validate configuration
@@ -290,6 +374,47 @@ impl Config {
             });
         }
 
+        // Validate audio configuration
+        if self.opus_bitrate.value < 32000 || self.opus_bitrate.value > 512000 {
+            return Err(ConfigError::ValidationError {
+                var_name: "HUSHFM_OPUS_BITRATE".to_string(),
+                value: self.opus_bitrate.value.to_string(),
+                reason: "Opus bitrate must be between 32000 and 512000 bps".to_string(),
+            });
+        }
+
+        if self.opus_complexity.value > 10 {
+            return Err(ConfigError::ValidationError {
+                var_name: "HUSHFM_OPUS_COMPLEXITY".to_string(),
+                value: self.opus_complexity.value.to_string(),
+                reason: "Opus complexity must be between 0 and 10".to_string(),
+            });
+        }
+
+        if self.opus_frame_duration.value != 10 && self.opus_frame_duration.value != 20 && self.opus_frame_duration.value != 40 {
+            return Err(ConfigError::ValidationError {
+                var_name: "HUSHFM_OPUS_FRAME_DURATION".to_string(),
+                value: self.opus_frame_duration.value.to_string(),
+                reason: "Opus frame duration must be 10, 20, or 40 ms".to_string(),
+            });
+        }
+
+        if self.audio_buffer_size.value < 64 || self.audio_buffer_size.value > 4096 {
+            return Err(ConfigError::ValidationError {
+                var_name: "HUSHFM_AUDIO_BUFFER_SIZE".to_string(),
+                value: self.audio_buffer_size.value.to_string(),
+                reason: "Audio buffer size must be between 64 and 4096 frames".to_string(),
+            });
+        }
+
+        if self.ring_buffer_capacity.value < 1024 || self.ring_buffer_capacity.value > 48000 {
+            return Err(ConfigError::ValidationError {
+                var_name: "HUSHFM_RING_BUFFER_CAPACITY".to_string(),
+                value: self.ring_buffer_capacity.value.to_string(),
+                reason: "Ring buffer capacity must be between 1024 and 48000 samples".to_string(),
+            });
+        }
+
         Ok(())
     }
 
@@ -316,6 +441,16 @@ impl Config {
             format!("{}s", self.stale_listener_timeout.value.as_secs())
         };
         tracing::info!("│ Stale Listener Timeout          │ {:15} │ {:10} │", timeout_display, self.stale_listener_timeout.source);
+        tracing::info!("├─────────────────────────────────┼─────────────────┼────────────┤");
+        tracing::info!("│ Opus Bitrate                    │ {:15} │ {:10} │", format!("{}kbps", self.opus_bitrate.value / 1000), self.opus_bitrate.source);
+        tracing::info!("│ Opus Complexity                 │ {:15} │ {:10} │", self.opus_complexity.value, self.opus_complexity.source);
+        tracing::info!("│ Opus FEC Enabled                │ {:15} │ {:10} │", self.opus_enable_fec.value, self.opus_enable_fec.source);
+        tracing::info!("│ Opus VBR Enabled                │ {:15} │ {:10} │", self.opus_enable_vbr.value, self.opus_enable_vbr.source);
+        tracing::info!("│ Opus Frame Duration             │ {:15} │ {:10} │", format!("{}ms", self.opus_frame_duration.value), self.opus_frame_duration.source);
+        tracing::info!("│ Audio Buffer Size               │ {:15} │ {:10} │", format!("{} frames", self.audio_buffer_size.value), self.audio_buffer_size.source);
+        tracing::info!("│ Ring Buffer Capacity            │ {:15} │ {:10} │", format!("{} samples", self.ring_buffer_capacity.value), self.ring_buffer_capacity.source);
+        tracing::info!("│ Thread Priority Enabled         │ {:15} │ {:10} │", self.enable_thread_priority.value, self.enable_thread_priority.source);
+        tracing::info!("│ DSCP Marking                    │ {:15} │ {:10} │", self.dscp_marking.value, self.dscp_marking.source);
         tracing::info!("└─────────────────────────────────┴─────────────────┴────────────┘");
     }
 
@@ -364,6 +499,59 @@ impl Config {
     /// Get stale listener cleanup timeout
     pub fn stale_listener_timeout(&self) -> Duration {
         self.stale_listener_timeout.value
+    }
+
+    // Audio Configuration Getters
+
+    /// Get Opus encoder bitrate in bits per second
+    pub fn opus_bitrate(&self) -> u32 {
+        self.opus_bitrate.value
+    }
+
+    /// Get Opus encoder complexity (0-10)
+    pub fn opus_complexity(&self) -> u32 {
+        self.opus_complexity.value
+    }
+
+    /// Check if Opus Forward Error Correction is enabled
+    pub fn opus_enable_fec(&self) -> bool {
+        self.opus_enable_fec.value
+    }
+
+    /// Check if Opus Variable Bit Rate is enabled
+    pub fn opus_enable_vbr(&self) -> bool {
+        self.opus_enable_vbr.value
+    }
+
+    /// Get Opus frame duration in milliseconds (10, 20, or 40)
+    pub fn opus_frame_duration(&self) -> u32 {
+        self.opus_frame_duration.value
+    }
+
+    /// Get audio buffer size in samples
+    pub fn audio_buffer_size(&self) -> u32 {
+        self.audio_buffer_size.value
+    }
+
+    /// Get ring buffer capacity in samples
+    pub fn ring_buffer_capacity(&self) -> u32 {
+        self.ring_buffer_capacity.value
+    }
+
+    /// Check if real-time thread priority is enabled
+    pub fn enable_thread_priority(&self) -> bool {
+        self.enable_thread_priority.value
+    }
+
+    /// Get DSCP marking value for QoS
+    pub fn dscp_marking(&self) -> u8 {
+        self.dscp_marking.value
+    }
+
+    /// Calculate Opus frame size in samples based on duration
+    pub fn opus_frame_size(&self) -> u32 {
+        // 48kHz sample rate * frame duration in seconds
+        48000 * self.opus_frame_duration.value / 1000
     }
 }
 

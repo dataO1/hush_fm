@@ -13,11 +13,11 @@ use anyhow::{Result, Context};
 use std::sync::Arc;
 
 use crate::lib::audio::rtp_packetizer::RtpPacketizer;
-use crate::lib::audio::audio_capture::{OPUS_FRAME_SIZE, OPUS_SAMPLE_RATE, OPUS_CHANNELS};
+use crate::lib::audio::audio_capture::OPUS_SAMPLE_RATE;
+use crate::lib::config::Config;
 
-/// Opus encoder configuration optimized for music streaming
-const OPUS_BITRATE: u32 = 320_000;     // 320 kbps for high quality music
-const OPUS_COMPLEXITY: u32 = 10;       // Maximum quality (0-10)
+/// Audio encoding constants
+const OPUS_CHANNELS: usize = 2; // Stereo audio
 
 /// Audio encoding pipeline that processes ring buffer data
 pub struct AudioEncoder {
@@ -31,6 +31,8 @@ pub struct AudioEncoder {
     ring_consumer: Consumer<f32, std::sync::Arc<SharedRb<f32, Vec<std::mem::MaybeUninit<f32>>>>>,
     /// Shutdown signal receiver
     shutdown_rx: tokio::sync::mpsc::Receiver<()>,
+    /// Configuration reference
+    config: &'static Config,
 }
 
 impl AudioEncoder {
@@ -45,9 +47,11 @@ impl AudioEncoder {
         ring_consumer: Consumer<f32, std::sync::Arc<SharedRb<f32, Vec<std::mem::MaybeUninit<f32>>>>>,
         shutdown_rx: tokio::sync::mpsc::Receiver<()>,
     ) -> Result<Self> {
+        let config = Config::global();
+        
         tracing::info!("🎵 Initializing Opus encoder pipeline");
 
-        // Create Opus encoder with high-quality settings for music
+        // Create Opus encoder with configurable settings for music
         tracing::info!("Creating Opus encoder: 48kHz, stereo, music application");
         let mut opus_encoder = Encoder::new(
             OpusSampleRate::Hz48000,
@@ -55,31 +59,47 @@ impl AudioEncoder {
             Application::Audio, // Optimized for music vs speech
         ).context("Failed to create Opus encoder")?;
 
-        // Configure encoder for high quality music streaming
-        opus_encoder.set_bitrate(Bitrate::BitsPerSecond(OPUS_BITRATE as i32))
+        // Configure encoder for music streaming using config values
+        opus_encoder.set_bitrate(Bitrate::BitsPerSecond(config.opus_bitrate() as i32))
             .context("Failed to set Opus bitrate")?;
         
-        opus_encoder.set_complexity(OPUS_COMPLEXITY.try_into().unwrap())
+        opus_encoder.set_complexity(config.opus_complexity().try_into().unwrap())
             .context("Failed to set Opus complexity")?;
         
-        // Enable forward error correction for network resilience
-        opus_encoder.enable_inband_fec()
-            .context("Failed to enable Opus FEC")?;
+        // Configure VBR mode
+        if config.opus_enable_vbr() {
+            opus_encoder.enable_vbr().context("Failed to enable Opus VBR")?;
+        } else {
+            opus_encoder.disable_vbr().context("Failed to disable Opus VBR")?;
+        }
+
+        // Configure forward error correction based on config
+        if config.opus_enable_fec() {
+            opus_encoder.enable_inband_fec()
+                .context("Failed to enable Opus FEC")?;
+        } else {
+            opus_encoder.disable_inband_fec()
+                .context("Failed to disable Opus FEC")?;
+        }
 
         tracing::info!(
-            "✅ Opus encoder configured: {}kbps, {}Hz, {} channels, complexity={}",
-            OPUS_BITRATE / 1000,
+            "✅ Opus encoder configured: {}kbps, {}Hz, {} channels, complexity={}, VBR={}, FEC={}, frame={}ms",
+            config.opus_bitrate() / 1000,
             OPUS_SAMPLE_RATE,
             OPUS_CHANNELS,
-            OPUS_COMPLEXITY
+            config.opus_complexity(),
+            config.opus_enable_vbr(),
+            config.opus_enable_fec(),
+            config.opus_frame_duration()
         );
 
         Ok(Self {
             opus_encoder,
-            rtp_packetizer: RtpPacketizer::new(),
+            rtp_packetizer: RtpPacketizer::new(config.opus_frame_duration()),
             direct_producer,
             ring_consumer,
             shutdown_rx,
+            config,
         })
     }
 
@@ -106,13 +126,14 @@ impl AudioEncoder {
             
             // Check if we have enough samples for a frame
             let available_samples = self.ring_consumer.len();
-            let samples_needed = OPUS_FRAME_SIZE * OPUS_CHANNELS; // 1920 samples
+            let samples_needed = (self.config.opus_frame_size() * OPUS_CHANNELS as u32) as usize;
             
             // Detect ring buffer overrun and recover
-            let overrun_threshold = 9600 * 9 / 10; // 90% of buffer capacity
+            let buffer_capacity = self.config.ring_buffer_capacity() as usize;
+            let overrun_threshold = buffer_capacity * 9 / 10; // 90% of buffer capacity
             if available_samples >= overrun_threshold {
                 tracing::warn!("Ring buffer overrun detected ({} samples, {:.1}% full), clearing excess data", 
-                             available_samples, (available_samples as f32 / 9600.0) * 100.0);
+                             available_samples, (available_samples as f32 / buffer_capacity as f32) * 100.0);
                 // Clear excess samples to get back to manageable level (keep ~3 frames worth)
                 let target_samples = samples_needed * 3;
                 let samples_to_drop = available_samples.saturating_sub(target_samples);
@@ -154,7 +175,7 @@ impl AudioEncoder {
                 
                 // Log metrics every 5 seconds with rate analysis
                 if last_metrics_log.elapsed() >= Duration::from_secs(5) {
-                    let fill_ratio = available_samples as f32 / 9600.0; // Total ring buffer capacity
+                    let fill_ratio = available_samples as f32 / buffer_capacity as f32;
                     let elapsed = start_time.elapsed().as_secs_f64();
                     let consumption_rate = total_samples_consumed as f64 / elapsed;
                     let expected_rate = 48000.0 * 2.0; // 48kHz stereo
@@ -178,10 +199,10 @@ impl AudioEncoder {
         tracing::info!("✅ Audio encoding pipeline stopped after processing {} frames", frame_count);
     }
 
-    /// Process a single audio frame (20ms worth of audio)
+    /// Process a single audio frame (configurable duration worth of audio)
     async fn process_audio_frame(&mut self, frame_count: u64) -> Result<()> {
-        // Calculate required samples for stereo 20ms frame
-        let samples_needed = OPUS_FRAME_SIZE * OPUS_CHANNELS; // 960 * 2 = 1920 samples
+        // Calculate required samples for stereo frame based on config
+        let samples_needed = (self.config.opus_frame_size() * OPUS_CHANNELS as u32) as usize;
 
         // Ensure we have enough samples before reading
         if self.ring_consumer.len() < samples_needed {
@@ -233,9 +254,10 @@ impl AudioEncoder {
             anyhow::bail!("Empty PCM data provided for encoding");
         }
         
-        if pcm_data.len() != OPUS_FRAME_SIZE * OPUS_CHANNELS {
+        let expected_frame_size = (self.config.opus_frame_size() * OPUS_CHANNELS as u32) as usize;
+        if pcm_data.len() != expected_frame_size {
             tracing::warn!("Unexpected PCM frame size: {} (expected {})", 
-                pcm_data.len(), OPUS_FRAME_SIZE * OPUS_CHANNELS);
+                pcm_data.len(), expected_frame_size);
         }
         
         // Encode PCM to Opus
@@ -309,7 +331,7 @@ impl AudioEncoder {
         tracing::debug!("Encoding silence frame");
         
         // Create silent PCM frame
-        let silence_samples = OPUS_FRAME_SIZE * OPUS_CHANNELS;
+        let silence_samples = (self.config.opus_frame_size() * OPUS_CHANNELS as u32) as usize;
         let silence_pcm = vec![0f32; silence_samples];
         
         tracing::debug!("Created silence frame with {} samples", silence_pcm.len());
