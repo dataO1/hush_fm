@@ -137,6 +137,12 @@
 
           src = ./.;
 
+          buildInputs = with pkgs; [
+            # Audio system libraries for CPAL/ALSA and Opus
+            alsa-lib
+            libopus
+          ];
+
           installPhase = ''
             mkdir -p $out/bin
             if [ -f "${binaryPath}" ]; then
@@ -282,9 +288,21 @@
             HUSHFM_MEDIASOUP_LISTEN_IP = cfg.mediasoup.listenIp;
             HUSHFM_MEDIASOUP_ENABLE_TCP = if cfg.mediasoup.enableTcp then "true" else "false";
             HUSHFM_MEDIASOUP_EXPOSE_INTERNAL_IP = if cfg.mediasoup.exposeInternalIp then "true" else "false";
+            HUSHFM_MEDIASOUP_WORKER_DEBUG = "false";
 
             # Monitoring configuration
             HUSHFM_STALE_LISTENER_TIMEOUT = toString cfg.monitoring.staleListenerTimeout;
+
+            # Audio optimization configuration
+            HUSHFM_OPUS_BITRATE = toString cfg.audio.opusBitrate;
+            HUSHFM_OPUS_COMPLEXITY = toString cfg.audio.opusComplexity;
+            HUSHFM_OPUS_ENABLE_FEC = if cfg.audio.opusEnableFec then "true" else "false";
+            HUSHFM_OPUS_ENABLE_VBR = if cfg.audio.opusEnableVbr then "true" else "false";
+            HUSHFM_OPUS_FRAME_DURATION = toString cfg.audio.opusFrameDuration;
+            HUSHFM_AUDIO_BUFFER_SIZE = toString cfg.audio.bufferSize;
+            HUSHFM_RING_BUFFER_CAPACITY = toString cfg.audio.ringBufferCapacity;
+            HUSHFM_ENABLE_THREAD_PRIORITY = if cfg.audio.enableThreadPriority then "true" else "false";
+            HUSHFM_DSCP_MARKING = toString cfg.audio.dscpMarking;
 
             # Enable trace level logging for production debugging
             RUST_LOG = "trace";
@@ -352,6 +370,62 @@
                 type = types.int;
                 default = 0;
                 description = "Timeout in seconds for cleaning up stale listeners (0 = disabled)";
+              };
+            };
+
+            audio = {
+              opusBitrate = mkOption {
+                type = types.int;
+                default = 256000;
+                description = "Opus bitrate in bps (256000 for transparent quality)";
+              };
+
+              opusComplexity = mkOption {
+                type = types.int;
+                default = 8;
+                description = "Opus complexity (0-10, higher = better quality, more CPU)";
+              };
+
+              opusEnableFec = mkOption {
+                type = types.bool;
+                default = false;
+                description = "Enable Opus Forward Error Correction";
+              };
+
+              opusEnableVbr = mkOption {
+                type = types.bool;
+                default = true;
+                description = "Enable Opus Variable Bit Rate";
+              };
+
+              opusFrameDuration = mkOption {
+                type = types.int;
+                default = 10;
+                description = "Opus frame duration in ms (10, 20, 40, 60)";
+              };
+
+              bufferSize = mkOption {
+                type = types.int;
+                default = 1024;
+                description = "CPAL audio buffer size in frames";
+              };
+
+              ringBufferCapacity = mkOption {
+                type = types.int;
+                default = 4800;
+                description = "Ring buffer capacity in frames (100ms buffer)";
+              };
+
+              enableThreadPriority = mkOption {
+                type = types.bool;
+                default = true;
+                description = "Enable real-time thread priority";
+              };
+
+              dscpMarking = mkOption {
+                type = types.int;
+                default = 46;
+                description = "DSCP marking for QoS (46 = Expedited Forwarding)";
               };
             };
 
