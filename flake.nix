@@ -305,7 +305,7 @@
             HUSHFM_DSCP_MARKING = toString cfg.audio.dscpMarking;
 
             # Enable trace level logging for production debugging
-            RUST_LOG = "trace";
+            RUST_LOG = "info,server::lib::audio::encoder=warn,server::lib::audio::audio_device_monitor=info,mediasoup=info,mediasoup::worker=info";
           };
 
           # Build frontend with only frontend-relevant environment variables
