@@ -23,7 +23,7 @@ import type {
 
 // Import connection state management
 import { ConnectionAdapter } from '../../stores/connection/connection.adapter'
-import { WebrtcConnectionState, TransportError } from '../../domain/schemas/connection.schema'
+import { WebrtcConnectionState, TransportError, ProducerError } from '../../domain/schemas/connection.schema'
 
 /**
  * MediaSoup Infrastructure Error
@@ -114,6 +114,14 @@ export interface MediaSoupClientInterface {
   readonly getCurrentProducer: () => O.Option<types.Producer>
   readonly getCurrentConsumer: () => O.Option<types.Consumer>
 
+
+  /**
+   * Consumer auto-reconnection
+   */
+  readonly setConsumerRecreateCallback: (
+    callback: () => Effect.Effect<ConsumerOptionsType, Error>
+  ) => Effect.Effect<void, never>
+
   /**
    * Clean up all resources
    */
@@ -142,6 +150,7 @@ const createMediaSoupClientImpl = (connectionAdapter: Context.Tag.Service<Connec
   let activeProducer = O.none<types.Producer>()
   let activeConsumer = O.none<types.Consumer>()
   let connectionTimeoutId = O.none<NodeJS.Timeout>()
+  let consumerRecreateCallback = O.none<() => Effect.Effect<ConsumerOptionsType, Error>>()
   
   // Internal connection state tracking (not exposed to adapter)
   let transportConnectionState: RTCPeerConnectionState = 'new'
@@ -506,6 +515,57 @@ const createMediaSoupClientImpl = (connectionAdapter: Context.Tag.Service<Connec
                 connectionAdapter.setWebRTCState(WebrtcConnectionState.CONNECTING)
                 connectionAdapter.clearError()
 
+                // Subscribe to newproducer event for automatic consumer reconnection
+                transport.observer.on('newproducer', (producer) => {
+                  console.info('🔄 MediaSoup: New producer detected, attempting consumer reconnection...', { producerId: producer.id })
+                  
+                  pipe(
+                    consumerRecreateCallback,
+                    O.match({
+                      onNone: () => {
+                        console.info('ℹ️ MediaSoup: No consumer recreate callback registered')
+                      },
+                      onSome: (callback) => {
+                        Effect.runPromise(
+                          pipe(
+                            callback(),
+                            Effect.andThen((consumerOptions) => {
+                              console.info('🎧 MediaSoup: Recreating consumer with options:', consumerOptions)
+                              // Use the transport to create consumer directly since it's available in closure
+                              return Effect.tryPromise({
+                                try: () => transport.consume({
+                                  id: consumerOptions.id,
+                                  producerId: consumerOptions.producerId,
+                                  kind: consumerOptions.kind as types.MediaKind,
+                                  rtpParameters: consumerOptions.rtpParameters as types.RtpParameters
+                                }),
+                                catch: error => new MediaSoupError({
+                                  cause: String(error),
+                                  operation: 'createConsumer',
+                                  transportState: transport.connectionState,
+                                  timestamp: new Date()
+                                })
+                              }).pipe(
+                                Effect.map((consumer) => {
+                                  activeConsumer = O.some(consumer)
+                                  console.info('✅ MediaSoup: Consumer reconnected successfully')
+                                  return consumer
+                                })
+                              )
+                            }),
+                            Effect.catchAll((error) => {
+                              console.error('❌ MediaSoup: Consumer reconnection failed:', error)
+                              return Effect.fail(error)
+                            })
+                          )
+                        ).catch((error) => {
+                          console.error('❌ MediaSoup: Consumer reconnection promise failed:', error)
+                        })
+                      }
+                    })
+                  )
+                })
+
                 activeTransport = O.some(transport)
                 return transport
               }),
@@ -604,6 +664,23 @@ const createMediaSoupClientImpl = (connectionAdapter: Context.Tag.Service<Connec
                 connectionState: transportConnectionState,
                 iceGatheringState: iceGatheringState
               })
+              
+              // Subscribe to producer lifecycle events
+              producer.observer.on('close', () => {
+                console.warn('🔌 MediaSoup: Producer closed')
+                connectionAdapter.setWebRTCState(WebrtcConnectionState.DISCONNECTED)
+              })
+
+              producer.observer.on('trackended', () => {
+                console.error('🎤 MediaSoup: Microphone disconnected')
+                connectionAdapter.setConnectionError(new ProducerError({
+                  cause: 'Microphone disconnected - audio device may have been unplugged',
+                  operation: 'close',
+                  timestamp: new Date()
+                }))
+                connectionAdapter.setWebRTCState(WebrtcConnectionState.ERROR)
+              })
+
               
               activeProducer = O.some(producer)
               return producer
@@ -812,6 +889,16 @@ const createMediaSoupClientImpl = (connectionAdapter: Context.Tag.Service<Connec
      * Get current consumer
      */
     getCurrentConsumer: () => activeConsumer,
+
+
+    /**
+     * Set consumer recreate callback for automatic reconnection
+     */
+    setConsumerRecreateCallback: (callback: () => Effect.Effect<ConsumerOptionsType, Error>) =>
+      Effect.sync(() => {
+        consumerRecreateCallback = O.some(callback)
+        console.info('📋 MediaSoup: Consumer recreate callback registered')
+      }),
 
     /**
      * Clean up all resources

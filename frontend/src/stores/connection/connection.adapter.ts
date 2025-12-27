@@ -131,6 +131,7 @@ const createConnectionAdapterImpl = () => {
     resetRoom: () => {
       connectionStore.actions.setRoomWSState(WsConnectionState.DISCONNECTED)
       connectionStore.actions.setWebRTCState(WebrtcConnectionState.DISCONNECTED)
+      connectionStore.actions.clearCurrentRoomId()
       connectionStore.actions.clearError()
     }
   }

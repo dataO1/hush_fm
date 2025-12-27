@@ -3,7 +3,7 @@ import { useNavigate } from '@solidjs/router'
 import { Option as O, Effect, Context, ManagedRuntime, Layer } from 'effect'
 import { useConnectionAdapter, useLobbyAdapter, useUserAdapter } from '../../App'
 import { LobbyService, LobbyServiceLive } from '../../services/application/LobbyService'
-import { LobbyAdapter } from '../../stores'
+import { LobbyAdapter, ConnectionAdapter } from '../../stores'
 import ConnectionStatusDot from '../components/ConnectionStatusDot'
 import { RoomCard } from '../components/room/RoomCard'
 import type { LobbyRoomInfoType } from '../../domain/schemas/lobby.schema'
@@ -20,9 +20,13 @@ const LobbyFeatureProvider: ParentComponent = (props) => {
   // Create lobby service using scoped runtime to keep it alive for component lifecycle
   // Provide all necessary adapter dependencies
   const lobbyAdapter = useLobbyAdapter()
+  const connectionAdapter = useConnectionAdapter()
   const lobbyServiceRuntime = ManagedRuntime.make(
     LobbyServiceLive.pipe(
-      Layer.provide(Layer.succeed(LobbyAdapter, lobbyAdapter))
+      Layer.provide(Layer.mergeAll(
+        Layer.succeed(LobbyAdapter, lobbyAdapter),
+        Layer.succeed(ConnectionAdapter, connectionAdapter)
+      ))
     )
   )
   const lobbyService = lobbyServiceRuntime.runSync(LobbyService)
@@ -389,8 +393,8 @@ function LandingContent() {
               <div class="flex items-center gap-2 sm:gap-3">
                 <ConnectionStatusDot 
                   size="sm" 
-                  webrtcState={() => WebrtcConnectionState.CONNECTED}
-                  title="Connection Status" 
+                  webrtcState={() => connectionAdapter.isLobbyConnected() ? WebrtcConnectionState.CONNECTED : WebrtcConnectionState.DISCONNECTED}
+                  title="Lobby Connection Status" 
                 />
                 <h2 class="text-xl sm:text-2xl lg:text-3xl font-bold">Live Rooms</h2>
               </div>
@@ -410,38 +414,45 @@ function LandingContent() {
               </button>
             </div>
 
-            <div class="space-y-2 sm:space-y-3">
-              <Show 
-                when={sortedRooms() && sortedRooms()!.length > 0}
-                fallback={
-                  <div class="text-center text-gruvbox-fg-4 py-6 sm:py-8">
-                    <Show when={sortedRooms.loading || isLoading()} fallback="No rooms available. Create the first one!">
-                      Loading rooms...
-                    </Show>
-                  </div>
-                }
-              >
-                <For each={sortedRooms()}>
-                  {(room) => {
-                    const sessionId = O.getOrNull(userAdapter.getSessionId())
-                    const currentRoomId = O.getOrNull(connectionAdapter.getCurrentRoomId())
-                    
-                    return (
-                      <RoomCard 
-                        room={room}
-                        onJoin={(roomId, roomInfo) => {
-                          const isDJRoom = sessionId ? room.djId === sessionId : false
-                          const isActiveListenerRoom = currentRoomId ? room.id === currentRoomId : false
-                          handleRoomAction(roomId, roomInfo, isDJRoom, isActiveListenerRoom)
-                        }}
-                        isDJRoom={sessionId ? room.djId === sessionId : false}
-                        isActiveListenerRoom={currentRoomId ? room.id === currentRoomId : false}
-                      />
-                    )
-                  }}
-                </For>
-              </Show>
-            </div>
+            <Show when={connectionAdapter.isLobbyConnected()} fallback={
+              <div class="text-center text-gruvbox-fg-3 py-8">
+                <div class="loading loading-spinner loading-lg mb-4"></div>
+                <p>Connecting to lobby...</p>
+              </div>
+            }>
+              <div class="space-y-2 sm:space-y-3">
+                <Show 
+                  when={sortedRooms() && sortedRooms()!.length > 0}
+                  fallback={
+                    <div class="text-center text-gruvbox-fg-4 py-6 sm:py-8">
+                      <Show when={sortedRooms.loading || isLoading()} fallback="No rooms available. Create the first one!">
+                        Loading rooms...
+                      </Show>
+                    </div>
+                  }
+                >
+                  <For each={sortedRooms()}>
+                    {(room) => {
+                      const sessionId = O.getOrNull(userAdapter.getSessionId())
+                      const currentRoomId = O.getOrNull(connectionAdapter.getCurrentRoomId())
+                      
+                      return (
+                        <RoomCard 
+                          room={room}
+                          onJoin={(roomId, roomInfo) => {
+                            const isDJRoom = sessionId ? room.djId === sessionId : false
+                            const isActiveListenerRoom = currentRoomId ? room.id === currentRoomId : false
+                            handleRoomAction(roomId, roomInfo, isDJRoom, isActiveListenerRoom)
+                          }}
+                          isDJRoom={sessionId ? room.djId === sessionId : false}
+                          isActiveListenerRoom={currentRoomId ? room.id === currentRoomId : false}
+                        />
+                      )
+                    }}
+                  </For>
+                </Show>
+              </div>
+            </Show>
           </div>
         </div>
 

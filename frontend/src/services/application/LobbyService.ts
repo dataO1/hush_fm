@@ -35,7 +35,7 @@ import {
 import { LobbyAdapter } from '../../stores'
 
 // Import only infrastructure via Context.Tag
-import { LobbyWebSocket, createWebSocketClientService } from '../infrastructure/WebSocketClient'
+import { LobbyWebSocket, LobbyWebSocketLive } from '../infrastructure/WebSocketClient'
 import { listRooms } from '../generated/rooms/rooms'
 
 
@@ -520,7 +520,5 @@ export const LobbyFeatureLayer = Layer.scoped(
  * Use this in global layer compositions.
  */
 export const LobbyServiceLive = LobbyFeatureLayer.pipe(
-  Layer.provide(
-    Layer.scoped(LobbyWebSocket, createWebSocketClientService)
-  )
+  Layer.provide(LobbyWebSocketLive)
 )

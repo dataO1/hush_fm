@@ -22,10 +22,9 @@ import { Effect, Context, Layer, Option as O, pipe } from 'effect'
 import { ConnectionAdapter, UserAdapter, AudioAdapter } from '../../stores'
 
 // Import only infrastructure via Context.Tag
-import { UserWebSocket, createWebSocketClientService } from '../infrastructure/WebSocketClient'
+import { UserWebSocket, UserWebSocketLive } from '../infrastructure/WebSocketClient'
 import { MediaSoupClient, MediaSoupClientLive } from '../infrastructure/MediaSoupClient'
 import { AudioClient } from '../infrastructure/AudioClient'
-import { ConnectionAdapterLive } from '../../stores/connection/connection.adapter'
 
 // Import WebSocket command schemas for S.make construction and event types
 import {
@@ -681,6 +680,12 @@ const createUserServiceImpl = () => {
         // Note: These events are for information only - local mute state is controlled by the UI
         yield* wsClient.subscribe('streamPaused', (event: StreamPausedEvent | ListenerStreamPausedEvent) => {
           console.info('⏸️ UserService: Stream paused event received (server confirmation):', event.roomId)
+          // Only update state if we have an active role and are actually connected
+          if (O.isSome(activeRole) && connectionAdapter.isConnected()) {
+            connectionAdapter.setWebRTCState(WebrtcConnectionState.PAUSED)
+          } else {
+            console.info('ℹ️ UserService: Ignoring streamPaused event - no active role or not connected')
+          }
         }).pipe(
           Effect.mapError((error) => new UserServiceError({
             cause: `Failed to subscribe to streamPaused events: ${error}`,
@@ -692,6 +697,7 @@ const createUserServiceImpl = () => {
 
         yield* wsClient.subscribe('streamResumed', (event: StreamResumedEvent | ListenerStreamResumedEvent) => {
           console.info('▶️ UserService: Stream resumed event received (server confirmation):', event.roomId)
+          connectionAdapter.setWebRTCState(WebrtcConnectionState.STREAMING)
         }).pipe(
           Effect.mapError((error) => new UserServiceError({
             cause: `Failed to subscribe to streamResumed events: ${error}`,
@@ -820,7 +826,7 @@ export const UserFeatureLayer = Layer.scoped(
  */
 export const UserServiceLive = UserFeatureLayer.pipe(
   Layer.provide(Layer.mergeAll(
-    Layer.scoped(UserWebSocket, createWebSocketClientService),
-    MediaSoupClientLive.pipe(Layer.provide(ConnectionAdapterLive))
+    UserWebSocketLive,
+    MediaSoupClientLive
   ))
 )

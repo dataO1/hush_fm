@@ -22,6 +22,7 @@ interface LobbyAdapterImpl {
   addRoom: (room: LobbyRoomInfoType) => void
   updateRoom: (room: LobbyRoomInfoType) => void
   removeRoom: (roomId: string) => void
+  clear: () => void
   
   // State management
   setLoading: (loading: boolean) => void
@@ -83,6 +84,13 @@ const createLobbyAdapterImpl = (
       lobbyStore.actions.removeRoom(roomId)
     },
     
+    clear: () => {
+      lobbyStore.actions.clearRooms()
+      lobbyStore.actions.setRoomsLoading(false)
+      lobbyStore.actions.clearError()
+      lobbyStore.actions.setRoomCreating(false)
+    },
+    
     // State management
     setLoading: (loading: boolean) => {
       lobbyStore.actions.setRoomsLoading(loading)
@@ -132,3 +140,19 @@ export const LobbyAdapterLive = Layer.succeed(
   LobbyAdapter,
   createLobbyAdapterImpl()
 )
+
+/**
+ * Global LobbyAdapter instance for direct access
+ * Used by infrastructure services that need global state access
+ */
+let globalLobbyAdapterInstance: LobbyAdapterImpl | null = null
+
+/**
+ * Get or create the global LobbyAdapter instance
+ */
+export const getGlobalLobbyAdapter = (): LobbyAdapterImpl => {
+  if (!globalLobbyAdapterInstance) {
+    globalLobbyAdapterInstance = createLobbyAdapterImpl()
+  }
+  return globalLobbyAdapterInstance
+}

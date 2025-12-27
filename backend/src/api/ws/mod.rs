@@ -9,6 +9,8 @@ use futures_util::{SinkExt, StreamExt};
 use serde_json;
 use uuid::Uuid;
 use mediasoup::prelude::{DtlsParameters, Transport};
+use std::time::Duration;
+use tokio::time::{interval, MissedTickBehavior};
 
 use crate::{
     lib::{models::{LobbyCommand, DjCommand, ListenerCommand, DjEvent, ListenerEvent, LobbyEvent}, domain::{Lobby, Listener}},
@@ -43,49 +45,85 @@ pub async fn listener_handler(
 async fn handle_room_socket(socket: WebSocket, room_id: Uuid, lobby: Lobby) {
     let (mut sender, mut receiver) = socket.split();
 
-    // Spawn task to handle incoming messages
-    let lobby_clone = lobby.clone();
-    let send_task = tokio::spawn(async move {
-        while let Some(msg) = receiver.next().await {
-            if let Ok(msg) = msg {
-                if let Message::Text(text) = msg {
-                    let message_span = tracing::debug_span!(
-                        "websocket_message_received",
-                        room_id = %room_id,
-                        message_length = text.len(),
-                        command_type = tracing::field::Empty
-                    );
-                    let _enter = message_span.enter();
+    // Create heartbeat interval (25 seconds to stay under typical 60s proxy timeouts)
+    let mut heartbeat_interval = interval(Duration::from_secs(25));
+    heartbeat_interval.set_missed_tick_behavior(MissedTickBehavior::Delay);
 
-                    tracing::debug!("Raw WebSocket message received");
-                    tracing::debug!("Raw message content: {}", &text);
-                    match serde_json::from_str::<DjCommand>(&text) {
-                        Ok(dj_cmd) => {
-                            message_span.record("command_type", dj_cmd.command_type());
-                            tracing::info!("Successfully parsed DJ WebSocket command: {}", dj_cmd.command_type());
-                            handle_dj_command(dj_cmd, room_id, &lobby_clone, &mut sender).await;
-                        }
-                        Err(e) => {
-                            tracing::error!(
-                                raw_message = %text,
-                                parse_error = %e,
-                                "Failed to parse DjCommand from WebSocket message"
-                            );
+    let lobby_clone = lobby.clone();
+    
+    tracing::debug!(room_id = %room_id, "DJ WebSocket connection established with heartbeat");
+
+    loop {
+        tokio::select! {
+            // Send heartbeat ping every 25 seconds
+            _ = heartbeat_interval.tick() => {
+                if sender.send(Message::Ping(vec![].into())).await.is_err() {
+                    tracing::debug!(room_id = %room_id, "DJ WebSocket heartbeat failed, connection dropped");
+                    break;
+                }
+                tracing::trace!(room_id = %room_id, "DJ WebSocket heartbeat ping sent");
+            }
+            
+            // Handle incoming messages
+            msg = receiver.next() => {
+                match msg {
+                    Some(Ok(Message::Text(text))) => {
+                        let message_span = tracing::debug_span!(
+                            "websocket_message_received",
+                            room_id = %room_id,
+                            message_length = text.len(),
+                            command_type = tracing::field::Empty
+                        );
+                        let _enter = message_span.enter();
+
+                        tracing::debug!("Raw WebSocket message received");
+                        tracing::debug!("Raw message content: {}", &text);
+                        match serde_json::from_str::<DjCommand>(&text) {
+                            Ok(dj_cmd) => {
+                                message_span.record("command_type", dj_cmd.command_type());
+                                tracing::info!("Successfully parsed DJ WebSocket command: {}", dj_cmd.command_type());
+                                handle_dj_command(dj_cmd, room_id, &lobby_clone, &mut sender).await;
+                            }
+                            Err(e) => {
+                                tracing::error!(
+                                    raw_message = %text,
+                                    parse_error = %e,
+                                    "Failed to parse DjCommand from WebSocket message"
+                                );
+                            }
                         }
                     }
+                    Some(Ok(Message::Close(_))) | None => {
+                        tracing::debug!(room_id = %room_id, "DJ WebSocket connection closed gracefully");
+                        break;
+                    }
+                    Some(Ok(Message::Pong(_))) => {
+                        tracing::trace!(room_id = %room_id, "DJ WebSocket pong received");
+                        // Pong received - connection is alive, continue
+                    }
+                    Some(Err(e)) => {
+                        tracing::error!(room_id = %room_id, error = %e, "DJ WebSocket error");
+                        break;
+                    }
+                    _ => {
+                        // Ignore other message types
+                    }
                 }
-            } else {
-                break;
             }
         }
-    });
-
-    // Wait for the sending task to finish
-    send_task.await.ok();
+    }
+    
+    tracing::debug!(room_id = %room_id, "DJ WebSocket handler exiting");
 }
 
 async fn handle_lobby_socket(socket: WebSocket, lobby: Lobby) {
     let (mut sender, mut receiver) = socket.split();
+
+    // Create heartbeat interval (25 seconds to stay under typical 60s proxy timeouts)
+    let mut heartbeat_interval = interval(Duration::from_secs(25));
+    heartbeat_interval.set_missed_tick_behavior(MissedTickBehavior::Delay);
+
+    tracing::debug!("Lobby WebSocket connection established with heartbeat");
 
     // Send initial room list
     let rooms = lobby.get_public_rooms().await;
@@ -103,6 +141,15 @@ async fn handle_lobby_socket(socket: WebSocket, lobby: Lobby) {
 
     loop {
         tokio::select! {
+            // Send heartbeat ping every 25 seconds
+            _ = heartbeat_interval.tick() => {
+                if sender.send(Message::Ping(vec![].into())).await.is_err() {
+                    tracing::debug!("Lobby WebSocket heartbeat failed, connection dropped");
+                    break;
+                }
+                tracing::trace!("Lobby WebSocket heartbeat ping sent");
+            }
+            
             // Handle incoming commands
             msg = receiver.next() => {
                 match msg {
@@ -114,8 +161,18 @@ async fn handle_lobby_socket(socket: WebSocket, lobby: Lobby) {
                             }
                         }
                     },
-                    Some(Ok(Message::Close(_))) => break,
-                    Some(Err(_)) => break,
+                    Some(Ok(Message::Close(_))) => {
+                        tracing::debug!("Lobby WebSocket connection closed gracefully");
+                        break;
+                    }
+                    Some(Ok(Message::Pong(_))) => {
+                        tracing::trace!("Lobby WebSocket pong received");
+                        // Pong received - connection is alive, continue
+                    }
+                    Some(Err(e)) => {
+                        tracing::error!(error = %e, "Lobby WebSocket error");
+                        break;
+                    }
                     None => break,
                     _ => {},
                 }
@@ -135,6 +192,8 @@ async fn handle_lobby_socket(socket: WebSocket, lobby: Lobby) {
             }
         }
     }
+    
+    tracing::debug!("Lobby WebSocket handler exiting");
 }
 
 async fn handle_lobby_command(
@@ -500,46 +559,104 @@ async fn handle_listener_socket(socket: WebSocket, room_id_str: String, session_
         "Listener WebSocket connection established - waiting for InitListener command"
     );
 
+    // Create heartbeat interval (25 seconds to stay under typical 60s proxy timeouts)
+    let mut heartbeat_interval = interval(Duration::from_secs(25));
+    heartbeat_interval.set_missed_tick_behavior(MissedTickBehavior::Delay);
+
     // Handle both incoming messages and outgoing events concurrently
     let lobby_clone = lobby.clone();
 
+    tracing::debug!(
+        session_id = %session_id,
+        room_id = %room_id,
+        "Listener WebSocket connection established with heartbeat"
+    );
+
     loop {
         tokio::select! {
-            // Handle incoming WebSocket messages
-            msg = receiver.next() => {
-                if let Some(Ok(Message::Text(text))) = msg {
-                    let message_span = tracing::debug_span!(
-                        "listener_websocket_message_received",
-                        room_id = %room_id,
-                        session_id = %session_id,
-                        message_length = text.len(),
-                        command_type = tracing::field::Empty
-                    );
-                    let _enter = message_span.enter();
-
-                    tracing::debug!("Raw listener WebSocket message received");
-                    tracing::debug!("Raw message content: {}", &text);
-                    match serde_json::from_str::<ListenerCommand>(&text) {
-                        Ok(listener_cmd) => {
-                            message_span.record("command_type", listener_cmd.command_type());
-                            tracing::info!("Successfully parsed listener WebSocket command: {}", listener_cmd.command_type());
-                            handle_listener_command(listener_cmd, room_id, session_id.clone(), &lobby_clone, &mut sender).await;
-                        }
-                        Err(e) => {
-                            tracing::error!(
-                                raw_message = %text,
-                                parse_error = %e,
-                                "Failed to parse ListenerCommand from listener WebSocket message"
-                            );
-                        }
-                    }
-                } else {
+            // Send heartbeat ping every 25 seconds
+            _ = heartbeat_interval.tick() => {
+                if sender.send(Message::Ping(vec![].into())).await.is_err() {
                     tracing::debug!(
-                        room_id = %room_id,
                         session_id = %session_id,
-                        "Listener WebSocket connection closed by client"
+                        room_id = %room_id,
+                        "Listener WebSocket heartbeat failed, connection dropped"
                     );
                     break;
+                }
+                tracing::trace!(
+                    session_id = %session_id,
+                    room_id = %room_id,
+                    "Listener WebSocket heartbeat ping sent"
+                );
+            }
+            
+            // Handle incoming WebSocket messages
+            msg = receiver.next() => {
+                match msg {
+                    Some(Ok(Message::Text(text))) => {
+                        let message_span = tracing::debug_span!(
+                            "listener_websocket_message_received",
+                            room_id = %room_id,
+                            session_id = %session_id,
+                            message_length = text.len(),
+                            command_type = tracing::field::Empty
+                        );
+                        let _enter = message_span.enter();
+
+                        tracing::debug!("Raw listener WebSocket message received");
+                        tracing::debug!("Raw message content: {}", &text);
+                        match serde_json::from_str::<ListenerCommand>(&text) {
+                            Ok(listener_cmd) => {
+                                message_span.record("command_type", listener_cmd.command_type());
+                                tracing::info!("Successfully parsed listener WebSocket command: {}", listener_cmd.command_type());
+                                handle_listener_command(listener_cmd, room_id, session_id.clone(), &lobby_clone, &mut sender).await;
+                            }
+                            Err(e) => {
+                                tracing::error!(
+                                    raw_message = %text,
+                                    parse_error = %e,
+                                    "Failed to parse ListenerCommand from listener WebSocket message"
+                                );
+                            }
+                        }
+                    }
+                    Some(Ok(Message::Close(_))) => {
+                        tracing::debug!(
+                            session_id = %session_id,
+                            room_id = %room_id,
+                            "Listener WebSocket connection closed gracefully"
+                        );
+                        break;
+                    }
+                    Some(Ok(Message::Pong(_))) => {
+                        tracing::trace!(
+                            session_id = %session_id,
+                            room_id = %room_id,
+                            "Listener WebSocket pong received"
+                        );
+                        // Pong received - connection is alive, continue
+                    }
+                    Some(Err(e)) => {
+                        tracing::error!(
+                            session_id = %session_id,
+                            room_id = %room_id,
+                            error = %e,
+                            "Listener WebSocket error"
+                        );
+                        break;
+                    }
+                    None => {
+                        tracing::debug!(
+                            room_id = %room_id,
+                            session_id = %session_id,
+                            "Listener WebSocket connection closed by client"
+                        );
+                        break;
+                    }
+                    _ => {
+                        // Ignore other message types
+                    }
                 }
             },
             // Handle outgoing events

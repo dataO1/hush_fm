@@ -65,6 +65,9 @@ export default function ConnectionStatusDot(props: ConnectionStatusDotProps) {
     if (webrtcState === WebrtcConnectionState.STREAMING) {
       return 'STREAMING'
     }
+    if (webrtcState === WebrtcConnectionState.PAUSED) {
+      return 'PAUSED'
+    }
     if (webrtcState === WebrtcConnectionState.CONNECTED || webrtcState === WebrtcConnectionState.CONNECTING) {
       return 'SETUP'
     }

@@ -113,10 +113,8 @@ export const createConnectionStore = (): ConnectionStore => {
 
     setRoomWSState: (newState: WsConnectionState) => {
       setState('roomWsState', newState)
-      // Clear room ID when disconnecting
-      if (newState === WsConnectionState.DISCONNECTED) {
-        setState('currentRoomId', Option.none())
-      }
+      // Note: Don't automatically clear room ID on disconnect to preserve it for lobby highlighting
+      // The room ID will be cleared when connecting to a new room or explicitly cleared
     },
 
     setCurrentRoomId: (roomId: string) => {
@@ -172,7 +170,9 @@ export const createConnectionStore = (): ConnectionStore => {
     state.webrtcConnectionState === WebrtcConnectionState.DISCONNECTING
 
   const isConnected = () =>
-    state.webrtcConnectionState === WebrtcConnectionState.CONNECTED
+    state.webrtcConnectionState === WebrtcConnectionState.CONNECTED ||
+    state.webrtcConnectionState === WebrtcConnectionState.STREAMING ||
+    state.webrtcConnectionState === WebrtcConnectionState.PAUSED
 
   const hasError = () =>
     state.webrtcConnectionState === WebrtcConnectionState.ERROR ||
