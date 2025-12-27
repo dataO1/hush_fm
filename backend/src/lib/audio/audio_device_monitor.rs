@@ -226,9 +226,14 @@ impl AudioDeviceMonitor {
                 .map(|d| d.name().to_string())
                 .unwrap_or_else(|_| "Unknown".to_string());
             
+            tracing::info!("🔍 Found audio device: '{}'", device_name);
+            
             // Check if device supports input
             if device.default_input_config().is_err() {
+                tracing::info!("🔍   → No input capability, skipping");
                 continue;
+            } else {
+                tracing::info!("🔍   → Has input capability");
             }
 
             let device_name_lower = device_name.to_lowercase();
@@ -238,6 +243,7 @@ impl AudioDeviceMonitor {
                 .any(|pattern| device_name_lower.contains(pattern));
             
             if is_builtin {
+                tracing::info!("🔍   → Built-in device, skipping");
                 continue;
             }
 
@@ -246,7 +252,11 @@ impl AudioDeviceMonitor {
                 .position(|pattern| device_name_lower.contains(pattern));
 
             if let Some(priority_index) = priority {
+                tracing::info!("🔍   → Matches audio interface pattern '{}' (priority {})", 
+                              audio_interface_patterns[priority_index], priority_index);
                 external_interfaces.push((device, priority_index));
+            } else {
+                tracing::info!("🔍   → No pattern match, skipping");
             }
         }
 
