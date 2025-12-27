@@ -41,22 +41,33 @@ impl Lobby {
         for i in 0..8 {
             let mut worker_settings = WorkerSettings::default();
             worker_settings.enable_liburing = false;
-            worker_settings.log_level = WorkerLogLevel::Debug; // Enable debug logging
-            worker_settings.log_tags = vec![
-                WorkerLogTag::Info,
-                WorkerLogTag::Ice,
-                WorkerLogTag::Dtls,
-                WorkerLogTag::Rtp,
-                WorkerLogTag::Srtp,
-                WorkerLogTag::Rtcp,
-                WorkerLogTag::Rtx,
-                WorkerLogTag::Bwe,
-                WorkerLogTag::Score,
-                WorkerLogTag::Simulcast,
-                WorkerLogTag::Svc,
-                WorkerLogTag::Sctp,
-                WorkerLogTag::Message,
-            ]; // Enable all available log tags for debugging
+            
+            // Configure worker log level based on config
+            if config.mediasoup_worker_debug() {
+                worker_settings.log_level = WorkerLogLevel::Debug;
+                worker_settings.log_tags = vec![
+                    WorkerLogTag::Info,
+                    WorkerLogTag::Ice,
+                    WorkerLogTag::Dtls,
+                    WorkerLogTag::Rtp,
+                    WorkerLogTag::Srtp,
+                    WorkerLogTag::Rtcp,
+                    WorkerLogTag::Rtx,
+                    WorkerLogTag::Bwe,
+                    WorkerLogTag::Score,
+                    WorkerLogTag::Simulcast,
+                    WorkerLogTag::Svc,
+                    WorkerLogTag::Sctp,
+                    WorkerLogTag::Message,
+                ]; // Enable all available log tags for debugging
+                tracing::info!("Worker {}: Debug logging enabled with all log tags", i);
+            } else {
+                worker_settings.log_level = WorkerLogLevel::Warn;
+                worker_settings.log_tags = vec![
+                    WorkerLogTag::Info,
+                ]; // Only basic info for production
+                tracing::debug!("Worker {}: Production logging (warn level, info tag only)", i);
+            }
 
             // Set configurable port range for WebRTC transport
             worker_settings.rtc_port_range = config.worker_port_range();
@@ -110,12 +121,12 @@ impl Lobby {
     ) -> anyhow::Result<Arc<RwLock<Room>>> {
         let worker = self.get_next_worker();
         let room = Room::init(
-            id, 
-            name.clone(), 
-            dj_name, 
-            session_id, 
-            description, 
-            tags, 
+            id,
+            name.clone(),
+            dj_name,
+            session_id,
+            description,
+            tags,
             &worker
         ).await?;
         let room_arc = Arc::new(RwLock::new(room));
@@ -228,7 +239,7 @@ impl Lobby {
             let room_guard = room_arc.read().await;
             let was_public = room_guard.is_public();
             drop(room_guard);
-            
+
             if was_public {
                 let _ = self.broadcast_tx.send(LobbyEvent::RoomRemoved {
                     room_id: room_id.to_string(),
@@ -237,7 +248,7 @@ impl Lobby {
             } else {
                 tracing::info!("Removed unfinished room with ID {} (no broadcast - room was not public)", room_id);
             }
-            
+
             Some(room_arc)
         } else {
             None

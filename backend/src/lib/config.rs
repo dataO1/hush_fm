@@ -80,6 +80,7 @@ pub struct Config {
     mediasoup_listen_ip: ConfigValue<String>,
     mediasoup_enable_tcp: ConfigValue<bool>,
     mediasoup_expose_internal_ip: ConfigValue<bool>,
+    mediasoup_worker_debug: ConfigValue<bool>,
     
     // Monitoring Configuration
     stale_listener_timeout: ConfigValue<Duration>,
@@ -178,6 +179,13 @@ impl Config {
             &mut warnings
         );
 
+        let mediasoup_worker_debug = Self::parse_env_var_with_default(
+            "HUSHFM_MEDIASOUP_WORKER_DEBUG", 
+            "false", 
+            false, 
+            &mut warnings
+        );
+
         // Monitoring Configuration
         let stale_listener_timeout_secs = Self::parse_env_var_with_default(
             "HUSHFM_STALE_LISTENER_TIMEOUT", 
@@ -263,6 +271,7 @@ impl Config {
             mediasoup_listen_ip,
             mediasoup_enable_tcp,
             mediasoup_expose_internal_ip,
+            mediasoup_worker_debug,
             stale_listener_timeout,
             opus_bitrate,
             opus_complexity,
@@ -434,6 +443,7 @@ impl Config {
         tracing::info!("│ MediaSoup Listen IP (bind_ip)   │ {:15} │ {:10} │", self.mediasoup_listen_ip.value, self.mediasoup_listen_ip.source);
         tracing::info!("│ MediaSoup TCP Enabled           │ {:15} │ {:10} │", self.mediasoup_enable_tcp.value, self.mediasoup_enable_tcp.source);
         tracing::info!("│ MediaSoup Expose Internal IP    │ {:15} │ {:10} │", self.mediasoup_expose_internal_ip.value, self.mediasoup_expose_internal_ip.source);
+        tracing::info!("│ MediaSoup Worker Debug          │ {:15} │ {:10} │", self.mediasoup_worker_debug.value, self.mediasoup_worker_debug.source);
         
         let timeout_display = if self.stale_listener_timeout.value.is_zero() {
             "0s (disabled)".to_string()
@@ -494,6 +504,11 @@ impl Config {
     /// Check if MediaSoup should expose internal IP in candidates
     pub fn mediasoup_expose_internal_ip(&self) -> bool {
         self.mediasoup_expose_internal_ip.value
+    }
+
+    /// Check if MediaSoup worker debug logging is enabled
+    pub fn mediasoup_worker_debug(&self) -> bool {
+        self.mediasoup_worker_debug.value
     }
 
     /// Get stale listener cleanup timeout

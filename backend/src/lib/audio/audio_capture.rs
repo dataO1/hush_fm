@@ -22,6 +22,8 @@ const CHANNELS: u16 = 2;           // Stereo audio
 pub struct AudioCapture {
     /// CPAL audio input stream (keeping this alive maintains the audio capture)
     _stream: Stream,
+    /// Stream error event sender (optional for lifecycle notifications)
+    error_tx: Option<tokio::sync::mpsc::UnboundedSender<()>>,
 }
 
 impl AudioCapture {
@@ -75,7 +77,80 @@ impl AudioCapture {
 
         Ok((Self {
             _stream: stream,
+            error_tx: None,
         }, ring_consumer))
+    }
+
+    /// Try to initialize audio capture with USB devices only (no fallback)
+    /// 
+    /// This is used by the lifecycle manager for hot-plug support.
+    /// Returns None if no USB audio device is found, instead of falling back to built-in devices.
+    /// 
+    /// # Returns
+    /// * `Some((AudioCapture, Consumer))` - Audio system and ring buffer consumer if USB device found
+    /// * `None` - No USB audio device available
+    pub async fn try_new_usb_only() -> Result<Option<(Self, Consumer<f32, std::sync::Arc<SharedRb<f32, Vec<std::mem::MaybeUninit<f32>>>>>)>> {
+        Self::try_new_usb_only_with_error_channel(None).await
+    }
+
+    /// Create a new USB-only audio capture with optional error channel for stream error events
+    pub async fn try_new_usb_only_with_error_channel(
+        error_tx: Option<tokio::sync::mpsc::UnboundedSender<()>>
+    ) -> Result<Option<(Self, Consumer<f32, std::sync::Arc<SharedRb<f32, Vec<std::mem::MaybeUninit<f32>>>>>)>> {
+        tracing::info!("🎤 Attempting USB-only audio capture initialization");
+
+        // Initialize CPAL host (auto-detects best backend: ALSA/PulseAudio/PipeWire)
+        let host = cpal::default_host();
+        
+        // Try to find a USB audio interface - NO FALLBACK to default
+        let device = Self::find_usb_audio_interface(&host);
+        
+        if let Some(device) = device {
+            let device_info = device.description()
+                .map(|d| d.name().to_string())
+                .unwrap_or_else(|_| "Unknown".to_string());
+            tracing::info!("🎤 Found USB audio device: {}", device_info);
+
+            // Try to create stream with the USB device
+            match Self::create_audio_stream_with_error_channel(&device, error_tx.clone()) {
+                Ok((stream, ring_consumer)) => {
+                    // Start the audio stream
+                    stream.play().context("Failed to start USB audio stream")?;
+
+                    tracing::info!("✅ USB audio capture initialized successfully: {}", device_info);
+
+                    Ok(Some((Self {
+                        _stream: stream,
+                        error_tx,
+                    }, ring_consumer)))
+                },
+                Err(e) => {
+                    tracing::error!("Failed to create stream with USB device '{}': {}", device_info, e);
+                    return Err(e);
+                }
+            }
+        } else {
+            tracing::info!("🔍 No USB audio interface found");
+            Ok(None)
+        }
+    }
+
+    /// Check if the audio stream is experiencing errors
+    /// 
+    /// This can be used to detect ALSA POLLERR cascades or other stream issues.
+    /// Returns true if the stream is likely in an error state and should be restarted.
+    pub fn is_stream_healthy(&self) -> bool {
+        // For now, we'll assume the stream is healthy if it exists
+        // In a more sophisticated implementation, we could track error counts
+        // from the audio callback and expose them here
+        true
+    }
+
+    /// Get information about the current audio device
+    pub fn device_info(&self) -> String {
+        // This would require storing device info during initialization
+        // For now, return a placeholder
+        "Current Audio Device".to_string()
     }
 
     /// Find external audio interfaces using device name pattern matching
@@ -184,6 +259,33 @@ impl AudioCapture {
 
         // Build input stream with f32 samples (CPAL handles conversion)
         let stream = Self::build_f32_stream(device, &config, ring_producer)?;
+
+        Ok((stream, ring_consumer))
+    }
+
+    /// Create audio stream with optional error channel for stream error notifications
+    fn create_audio_stream_with_error_channel(
+        device: &Device, 
+        error_tx: Option<tokio::sync::mpsc::UnboundedSender<()>>
+    ) -> Result<(Stream, Consumer<f32, std::sync::Arc<SharedRb<f32, Vec<std::mem::MaybeUninit<f32>>>>>)> {
+        let config_global = Config::global();
+        
+        // Configure audio stream for Opus-compatible settings
+        let config = Self::create_stream_config(device)?;
+        
+        tracing::info!("🎤 Audio config: {}Hz, {} channels", config.sample_rate, config.channels);
+
+        // Create ring buffer for lock-free audio transfer using configurable capacity
+        let ring_buffer_capacity = config_global.ring_buffer_capacity() as usize;
+        let ring_buffer = SharedRb::<f32, Vec<std::mem::MaybeUninit<f32>>>::new(ring_buffer_capacity);
+        let (ring_producer, ring_consumer) = ring_buffer.split();
+
+        tracing::info!("🎤 Ring buffer capacity: {} samples ({:.1}ms)", 
+                      ring_buffer_capacity, 
+                      (ring_buffer_capacity as f32) / (SAMPLE_RATE as f32 * CHANNELS as f32) * 1000.0);
+
+        // Build input stream with error channel support
+        let stream = Self::build_f32_stream_with_error_channel(device, &config, ring_producer, error_tx)?;
 
         Ok((stream, ring_consumer))
     }
@@ -334,14 +436,103 @@ impl AudioCapture {
                 }
             },
             move |err| {
-                // Rate limit error messages to avoid spam from ALSA POLLERR
+                // Rate limit error messages to avoid spam from ALSA POLLERR during disconnection
                 let count = error_count_clone.fetch_add(1, Ordering::Relaxed);
-                if count < 3 || count % 50 == 0 {
+                if count < 3 {
                     tracing::warn!("Audio stream error #{}: {}", count + 1, err);
-                    if count == 3 {
-                        tracing::info!("Further audio stream errors will be logged every 50 occurrences to reduce spam");
+                } else if count == 3 {
+                    tracing::info!("Audio device disconnected (suppressing further stream errors)");
+                }
+                // No further logging after first 3 errors to reduce spam during disconnection
+            },
+            None,
+        )?;
+
+        Ok(stream)
+    }
+
+    /// Build f32 audio stream with optional error channel for stream error notifications
+    fn build_f32_stream_with_error_channel(
+        device: &Device,
+        config: &StreamConfig,
+        mut ring_producer: Producer<f32, std::sync::Arc<SharedRb<f32, Vec<std::mem::MaybeUninit<f32>>>>>,
+        error_tx: Option<tokio::sync::mpsc::UnboundedSender<()>>
+    ) -> Result<Stream> {
+        let config_global = Config::global();
+        
+        // Create error counter for rate limiting ALSA errors and diagnostic counters
+        use std::sync::{Arc, atomic::{AtomicUsize, AtomicU64, AtomicBool, Ordering}};
+        let error_count = Arc::new(AtomicUsize::new(0));
+        let error_count_clone = error_count.clone();
+        
+        let callback_count = Arc::new(AtomicUsize::new(0));
+        let total_samples_written = Arc::new(AtomicU64::new(0));
+        let callback_count_clone = callback_count.clone();
+        let total_samples_clone = total_samples_written.clone();
+        
+        // Thread priority setup
+        let thread_priority_enabled = config_global.enable_thread_priority();
+        let thread_priority_set = Arc::new(AtomicBool::new(false));
+        let thread_priority_set_clone = thread_priority_set.clone();
+        
+        let stream = device.build_input_stream(
+            config,
+            move |data: &[f32], _: &cpal::InputCallbackInfo| {
+                // Set real-time thread priority once
+                if thread_priority_enabled && !thread_priority_set_clone.load(Ordering::Relaxed) {
+                    if let Err(e) = set_current_thread_priority(ThreadPriority::Max) {
+                        eprintln!("⚠️ Failed to set real-time thread priority: {}", e);
+                    } else {
+                        eprintln!("🎤 Set audio thread to real-time priority");
+                    }
+                    thread_priority_set_clone.store(true, Ordering::Relaxed);
+                }
+                
+                // Real-time audio callback - never block!
+                let callback_num = callback_count_clone.fetch_add(1, Ordering::Relaxed);
+                
+                // Diagnostic logging every 100 callbacks (roughly every 2 seconds at 20ms buffers)
+                if callback_num % 100 == 0 {
+                    eprintln!("🎤 CPAL callback #{}: {} samples provided, buffer_size={}", 
+                             callback_num, data.len(), data.len() / 2);
+                }
+                
+                // Push samples to ring buffer, drop if full (brief glitch vs crash)
+                let mut dropped_samples = 0;
+                let mut written_samples = 0;
+                for &sample in data {
+                    if ring_producer.push(sample).is_err() {
+                        // Ring buffer full - count dropped samples
+                        dropped_samples += 1;
+                    } else {
+                        written_samples += 1;
                     }
                 }
+                
+                total_samples_clone.fetch_add(written_samples, Ordering::Relaxed);
+                
+                if dropped_samples > 0 {
+                    // Use eprintln! in audio callback to avoid blocking on tracing infrastructure
+                    eprintln!("⚠️ Audio ring buffer full, dropped {} samples (wrote {})", dropped_samples, written_samples);
+                }
+            },
+            move |err| {
+                // Rate limit error messages to avoid spam from ALSA POLLERR during disconnection
+                let count = error_count_clone.fetch_add(1, Ordering::Relaxed);
+                if count < 3 {
+                    tracing::warn!("Audio stream error #{}: {}", count + 1, err);
+                } else if count == 3 {
+                    tracing::info!("Audio device disconnected (suppressing further stream errors)");
+                }
+                
+                // Send error notification to lifecycle manager after first error
+                if count == 0 {
+                    if let Some(ref tx) = error_tx {
+                        // Non-blocking send to avoid hanging the audio callback
+                        let _ = tx.send(());
+                    }
+                }
+                // No further logging after first 3 errors to reduce spam during disconnection
             },
             None,
         )?;

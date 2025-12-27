@@ -1,0 +1,523 @@
+/// Audio bot lifecycle state management
+/// 
+/// This module defines the state machine and lifecycle management for the audio bot,
+/// handling transitions between different states based on device availability and errors.
+
+use std::sync::Arc;
+use std::time::Instant;
+use anyhow::Result;
+use uuid::Uuid;
+use mediasoup::producer::Producer;
+use ringbuf::{SharedRb, Consumer, Producer as RingProducer};
+use tokio::task::JoinHandle;
+
+use crate::lib::audio::{
+    audio_device_monitor::{AudioDeviceMonitor, DeviceEvent},
+    audio_capture::AudioCapture,
+    encoder::AudioEncoder,
+};
+
+/// Audio bot operational state
+#[derive(Debug, Clone, PartialEq)]
+pub enum AudioBotState {
+    /// Waiting for a USB audio device to be connected
+    WaitingForDevice,
+    /// Device found, attempting to initialize audio capture
+    Initializing { device_name: String },
+    /// Running normally with audio streaming
+    Running { 
+        device_name: String,
+        started_at: Instant,
+    },
+    /// Device error detected, cleaning up before retry
+    DeviceError { 
+        device_name: String,
+        error: String,
+        retry_at: Instant,
+    },
+    /// Shutting down gracefully
+    Shutdown,
+}
+
+impl AudioBotState {
+    /// Check if the bot is actively streaming audio
+    pub fn is_streaming(&self) -> bool {
+        matches!(self, AudioBotState::Running { .. })
+    }
+
+    /// Check if the bot should attempt device initialization
+    pub fn should_initialize(&self) -> bool {
+        matches!(self, AudioBotState::WaitingForDevice | AudioBotState::Initializing { .. })
+    }
+
+    /// Check if the bot is in an error state and ready to retry
+    pub fn should_retry(&self) -> bool {
+        match self {
+            AudioBotState::DeviceError { retry_at, .. } => Instant::now() >= *retry_at,
+            _ => false,
+        }
+    }
+
+    /// Get current device name if available
+    pub fn device_name(&self) -> Option<&str> {
+        match self {
+            AudioBotState::Initializing { device_name } 
+            | AudioBotState::Running { device_name, .. }
+            | AudioBotState::DeviceError { device_name, .. } => Some(device_name),
+            _ => None,
+        }
+    }
+}
+
+/// Audio capture components that need lifecycle management
+pub struct AudioCaptureComponents {
+    /// Audio capture instance
+    pub capture: AudioCapture,
+    /// Device name for tracking
+    pub device_name: String,
+}
+
+/// Audio encoding components
+pub struct AudioEncoderComponents {
+    /// Encoder task handle
+    pub encoder_handle: JoinHandle<()>,
+    /// Shutdown signal sender
+    pub shutdown_tx: tokio::sync::mpsc::Sender<()>,
+    /// When the encoder was started (to avoid immediate failure detection)
+    pub started_at: Instant,
+}
+
+/// Lifecycle manager for audio bot components
+pub struct AudioLifecycleManager {
+    /// Current state of the audio bot
+    pub state: AudioBotState,
+    /// Device monitor for hot-plug detection
+    pub device_monitor: AudioDeviceMonitor,
+    /// Current audio capture components (if running)
+    pub capture_components: Option<AudioCaptureComponents>,
+    /// Current encoder components (if running)
+    pub encoder_components: Option<AudioEncoderComponents>,
+    /// MediaSoup DirectProducer (persistent)
+    pub direct_producer: Arc<Producer>,
+    /// Room ID (persistent)
+    pub room_id: Uuid,
+    /// Retry delay for error recovery
+    retry_delay: std::time::Duration,
+    /// Device rescan trigger (to force immediate device check on encoder failure)
+    rescan_trigger: tokio::sync::mpsc::UnboundedSender<()>,
+    rescan_receiver: tokio::sync::mpsc::UnboundedReceiver<()>,
+    /// Stream error receiver (for immediate error detection from audio capture)
+    stream_error_rx: Option<tokio::sync::mpsc::UnboundedReceiver<()>>,
+    /// Stream error sender (to create error channels for AudioCapture)
+    stream_error_tx: tokio::sync::mpsc::UnboundedSender<()>,
+}
+
+impl AudioLifecycleManager {
+    /// Create a new lifecycle manager
+    /// 
+    /// # Arguments
+    /// * `room_id` - ID of the persistent audio bot room
+    /// * `direct_producer` - MediaSoup DirectProducer for audio injection
+    pub fn new(room_id: Uuid, direct_producer: Arc<Producer>) -> Self {
+        let (rescan_trigger, rescan_receiver) = tokio::sync::mpsc::unbounded_channel();
+        let (stream_error_tx, stream_error_rx) = tokio::sync::mpsc::unbounded_channel();
+        
+        Self {
+            state: AudioBotState::WaitingForDevice,
+            device_monitor: AudioDeviceMonitor::with_default_interval(),
+            capture_components: None,
+            encoder_components: None,
+            direct_producer,
+            room_id,
+            retry_delay: std::time::Duration::from_secs(5), // Wait 5s before retry after error
+            rescan_trigger,
+            rescan_receiver,
+            stream_error_rx: Some(stream_error_rx),
+            stream_error_tx,
+        }
+    }
+
+    /// Start the lifecycle management loop
+    /// 
+    /// This runs the main state machine that handles:
+    /// - Device monitoring and hot-plug events
+    /// - Audio capture initialization/cleanup
+    /// - Error detection and recovery
+    /// - State transitions
+    pub async fn run(mut self) -> Result<()> {
+        tracing::info!(
+            room_id = %self.room_id,
+            "🔄 Starting audio bot lifecycle management"
+        );
+
+        // Start device monitoring
+        let mut device_events = self.device_monitor.monitor_devices().await;
+
+        // Main lifecycle loop
+        loop {
+            tokio::select! {
+                // Handle device events
+                Some(event) = device_events.recv() => {
+                    self.handle_device_event(event).await?;
+                }
+
+                // Handle forced device rescans (triggered by encoder failures)
+                _ = self.rescan_receiver.recv() => {
+                    tracing::info!(
+                        room_id = %self.room_id,
+                        "🔄 Forced device rescan triggered"
+                    );
+                    // Force an immediate device scan by creating a one-shot event
+                    match self.device_monitor.scan_device().await {
+                        Ok(Some(device)) => {
+                            let event = DeviceEvent::Connected { name: device.name };
+                            self.handle_device_event(event).await?;
+                        }
+                        Ok(None) => {
+                            let event = DeviceEvent::NoDevices;
+                            self.handle_device_event(event).await?;
+                        }
+                        Err(e) => {
+                            tracing::warn!("Forced device rescan failed: {}", e);
+                        }
+                    }
+                }
+
+                // Handle stream errors from AudioCapture
+                _ = self.stream_error_rx.as_mut().unwrap().recv(), if self.stream_error_rx.is_some() => {
+                    tracing::warn!(
+                        room_id = %self.room_id,
+                        "🚨 Audio stream error detected, triggering device disconnection handling"
+                    );
+                    
+                    // Handle this as a device disconnection event
+                    if let Some(current_device) = self.state.device_name().map(|s| s.to_string()) {
+                        tracing::info!(
+                            room_id = %self.room_id,
+                            device = %current_device,
+                            "Converting stream error to device disconnection event"
+                        );
+                        let event = DeviceEvent::Disconnected { name: current_device };
+                        self.handle_device_event(event).await?;
+                    }
+                }
+
+                // Check for encoder errors or completion (only if encoder has been running for a bit)
+                _ = tokio::time::sleep(std::time::Duration::from_millis(100)), if self.encoder_components.is_some() => {
+                    // Only check encoder status if it's been running for at least 1 second
+                    if let Some(ref encoder_components) = self.encoder_components {
+                        let running_duration = encoder_components.started_at.elapsed();
+                        if running_duration > std::time::Duration::from_secs(1) && encoder_components.encoder_handle.is_finished() {
+                            tracing::error!(
+                                room_id = %self.room_id,
+                                duration = ?running_duration,
+                                "❌ Audio encoder task completed unexpectedly after running for {:?}", running_duration
+                            );
+                            self.handle_encoder_completion().await?;
+                        }
+                    }
+                }
+
+                // Periodic state maintenance
+                _ = tokio::time::sleep(std::time::Duration::from_secs(1)) => {
+                    self.maintain_state().await?;
+                }
+            }
+        }
+    }
+
+    /// Handle device plug/unplug events
+    async fn handle_device_event(&mut self, event: DeviceEvent) -> Result<()> {
+        match event {
+            DeviceEvent::Connected { name } => {
+                tracing::info!(
+                    room_id = %self.room_id,
+                    device = %name,
+                    "🔌 Device connected, attempting to initialize"
+                );
+
+                // Only initialize if we're waiting or in error state
+                tracing::debug!(
+                    room_id = %self.room_id,
+                    current_state = ?self.state,
+                    "Checking if should initialize for connected device"
+                );
+                if self.state.should_initialize() || self.state.should_retry() {
+                    self.state = AudioBotState::Initializing { device_name: name.clone() };
+                    self.initialize_audio_capture(name).await?;
+                } else {
+                    tracing::warn!(
+                        room_id = %self.room_id,
+                        current_state = ?self.state,
+                        "Device connected but not initializing due to current state"
+                    );
+                }
+            },
+
+            DeviceEvent::Disconnected { name } => {
+                tracing::warn!(
+                    room_id = %self.room_id,
+                    device = %name,
+                    current_state = ?self.state,
+                    "🔌 Device disconnected, cleaning up"
+                );
+
+                // Clean up current capture if it matches the disconnected device
+                if let Some(current_name) = self.state.device_name() {
+                    if current_name == name {
+                        tracing::info!(
+                            room_id = %self.room_id,
+                            device = %name,
+                            "Device name matches, cleaning up and transitioning to WaitingForDevice"
+                        );
+                        self.cleanup_audio_capture().await?;
+                        self.state = AudioBotState::WaitingForDevice;
+                    } else {
+                        tracing::debug!(
+                            room_id = %self.room_id,
+                            disconnected_device = %name,
+                            current_device = %current_name,
+                            "Disconnected device doesn't match current device"
+                        );
+                    }
+                } else {
+                    tracing::debug!(
+                        room_id = %self.room_id,
+                        "No current device to clean up"
+                    );
+                }
+            },
+
+            DeviceEvent::NoDevices => {
+                tracing::info!(
+                    room_id = %self.room_id,
+                    "🔍 No USB audio devices available"
+                );
+
+                if !matches!(self.state, AudioBotState::WaitingForDevice) {
+                    self.cleanup_audio_capture().await?;
+                    self.state = AudioBotState::WaitingForDevice;
+                }
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Initialize audio capture for a detected device
+    async fn initialize_audio_capture(&mut self, device_name: String) -> Result<()> {
+        // Clean up any existing capture first
+        self.cleanup_audio_capture().await?;
+
+        // Try to create new audio capture with stream error channel
+        match AudioCapture::try_new_usb_only_with_error_channel(Some(self.stream_error_tx.clone())).await {
+            Ok(Some((capture, ring_consumer))) => {
+                tracing::info!(
+                    room_id = %self.room_id,
+                    device = %device_name,
+                    "✅ Audio capture initialized successfully"
+                );
+
+                // Store the capture components
+                self.capture_components = Some(AudioCaptureComponents {
+                    capture,
+                    device_name: device_name.clone(),
+                });
+
+                // Start encoder with new ring buffer consumer
+                self.start_encoder_with_consumer(ring_consumer).await?;
+
+                // Update state to running
+                self.state = AudioBotState::Running {
+                    device_name,
+                    started_at: Instant::now(),
+                };
+            },
+
+            Ok(None) => {
+                tracing::warn!(
+                    room_id = %self.room_id,
+                    "🔍 No USB audio device found during initialization"
+                );
+                self.state = AudioBotState::WaitingForDevice;
+            },
+
+            Err(e) => {
+                tracing::error!(
+                    room_id = %self.room_id,
+                    device = %device_name,
+                    error = %e,
+                    "❌ Failed to initialize audio capture"
+                );
+
+                self.state = AudioBotState::DeviceError {
+                    device_name,
+                    error: e.to_string(),
+                    retry_at: Instant::now() + self.retry_delay,
+                };
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Start the audio encoder with a ring buffer consumer
+    async fn start_encoder_with_consumer(&mut self, ring_consumer: Consumer<f32, std::sync::Arc<SharedRb<f32, Vec<std::mem::MaybeUninit<f32>>>>>) -> Result<()> {
+        // Stop existing encoder if running
+        self.stop_encoder().await?;
+
+        let (shutdown_tx, shutdown_rx) = tokio::sync::mpsc::channel(1);
+
+        // Create encoder (takes ownership of ring_consumer)
+        let encoder = AudioEncoder::new(
+            self.direct_producer.clone(),
+            ring_consumer,
+            shutdown_rx,
+        )?;
+
+        // Start encoder task
+        let encoder_handle = tokio::spawn(async move {
+            encoder.run().await;
+        });
+
+        self.encoder_components = Some(AudioEncoderComponents {
+            encoder_handle,
+            shutdown_tx,
+            started_at: Instant::now(),
+        });
+
+        tracing::info!(
+            room_id = %self.room_id,
+            "🎵 Audio encoder started"
+        );
+
+        Ok(())
+    }
+
+    /// Stop the audio encoder
+    async fn stop_encoder(&mut self) -> Result<()> {
+        if let Some(encoder_components) = self.encoder_components.take() {
+            // Send shutdown signal
+            let _ = encoder_components.shutdown_tx.send(()).await;
+            
+            // Wait for encoder task to complete (with timeout)
+            let _ = tokio::time::timeout(
+                std::time::Duration::from_secs(2),
+                encoder_components.encoder_handle
+            ).await;
+
+            tracing::info!(
+                room_id = %self.room_id,
+                "🛑 Audio encoder stopped"
+            );
+        }
+        Ok(())
+    }
+
+    /// Clean up all audio capture components
+    async fn cleanup_audio_capture(&mut self) -> Result<()> {
+        // Stop encoder first
+        self.stop_encoder().await?;
+
+        // Clean up capture components
+        if let Some(_capture_components) = self.capture_components.take() {
+            tracing::info!(
+                room_id = %self.room_id,
+                "🧹 Audio capture components cleaned up"
+            );
+        }
+
+        Ok(())
+    }
+
+    /// Check encoder status for errors
+    async fn check_encoder_status(&mut self) {
+        if let Some(ref mut encoder_components) = self.encoder_components {
+            if encoder_components.encoder_handle.is_finished() {
+                // Get the actual error from the task
+                let encoder_handle = std::mem::replace(&mut encoder_components.encoder_handle, 
+                    tokio::spawn(async {}));
+                
+                match encoder_handle.await {
+                    Ok(()) => {
+                        tracing::warn!(
+                            room_id = %self.room_id,
+                            "⚠️ Audio encoder task completed successfully but unexpectedly"
+                        );
+                    },
+                    Err(join_error) => {
+                        tracing::error!(
+                            room_id = %self.room_id,
+                            error = %join_error,
+                            "❌ Audio encoder task panicked"
+                        );
+                    }
+                }
+            }
+        }
+    }
+
+    /// Handle encoder task completion (usually indicates an error)
+    async fn handle_encoder_completion(&mut self) -> Result<()> {
+        if let Some(current_device) = self.state.device_name().map(|s| s.to_string()) {
+            tracing::error!(
+                room_id = %self.room_id,
+                device = %current_device,
+                "❌ Audio encoder failed, entering error state"
+            );
+
+            self.cleanup_audio_capture().await?;
+            
+            self.state = AudioBotState::DeviceError {
+                device_name: current_device,
+                error: "Encoder task failed".to_string(),
+                retry_at: Instant::now() + self.retry_delay,
+            };
+
+            // Trigger immediate device rescan to check if device is still functional
+            tracing::info!(
+                room_id = %self.room_id,
+                "🔄 Triggering device rescan after encoder failure"
+            );
+            let _ = self.rescan_trigger.send(());
+        }
+
+        Ok(())
+    }
+
+    /// Perform periodic state maintenance
+    async fn maintain_state(&mut self) -> Result<()> {
+        // Check if we should retry after error
+        if self.state.should_retry() {
+            if let Some(device_name) = self.state.device_name().map(|s| s.to_string()) {
+                tracing::info!(
+                    room_id = %self.room_id,
+                    device = %device_name,
+                    "🔄 Retrying audio capture after error"
+                );
+                self.state = AudioBotState::Initializing { device_name: device_name.clone() };
+                self.initialize_audio_capture(device_name).await?;
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Get current state
+    pub fn current_state(&self) -> &AudioBotState {
+        &self.state
+    }
+
+    /// Gracefully shutdown the lifecycle manager
+    pub async fn shutdown(mut self) -> Result<()> {
+        tracing::info!(
+            room_id = %self.room_id,
+            "🛑 Shutting down audio lifecycle manager"
+        );
+
+        self.state = AudioBotState::Shutdown;
+        self.cleanup_audio_capture().await?;
+
+        Ok(())
+    }
+}

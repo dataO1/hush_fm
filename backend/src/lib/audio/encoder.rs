@@ -107,13 +107,16 @@ impl AudioEncoder {
     /// 
     /// This runs in a dedicated async task and continuously processes available audio frames.
     /// Uses adaptive processing to maintain low latency and prevent buffer overruns.
+    /// Handles ring buffer underruns gracefully by sending silence frames.
     /// The task will run until a shutdown signal is received or an unrecoverable error occurs.
     pub async fn run(mut self) {
         tracing::info!("🎵 Starting audio encoding pipeline with continuous processing");
 
         let mut frame_count = 0u64;
         let mut total_samples_consumed = 0u64;
+        let mut silence_frames_sent = 0u64;
         let mut last_metrics_log = std::time::Instant::now();
+        let mut last_audio_time = std::time::Instant::now();
         let start_time = std::time::Instant::now();
 
         // Continuous audio processing loop
@@ -147,12 +150,13 @@ impl AudioEncoder {
             }
             
             if available_samples >= samples_needed {
-                // Process the frame
+                // Process the frame with real audio data
                 if let Err(e) = self.process_audio_frame(frame_count).await {
                     tracing::error!("Audio encoding error: {}", e);
                 }
                 frame_count += 1;
                 total_samples_consumed += samples_needed as u64;
+                last_audio_time = std::time::Instant::now();
                 
                 // Adaptive processing: If buffer is getting full, process multiple frames to catch up
                 let catch_up_threshold = samples_needed * 3; // 3 frames worth
@@ -180,8 +184,8 @@ impl AudioEncoder {
                     let consumption_rate = total_samples_consumed as f64 / elapsed;
                     let expected_rate = 48000.0 * 2.0; // 48kHz stereo
                     
-                    tracing::info!("🎵 Audio pipeline: {} frames, fill: {:.1}%, rate: {:.0} Hz (expected: {:.0} Hz)", 
-                                 frame_count, fill_ratio * 100.0, consumption_rate, expected_rate);
+                    tracing::info!("🎵 Audio pipeline: {} frames ({} audio, {} silence), fill: {:.1}%, rate: {:.0} Hz (expected: {:.0} Hz)", 
+                                 frame_count, frame_count - silence_frames_sent, silence_frames_sent, fill_ratio * 100.0, consumption_rate, expected_rate);
                     
                     if (consumption_rate - expected_rate).abs() > 1000.0 {
                         tracing::warn!("⚠️ Sample rate mismatch: consuming at {:.0} Hz vs expected {:.0} Hz", 
@@ -191,12 +195,29 @@ impl AudioEncoder {
                     last_metrics_log = std::time::Instant::now();
                 }
             } else {
-                // Not enough data, short sleep to avoid busy waiting
-                tokio::time::sleep(Duration::from_micros(1000)).await; // 1ms
+                // Ring buffer underrun - send silence to maintain stream timing
+                let silence_threshold = Duration::from_millis(50); // Send silence after 50ms without audio
+                
+                if last_audio_time.elapsed() > silence_threshold {
+                    if let Err(e) = self.encode_and_send_silence(frame_count).await {
+                        tracing::error!("Silence frame encoding error: {}", e);
+                    }
+                    frame_count += 1;
+                    silence_frames_sent += 1;
+                    
+                    // Log device disconnection after extended silence (very rarely)
+                    if silence_frames_sent % 6000 == 0 { // Every ~2 minutes of silence
+                        tracing::warn!("🔇 Sending silence frames - no audio device data (frame {})", silence_frames_sent);
+                    }
+                } else {
+                    // Short sleep to avoid busy waiting when we just started or recently had audio
+                    tokio::time::sleep(Duration::from_micros(1000)).await; // 1ms
+                }
             }
         }
 
-        tracing::info!("✅ Audio encoding pipeline stopped after processing {} frames", frame_count);
+        tracing::info!("✅ Audio encoding pipeline stopped after processing {} frames (duration: {:.2}s)", 
+                      frame_count, start_time.elapsed().as_secs_f32());
     }
 
     /// Process a single audio frame (configurable duration worth of audio)
@@ -247,7 +268,6 @@ impl AudioEncoder {
 
     /// Encode PCM audio and send via DirectProducer
     async fn encode_and_send_audio(&mut self, pcm_data: &[f32], frame_count: u64) -> Result<()> {
-        tracing::debug!("Encoding {} PCM samples", pcm_data.len());
         
         // Validate input data
         if pcm_data.is_empty() {
@@ -263,10 +283,7 @@ impl AudioEncoder {
         // Encode PCM to Opus
         let mut opus_output = vec![0u8; 4000]; // Opus max frame size
         let opus_len = match self.opus_encoder.encode_float(pcm_data, &mut opus_output) {
-            Ok(len) => {
-                tracing::debug!("Opus encoding successful: {} bytes", len);
-                len
-            }
+            Ok(len) => len,
             Err(e) => {
                 tracing::error!("Opus encoding failed with error: {:?}", e);
                 tracing::error!("PCM data length: {}, first few samples: {:?}", 
@@ -313,8 +330,8 @@ impl AudioEncoder {
             anyhow::bail!("Expected DirectProducer for audio bot");
         }
 
-        // Log occasionally for monitoring
-        if self.rtp_packetizer.current_sequence() % 250 == 0 { // Every 5 seconds
+        // Log occasionally for monitoring (much less frequently)
+        if self.rtp_packetizer.current_sequence() % 3000 == 0 { // Every 60 seconds
             tracing::debug!(
                 "🎵 Sent audio: seq={}, ts={}, opus_len={}",
                 self.rtp_packetizer.current_sequence(),
@@ -328,13 +345,9 @@ impl AudioEncoder {
 
     /// Encode and send a silence frame to maintain stream timing
     async fn encode_and_send_silence(&mut self, frame_count: u64) -> Result<()> {
-        tracing::debug!("Encoding silence frame");
-        
         // Create silent PCM frame
         let silence_samples = (self.config.opus_frame_size() * OPUS_CHANNELS as u32) as usize;
         let silence_pcm = vec![0f32; silence_samples];
-        
-        tracing::debug!("Created silence frame with {} samples", silence_pcm.len());
 
         // Encode and send the silence
         self.encode_and_send_audio(&silence_pcm, frame_count).await

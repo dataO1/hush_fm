@@ -84,9 +84,13 @@
           HUSHFM_MEDIASOUP_LISTEN_IP = "127.0.0.1";
           HUSHFM_MEDIASOUP_ENABLE_TCP = "true";
           HUSHFM_MEDIASOUP_EXPOSE_INTERNAL_IP = "false";
+          HUSHFM_MEDIASOUP_WORKER_DEBUG = "false";
 
           # Monitoring configuration for localhost development
           HUSHFM_STALE_LISTENER_TIMEOUT = "0";
+
+          # Rust logging configuration - suppress verbose debug logs
+          RUST_LOG = "info,server::lib::audio::encoder=warn,server::lib::audio::audio_device_monitor=info,mediasoup=info,mediasoup::worker=info";
 
           # Audio optimization configuration
           HUSHFM_OPUS_BITRATE = "256000";        # 256kbps for transparent quality

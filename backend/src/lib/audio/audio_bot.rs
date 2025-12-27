@@ -1,10 +1,11 @@
 /// AudioBot orchestrator with lifecycle management
 /// 
 /// This is the main coordinator that manages the entire audio bot lifecycle:
-/// - Audio capture from default device
-/// - Room creation with DirectTransport 
+/// - Room creation with DirectTransport (persistent)
+/// - Device hot-plug monitoring
+/// - Audio capture lifecycle management
+/// - Graceful error recovery and restart
 /// - Encoder pipeline coordination
-/// - Graceful shutdown handling
 
 use std::sync::Arc;
 use uuid::Uuid;
@@ -13,72 +14,75 @@ use tokio::task::JoinHandle;
 
 use crate::lib::domain::Lobby;
 use crate::lib::audio::{
-    audio_capture::AudioCapture,
     audio_room::create_audio_bot_room,
-    encoder::AudioEncoder,
+    audio_lifecycle::AudioLifecycleManager,
 };
 
-/// AudioBot manages the complete audio streaming pipeline
+/// AudioBot manages the complete audio streaming pipeline with lifecycle management
 pub struct AudioBot {
-    /// Room ID of the created audio bot room
+    /// Room ID of the created audio bot room (persistent)
     pub room_id: Uuid,
-    /// Audio capture system (keeping this alive maintains audio input)
-    _audio_capture: AudioCapture,
-    /// Encoder task handle (keeping this alive maintains the encoding pipeline)  
-    _encoder_task: JoinHandle<()>,
-    /// Shutdown signal sender
+    /// Lifecycle manager task handle
+    lifecycle_handle: JoinHandle<Result<()>>,
+    /// Shutdown signal for lifecycle manager
     shutdown_tx: tokio::sync::mpsc::Sender<()>,
 }
 
 impl AudioBot {
-    /// Create and start a new AudioBot with complete audio pipeline
+    /// Create and start a new AudioBot with lifecycle management
     /// 
     /// This creates:
-    /// 1. Audio capture from default input device
-    /// 2. Room with DirectTransport producer
-    /// 3. Encoder task that bridges capture -> RTP -> DirectProducer
-    /// 4. Proper lifecycle management for graceful shutdown
+    /// 1. Room with DirectTransport producer (persistent)
+    /// 2. Lifecycle manager for device monitoring and hot-plug support
+    /// 3. Automatic error recovery and device reconnection
+    /// 4. Graceful shutdown coordination
+    /// 
+    /// The room remains available even when no audio device is connected.
+    /// Audio streaming resumes automatically when a USB device is connected.
     /// 
     /// # Arguments
     /// * `lobby` - Lobby instance for room management
     /// 
     /// # Returns
-    /// * `AudioBot` - Running audio bot instance
+    /// * `AudioBot` - Running audio bot instance with lifecycle management
     pub async fn new(lobby: &Lobby) -> Result<Self> {
-        tracing::info!("🎵 Starting AudioBot initialization");
+        tracing::info!("🎵 Starting AudioBot with lifecycle management");
 
-        // Step 1: Initialize audio capture and get ring buffer consumer
-        let (audio_capture, ring_consumer) = AudioCapture::new()
-            .context("Failed to initialize audio capture")?;
-
-        // Step 2: Create room with DirectTransport
+        // Step 1: Create persistent room with DirectTransport
         let (room_id, direct_producer) = create_audio_bot_room(lobby).await
             .context("Failed to create audio bot room")?;
 
-        // Step 3: Create shutdown coordination
-        let (shutdown_tx, shutdown_rx) = tokio::sync::mpsc::channel(1);
+        tracing::info!(
+            room_id = %room_id,
+            "✅ Audio bot room created - starting lifecycle management"
+        );
 
-        // Step 4: Start encoder pipeline
-        let encoder = AudioEncoder::new(
-            direct_producer,
-            ring_consumer,
-            shutdown_rx,
-        ).context("Failed to create audio encoder")?;
+        // Step 2: Create lifecycle manager
+        let lifecycle_manager = AudioLifecycleManager::new(room_id, direct_producer);
 
-        // Spawn encoder task
-        let encoder_task = tokio::spawn(async move {
-            encoder.run().await;
+        // Step 3: Start lifecycle management task
+        let (shutdown_tx, mut shutdown_rx) = tokio::sync::mpsc::channel(1);
+        let lifecycle_handle = tokio::spawn(async move {
+            tokio::select! {
+                result = lifecycle_manager.run() => {
+                    tracing::info!("🔄 Lifecycle manager completed: {:?}", result);
+                    result
+                }
+                _ = shutdown_rx.recv() => {
+                    tracing::info!("🛑 Lifecycle manager shutdown requested");
+                    Ok(())
+                }
+            }
         });
 
         tracing::info!(
             room_id = %room_id,
-            "✅ AudioBot initialization complete - audio pipeline active"
+            "✅ AudioBot lifecycle management started"
         );
 
         Ok(Self {
             room_id,
-            _audio_capture: audio_capture,
-            _encoder_task: encoder_task,
+            lifecycle_handle,
             shutdown_tx,
         })
     }
@@ -91,25 +95,58 @@ impl AudioBot {
     /// Gracefully shutdown the audio bot
     /// 
     /// This stops:
-    /// 1. Audio encoder task via shutdown signal
-    /// 2. Audio capture (automatically when AudioCapture is dropped)
+    /// 1. Lifecycle manager task
+    /// 2. Audio capture and encoder (via lifecycle manager)
+    /// 3. Device monitoring
     /// 
     /// Note: The room remains in the lobby for any connected listeners
-    pub async fn shutdown(self) -> Result<()> {
+    pub async fn shutdown(mut self) -> Result<()> {
         tracing::info!(
             room_id = %self.room_id,
-            "🛑 Shutting down AudioBot"
+            "🛑 Shutting down AudioBot lifecycle management"
         );
 
-        // Send shutdown signal to encoder task
+        // Send shutdown signal to lifecycle manager
         if let Err(_) = self.shutdown_tx.send(()).await {
-            tracing::warn!("Encoder task may have already stopped");
+            tracing::warn!("Lifecycle manager task may have already stopped");
         }
 
-        tracing::info!(
-            room_id = %self.room_id,
-            "✅ AudioBot shutdown complete"
-        );
+        // Take ownership of the handle to avoid Drop trait conflict
+        let lifecycle_handle = std::mem::replace(&mut self.lifecycle_handle, 
+            tokio::spawn(async { Ok(()) }));
+
+        // Wait for lifecycle manager to complete (with timeout)
+        match tokio::time::timeout(
+            std::time::Duration::from_secs(5),
+            lifecycle_handle
+        ).await {
+            Ok(Ok(Ok(()))) => {
+                tracing::info!(
+                    room_id = %self.room_id,
+                    "✅ AudioBot shutdown complete"
+                );
+            },
+            Ok(Ok(Err(e))) => {
+                tracing::warn!(
+                    room_id = %self.room_id,
+                    error = %e,
+                    "⚠️ AudioBot shutdown with lifecycle error"
+                );
+            },
+            Ok(Err(join_error)) => {
+                tracing::warn!(
+                    room_id = %self.room_id,
+                    error = %join_error,
+                    "⚠️ AudioBot lifecycle task panicked"
+                );
+            },
+            Err(_) => {
+                tracing::warn!(
+                    room_id = %self.room_id,
+                    "⚠️ AudioBot shutdown timeout - lifecycle manager may still be running"
+                );
+            }
+        }
 
         Ok(())
     }
@@ -120,15 +157,15 @@ impl Drop for AudioBot {
     fn drop(&mut self) {
         tracing::info!(
             room_id = %self.room_id,
-            "🧹 AudioBot dropped - cleaning up resources"
+            "🧹 AudioBot dropped - cleaning up lifecycle management"
         );
 
         // Send shutdown signal if still available
         if let Ok(_) = self.shutdown_tx.try_send(()) {
-            tracing::debug!("Sent shutdown signal to encoder task");
+            tracing::debug!("Sent shutdown signal to lifecycle manager");
         }
         
-        // Audio capture and encoder task will be cleaned up automatically
-        // when their respective structs are dropped
+        // Abort the lifecycle task if needed
+        self.lifecycle_handle.abort();
     }
 }
