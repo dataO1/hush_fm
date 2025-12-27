@@ -90,7 +90,6 @@ export default function ConnectionStatusDot(props: ConnectionStatusDotProps) {
     switch (status()) {
       case 'streaming':
         return 'bg-gruvbox-green-bright animate-pulse'
-      case 'connecting':
       case 'setup':
         return 'bg-gruvbox-blue-bright animate-pulse'
       case 'paused':

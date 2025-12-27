@@ -5,7 +5,7 @@
  * Shows when listener joins a room and browser blocks autoplay.
  */
 
-import { Show, createEffect } from 'solid-js'
+import { createEffect } from 'solid-js'
 import type { JSX } from 'solid-js'
 
 interface UserInteractionModalProps {

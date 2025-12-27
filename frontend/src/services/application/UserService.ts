@@ -101,6 +101,62 @@ const createUserServiceImpl = () => {
   // Store active WebSocket connections for proper cleanup
   let activeRole = O.none<UserRoleType>()
 
+  // Internal helper function to cleanup DJ room on connection failure
+  const cleanupFailedDJConnection = () =>
+    Effect.gen(function* () {
+      const connectionAdapter = yield* ConnectionAdapter
+      const wsClient = yield* UserWebSocket
+      const mediaSoupClient = yield* MediaSoupClient
+      
+      console.info('🧹 UserService: Cleaning up failed DJ connection...')
+
+      // Send close command if we have a room connection
+      if (connectionAdapter.isRoomConnected()) {
+        try {
+          console.info('🧹 UserService: Sending close room command to backend...')
+          
+          // Create command using logging wrapper
+          const makeCloseRoomCommand = withSchemaLogging(CloseRoomCommandSchema, 'CloseRoomCommand')
+          const closeRoomCommand = yield* makeCloseRoomCommand({}).pipe(
+            Effect.mapError((error) => {
+              console.warn('⚠️ UserService: Failed to create close room command:', error)
+              return new UserServiceError({
+                cause: `Failed to create close room command: ${error}`,
+                role: 'dj',
+                operation: 'cleanupFailedDJConnection',
+                timestamp: new Date()
+              })
+            })
+          )
+
+          // Send close command (fire-and-forget, don't fail if it errors)
+          yield* wsClient.sendCommand<RoomClosedEvent>(closeRoomCommand).pipe(
+            Effect.catchAll((error) => {
+              console.warn('⚠️ UserService: Failed to send close room command (ignoring):', error)
+              return Effect.succeed(undefined) // Don't fail cleanup on close command error
+            })
+          )
+          
+          console.info('✅ UserService: Close room command sent successfully')
+        } catch (error) {
+          console.warn('⚠️ UserService: Error during close room command (ignoring):', error)
+        }
+      }
+
+      // Always cleanup MediaSoup resources
+      yield* mediaSoupClient.cleanup().pipe(
+        Effect.catchAll((error) => {
+          console.warn('⚠️ UserService: MediaSoup cleanup failed (ignoring):', error)
+          return Effect.succeed(undefined) // Don't fail on cleanup errors
+        })
+      )
+      
+      // Reset active role
+      activeRole = O.none()
+      
+      console.info('✅ UserService: Failed DJ connection cleanup completed')
+    })
+
   return {
     // ============= DJ Operations =============
 
@@ -180,17 +236,13 @@ const createUserServiceImpl = () => {
 
               // Create command using logging wrapper
               const makeConnectDjTransportCommand = withSchemaLogging(ConnectDjTransportCommandSchema, 'ConnectDjTransportCommand')
-              const connectTransportCommand = await Effect.runPromise(
-                makeConnectDjTransportCommand({
-                  transportId: O.some(transport.id),
-                  dtlsParameters
-                })
-              )
+              const connectTransportCommand = await makeConnectDjTransportCommand({
+                transportId: O.some(transport.id),
+                dtlsParameters
+              }).pipe(Effect.runPromise)
 
               // Send command and wait for response in one call
-              await Effect.runPromise(
-                wsClient.sendCommand<TransportConnectedEvent>(connectTransportCommand)
-              )
+              await wsClient.sendCommand<TransportConnectedEvent>(connectTransportCommand).pipe(Effect.runPromise)
               console.info('✅ UserService: Transport connected successfully')
             },
             onProduce: async (rtpParameters) => {
@@ -198,14 +250,10 @@ const createUserServiceImpl = () => {
 
               // Create command using logging wrapper
               const makeProduceCommand = withSchemaLogging(ProduceCommandSchema, 'ProduceCommand')
-              const produceCommand = await Effect.runPromise(
-                makeProduceCommand({ rtpParameters })
-              )
+              const produceCommand = await makeProduceCommand({ rtpParameters }).pipe(Effect.runPromise)
 
               // Send command and wait for response in one call
-              const producerEvent = await Effect.runPromise(
-                wsClient.sendCommand<ProducerCreatedEvent>(produceCommand)
-              )
+              const producerEvent = await wsClient.sendCommand<ProducerCreatedEvent>(produceCommand).pipe(Effect.runPromise)
               console.info('✅ UserService: Producer created successfully', { producerId: producerEvent.producerId })
               
               // Update connection state to STREAMING after successful producer creation
@@ -223,7 +271,25 @@ const createUserServiceImpl = () => {
             opusFec: true, // Forward Error Correction
             opusDtx: false, // Explicitly disable DTX
             opusMaxAverageBitrate: 128000 // Target 128kbps for high-quality music
-          }})
+          }}).pipe(
+            Effect.catchAll((error) => {
+              console.error('❌ UserService: createProducer failed, triggering cleanup:', error)
+              
+              // Use Effect.gen to compose cleanup with error propagation
+              return Effect.gen(function* () {
+                // Attempt cleanup but don't fail if it errors
+                yield* cleanupFailedDJConnection().pipe(
+                  Effect.catchAll((cleanupError) => {
+                    console.warn('⚠️ UserService: Cleanup failed during createProducer error:', cleanupError)
+                    return Effect.succeed(undefined)
+                  })
+                )
+                
+                // After cleanup, propagate the original error
+                return yield* Effect.fail(error)
+              })
+            })
+          )
 
           // Ensure audio adapter shows as playing when streaming starts
           const audioAdapter = yield* AudioAdapter
@@ -238,9 +304,9 @@ const createUserServiceImpl = () => {
           }
         } catch (error) {
           console.error('❌ UserService: Error in DJ publishing flow:', error)
-          // Cleanup MediaSoup resources on error
-          yield* mediaSoupClient.cleanup()
-          activeRole = O.none()
+          
+          // Perform comprehensive cleanup including sending close room command
+          yield* cleanupFailedDJConnection()
 
           throw error
         }
@@ -436,29 +502,18 @@ const createUserServiceImpl = () => {
         // 5. Create receive transport locally WITH event handlers
         console.info('🔧 UserService: Creating receive transport with event handlers...')
         yield* mediaSoupClient.createReceiveTransport(transportEvent.transportOptions, {
-          onConnect: (dtlsParameters): Promise<void> => {
+          onConnect: async (dtlsParameters) => {
             console.info('🔗 UserService: Transport connect event - sending DTLS params')
 
-            // Use Effect for proper error handling instead of Promise
-            // Create command using logging wrapper inside Promise context
+            // Create command using logging wrapper
             const makeConnectListenerTransportCommand = withSchemaLogging(ConnectListenerTransportCommandSchema, 'ConnectListenerTransportCommand')
+            const connectTransportCommand = await makeConnectListenerTransportCommand({
+              transportId: O.some(transportEvent.transportOptions.id),
+              dtlsParameters
+            }).pipe(Effect.runPromise)
 
-            return Effect.runPromise(
-              Effect.gen(function* () {
-                const connectTransportCommand = yield* makeConnectListenerTransportCommand({
-                  transportId: O.some(transportEvent.transportOptions.id),
-                  dtlsParameters
-                })
-
-                return yield* wsClient.sendCommand<TransportConnectedEvent>(connectTransportCommand)
-              }).pipe(
-                Effect.tap(() => Effect.sync(() =>
-                  console.info('✅ UserService: Transport connected successfully')
-                )),
-                Effect.mapError((error) => new Error(`Transport connect failed: ${error}`)),
-                Effect.asVoid
-              )
-            )
+            await wsClient.sendCommand<TransportConnectedEvent>(connectTransportCommand).pipe(Effect.runPromise)
+            console.info('✅ UserService: Transport connected successfully')
           }
         }).pipe(
           Effect.mapError((error) => new UserServiceError({

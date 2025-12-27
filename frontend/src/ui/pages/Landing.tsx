@@ -198,7 +198,7 @@ function LandingContent() {
             const result = await lobbyService.announceRoom(
               room.name,
               room.djName,
-              sessionId,
+              sessionId || '',
               O.getOrNull(room.description) || undefined,
               [...(room.tags || [])]
             ).pipe(

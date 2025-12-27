@@ -12,7 +12,7 @@
  * - Technical error handling
  */
 
-import { Effect, pipe, Context, Layer, Data, Option as O } from 'effect'
+import { Effect, pipe, Context, Layer, Data, Option as O, Deferred } from 'effect'
 import { Device, types } from 'mediasoup-client'
 
 // Import schema types only for our domain types
@@ -142,6 +142,11 @@ const createMediaSoupClientImpl = (connectionAdapter: Context.Tag.Service<Connec
   let activeProducer = O.none<types.Producer>()
   let activeConsumer = O.none<types.Consumer>()
   let connectionTimeoutId = O.none<NodeJS.Timeout>()
+  
+  // Internal connection state tracking (not exposed to adapter)
+  let transportConnectionState: RTCPeerConnectionState = 'new'
+  let iceGatheringState: RTCIceGatheringState = 'new'
+  let connectionDeferred = O.none<Deferred.Deferred<void, Error>>()
 
   // Helper function to clear connection timeout
   const clearConnectionTimeout = () => {
@@ -152,6 +157,46 @@ const createMediaSoupClientImpl = (connectionAdapter: Context.Tag.Service<Connec
         onSome: (timeoutId) => {
           clearTimeout(timeoutId)
           connectionTimeoutId = O.none()
+        }
+      })
+    )
+  }
+
+  // Helper function to create connection deferred
+  const createConnectionDeferred = () =>
+    Effect.gen(function* () {
+      const deferred = yield* Deferred.make<void, Error>()
+      connectionDeferred = O.some(deferred)
+      return deferred
+    })
+
+  // Helper function to wait for transport connection (checks current state, then waits for events)
+  const waitForConnection = (): Effect.Effect<void, Error> => {
+    // Check current state first
+    if (transportConnectionState === 'connected') {
+      console.info('🔗 MediaSoup: Connection already established')
+      return Effect.succeed(undefined)
+    }
+    
+    if (transportConnectionState === 'failed' || transportConnectionState === 'closed') {
+      const errorMsg = `Transport connection failed: state is ${transportConnectionState}`
+      console.error('❌ MediaSoup:', errorMsg)
+      return Effect.fail(new Error(errorMsg))
+    }
+    
+    // Still connecting - wait for the deferred that was set up earlier
+    return pipe(
+      connectionDeferred,
+      O.match({
+        onNone: () => {
+          // No deferred exists - this shouldn't happen if createConnectionDeferred was called earlier
+          const errorMsg = `No connection deferred found and state is ${transportConnectionState}`
+          console.error('❌ MediaSoup:', errorMsg)
+          return Effect.fail(new Error(errorMsg))
+        },
+        onSome: (deferred) => {
+          console.info('🔗 MediaSoup: Waiting for connection state change...')
+          return Deferred.await(deferred)
         }
       })
     )
@@ -187,6 +232,9 @@ const createMediaSoupClientImpl = (connectionAdapter: Context.Tag.Service<Connec
     transport.on('connectionstatechange', (state) => {
       console.info('🔄 MediaSoup: Transport connection state changed:', state)
       
+      // Update internal state
+      transportConnectionState = state as RTCPeerConnectionState
+      
       switch (state) {
         case 'connecting':
           connectionAdapter.setWebRTCState(WebrtcConnectionState.CONNECTING)
@@ -195,11 +243,39 @@ const createMediaSoupClientImpl = (connectionAdapter: Context.Tag.Service<Connec
           clearConnectionTimeout()
           connectionAdapter.setWebRTCState(WebrtcConnectionState.CONNECTED)
           connectionAdapter.clearError()
+          
+          // Resolve connection deferred if waiting
+          pipe(
+            connectionDeferred,
+            O.map((deferred) => {
+              Effect.runSync(Deferred.succeed(deferred, undefined))
+              connectionDeferred = O.none() // Clear the deferred
+            })
+          )
           break
         case 'failed':
         case 'closed':
           clearConnectionTimeout()
-          connectionAdapter.setWebRTCState(WebrtcConnectionState.DISCONNECTED)
+          
+          // Set error state with proper error information
+          const transportError = new TransportError({
+            cause: `WebRTC connection ${state}: ICE gathering state was ${iceGatheringState}. This usually indicates network connectivity issues or missing STUN server configuration.`,
+            operation: 'connect',
+            direction: 'send', // Will be overridden by specific producer/consumer context
+            timestamp: new Date()
+          })
+          
+          connectionAdapter.setConnectionError(transportError)
+          connectionAdapter.setWebRTCState(WebrtcConnectionState.ERROR)
+          
+          // Reject connection deferred if waiting
+          pipe(
+            connectionDeferred,
+            O.map((deferred) => {
+              Effect.runSync(Deferred.fail(deferred, new Error(`Transport connection ${state}: ICE gathering state was ${iceGatheringState}`)))
+              connectionDeferred = O.none() // Clear the deferred
+            })
+          )
           break
         case 'disconnected':
           connectionAdapter.setWebRTCState(WebrtcConnectionState.DISCONNECTING)
@@ -210,9 +286,22 @@ const createMediaSoupClientImpl = (connectionAdapter: Context.Tag.Service<Connec
     // Handle ICE gathering state changes
     transport.on('icegatheringstatechange', (state) => {
       console.info('🧊 MediaSoup: ICE gathering state changed:', state)
+      
+      // Update internal state
+      iceGatheringState = state as RTCIceGatheringState
+      
+      // Additional connection validation for ICE complete
       if (state === 'complete' && transport.connectionState === 'connected') {
         connectionAdapter.setWebRTCState(WebrtcConnectionState.CONNECTED)
       }
+    })
+
+    // Note: MediaSoup transport doesn't expose iceconnectionstatechange
+    // We rely on connectionstatechange for ICE connection status
+
+    // Handle ICE candidate errors for debugging
+    transport.on('icecandidateerror', (event) => {
+      console.warn('⚠️ MediaSoup: ICE candidate error:', event)
     })
   }
 
@@ -291,17 +380,7 @@ const createMediaSoupClientImpl = (connectionAdapter: Context.Tag.Service<Connec
                   transport.on('connect', ({ dtlsParameters }, callback, errback) => {
                     console.info('🔗 MediaSoup: Transport connect event fired')
                     
-                    // Wrap in Effect for proper error handling
-                    const connectEffect = Effect.tryPromise({
-                      try: () => handlers.onConnect!(dtlsParameters),
-                      catch: (error) => new MediaSoupError({
-                        cause: `Transport connect handler failed: ${String(error)}`,
-                        operation: 'connectTransport',
-                        timestamp: new Date()
-                      })
-                    })
-                    
-                    Effect.runPromise(connectEffect)
+                    handlers.onConnect!(dtlsParameters)
                       .then(() => {
                         console.info('✅ MediaSoup: Transport connect callback succeeded')
                         callback()
@@ -325,17 +404,7 @@ const createMediaSoupClientImpl = (connectionAdapter: Context.Tag.Service<Connec
                   transport.on('produce', ({ kind, rtpParameters }, callback, errback) => {
                     console.info('🎤 MediaSoup: Transport produce event fired', { kind })
                     
-                    // Wrap in Effect for proper error handling
-                    const produceEffect = Effect.tryPromise({
-                      try: () => handlers.onProduce!(rtpParameters, kind as types.MediaKind),
-                      catch: (error) => new MediaSoupError({
-                        cause: `Transport produce handler failed: ${String(error)}`,
-                        operation: 'createProducer',
-                        timestamp: new Date()
-                      })
-                    })
-                    
-                    Effect.runPromise(produceEffect)
+                    handlers.onProduce!(rtpParameters, kind as types.MediaKind)
                       .then((producerId) => {
                         console.info('✅ MediaSoup: Transport produce callback succeeded', { producerId })
                         callback({ id: producerId })
@@ -355,6 +424,11 @@ const createMediaSoupClientImpl = (connectionAdapter: Context.Tag.Service<Connec
                   })
                 }
 
+                // Reset internal state for new transport
+                transportConnectionState = 'new'
+                iceGatheringState = 'new'
+                connectionDeferred = O.none()
+                
                 // Set up connection state monitoring
                 handleTransportEvents(transport)
                 setupConnectionTimeout()
@@ -419,6 +493,11 @@ const createMediaSoupClientImpl = (connectionAdapter: Context.Tag.Service<Connec
                   })
                 }
 
+                // Reset internal state for new transport
+                transportConnectionState = 'new'
+                iceGatheringState = 'new'
+                connectionDeferred = O.none()
+                
                 // Set up connection state monitoring  
                 handleTransportEvents(transport)
                 setupConnectionTimeout()
@@ -483,8 +562,19 @@ const createMediaSoupClientImpl = (connectionAdapter: Context.Tag.Service<Connec
             timestamp: new Date()
           })),
           onSome: (transport) =>
-            pipe(
-              Effect.tryPromise({
+            Effect.gen(function* () {
+              console.info('🎵 MediaSoup: Creating producer...', {
+                initialConnectionState: transportConnectionState,
+                initialIceGatheringState: iceGatheringState
+              })
+              
+              // Set up connection monitoring BEFORE starting producer creation
+              if (transportConnectionState !== 'connected') {
+                yield* createConnectionDeferred()
+              }
+              
+              // Start producer creation (this will trigger transport.connect event)
+              const producer = yield* Effect.tryPromise({
                 try: () => transport.produce({
                   track,
                   ...options
@@ -495,12 +585,29 @@ const createMediaSoupClientImpl = (connectionAdapter: Context.Tag.Service<Connec
                   transportState: transport.connectionState,
                   timestamp: new Date()
                 })
-              }),
-              Effect.map(producer => {
-                activeProducer = O.some(producer)
-                return producer
               })
-            )
+              
+              // Now wait for the transport connection state to be resolved
+              yield* waitForConnection().pipe(
+                Effect.mapError(connectionError => {
+                  console.error('❌ MediaSoup: Producer waitForConnection failed:', connectionError)
+                  return new MediaSoupError({
+                    cause: String(connectionError),
+                    operation: 'createProducer',
+                    transportState: transport.connectionState,
+                    timestamp: new Date()
+                  })
+                })
+              )
+              
+              console.info('✅ MediaSoup: Producer created and transport connected', {
+                connectionState: transportConnectionState,
+                iceGatheringState: iceGatheringState
+              })
+              
+              activeProducer = O.some(producer)
+              return producer
+            })
         })
       ),
 
@@ -517,8 +624,19 @@ const createMediaSoupClientImpl = (connectionAdapter: Context.Tag.Service<Connec
             timestamp: new Date()
           })),
           onSome: (transport) =>
-            pipe(
-              Effect.tryPromise({
+            Effect.gen(function* () {
+              console.info('🎧 MediaSoup: Creating consumer...', {
+                initialConnectionState: transportConnectionState,
+                initialIceGatheringState: iceGatheringState
+              })
+              
+              // Set up connection monitoring BEFORE starting consumer creation  
+              if (transportConnectionState !== 'connected') {
+                yield* createConnectionDeferred()
+              }
+              
+              // Start consumer creation (this will trigger transport.connect event)
+              const consumer = yield* Effect.tryPromise({
                 try: () => transport.consume({
                   id: options.id,
                   producerId: options.producerId,
@@ -531,34 +649,51 @@ const createMediaSoupClientImpl = (connectionAdapter: Context.Tag.Service<Connec
                   transportState: transport.connectionState,
                   timestamp: new Date()
                 })
-              }),
-              Effect.map(consumer => {
-                activeConsumer = O.some(consumer)
-                
-                // Configure low-latency audio settings for optimal WiFi 6 performance
-                if (consumer.track && consumer.track.kind === 'audio') {
-                  try {
-                    // Get RTCRtpReceiver for playout delay configuration
-                    const receiver = consumer.rtpReceiver
-                    if (receiver && typeof receiver.playoutDelayHint !== 'undefined') {
-                      // Set to 0 for immediate playback (saves 200-500ms on WiFi 6)
-                      receiver.playoutDelayHint = 0
-                      console.info('🎧 Set playoutDelayHint to 0 for low latency')
-                    }
-                    
-                    // Set jitter buffer delay for newer browsers (Chrome/Edge)
-                    if (receiver && typeof receiver.jitterBufferDelayHint !== 'undefined') {
-                      receiver.jitterBufferDelayHint = 0
-                      console.info('🎧 Set jitterBufferDelayHint to 0 for minimal buffering')
-                    }
-                  } catch (error) {
-                    console.warn('⚠️ Failed to configure low-latency audio settings:', error)
-                  }
-                }
-                
-                return consumer
               })
-            )
+              
+              // Now wait for the transport connection state to be resolved
+              yield* waitForConnection().pipe(
+                Effect.mapError(connectionError => {
+                  console.error('❌ MediaSoup: Consumer waitForConnection failed:', connectionError)
+                  return new MediaSoupError({
+                    cause: String(connectionError),
+                    operation: 'createConsumer',
+                    transportState: transport.connectionState,
+                    timestamp: new Date()
+                  })
+                })
+              )
+              
+              console.info('✅ MediaSoup: Consumer created and transport connected', {
+                connectionState: transportConnectionState,
+                iceGatheringState: iceGatheringState
+              })
+              
+              activeConsumer = O.some(consumer)
+              
+              // Configure low-latency audio settings for optimal WiFi 6 performance
+              if (consumer.track && consumer.track.kind === 'audio') {
+                try {
+                  // Get RTCRtpReceiver for playout delay configuration
+                  const receiver = consumer.rtpReceiver as any // Type assertion for newer WebRTC APIs
+                  if (receiver && typeof receiver.playoutDelayHint !== 'undefined') {
+                    // Set to 0 for immediate playback (saves 200-500ms on WiFi 6)
+                    receiver.playoutDelayHint = 0
+                    console.info('🎧 Set playoutDelayHint to 0 for low latency')
+                  }
+                  
+                  // Set jitter buffer delay for newer browsers (Chrome/Edge)
+                  if (receiver && typeof receiver.jitterBufferDelayHint !== 'undefined') {
+                    receiver.jitterBufferDelayHint = 0
+                    console.info('🎧 Set jitterBufferDelayHint to 0 for minimal buffering')
+                  }
+                } catch (error) {
+                  console.warn('⚠️ Failed to configure low-latency audio settings:', error)
+                }
+              }
+              
+              return consumer
+            })
         })
       ),
 
@@ -684,6 +819,20 @@ const createMediaSoupClientImpl = (connectionAdapter: Context.Tag.Service<Connec
     cleanup: () => Effect.sync(() => {
       // Clear connection timeout
       clearConnectionTimeout()
+      
+      // Reject any pending connection deferred
+      pipe(
+        connectionDeferred,
+        O.map((deferred) => {
+          Effect.runSync(Deferred.fail(deferred, new Error('MediaSoup client cleanup - connection cancelled')))
+        })
+      )
+      connectionDeferred = O.none()
+      
+      // Reset internal state
+      transportConnectionState = 'new'
+      iceGatheringState = 'new'
+      
       // Close producer
       pipe(
         activeProducer,
