@@ -34,11 +34,17 @@ export function Oscilloscope(props: OscilloscopeProps) {
           sampleRate: 48000 // Match your hardware exactly
         });
 
-      // Handle suspended audio context (no user gesture)
+      // Handle suspended audio context - try to resume for Firefox compatibility
       if (audioContext.state === 'suspended') {
-        console.info('AudioContext suspended - waiting for user gesture to resume')
-        // Don't try to resume automatically - wait for user interaction
-        return
+        console.info('AudioContext suspended - attempting to resume for Firefox compatibility')
+        try {
+          await audioContext.resume()
+          console.info('✅ AudioContext resumed successfully')
+        } catch (error) {
+          console.warn('⚠️ Failed to resume AudioContext:', error)
+          console.info('AudioContext suspended - waiting for user gesture to resume')
+          return
+        }
       }
 
       analyser = audioContext.createAnalyser()
