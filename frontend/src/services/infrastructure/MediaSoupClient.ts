@@ -925,8 +925,13 @@ const createMediaSoupClientImpl = (connectionAdapter: Context.Tag.Service<Connec
         activeProducer,
         O.map(producer => {
           try {
-            if (!producer.closed) producer.close()
-          } catch {}
+            if (!producer.closed) {
+              console.info('🔌 MediaSoup: Closing producer during cleanup')
+              producer.close()
+            }
+          } catch (error) {
+            console.warn('⚠️ MediaSoup: Error closing producer during cleanup:', error)
+          }
         })
       )
       activeProducer = O.none()
@@ -936,8 +941,13 @@ const createMediaSoupClientImpl = (connectionAdapter: Context.Tag.Service<Connec
         activeConsumer,
         O.map(consumer => {
           try {
-            if (!consumer.closed) consumer.close()
-          } catch {}
+            if (!consumer.closed) {
+              console.info('🔌 MediaSoup: Closing consumer during cleanup')
+              consumer.close()
+            }
+          } catch (error) {
+            console.warn('⚠️ MediaSoup: Error closing consumer during cleanup:', error)
+          }
         })
       )
       activeConsumer = O.none()
@@ -947,14 +957,24 @@ const createMediaSoupClientImpl = (connectionAdapter: Context.Tag.Service<Connec
         activeTransport,
         O.map(transport => {
           try {
-            if (transport.connectionState !== 'closed') transport.close()
-          } catch {}
+            if (transport.connectionState !== 'closed') {
+              console.info('🔌 MediaSoup: Closing transport during cleanup')
+              transport.close()
+            }
+          } catch (error) {
+            console.warn('⚠️ MediaSoup: Error closing transport during cleanup:', error)
+          }
         })
       )
       activeTransport = O.none()
 
       // Clear device
       device = O.none()
+      
+      // Reset connection adapter WebRTC state to disconnected
+      connectionAdapter.resetRoom()
+      
+      console.info('✅ MediaSoup: Cleanup completed - all resources closed and state reset')
     })
   }
 }

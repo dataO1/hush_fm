@@ -726,7 +726,14 @@ const createUserServiceImpl = () => {
         }
 
         activeRole = O.none()
-      }) as Effect.Effect<void, UserServiceError, UserWebSocket | ConnectionAdapter>,
+      }).pipe(
+        Effect.mapError(() => new UserServiceError({
+          cause: 'Failed to disconnect',
+          role: O.getOrNull(activeRole) || 'dj',
+          operation: 'disconnect',
+          timestamp: new Date()
+        }))
+      ) as Effect.Effect<void, UserServiceError, never>,
 
     getCurrentRole: () =>
       Effect.succeed(O.getOrNull(activeRole)) as Effect.Effect<UserRoleType | null, never, ConnectionAdapter>

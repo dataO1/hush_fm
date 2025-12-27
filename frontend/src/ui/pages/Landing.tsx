@@ -69,6 +69,7 @@ function LandingContent() {
   const lobbyAdapter = useLobbyAdapter()
   const userAdapter = useUserAdapter()
   
+  
   // Get scoped lobby service
   const { lobbyService } = useLobbyFeature()
   
@@ -192,8 +193,11 @@ function LandingContent() {
         const isConnected = connectionAdapter.isConnected()
         
         if (isConnected) {
-          // Already connected, just navigate
-          navigate(`/dj/${roomId}`)
+          // Already connected, navigate with computed WebSocket URL
+          const djWebSocketUrl = `/ws/room/${roomId}`
+          navigate(`/dj/${roomId}`, { 
+            state: { djWebSocketUrl } 
+          })
           return
         } else {
           // Need to reconnect via room announcement
