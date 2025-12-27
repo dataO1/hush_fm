@@ -638,6 +638,7 @@
             users.users.hushfm = {
               isSystemUser = true;
               group = "hushfm";
+              extraGroups = [ "audio" ];  # Required for ALSA audio device access
               description = "HushFM service user";
               home = "/var/lib/hushfm";
               createHome = true;

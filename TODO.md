@@ -1,6 +1,4 @@
 
-
-
 # TODOS
 - [ ] Create a proper readme, with sections for architectur explanation, usage
   explanation, deploument (with the weird build steps we have to make due to
@@ -15,11 +13,15 @@
 - [ ] on mobile the stream is running perfectly in the background, also in
   locked screen etc, but make sure we show a mediaplayer status or something
   that indicates that we are playing music on the lockscreen !.
-- [ ] ending the stream does not send lobby update to remove room from promoted
-  list.
 - [ ] if the dj diconnects, the status need to be updated for listeners and also
   if the dj reconnects this should trigger a renewal of transport and consumer
   on the listener side (via event)
+- [ ] need to handle disconnection of the producer via mediasoup events. this
+  should be an extra event handler, the ui can subscribe to to set the state
+  accordingly (ie. producer disconnected -> connectionstate.djdisconnected ,
+  producer connected -> streaming)
+- [ ] also the play/pause subscriptions dont set the connectionstate to
+  paused/streaming
 ## Whatever
 - [ ] remote connection works for udp! but somehow my chromium browser on
   wayland linux fails to create matching local ice candidate for udp!
