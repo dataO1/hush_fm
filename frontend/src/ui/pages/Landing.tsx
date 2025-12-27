@@ -283,6 +283,14 @@ function LandingContent() {
     const modal = document.getElementById('createRoomModal') as HTMLDialogElement
     modal?.close()
   }
+
+  // Handle background click to close modal - mobile-friendly
+  const handleModalClick = (e: Event) => {
+    // Close if clicking directly on the dialog backdrop
+    if (e.target && (e.target as HTMLElement).tagName === 'DIALOG') {
+      closeModal()
+    }
+  }
   
   // Computed values from adapters (read-only)
   const availableRooms = () => lobbyAdapter.getRooms()
@@ -461,8 +469,8 @@ function LandingContent() {
         </div>
 
         {/* Create Room Modal */}
-        <dialog id="createRoomModal" class="modal">
-          <div class="modal-box max-w-sm sm:max-w-md modal-glass text-gruvbox-fg p-6 sm:p-8">
+        <dialog id="createRoomModal" class="modal" onClick={handleModalClick}>
+          <div class="modal-box max-w-sm sm:max-w-md modal-glass text-gruvbox-fg p-6 sm:p-8" onClick={(e) => e.stopPropagation()}>
             <h3 class="font-bold text-xl sm:text-2xl mb-6 text-center text-brand">Start Streaming</h3>
             
             {/* Error Display in Modal using proper Show for Option types */}

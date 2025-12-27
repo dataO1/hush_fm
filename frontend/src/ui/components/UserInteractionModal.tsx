@@ -40,10 +40,10 @@ export function UserInteractionModal(props: UserInteractionModalProps): JSX.Elem
     }
   })
 
-  // Handle background click to close (DaisyUI feature)
+  // Handle background click to close - mobile-friendly detection
   const handleDialogClick = (e: Event) => {
-    const target = e.target as HTMLElement
-    if (target.tagName === 'DIALOG') {
+    // Close if clicking directly on the dialog backdrop
+    if (e.target === dialogRef) {
       props.onCancel?.()
     }
   }
@@ -54,7 +54,7 @@ export function UserInteractionModal(props: UserInteractionModalProps): JSX.Elem
       class="modal"
       onClick={handleDialogClick}
     >
-      <div class="modal-box max-w-sm modal-glass text-gruvbox-fg p-6">
+      <div class="modal-box max-w-sm modal-glass text-gruvbox-fg p-6" onClick={(e) => e.stopPropagation()}>
         
         {/* Icon */}
         <div class="text-center mb-6">
