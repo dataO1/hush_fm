@@ -29,14 +29,24 @@ impl RtpPacketizer {
     /// # Arguments
     /// * `frame_duration_ms` - Frame duration in milliseconds (10, 20, or 40)
     pub fn new(frame_duration_ms: u32) -> Self {
+        Self::with_initial_state(frame_duration_ms, 0, 0)
+    }
+
+    /// Create new RTP packetizer with initial sequence number and timestamp
+    /// 
+    /// # Arguments
+    /// * `frame_duration_ms` - Frame duration in milliseconds (10, 20, or 40)
+    /// * `initial_sequence` - Initial sequence number (for continuity)
+    /// * `initial_timestamp` - Initial timestamp (for continuity)
+    pub fn with_initial_state(frame_duration_ms: u32, initial_sequence: u16, initial_timestamp: u32) -> Self {
         // Calculate timestamp increment: 48000 Hz * frame_duration_seconds
         let timestamp_increment = 48000 * frame_duration_ms / 1000;
         
         Self {
             payload_type: 100, // Standard dynamic payload type for Opus
             ssrc: 1111,        // Fixed SSRC for audio bot
-            sequence_number: 0,
-            timestamp: 0,
+            sequence_number: initial_sequence,
+            timestamp: initial_timestamp,
             timestamp_increment,
             dscp_marking: 46, // Default to EF (Expedited Forwarding) for audio
         }

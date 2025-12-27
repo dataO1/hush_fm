@@ -79,8 +79,8 @@ pub struct AudioCaptureComponents {
 
 /// Audio encoding components
 pub struct AudioEncoderComponents {
-    /// Encoder task handle
-    pub encoder_handle: JoinHandle<()>,
+    /// Encoder task handle (returns final RTP state on completion)
+    pub encoder_handle: JoinHandle<(u16, u32)>,
     /// Shutdown signal sender
     pub shutdown_tx: tokio::sync::mpsc::Sender<()>,
     /// When the encoder was started (to avoid immediate failure detection)
@@ -110,6 +110,8 @@ pub struct AudioLifecycleManager {
     stream_error_rx: Option<tokio::sync::mpsc::UnboundedReceiver<()>>,
     /// Stream error sender (to create error channels for AudioCapture)
     stream_error_tx: tokio::sync::mpsc::UnboundedSender<()>,
+    /// Last RTP state (for continuity across encoder restarts)
+    last_rtp_state: Option<(u16, u32)>, // (sequence_number, timestamp)
 }
 
 impl AudioLifecycleManager {
@@ -134,6 +136,7 @@ impl AudioLifecycleManager {
             rescan_receiver,
             stream_error_rx: Some(stream_error_rx),
             stream_error_tx,
+            last_rtp_state: None,
         }
     }
 
@@ -368,16 +371,34 @@ impl AudioLifecycleManager {
 
         let (shutdown_tx, shutdown_rx) = tokio::sync::mpsc::channel(1);
 
-        // Create encoder (takes ownership of ring_consumer)
-        let encoder = AudioEncoder::new(
-            self.direct_producer.clone(),
-            ring_consumer,
-            shutdown_rx,
-        )?;
+        // Create encoder with RTP state continuity
+        let encoder = if let Some(last_rtp_state) = self.last_rtp_state.take() {
+            tracing::info!(
+                room_id = %self.room_id,
+                "🎵 Creating encoder with RTP continuity: seq={}, ts={}",
+                last_rtp_state.0, last_rtp_state.1
+            );
+            AudioEncoder::new_with_rtp_state(
+                self.direct_producer.clone(),
+                ring_consumer,
+                shutdown_rx,
+                Some(last_rtp_state),
+            )?
+        } else {
+            tracing::info!(
+                room_id = %self.room_id,
+                "🎵 Creating new encoder (no previous RTP state)"
+            );
+            AudioEncoder::new(
+                self.direct_producer.clone(),
+                ring_consumer,
+                shutdown_rx,
+            )?
+        };
 
         // Start encoder task
         let encoder_handle = tokio::spawn(async move {
-            encoder.run().await;
+            encoder.run().await
         });
 
         self.encoder_components = Some(AudioEncoderComponents {
@@ -400,16 +421,32 @@ impl AudioLifecycleManager {
             // Send shutdown signal
             let _ = encoder_components.shutdown_tx.send(()).await;
             
-            // Wait for encoder task to complete (with timeout)
-            let _ = tokio::time::timeout(
+            // Wait for encoder task to complete (with timeout) and capture final RTP state
+            match tokio::time::timeout(
                 std::time::Duration::from_secs(2),
                 encoder_components.encoder_handle
-            ).await;
-
-            tracing::info!(
-                room_id = %self.room_id,
-                "🛑 Audio encoder stopped"
-            );
+            ).await {
+                Ok(Ok(final_rtp_state)) => {
+                    self.last_rtp_state = Some(final_rtp_state);
+                    tracing::info!(
+                        room_id = %self.room_id,
+                        "🛑 Audio encoder stopped, saved RTP state: seq={}, ts={}",
+                        final_rtp_state.0, final_rtp_state.1
+                    );
+                }
+                Ok(Err(e)) => {
+                    tracing::warn!(
+                        room_id = %self.room_id,
+                        "🛑 Audio encoder stopped with error: {}", e
+                    );
+                }
+                Err(_) => {
+                    tracing::warn!(
+                        room_id = %self.room_id,
+                        "🛑 Audio encoder stop timed out"
+                    );
+                }
+            }
         }
         Ok(())
     }
@@ -436,14 +473,17 @@ impl AudioLifecycleManager {
             if encoder_components.encoder_handle.is_finished() {
                 // Get the actual error from the task
                 let encoder_handle = std::mem::replace(&mut encoder_components.encoder_handle, 
-                    tokio::spawn(async {}));
+                    tokio::spawn(async { (0, 0) }));
                 
                 match encoder_handle.await {
-                    Ok(()) => {
+                    Ok(final_rtp_state) => {
                         tracing::warn!(
                             room_id = %self.room_id,
-                            "⚠️ Audio encoder task completed successfully but unexpectedly"
+                            "⚠️ Audio encoder task completed unexpectedly, final RTP state: seq={}, ts={}",
+                            final_rtp_state.0, final_rtp_state.1
                         );
+                        // Save the final state
+                        self.last_rtp_state = Some(final_rtp_state);
                     },
                     Err(join_error) => {
                         tracing::error!(

@@ -47,6 +47,22 @@ impl AudioEncoder {
         ring_consumer: Consumer<f32, std::sync::Arc<SharedRb<f32, Vec<std::mem::MaybeUninit<f32>>>>>,
         shutdown_rx: tokio::sync::mpsc::Receiver<()>,
     ) -> Result<Self> {
+        Self::new_with_rtp_state(direct_producer, ring_consumer, shutdown_rx, None)
+    }
+
+    /// Create new audio encoder pipeline with initial RTP state for continuity
+    /// 
+    /// # Arguments
+    /// * `direct_producer` - MediaSoup Producer for RTP packet injection
+    /// * `ring_consumer` - Ring buffer consumer for reading PCM audio data
+    /// * `shutdown_rx` - Shutdown signal receiver for graceful cleanup
+    /// * `initial_rtp_state` - Optional (sequence_number, timestamp) for continuity
+    pub fn new_with_rtp_state(
+        direct_producer: Arc<Producer>,
+        ring_consumer: Consumer<f32, std::sync::Arc<SharedRb<f32, Vec<std::mem::MaybeUninit<f32>>>>>,
+        shutdown_rx: tokio::sync::mpsc::Receiver<()>,
+        initial_rtp_state: Option<(u16, u32)>,
+    ) -> Result<Self> {
         let config = Config::global();
         
         tracing::info!("🎵 Initializing Opus encoder pipeline");
@@ -93,14 +109,31 @@ impl AudioEncoder {
             config.opus_frame_duration()
         );
 
+        // Create RTP packetizer with optional initial state for continuity
+        let rtp_packetizer = match initial_rtp_state {
+            Some((sequence, timestamp)) => {
+                tracing::info!("🎵 Resuming RTP stream: seq={}, ts={}", sequence, timestamp);
+                RtpPacketizer::with_initial_state(config.opus_frame_duration(), sequence, timestamp)
+            },
+            None => {
+                tracing::info!("🎵 Starting new RTP stream");
+                RtpPacketizer::new(config.opus_frame_duration())
+            }
+        };
+
         Ok(Self {
             opus_encoder,
-            rtp_packetizer: RtpPacketizer::new(config.opus_frame_duration()),
+            rtp_packetizer,
             direct_producer,
             ring_consumer,
             shutdown_rx,
             config,
         })
+    }
+
+    /// Get current RTP state (sequence number and timestamp) for continuity
+    pub fn get_rtp_state(&self) -> (u16, u32) {
+        (self.rtp_packetizer.current_sequence(), self.rtp_packetizer.current_timestamp())
     }
 
     /// Start the encoding pipeline
@@ -109,7 +142,9 @@ impl AudioEncoder {
     /// Uses adaptive processing to maintain low latency and prevent buffer overruns.
     /// Handles ring buffer underruns gracefully by sending silence frames.
     /// The task will run until a shutdown signal is received or an unrecoverable error occurs.
-    pub async fn run(mut self) {
+    /// 
+    /// Returns the final RTP state (sequence_number, timestamp) for continuity
+    pub async fn run(mut self) -> (u16, u32) {
         tracing::info!("🎵 Starting audio encoding pipeline with continuous processing");
 
         let mut frame_count = 0u64;
@@ -216,8 +251,11 @@ impl AudioEncoder {
             }
         }
 
-        tracing::info!("✅ Audio encoding pipeline stopped after processing {} frames (duration: {:.2}s)", 
-                      frame_count, start_time.elapsed().as_secs_f32());
+        let final_rtp_state = self.get_rtp_state();
+        tracing::info!("✅ Audio encoding pipeline stopped after processing {} frames (duration: {:.2}s), final RTP state: seq={}, ts={}", 
+                      frame_count, start_time.elapsed().as_secs_f32(), final_rtp_state.0, final_rtp_state.1);
+        
+        final_rtp_state
     }
 
     /// Process a single audio frame (configurable duration worth of audio)
