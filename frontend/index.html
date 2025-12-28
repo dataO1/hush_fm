@@ -5,18 +5,67 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="theme-color" content="#000000" />
     <title>HushFM - Live Audio Streaming</title>
+    
+    <!-- Preload hints for faster loading on Pi -->
+    <link rel="preload" as="script" href="/src/index.tsx" />
+    
+    <!-- DNS prefetch for faster API calls -->
+    <link rel="dns-prefetch" href="//localhost" />
+    
+    <!-- Critical CSS inlined for faster rendering -->
     <style>
       * {
         margin: 0;
         padding: 0;
         box-sizing: border-box;
       }
+      
+      /* Critical loading styles for Pi optimization */
+      body {
+        font-family: system-ui, -apple-system, sans-serif;
+        background: #1d2021;
+        color: #ebdbb2;
+        line-height: 1.5;
+      }
+      
+      /* Loading spinner for better UX on slow Pi */
+      .loading {
+        position: fixed;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        width: 40px;
+        height: 40px;
+        border: 3px solid rgba(235, 219, 178, 0.3);
+        border-top: 3px solid #d3869b;
+        border-radius: 50%;
+        animation: spin 1s linear infinite;
+      }
+      
+      @keyframes spin {
+        0% { transform: translate(-50%, -50%) rotate(0deg); }
+        100% { transform: translate(-50%, -50%) rotate(360deg); }
+      }
     </style>
   </head>
   <body>
     <noscript>You need to enable JavaScript to run this app.</noscript>
-    <div id="root"></div>
+    <div id="root">
+      <!-- Loading indicator for better Pi UX -->
+      <div class="loading" id="initial-loading"></div>
+    </div>
 
     <script src="/src/index.tsx" type="module"></script>
+    
+    <!-- Remove loading indicator once app loads -->
+    <script>
+      window.addEventListener('load', function() {
+        const loading = document.getElementById('initial-loading');
+        if (loading) {
+          loading.style.opacity = '0';
+          setTimeout(() => loading.remove(), 300);
+        }
+      });
+    </script>
   </body>
 </html>
