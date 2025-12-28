@@ -48,8 +48,8 @@ export function Oscilloscope(props: OscilloscopeProps) {
       }
 
       analyser = audioContext.createAnalyser()
-      analyser.fftSize = 4096 // Increased to 4096 for much longer audio history
-      analyser.smoothingTimeConstant = 0.3
+      analyser.fftSize = 2048 // Decreased for better performance while keeping good history
+      analyser.smoothingTimeConstant = 0.6
 
       // Connect stream to analyser
       source = audioContext.createMediaStreamSource(props.stream)
@@ -105,8 +105,8 @@ export function Oscilloscope(props: OscilloscopeProps) {
       // Convert byte data (0-255) to normalized range
       const normalized = (dataArray[i] - 128) / 128.0
 
-      // Reduced amplification from 10x to 5x for half the visual amplitude
-      const amplified = normalized * 5.0
+      // Further reduced amplification from 5x to 2.5x for calmer visualization
+      const amplified = normalized * 2.5
 
       // Scale to canvas and clamp to bounds
       let y = (canvas.height / 2) - (amplified * canvas.height * 0.4)
