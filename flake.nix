@@ -172,7 +172,7 @@
           src = ./frontend;
 
           # The hash of the dependencies - will need to be updated when dependencies change
-          npmDepsHash = "sha256-J3gScJKvjaqGH+MVQnoa5vKOnX0BXtm+8LQ6tVOfZ48=";
+          npmDepsHash = "sha256-Xwex3PkDwE4hc1PCWYxfjanluxYCzIC2FwN+KfsIrQM=";
 
           # Pass environment variables to build process
           env = {
@@ -237,7 +237,7 @@
             src = ./frontend;
 
             # The hash of the dependencies - will need to be updated when dependencies change
-            npmDepsHash = "sha256-J3gScJKvjaqGH+MVQnoa5vKOnX0BXtm+8LQ6tVOfZ48=";
+            npmDepsHash = "sha256-Xwex3PkDwE4hc1PCWYxfjanluxYCzIC2FwN+KfsIrQM=";
 
             # Pass environment variables to build process
             env = {
