@@ -501,7 +501,7 @@
                     -out "$cert_file" \
                     -days 365 -nodes \
                     -subj "/CN=hushfm.local" \
-                    -addext "subjectAltName=IP:127.0.0.1,IP:192.168.178.105,DNS:hushfm.local,DNS:localhost"
+                    -addext "subjectAltName=IP:127.0.0.1,IP:${cfg.hostName},DNS:hushfm.local,DNS:localhost"
                   echo "SSL certificate generated"
                 else
                   echo "SSL certificate already exists"
@@ -547,7 +547,7 @@
                       -out "$cert_file" \
                       -days 365 -nodes \
                       -subj "/CN=hushfm.local" \
-                      -addext "subjectAltName=IP:127.0.0.1,IP:192.168.178.105,DNS:hushfm.local,DNS:localhost"
+                      -addext "subjectAltName=IP:127.0.0.1,IP:${cfg.hostName},DNS:hushfm.local,DNS:localhost"
 
                     # Set proper ownership and permissions (idempotent)
                     chown nginx:nginx "$key_file" "$cert_file"
