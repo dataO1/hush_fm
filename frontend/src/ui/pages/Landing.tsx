@@ -301,21 +301,16 @@ function LandingContent() {
   const connectionError = () => O.getOrNull(connectionAdapter.getError())
   const creationError = () => lobbyAdapter.getCreationError()
   
-  // SolidJS 2025: Use createResource for async service calls with proper Option handling
+  // Optimized: Only re-sort when rooms actually change, not on connection status changes
   const [sortedRooms] = createResource(
-    // Source signal that triggers refetch
-    () => ({ 
-      rooms: availableRooms(), 
-      sessionId: userAdapter.getSessionId(), 
-      isRoomConnected: connectionAdapter.isRoomConnected(),
-      currentRoomId: connectionAdapter.getCurrentRoomId()
-    }),
+    // Only trigger on rooms change - avoid re-sorting on every connection state update
+    () => availableRooms(),
     // Fetcher function that calls the service
-    async (source) => {
-      const sessionId = O.getOrNull(source.sessionId)
-      const activeListenerRoomId = O.getOrNull(source.currentRoomId) || undefined
+    async (rooms) => {
+      const sessionId = O.getOrNull(userAdapter.getSessionId())
+      const activeListenerRoomId = O.getOrNull(connectionAdapter.getCurrentRoomId()) || undefined
       // Use scoped lobby service to sort rooms with current room ID for highlighting
-      return await lobbyService.sortRoomsForUser(source.rooms, sessionId || '', activeListenerRoomId).pipe(
+      return await lobbyService.sortRoomsForUser(rooms, sessionId || '', activeListenerRoomId).pipe(
         Effect.runPromise
       )
     }

@@ -48,7 +48,7 @@ export function Oscilloscope(props: OscilloscopeProps) {
       }
 
       analyser = audioContext.createAnalyser()
-      analyser.fftSize = 512 // Reduced from 2048 to 512 for better performance
+      analyser.fftSize = 1024 // Increased from 512 for better resolution
       analyser.smoothingTimeConstant = 0.3
 
       // Connect stream to analyser
@@ -73,8 +73,8 @@ export function Oscilloscope(props: OscilloscopeProps) {
   const draw = (currentTime?: number) => {
     if (!canvasRef || !analyser || !dataArray) return
 
-    // Frame rate limiting - cap at 20fps (50ms per frame) instead of 60fps
-    if (currentTime && currentTime - lastFrameTime < 50) {
+    // Frame rate limiting - cap at 30fps (33ms per frame) for smooth visualization
+    if (currentTime && currentTime - lastFrameTime < 33) {
       animationId = requestAnimationFrame(draw)
       return
     }
@@ -97,13 +97,11 @@ export function Oscilloscope(props: OscilloscopeProps) {
     ctx.lineJoin = 'round'
     ctx.beginPath()
 
-    // Optimize by only processing every 2nd point for better performance
-    const step = 2
-    const effectiveLength = Math.floor(dataArray.length / step)
-    const sliceWidth = canvas.width / effectiveLength
+    // Process every point for better quality now that performance issues are fixed
+    const sliceWidth = canvas.width / dataArray.length
     let x = 0
 
-    for (let i = 0; i < dataArray.length; i += step) {
+    for (let i = 0; i < dataArray.length; i++) {
       // Convert byte data (0-255) to normalized range
       const normalized = (dataArray[i] - 128) / 128.0
 
@@ -125,15 +123,8 @@ export function Oscilloscope(props: OscilloscopeProps) {
 
     ctx.stroke()
 
-    // Continue animation with performance-aware scheduling
-    // Use requestIdleCallback when available to avoid blocking critical work
-    if ('requestIdleCallback' in window) {
-      requestIdleCallback(() => {
-        animationId = requestAnimationFrame(draw)
-      }, { timeout: 100 })
-    } else {
-      animationId = requestAnimationFrame(draw)
-    }
+    // Continue animation
+    animationId = requestAnimationFrame(draw)
   }
 
   const cleanup = () => {

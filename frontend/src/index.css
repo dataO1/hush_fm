@@ -52,25 +52,12 @@
     @apply appearance-none cursor-pointer;
   }
 
-  /* Ensure dropdown options inherit the width constraint from their parent */
-  .select-hush,
-  .select {
-    width: 100%;
-  }
-
-  .select-hush:focus option,
-  .select:focus option {
-    width: 100% !important;
-    max-width: 100% !important;
-  }
-
+  /* Dropdown options styling - removed forced layout rules for performance */
   .select-hush option {
     @apply bg-gruvbox-bg-hard text-gruvbox-fg;
-    width: 100% !important;
-    max-width: 100% !important;
-    overflow: hidden !important;
-    text-overflow: ellipsis !important;
-    white-space: nowrap !important;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 
   .select-hush option:hover {
@@ -92,11 +79,9 @@
 
   .select option {
     @apply bg-gruvbox-bg-hard text-gruvbox-fg;
-    width: 100% !important;
-    max-width: 100% !important;
-    overflow: hidden !important;
-    text-overflow: ellipsis !important;
-    white-space: nowrap !important;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 
   .select option:hover {
