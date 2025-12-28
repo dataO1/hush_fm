@@ -40,6 +40,7 @@ import {
   ConnectListenerTransportCommandSchema,
   RequestConsumerCommandSchema,
   ResumeConsumerCommandSchema,
+  LeaveRoomCommandSchema,
   withSchemaLogging,
   // Event types
   type RoomInitializedEvent,
@@ -643,6 +644,24 @@ const createUserServiceImpl = () => {
         const wsClient = yield* UserWebSocket
         const audioClient = yield* AudioClient
         const mediaSoupClient = yield* MediaSoupClient
+
+        // Send LeaveRoom command to backend before disconnecting
+        const makeLeaveRoomCommand = withSchemaLogging(LeaveRoomCommandSchema, 'LeaveRoomCommand')
+        const leaveCommand = yield* makeLeaveRoomCommand({})
+        
+        // Send command without waiting for response (fire-and-forget)
+        yield* wsClient.sendCommandFireForget(leaveCommand).pipe(
+          Effect.catchAll((error) => {
+            console.warn("Failed to send leave room command:", error)
+            return Effect.succeed(void 0) // Continue with cleanup even if command fails
+          }),
+          Effect.mapError((error) => new UserServiceError({
+            cause: `Failed to send leave room command: ${error}`,
+            operation: 'leaveListenerRoom',
+            role: 'listener',
+            timestamp: new Date()
+          }))
+        )
 
         // Clean up audio playback
         yield* audioClient.stopStream()

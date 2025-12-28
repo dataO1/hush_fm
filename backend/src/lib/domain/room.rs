@@ -104,10 +104,27 @@ impl Room {
     }
 
     /// Add complete listener state
-    pub fn add_listener(&self, listener_state: Listener) {
+    pub fn add_listener(&mut self, listener_state: Listener) {
         let listener_id = listener_state.listener_id.clone();
-        self.listeners.insert(listener_id, listener_state);
+        self.listeners.insert(listener_id.clone(), listener_state);
+        
+        // Update listener count
+        self.listener_count = self.get_listener_count() as u32;
         self.update_activity();
+        
+        tracing::info!(
+            room_id = %self.id,
+            listener_id = %listener_id,
+            new_listener_count = self.listener_count,
+            "Listener added to room successfully"
+        );
+
+        // Broadcast listener count update to all listeners
+        let listener_update = crate::lib::models::ListenerEvent::ListenerCountUpdated {
+            room_id: self.id.to_string(),
+            count: self.listener_count,
+        };
+        self.broadcast_to_listeners(listener_update);
     }
 
     /// Get listener state

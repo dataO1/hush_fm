@@ -48,7 +48,7 @@ export function Oscilloscope(props: OscilloscopeProps) {
       }
 
       analyser = audioContext.createAnalyser()
-      analyser.fftSize = 2048
+      analyser.fftSize = 512 // Reduced from 2048 to 512 for better performance
       analyser.smoothingTimeConstant = 0.3
 
       // Connect stream to analyser
@@ -73,8 +73,8 @@ export function Oscilloscope(props: OscilloscopeProps) {
   const draw = (currentTime?: number) => {
     if (!canvasRef || !analyser || !dataArray) return
 
-    // Frame rate limiting - cap at 60fps
-    if (currentTime && currentTime - lastFrameTime < 16.67) {
+    // Frame rate limiting - cap at 20fps (50ms per frame) instead of 60fps
+    if (currentTime && currentTime - lastFrameTime < 50) {
       animationId = requestAnimationFrame(draw)
       return
     }
@@ -97,10 +97,13 @@ export function Oscilloscope(props: OscilloscopeProps) {
     ctx.lineJoin = 'round'
     ctx.beginPath()
 
-    const sliceWidth = canvas.width / dataArray.length
+    // Optimize by only processing every 2nd point for better performance
+    const step = 2
+    const effectiveLength = Math.floor(dataArray.length / step)
+    const sliceWidth = canvas.width / effectiveLength
     let x = 0
 
-    for (let i = 0; i < dataArray.length; i++) {
+    for (let i = 0; i < dataArray.length; i += step) {
       // Convert byte data (0-255) to normalized range
       const normalized = (dataArray[i] - 128) / 128.0
 
@@ -122,8 +125,15 @@ export function Oscilloscope(props: OscilloscopeProps) {
 
     ctx.stroke()
 
-    // Continue animation
-    animationId = requestAnimationFrame(draw)
+    // Continue animation with performance-aware scheduling
+    // Use requestIdleCallback when available to avoid blocking critical work
+    if ('requestIdleCallback' in window) {
+      requestIdleCallback(() => {
+        animationId = requestAnimationFrame(draw)
+      }, { timeout: 100 })
+    } else {
+      animationId = requestAnimationFrame(draw)
+    }
   }
 
   const cleanup = () => {

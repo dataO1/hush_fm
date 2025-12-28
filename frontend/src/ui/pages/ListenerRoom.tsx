@@ -255,33 +255,46 @@ function ListenerRoomContent() {
         onCancel={() => navigate('/')}
       />
 
-      <Show when={isConnecting() || joinRoomOperation.loading}>
-        <div class="card card-glass">
-          <div class="card-body text-center py-8">
-            <div class="loading loading-spinner loading-lg mx-auto mb-4"></div>
-            <div class="text-lg sm:text-xl font-bold">Connecting...</div>
-          </div>
-        </div>
-      </Show>
+      <div class="card card-glass shadow-xl max-w-sm sm:max-w-md w-full mx-4">
+        <div class="card-body flex flex-col items-center gap-6 sm:gap-8 p-4 sm:p-6">
 
-      {/* Stream errors now handled by WebRTC error handler above */}
-      
-      {/* Join operation errors */}
-      <Show when={joinRoomOperation.error}>
-        <div class="fixed top-4 right-4 left-4 sm:left-auto sm:w-auto alert alert-error shadow-lg z-50">
-          <span>Failed to join room: {joinRoomOperation.error.message}</span>
-          <button 
-            class="btn btn-sm btn-circle btn-ghost"
-            onClick={() => navigate('/')}
-          >
-            ✕
-          </button>
-        </div>
-      </Show>
+          {/* Join operation errors */}
+          <Show when={joinRoomOperation.error}>
+            <div class="w-full space-y-4">
+              <div class="error-panel px-4 py-3 rounded-lg w-full">
+                <div class="flex justify-between items-center">
+                  <span class="text-sm">Failed to join room: {joinRoomOperation.error.message}</span>
+                  <button 
+                    class="text-gruvbox-red-bright hover:text-gruvbox-fg ml-4"
+                    onClick={() => navigate('/')}
+                  >
+                    ✕
+                  </button>
+                </div>
+              </div>
+              
+              <div class="text-center">
+                <button
+                  onClick={() => navigate('/')}
+                  class="btn btn-outline btn-sm sm:btn-md w-36 sm:w-40 border-gruvbox-fg-2 text-gruvbox-fg-1 hover:bg-gruvbox-fg-2 hover:text-gruvbox-bg-hard"
+                >
+                  <svg class="w-4 h-4 sm:w-5 sm:h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" />
+                  </svg>
+                  Back
+                </button>
+              </div>
+            </div>
+          </Show>
 
-      <Show when={!isConnecting() && !joinRoomOperation.loading && !joinRoomOperation.error}>
-        <div class="card card-glass shadow-xl max-w-sm sm:max-w-md w-full mx-4">
-          <div class="card-body flex flex-col items-center gap-6 sm:gap-8 p-4 sm:p-6">
+          <Show when={isConnecting() || joinRoomOperation.loading}>
+            <div class="text-center py-8">
+              <div class="loading loading-spinner loading-lg mx-auto mb-4"></div>
+              <div class="text-lg sm:text-xl font-bold">Connecting...</div>
+            </div>
+          </Show>
+
+          <Show when={!isConnecting() && !joinRoomOperation.loading && !joinRoomOperation.error}>
             
             {/* Room Header */}
             <RoomHeader 
@@ -338,20 +351,20 @@ function ListenerRoomContent() {
             {/* Leave Button */}
             <button
                 onClick={leaveRoom}
-                class="btn btn-outline btn-sm sm:btn-md mt-4 w-full sm:w-auto border-gruvbox-red-bright text-gruvbox-red-bright hover:bg-gruvbox-red-bright hover:text-gruvbox-bg-hard"
+                class="btn btn-outline btn-sm sm:btn-md mt-4 w-36 sm:w-40 border-gruvbox-red-bright text-gruvbox-red-bright hover:bg-gruvbox-red-bright hover:text-gruvbox-bg-hard gap-2"
                 disabled={leaveRoomOperation.loading}
             >
                 {leaveRoomOperation.loading ? (
                   <>
-                    <span class="loading loading-spinner loading-sm mr-2"></span>
+                    <span class="loading loading-spinner loading-sm"></span>
                     <span class="text-sm sm:text-base">Leaving...</span>
                   </>
                 ) : (
                   <>
-                    <svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <svg class="w-4 h-4 sm:w-5 sm:h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path stroke-linecap="round" stroke-linejoin="round" stroke-width={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
                     </svg>
-                    <span class="text-sm sm:text-base">Leave Room</span>
+                    <span class="text-sm sm:text-base">Leave</span>
                   </>
                 )}
             </button>
@@ -362,9 +375,10 @@ function ListenerRoomContent() {
                 Failed to leave room: {leaveRoomOperation.error.message}
               </div>
             </Show>
-          </div>
+
+          </Show>
         </div>
-      </Show>
+      </div>
     </div>
   )
 }

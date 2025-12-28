@@ -192,9 +192,6 @@ function DJRoomContent() {
   }
 
 
-  const goBack = () => {
-    navigate('/')
-  }
 
   return (
     <div class="min-h-screen bg-hush-main text-gruvbox-fg p-4 sm:p-6">
@@ -233,10 +230,6 @@ function DJRoomContent() {
           <div class="card card-glass">
             <div class="card-body p-4 sm:p-6">
               
-              {/* Back Button */}
-              <div class="flex justify-start mb-4">
-                <button class="btn btn-sm sm:btn-md btn-ghost text-gruvbox-fg hover:bg-gruvbox-bg-2/60" onClick={goBack}>←</button>
-              </div>
 
               {/* Room Header */}
               <RoomHeader 
@@ -273,17 +266,13 @@ function DJRoomContent() {
                 )}
               </Show>
               
-              {/* Show Go Live button when not connected and not connecting */}
-              <Show when={!connectionAdapter.isConnected() && !isConnecting()}>
+              {/* Show Go Live button when not connected, not connecting, and device is selected */}
+              <Show when={!connectionAdapter.isConnected() && !isConnecting() && selectedDeviceId()}>
                 <div class="text-center mt-4 sm:mt-6">
                   <button
-                    class={`btn btn-md sm:btn-lg w-full sm:w-auto px-8 ${
-                      !selectedDeviceId() || isConnecting() || streamingOperation.loading 
-                        ? 'btn-disabled opacity-50 cursor-not-allowed' 
-                        : 'btn-primary hover:btn-primary-focus'
-                    }`}
+                    class="btn btn-md sm:btn-lg w-full sm:w-auto px-8 btn-primary hover:btn-primary-focus"
                     onClick={startStreaming}
-                    disabled={!selectedDeviceId() || isConnecting() || streamingOperation.loading}
+                    disabled={isConnecting() || streamingOperation.loading}
                   >
                     {(isConnecting() || streamingOperation.loading) ? (
                       <>
@@ -291,12 +280,7 @@ function DJRoomContent() {
                         <span class="ml-2">Connecting...</span>
                       </>
                     ) : (
-                      <>
-                        <svg class="w-4 h-4 sm:w-5 sm:h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path stroke-linecap="round" stroke-linejoin="round" stroke-width={2} d="M14.828 14.828a4 4 0 01-5.656 0M9 10h1m4 0h1m-6 4h2m4 0h2M7 7h10a2 2 0 012 2v8a2 2 0 01-2 2H7a2 2 0 01-2-2V9a2 2 0 012-2z" />
-                        </svg>
-                        Go Live
-                      </>
+                      'Go Live'
                     )}
                   </button>
                   
@@ -306,11 +290,6 @@ function DJRoomContent() {
                       Failed to start streaming: {streamingOperation.error.message}
                     </div>
                   </Show>
-                  <div class="text-xs sm:text-sm text-gruvbox-fg-3 mt-2">
-                    <Show when={!selectedDeviceId()} fallback="Ready to go live">
-                      Select an audio source to get started
-                    </Show>
-                  </div>
                 </div>
               </Show>
 

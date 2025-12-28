@@ -1,0 +1,235 @@
+2025-12-28T11:30:26.590587Z  INFO server::lib::audio::audio_device_monitor: 🔍   → No input capability, skipping
+2025-12-28T11:30:26.590661Z  INFO server::lib::audio::audio_device_monitor: 🔍 Found audio device: 'ThinkPad USB-C Dock Gen2 USB Au, USB Audio'
+2025-12-28T11:30:26.591190Z  INFO server::lib::audio::audio_device_monitor: 🔍   → No input capability, skipping
+2025-12-28T11:30:26.591236Z  INFO server::lib::audio::audio_device_monitor: 🔍 Found audio device: 'ThinkPad USB-C Dock Gen2 USB Au, USB Audio'
+2025-12-28T11:30:26.591778Z  INFO server::lib::audio::audio_device_monitor: 🔍   → No input capability, skipping
+2025-12-28T11:30:26.591837Z  INFO server::lib::audio::audio_device_monitor: 🔍 Found audio device: 'ThinkPad USB-C Dock Gen2 USB Au, USB Audio'
+2025-12-28T11:30:26.592718Z  INFO server::lib::audio::audio_device_monitor: 🔍   → No input capability, skipping
+2025-12-28T11:30:26.766022Z  INFO server::lib::audio::encoder: 🎵 Audio pipeline: 1995 frames (1995 audio, 0 silence), fill: 56.0%, rate: 95527 Hz (expected: 96000 Hz)
+2025-12-28T11:30:27.771202Z  INFO listener_join_request{flow.type="listener_join" flow.step=1 flow.phase="initiated" room.id=4c89ff5c-5156-4e6a-9ef2-462ba249ee9c listener.session_id=session-M2UwNDYzNTU=}: server::api::ws: Step 1: Listener requesting to join room via lobby session_id=session-M2UwNDYzNTU= room_id=4c89ff5c-5156-4e6a-9ef2-462ba249ee9c
+2025-12-28T11:30:27.771306Z  INFO listener_join_request{flow.type="listener_join" flow.step=1 flow.phase="initiated" room.id=4c89ff5c-5156-4e6a-9ef2-462ba249ee9c listener.session_id=session-M2UwNDYzNTU=}: server::api::ws: Step 1: Room validated - creating listener and unique WebSocket URL session_id=session-M2UwNDYzNTU= room_id=4c89ff5c-5156-4e6a-9ef2-462ba249ee9c room_status=Live
+2025-12-28T11:30:27.771428Z  INFO listener_join_request{flow.type="listener_join" flow.step=1 flow.phase="initiated" room.id=4c89ff5c-5156-4e6a-9ef2-462ba249ee9c listener.session_id=session-M2UwNDYzNTU=}: server::lib::domain::room: Listener added to room successfully room_id=4c89ff5c-5156-4e6a-9ef2-462ba249ee9c listener_id=session-M2UwNDYzNTU= new_listener_count=1
+2025-12-28T11:30:27.771553Z  INFO listener_join_request{flow.type="listener_join" flow.step=1 flow.phase="initiated" room.id=4c89ff5c-5156-4e6a-9ef2-462ba249ee9c listener.session_id=session-M2UwNDYzNTU=}: server::lib::domain::lobby: Lobby.update_room called room_id=4c89ff5c-5156-4e6a-9ef2-462ba249ee9c
+2025-12-28T11:30:27.771655Z  INFO listener_join_request{flow.type="listener_join" flow.step=1 flow.phase="initiated" room.id=4c89ff5c-5156-4e6a-9ef2-462ba249ee9c listener.session_id=session-M2UwNDYzNTU=}: server::lib::domain::lobby: Room state broadcasted to lobby subscribers room_id=4c89ff5c-5156-4e6a-9ef2-462ba249ee9c room_status=Live listener_count=1 is_public=true event_type="RoomUpdated"
+2025-12-28T11:30:27.772449Z  INFO listener_join_request{flow.type="listener_join" flow.step=1 flow.phase="initiated" room.id=4c89ff5c-5156-4e6a-9ef2-462ba249ee9c listener.session_id=session-M2UwNDYzNTU= flow.phase="completed"}: server::api::ws: Step 1: COMPLETED - Listener created and stored in room, unique WebSocket URL generated session_id=session-M2UwNDYzNTU= room_id=4c89ff5c-5156-4e6a-9ef2-462ba249ee9c websocket_url=/ws/listener/4c89ff5c-5156-4e6a-9ef2-462ba249ee9c/session-M2UwNDYzNTU=
+2025-12-28T11:30:27.772764Z  INFO listener_join_request{flow.type="listener_join" flow.step=1 flow.phase="initiated" room.id=4c89ff5c-5156-4e6a-9ef2-462ba249ee9c listener.session_id=session-M2UwNDYzNTU= flow.phase="completed"}: server::api::ws: Step 1: JoinRoomResponse sent successfully - frontend should now connect to unique listener WebSocket session_id=session-M2UwNDYzNTU= room_id=4c89ff5c-5156-4e6a-9ef2-462ba249ee9c
+2025-12-28T11:30:27.798279Z  INFO server::api::ws: New listener WebSocket connection established session_id=session-M2UwNDYzNTU= room_id=4c89ff5c-5156-4e6a-9ef2-462ba249ee9c
+2025-12-28T11:30:27.798485Z  INFO server::lib::domain::room: Updated existing listener's event channel for reconnection session_id=session-M2UwNDYzNTU= room_id=4c89ff5c-5156-4e6a-9ef2-462ba249ee9c
+2025-12-28T11:30:27.798553Z  INFO server::api::ws: Successfully handled listener reconnection session_id=session-M2UwNDYzNTU= room_id=4c89ff5c-5156-4e6a-9ef2-462ba249ee9c
+2025-12-28T11:30:27.798581Z  INFO server::api::ws: Listener WebSocket connection established - waiting for InitListener command session_id=session-M2UwNDYzNTU= room_id=4c89ff5c-5156-4e6a-9ef2-462ba249ee9c
+2025-12-28T11:30:27.808261Z  INFO server::api::ws: Successfully parsed listener WebSocket command: getRouterCapabilities
+2025-12-28T11:30:27.808383Z  INFO handle_listener_command{room_id=4c89ff5c-5156-4e6a-9ef2-462ba249ee9c session_id=session-M2UwNDYzNTU= command_type="getRouterCapabilities"}: server::api::ws: Step 2: Listener requesting router RTP capabilities session_id=session-M2UwNDYzNTU= room_id=4c89ff5c-5156-4e6a-9ef2-462ba249ee9c requested_room_id=4c89ff5c-5156-4e6a-9ef2-462ba249ee9c
+2025-12-28T11:30:27.808487Z  INFO handle_listener_command{room_id=4c89ff5c-5156-4e6a-9ef2-462ba249ee9c session_id=session-M2UwNDYzNTU= command_type="getRouterCapabilities"}: server::api::ws: Step 2: COMPLETED - Router RTP capabilities retrieved successfully session_id=session-M2UwNDYzNTU= room_id=4c89ff5c-5156-4e6a-9ef2-462ba249ee9c codec_count=3
+2025-12-28T11:30:27.835561Z  INFO server::api::ws: Successfully parsed listener WebSocket command: initListener
+2025-12-28T11:30:27.835674Z  INFO handle_listener_command{room_id=4c89ff5c-5156-4e6a-9ef2-462ba249ee9c session_id=session-M2UwNDYzNTU= command_type="initListener"}: server::api::ws: Step 2: Listener requesting transport initialization session_id=session-M2UwNDYzNTU= room_id=4c89ff5c-5156-4e6a-9ef2-462ba249ee9c
+2025-12-28T11:30:27.837277Z  INFO handle_listener_command{room_id=4c89ff5c-5156-4e6a-9ef2-462ba249ee9c session_id=session-M2UwNDYzNTU= command_type="initListener"}:get_receiver_transport{listener_id=session-M2UwNDYzNTU= room_id=4c89ff5c-5156-4e6a-9ef2-462ba249ee9c}: server::lib::domain::listener: Listener receiver transport created successfully transport_id=510569be-2c0a-4d4f-9050-f4a35840d337 listener_id=session-M2UwNDYzNTU= ice_role=Controlled ice_state=New dtls_state=New
+2025-12-28T11:30:27.838212Z  INFO handle_listener_command{room_id=4c89ff5c-5156-4e6a-9ef2-462ba249ee9c session_id=session-M2UwNDYzNTU= command_type="initListener"}:get_receiver_transport{listener_id=session-M2UwNDYzNTU= room_id=4c89ff5c-5156-4e6a-9ef2-462ba249ee9c}: server::lib::domain::listener: Listener receiver transport created successfully - ready for DTLS connection transport_id=510569be-2c0a-4d4f-9050-f4a35840d337 listener_id=session-M2UwNDYzNTU= room_id=4c89ff5c-5156-4e6a-9ef2-462ba249ee9c
+2025-12-28T11:30:27.838411Z  INFO handle_listener_command{room_id=4c89ff5c-5156-4e6a-9ef2-462ba249ee9c session_id=session-M2UwNDYzNTU= command_type="initListener"}: server::lib::domain::room: Transport initialized for existing listener session-M2UwNDYzNTU= in room 4c89ff5c-5156-4e6a-9ef2-462ba249ee9c
+2025-12-28T11:30:27.838471Z  INFO handle_listener_command{room_id=4c89ff5c-5156-4e6a-9ef2-462ba249ee9c session_id=session-M2UwNDYzNTU= command_type="initListener"}: server::api::ws: Step 2: COMPLETED - Listener transport created successfully session_id=session-M2UwNDYzNTU= room_id=4c89ff5c-5156-4e6a-9ef2-462ba249ee9c transport_id=510569be-2c0a-4d4f-9050-f4a35840d337
+2025-12-28T11:30:27.850221Z  INFO server::api::ws: Successfully parsed listener WebSocket command: requestConsumer
+2025-12-28T11:30:27.850556Z  INFO handle_listener_command{room_id=4c89ff5c-5156-4e6a-9ef2-462ba249ee9c session_id=session-M2UwNDYzNTU= command_type="requestConsumer"}:handle_request_consumer{room_id=4c89ff5c-5156-4e6a-9ef2-462ba249ee9c session_id=session-M2UwNDYzNTU= producer_id="35bb2dbe-79bd-4ef0-848d-fc3b6973e8ce"}: server::api::ws: Updated listener device RTP capabilities room_id=4c89ff5c-5156-4e6a-9ef2-462ba249ee9c listener_id=session-M2UwNDYzNTU=
+2025-12-28T11:30:27.852317Z  INFO handle_listener_command{room_id=4c89ff5c-5156-4e6a-9ef2-462ba249ee9c session_id=session-M2UwNDYzNTU= command_type="requestConsumer"}:handle_request_consumer{room_id=4c89ff5c-5156-4e6a-9ef2-462ba249ee9c session_id=session-M2UwNDYzNTU= producer_id="35bb2dbe-79bd-4ef0-848d-fc3b6973e8ce"}:create_consumer{router=Router { id: RouterId(37605be1-7d6c-4553-a40b-6d411744d5f7), rtp_capabilities: Mutex { data: RtpCapabilitiesFinalized { codecs: [Audio { mime_type: Opus, preferred_payload_type: 111, clock_rate: 48000, channels: 2, parameters: RtpCodecParametersParameters({"maxaveragebitrate": String("320000"), "maxplaybackrate": String("48000"), "maxptime": String("60"), "minptime": String("3"), "ptime": String("20"), "sprop-stereo": String("1"), "stereo": String("1"), "useinbandfec": String("1")}), rtcp_feedback: [Nack, TransportCc] }, Audio { mime_type: Pcmu, preferred_payload_type: 0, clock_rate: 8000, channels: 1, parameters: RtpCodecParametersParameters({}), rtcp_feedback: [TransportCc] }, Audio { mime_type: Pcma, preferred_payload_type: 8, clock_rate: 8000, channels: 1, parameters: RtpCodecParametersParameters({}), rtcp_feedback: [TransportCc] }], header_extensions: [RtpHeaderExtension { kind: Audio, uri: Mid, preferred_id: 1, preferred_encrypt: false, direction: SendRecv }, RtpHeaderExtension { kind: Video, uri: Mid, preferred_id: 1, preferred_encrypt: false, direction: SendRecv }, RtpHeaderExtension { kind: Video, uri: RtpStreamId, preferred_id: 2, preferred_encrypt: false, direction: RecvOnly }, RtpHeaderExtension { kind: Video, uri: RepairRtpStreamId, preferred_id: 3, preferred_encrypt: false, direction: RecvOnly }, RtpHeaderExtension { kind: Audio, uri: AbsSendTime, preferred_id: 4, preferred_encrypt: false, direction: SendRecv }, RtpHeaderExtension { kind: Video, uri: AbsSendTime, preferred_id: 4, preferred_encrypt: false, direction: SendRecv }, RtpHeaderExtension { kind: Audio, uri: TransportWideCcDraft01, preferred_id: 5, preferred_encrypt: false, direction: RecvOnly }, RtpHeaderExtension { kind: Video, uri: TransportWideCcDraft01, preferred_id: 5, preferred_encrypt: false, direction: SendRecv }, RtpHeaderExtension { kind: Video, uri: DependencyDescriptor, preferred_id: 8, preferred_encrypt: false, direction: RecvOnly }, RtpHeaderExtension { kind: Audio, uri: AudioLevel, preferred_id: 10, preferred_encrypt: false, direction: SendRecv }, RtpHeaderExtension { kind: Video, uri: VideoOrientation, preferred_id: 11, preferred_encrypt: false, direction: SendRecv }, RtpHeaderExtension { kind: Video, uri: TimeOffset, preferred_id: 12, preferred_encrypt: false, direction: SendRecv }, RtpHeaderExtension { kind: Audio, uri: AbsCaptureTime, preferred_id: 13, preferred_encrypt: false, direction: SendRecv }, RtpHeaderExtension { kind: Video, uri: AbsCaptureTime, preferred_id: 13, preferred_encrypt: false, direction: SendRecv }, RtpHeaderExtension { kind: Audio, uri: PlayoutDelay, preferred_id: 14, preferred_encrypt: false, direction: SendRecv }, RtpHeaderExtension { kind: Video, uri: PlayoutDelay, preferred_id: 14, preferred_encrypt: false, direction: SendRecv }] }, poisoned: false, .. }, producers: RwLock { data: {ProducerId(35bb2dbe-79bd-4ef0-848d-fc3b6973e8ce): WeakProducer} }, data_producers: RwLock { data: {} }, mapped_pipe_transports: Mutex { data: {} }, worker: Worker { id: WorkerId(b085217a-5489-4bcd-abf0-1296302ff7bc), closed: false }, closed: false } listener_id=session-M2UwNDYzNTU= transport_id="510569be-2c0a-4d4f-9050-f4a35840d337"}: server::lib::domain::listener: Audio consumer created successfully for listener consumer_id=b05866ca-6d3e-4783-abe5-78bb4ac2e5f9 producer_id=35bb2dbe-79bd-4ef0-848d-fc3b6973e8ce listener_id=session-M2UwNDYzNTU= transport_id=510569be-2c0a-4d4f-9050-f4a35840d337
+2025-12-28T11:30:27.852557Z  INFO handle_listener_command{room_id=4c89ff5c-5156-4e6a-9ef2-462ba249ee9c session_id=session-M2UwNDYzNTU= command_type="requestConsumer"}:handle_request_consumer{room_id=4c89ff5c-5156-4e6a-9ef2-462ba249ee9c session_id=session-M2UwNDYzNTU= producer_id="35bb2dbe-79bd-4ef0-848d-fc3b6973e8ce"}:create_consumer{router=Router { id: RouterId(37605be1-7d6c-4553-a40b-6d411744d5f7), rtp_capabilities: Mutex { data: RtpCapabilitiesFinalized { codecs: [Audio { mime_type: Opus, preferred_payload_type: 111, clock_rate: 48000, channels: 2, parameters: RtpCodecParametersParameters({"maxaveragebitrate": String("320000"), "maxplaybackrate": String("48000"), "maxptime": String("60"), "minptime": String("3"), "ptime": String("20"), "sprop-stereo": String("1"), "stereo": String("1"), "useinbandfec": String("1")}), rtcp_feedback: [Nack, TransportCc] }, Audio { mime_type: Pcmu, preferred_payload_type: 0, clock_rate: 8000, channels: 1, parameters: RtpCodecParametersParameters({}), rtcp_feedback: [TransportCc] }, Audio { mime_type: Pcma, preferred_payload_type: 8, clock_rate: 8000, channels: 1, parameters: RtpCodecParametersParameters({}), rtcp_feedback: [TransportCc] }], header_extensions: [RtpHeaderExtension { kind: Audio, uri: Mid, preferred_id: 1, preferred_encrypt: false, direction: SendRecv }, RtpHeaderExtension { kind: Video, uri: Mid, preferred_id: 1, preferred_encrypt: false, direction: SendRecv }, RtpHeaderExtension { kind: Video, uri: RtpStreamId, preferred_id: 2, preferred_encrypt: false, direction: RecvOnly }, RtpHeaderExtension { kind: Video, uri: RepairRtpStreamId, preferred_id: 3, preferred_encrypt: false, direction: RecvOnly }, RtpHeaderExtension { kind: Audio, uri: AbsSendTime, preferred_id: 4, preferred_encrypt: false, direction: SendRecv }, RtpHeaderExtension { kind: Video, uri: AbsSendTime, preferred_id: 4, preferred_encrypt: false, direction: SendRecv }, RtpHeaderExtension { kind: Audio, uri: TransportWideCcDraft01, preferred_id: 5, preferred_encrypt: false, direction: RecvOnly }, RtpHeaderExtension { kind: Video, uri: TransportWideCcDraft01, preferred_id: 5, preferred_encrypt: false, direction: SendRecv }, RtpHeaderExtension { kind: Video, uri: DependencyDescriptor, preferred_id: 8, preferred_encrypt: false, direction: RecvOnly }, RtpHeaderExtension { kind: Audio, uri: AudioLevel, preferred_id: 10, preferred_encrypt: false, direction: SendRecv }, RtpHeaderExtension { kind: Video, uri: VideoOrientation, preferred_id: 11, preferred_encrypt: false, direction: SendRecv }, RtpHeaderExtension { kind: Video, uri: TimeOffset, preferred_id: 12, preferred_encrypt: false, direction: SendRecv }, RtpHeaderExtension { kind: Audio, uri: AbsCaptureTime, preferred_id: 13, preferred_encrypt: false, direction: SendRecv }, RtpHeaderExtension { kind: Video, uri: AbsCaptureTime, preferred_id: 13, preferred_encrypt: false, direction: SendRecv }, RtpHeaderExtension { kind: Audio, uri: PlayoutDelay, preferred_id: 14, preferred_encrypt: false, direction: SendRecv }, RtpHeaderExtension { kind: Video, uri: PlayoutDelay, preferred_id: 14, preferred_encrypt: false, direction: SendRecv }] }, poisoned: false, .. }, producers: RwLock { data: {ProducerId(35bb2dbe-79bd-4ef0-848d-fc3b6973e8ce): WeakProducer} }, data_producers: RwLock { data: {} }, mapped_pipe_transports: Mutex { data: {} }, worker: Worker { id: WorkerId(b085217a-5489-4bcd-abf0-1296302ff7bc), closed: false }, closed: false } listener_id=session-M2UwNDYzNTU= transport_id="510569be-2c0a-4d4f-9050-f4a35840d337"}: server::lib::domain::listener: Generated consumer parameters with RTP structure consumer_id=b05866ca-6d3e-4783-abe5-78bb4ac2e5f9 listener_id=session-M2UwNDYzNTU=
+2025-12-28T11:30:27.852649Z  INFO handle_listener_command{room_id=4c89ff5c-5156-4e6a-9ef2-462ba249ee9c session_id=session-M2UwNDYzNTU= command_type="requestConsumer"}:handle_request_consumer{room_id=4c89ff5c-5156-4e6a-9ef2-462ba249ee9c session_id=session-M2UwNDYzNTU= producer_id="35bb2dbe-79bd-4ef0-848d-fc3b6973e8ce"}: server::lib::domain::room: Consumer created for listener session-M2UwNDYzNTU= in room 4c89ff5c-5156-4e6a-9ef2-462ba249ee9c
+2025-12-28T11:30:27.852699Z  INFO handle_listener_command{room_id=4c89ff5c-5156-4e6a-9ef2-462ba249ee9c session_id=session-M2UwNDYzNTU= command_type="requestConsumer"}:handle_request_consumer{room_id=4c89ff5c-5156-4e6a-9ef2-462ba249ee9c session_id=session-M2UwNDYzNTU= producer_id="35bb2dbe-79bd-4ef0-848d-fc3b6973e8ce" consumer_id="b05866ca-6d3e-4783-abe5-78bb4ac2e5f9"}: server::api::ws: Consumer created successfully for listener room_id=4c89ff5c-5156-4e6a-9ef2-462ba249ee9c listener_id=session-M2UwNDYzNTU= consumer_id=b05866ca-6d3e-4783-abe5-78bb4ac2e5f9 producer_id=35bb2dbe-79bd-4ef0-848d-fc3b6973e8ce
+2025-12-28T11:30:27.867471Z  INFO server::api::ws: Successfully parsed listener WebSocket command: connectListenerTransport
+2025-12-28T11:30:27.867682Z  INFO handle_listener_command{room_id=4c89ff5c-5156-4e6a-9ef2-462ba249ee9c session_id=session-M2UwNDYzNTU= command_type="connectListenerTransport"}:handle_connect_listener_transport{room_id=4c89ff5c-5156-4e6a-9ef2-462ba249ee9c listener_id=session-M2UwNDYzNTU= client_transport_id="510569be-2c0a-4d4f-9050-f4a35840d337" actual_transport_id="510569be-2c0a-4d4f-9050-f4a35840d337"}: server::api::ws: ✅ Listener transport ID validation successful transport_id=510569be-2c0a-4d4f-9050-f4a35840d337 listener_id=session-M2UwNDYzNTU=
+2025-12-28T11:30:27.868151Z  INFO handle_listener_command{room_id=4c89ff5c-5156-4e6a-9ef2-462ba249ee9c session_id=session-M2UwNDYzNTU= command_type="connectListenerTransport"}:handle_connect_listener_transport{room_id=4c89ff5c-5156-4e6a-9ef2-462ba249ee9c listener_id=session-M2UwNDYzNTU= client_transport_id="510569be-2c0a-4d4f-9050-f4a35840d337" actual_transport_id="510569be-2c0a-4d4f-9050-f4a35840d337"}: server::api::ws: Listener transport connected successfully listener_id=session-M2UwNDYzNTU= transport_id=510569be-2c0a-4d4f-9050-f4a35840d337 room_id=4c89ff5c-5156-4e6a-9ef2-462ba249ee9c
+🎤 CPAL callback #1000: 2048 samples provided, buffer_size=1024
+2025-12-28T11:30:28.563174Z  INFO server::lib::audio::audio_device_monitor: 🔍 Found audio device: 'Discard all samples (playback) or generate zero samples (capture)'
+2025-12-28T11:30:28.564176Z  INFO server::lib::audio::audio_device_monitor: 🔍   → Has input capability
+2025-12-28T11:30:28.564293Z  INFO server::lib::audio::audio_device_monitor: 🔍   → No pattern match, skipping
+2025-12-28T11:30:28.564342Z  INFO server::lib::audio::audio_device_monitor: 🔍 Found audio device: 'PipeWire Sound Server'
+2025-12-28T11:30:28.570922Z  INFO server::lib::audio::audio_device_monitor: 🔍   → Has input capability
+2025-12-28T11:30:28.571026Z  INFO server::lib::audio::audio_device_monitor: 🔍   → No pattern match, skipping
+2025-12-28T11:30:28.572642Z  INFO server::lib::audio::audio_device_monitor: 🔍 Found audio device: 'Default ALSA Output (currently PipeWire Media Server)'
+2025-12-28T11:30:28.580216Z  INFO server::lib::audio::audio_device_monitor: 🔍   → Has input capability
+2025-12-28T11:30:28.580350Z  INFO server::lib::audio::audio_device_monitor: 🔍   → No pattern match, skipping
+2025-12-28T11:30:28.581782Z  INFO server::lib::audio::audio_device_monitor: 🔍 Found audio device: 'HD-Audio Generic, U27I4K'
+2025-12-28T11:30:28.582380Z  INFO server::lib::audio::audio_device_monitor: 🔍   → No input capability, skipping
+2025-12-28T11:30:28.582467Z  INFO server::lib::audio::audio_device_monitor: 🔍 Found audio device: 'HD-Audio Generic, HDMI 1'
+2025-12-28T11:30:28.582837Z  INFO server::lib::audio::audio_device_monitor: 🔍   → No input capability, skipping
+2025-12-28T11:30:28.582888Z  INFO server::lib::audio::audio_device_monitor: 🔍 Found audio device: 'HD-Audio Generic, HDMI 2'
+2025-12-28T11:30:28.583234Z  INFO server::lib::audio::audio_device_monitor: 🔍   → No input capability, skipping
+2025-12-28T11:30:28.583284Z  INFO server::lib::audio::audio_device_monitor: 🔍 Found audio device: 'HD-Audio Generic, ALC257 Analog'
+2025-12-28T11:30:28.590176Z  INFO server::lib::audio::audio_device_monitor: 🔍   → Has input capability
+2025-12-28T11:30:28.590264Z  INFO server::lib::audio::audio_device_monitor: 🔍   → Built-in device, skipping
+2025-12-28T11:30:28.590700Z  INFO server::lib::audio::audio_device_monitor: 🔍 Found audio device: 'HD-Audio Generic, ALC257 Analog'
+2025-12-28T11:30:28.591487Z  INFO server::lib::audio::audio_device_monitor: 🔍   → Has input capability
+2025-12-28T11:30:28.591559Z  INFO server::lib::audio::audio_device_monitor: 🔍   → Built-in device, skipping
+2025-12-28T11:30:28.591680Z  INFO server::lib::audio::audio_device_monitor: 🔍 Found audio device: 'HD-Audio Generic, ALC257 Analog'
+ALSA lib pcm_route.c:878:(find_matching_chmap) Found no matching channel map
+2025-12-28T11:30:28.592321Z  INFO server::lib::audio::audio_device_monitor: 🔍   → No input capability, skipping
+2025-12-28T11:30:28.592394Z  INFO server::lib::audio::audio_device_monitor: 🔍 Found audio device: 'HD-Audio Generic, ALC257 Analog'
+2025-12-28T11:30:28.592939Z  INFO server::lib::audio::audio_device_monitor: 🔍   → Has input capability
+2025-12-28T11:30:28.592997Z  INFO server::lib::audio::audio_device_monitor: 🔍   → Built-in device, skipping
+2025-12-28T11:30:28.593175Z  INFO server::lib::audio::audio_device_monitor: 🔍 Found audio device: 'HD-Audio Generic, ALC257 Analog'
+ALSA lib pcm_route.c:878:(find_matching_chmap) Found no matching channel map
+2025-12-28T11:30:28.593804Z  INFO server::lib::audio::audio_device_monitor: 🔍   → No input capability, skipping
+2025-12-28T11:30:28.593883Z  INFO server::lib::audio::audio_device_monitor: 🔍 Found audio device: 'HD-Audio Generic, ALC257 Analog'
+ALSA lib pcm_route.c:878:(find_matching_chmap) Found no matching channel map
+2025-12-28T11:30:28.594800Z  INFO server::lib::audio::audio_device_monitor: 🔍   → No input capability, skipping
+2025-12-28T11:30:28.594919Z  INFO server::lib::audio::audio_device_monitor: 🔍 Found audio device: 'HD-Audio Generic, ALC257 Analog'
+2025-12-28T11:30:28.595773Z  INFO server::lib::audio::audio_device_monitor: 🔍   → Has input capability
+2025-12-28T11:30:28.595828Z  INFO server::lib::audio::audio_device_monitor: 🔍   → Built-in device, skipping
+2025-12-28T11:30:28.595935Z  INFO server::lib::audio::audio_device_monitor: 🔍 Found audio device: 'HD-Audio Generic, ALC257 Analog'
+2025-12-28T11:30:28.596430Z  INFO server::lib::audio::audio_device_monitor: 🔍   → Has input capability
+2025-12-28T11:30:28.596469Z  INFO server::lib::audio::audio_device_monitor: 🔍   → Built-in device, skipping
+2025-12-28T11:30:28.596556Z  INFO server::lib::audio::audio_device_monitor: 🔍 Found audio device: 'acp, '
+2025-12-28T11:30:28.596960Z  INFO server::lib::audio::audio_device_monitor: 🔍   → No input capability, skipping
+2025-12-28T11:30:28.597007Z  INFO server::lib::audio::audio_device_monitor: 🔍 Found audio device: 'ThinkPad USB-C Dock Gen2 USB Au, USB Audio'
+2025-12-28T11:30:28.605020Z  INFO server::lib::audio::audio_device_monitor: 🔍   → Has input capability
+2025-12-28T11:30:28.605187Z  INFO server::lib::audio::audio_device_monitor: 🔍   → Matches audio interface pattern 'usb audio' (priority 16)
+2025-12-28T11:30:28.605267Z  INFO server::lib::audio::audio_device_monitor: 🔍 Found audio device: 'ThinkPad USB-C Dock Gen2 USB Au, USB Audio'
+2025-12-28T11:30:28.606492Z  INFO server::lib::audio::audio_device_monitor: 🔍   → No input capability, skipping
+2025-12-28T11:30:28.606662Z  INFO server::lib::audio::audio_device_monitor: 🔍 Found audio device: 'ThinkPad USB-C Dock Gen2 USB Au, USB Audio'
+2025-12-28T11:30:28.607630Z  INFO server::lib::audio::audio_device_monitor: 🔍   → No input capability, skipping
+2025-12-28T11:30:28.607748Z  INFO server::lib::audio::audio_device_monitor: 🔍 Found audio device: 'ThinkPad USB-C Dock Gen2 USB Au, USB Audio'
+2025-12-28T11:30:28.608789Z  INFO server::lib::audio::audio_device_monitor: 🔍   → No input capability, skipping
+2025-12-28T11:30:28.608899Z  INFO server::lib::audio::audio_device_monitor: 🔍 Found audio device: 'ThinkPad USB-C Dock Gen2 USB Au, USB Audio'
+2025-12-28T11:30:28.609765Z  INFO server::lib::audio::audio_device_monitor: 🔍   → No input capability, skipping
+2025-12-28T11:30:28.609856Z  INFO server::lib::audio::audio_device_monitor: 🔍 Found audio device: 'ThinkPad USB-C Dock Gen2 USB Au, USB Audio'
+2025-12-28T11:30:28.611154Z  INFO server::lib::audio::audio_device_monitor: 🔍   → No input capability, skipping
+2025-12-28T11:30:28.611264Z  INFO server::lib::audio::audio_device_monitor: 🔍 Found audio device: 'ThinkPad USB-C Dock Gen2 USB Au, USB Audio'
+2025-12-28T11:30:28.612165Z  INFO server::lib::audio::audio_device_monitor: 🔍   → No input capability, skipping
+2025-12-28T11:30:28.612265Z  INFO server::lib::audio::audio_device_monitor: 🔍 Found audio device: 'ThinkPad USB-C Dock Gen2 USB Au, USB Audio'
+2025-12-28T11:30:28.613206Z  INFO server::lib::audio::audio_device_monitor: 🔍   → No input capability, skipping
+2025-12-28T11:30:28.613286Z  INFO server::lib::audio::audio_device_monitor: 🔍 Found audio device: 'ThinkPad USB-C Dock Gen2 USB Au, USB Audio'
+2025-12-28T11:30:28.614556Z  INFO server::lib::audio::audio_device_monitor: 🔍   → No input capability, skipping
+2025-12-28T11:30:29.068355Z  INFO server::api::ws: Successfully parsed listener WebSocket command: leaveRoom
+2025-12-28T11:30:29.068547Z  INFO handle_listener_command{room_id=4c89ff5c-5156-4e6a-9ef2-462ba249ee9c session_id=session-M2UwNDYzNTU= command_type="leaveRoom"}:remove_listener{room_id=4c89ff5c-5156-4e6a-9ef2-462ba249ee9c listener_id=session-M2UwNDYzNTU=}: server::lib::domain::room: Removing listener from room room_id=4c89ff5c-5156-4e6a-9ef2-462ba249ee9c listener_id=session-M2UwNDYzNTU=
+2025-12-28T11:30:29.068648Z  INFO handle_listener_command{room_id=4c89ff5c-5156-4e6a-9ef2-462ba249ee9c session_id=session-M2UwNDYzNTU= command_type="leaveRoom"}:remove_listener{room_id=4c89ff5c-5156-4e6a-9ef2-462ba249ee9c listener_id=session-M2UwNDYzNTU=}:cleanup{listener_id=session-M2UwNDYzNTU=}: server::lib::domain::listener: Starting complete listener cleanup listener_id=session-M2UwNDYzNTU=
+2025-12-28T11:30:29.068697Z  INFO handle_listener_command{room_id=4c89ff5c-5156-4e6a-9ef2-462ba249ee9c session_id=session-M2UwNDYzNTU= command_type="leaveRoom"}:remove_listener{room_id=4c89ff5c-5156-4e6a-9ef2-462ba249ee9c listener_id=session-M2UwNDYzNTU=}:cleanup{listener_id=session-M2UwNDYzNTU=}: server::lib::domain::listener: Consumer cleaned up listener_id=session-M2UwNDYzNTU=
+2025-12-28T11:30:29.068875Z  INFO handle_listener_command{room_id=4c89ff5c-5156-4e6a-9ef2-462ba249ee9c session_id=session-M2UwNDYzNTU= command_type="leaveRoom"}:remove_listener{room_id=4c89ff5c-5156-4e6a-9ef2-462ba249ee9c listener_id=session-M2UwNDYzNTU=}:cleanup{listener_id=session-M2UwNDYzNTU=}: server::lib::domain::listener: Transport cleaned up listener_id=session-M2UwNDYzNTU=
+2025-12-28T11:30:29.069008Z  INFO handle_listener_command{room_id=4c89ff5c-5156-4e6a-9ef2-462ba249ee9c session_id=session-M2UwNDYzNTU= command_type="leaveRoom"}:remove_listener{room_id=4c89ff5c-5156-4e6a-9ef2-462ba249ee9c listener_id=session-M2UwNDYzNTU=}:cleanup{listener_id=session-M2UwNDYzNTU= consumer_cleaned=true transport_cleaned=true}: server::lib::domain::listener: Complete listener cleanup finished listener_id=session-M2UwNDYzNTU= consumer_cleaned=true transport_cleaned=true
+2025-12-28T11:30:29.069139Z  INFO handle_listener_command{room_id=4c89ff5c-5156-4e6a-9ef2-462ba249ee9c session_id=session-M2UwNDYzNTU= command_type="leaveRoom"}:remove_listener{room_id=4c89ff5c-5156-4e6a-9ef2-462ba249ee9c listener_id=session-M2UwNDYzNTU=}: server::lib::domain::room: Listener removed from room successfully room_id=4c89ff5c-5156-4e6a-9ef2-462ba249ee9c listener_id=session-M2UwNDYzNTU= new_listener_count=0
+2025-12-28T11:30:29.069290Z  INFO handle_listener_command{room_id=4c89ff5c-5156-4e6a-9ef2-462ba249ee9c session_id=session-M2UwNDYzNTU= command_type="leaveRoom"}: server::lib::domain::room: Listener session-M2UwNDYzNTU= left room 4c89ff5c-5156-4e6a-9ef2-462ba249ee9c
+2025-12-28T11:30:29.069332Z  INFO handle_listener_command{room_id=4c89ff5c-5156-4e6a-9ef2-462ba249ee9c session_id=session-M2UwNDYzNTU= command_type="leaveRoom"}: server::api::ws: Listener left room successfully room_id=4c89ff5c-5156-4e6a-9ef2-462ba249ee9c listener_id=session-M2UwNDYzNTU=
+2025-12-28T11:30:29.069379Z  INFO handle_listener_command{room_id=4c89ff5c-5156-4e6a-9ef2-462ba249ee9c session_id=session-M2UwNDYzNTU= command_type="leaveRoom"}: server::lib::domain::lobby: Lobby.update_room called room_id=4c89ff5c-5156-4e6a-9ef2-462ba249ee9c
+2025-12-28T11:30:29.069484Z  INFO handle_listener_command{room_id=4c89ff5c-5156-4e6a-9ef2-462ba249ee9c session_id=session-M2UwNDYzNTU= command_type="leaveRoom"}: server::lib::domain::lobby: Room state broadcasted to lobby subscribers room_id=4c89ff5c-5156-4e6a-9ef2-462ba249ee9c room_status=Live listener_count=0 is_public=true event_type="RoomAdded"
+2025-12-28T11:30:29.069634Z  INFO server::api::ws: Listener WebSocket connection closed, starting cleanup timer for abandoned detection room_id=4c89ff5c-5156-4e6a-9ef2-462ba249ee9c session_id=session-M2UwNDYzNTU=
+2025-12-28T11:30:29.086490Z  INFO list_rooms: server::api::api::rooms: Fetched public rooms for API response total_public_rooms=2
+🎤 CPAL callback #1100: 2048 samples provided, buffer_size=1024
+2025-12-28T11:30:30.550404Z  INFO server::lib::audio::audio_device_monitor: 🔍 Found audio device: 'Discard all samples (playback) or generate zero samples (capture)'
+2025-12-28T11:30:30.551187Z  INFO server::lib::audio::audio_device_monitor: 🔍   → Has input capability
+2025-12-28T11:30:30.551284Z  INFO server::lib::audio::audio_device_monitor: 🔍   → No pattern match, skipping
+2025-12-28T11:30:30.551339Z  INFO server::lib::audio::audio_device_monitor: 🔍 Found audio device: 'PipeWire Sound Server'
+2025-12-28T11:30:30.557060Z  INFO server::lib::audio::audio_device_monitor: 🔍   → Has input capability
+2025-12-28T11:30:30.557198Z  INFO server::lib::audio::audio_device_monitor: 🔍   → No pattern match, skipping
+2025-12-28T11:30:30.558533Z  INFO server::lib::audio::audio_device_monitor: 🔍 Found audio device: 'Default ALSA Output (currently PipeWire Media Server)'
+2025-12-28T11:30:30.563816Z  INFO server::lib::audio::audio_device_monitor: 🔍   → Has input capability
+2025-12-28T11:30:30.563939Z  INFO server::lib::audio::audio_device_monitor: 🔍   → No pattern match, skipping
+2025-12-28T11:30:30.564872Z  INFO server::lib::audio::audio_device_monitor: 🔍 Found audio device: 'HD-Audio Generic, U27I4K'
+2025-12-28T11:30:30.565281Z  INFO server::lib::audio::audio_device_monitor: 🔍   → No input capability, skipping
+2025-12-28T11:30:30.565360Z  INFO server::lib::audio::audio_device_monitor: 🔍 Found audio device: 'HD-Audio Generic, HDMI 1'
+2025-12-28T11:30:30.565633Z  INFO server::lib::audio::audio_device_monitor: 🔍   → No input capability, skipping
+2025-12-28T11:30:30.565676Z  INFO server::lib::audio::audio_device_monitor: 🔍 Found audio device: 'HD-Audio Generic, HDMI 2'
+2025-12-28T11:30:30.565939Z  INFO server::lib::audio::audio_device_monitor: 🔍   → No input capability, skipping
+2025-12-28T11:30:30.565980Z  INFO server::lib::audio::audio_device_monitor: 🔍 Found audio device: 'HD-Audio Generic, ALC257 Analog'
+2025-12-28T11:30:30.571430Z  INFO server::lib::audio::audio_device_monitor: 🔍   → Has input capability
+2025-12-28T11:30:30.571494Z  INFO server::lib::audio::audio_device_monitor: 🔍   → Built-in device, skipping
+2025-12-28T11:30:30.571840Z  INFO server::lib::audio::audio_device_monitor: 🔍 Found audio device: 'HD-Audio Generic, ALC257 Analog'
+2025-12-28T11:30:30.572430Z  INFO server::lib::audio::audio_device_monitor: 🔍   → Has input capability
+2025-12-28T11:30:30.572507Z  INFO server::lib::audio::audio_device_monitor: 🔍   → Built-in device, skipping
+2025-12-28T11:30:30.572639Z  INFO server::lib::audio::audio_device_monitor: 🔍 Found audio device: 'HD-Audio Generic, ALC257 Analog'
+ALSA lib pcm_route.c:878:(find_matching_chmap) Found no matching channel map
+2025-12-28T11:30:30.573248Z  INFO server::lib::audio::audio_device_monitor: 🔍   → No input capability, skipping
+2025-12-28T11:30:30.573338Z  INFO server::lib::audio::audio_device_monitor: 🔍 Found audio device: 'HD-Audio Generic, ALC257 Analog'
+2025-12-28T11:30:30.573785Z  INFO server::lib::audio::audio_device_monitor: 🔍   → Has input capability
+2025-12-28T11:30:30.573838Z  INFO server::lib::audio::audio_device_monitor: 🔍   → Built-in device, skipping
+2025-12-28T11:30:30.573924Z  INFO server::lib::audio::audio_device_monitor: 🔍 Found audio device: 'HD-Audio Generic, ALC257 Analog'
+ALSA lib pcm_route.c:878:(find_matching_chmap) Found no matching channel map
+2025-12-28T11:30:30.574458Z  INFO server::lib::audio::audio_device_monitor: 🔍   → No input capability, skipping
+2025-12-28T11:30:30.574531Z  INFO server::lib::audio::audio_device_monitor: 🔍 Found audio device: 'HD-Audio Generic, ALC257 Analog'
+ALSA lib pcm_route.c:878:(find_matching_chmap) Found no matching channel map
+2025-12-28T11:30:30.574969Z  INFO server::lib::audio::audio_device_monitor: 🔍   → No input capability, skipping
+2025-12-28T11:30:30.575046Z  INFO server::lib::audio::audio_device_monitor: 🔍 Found audio device: 'HD-Audio Generic, ALC257 Analog'
+2025-12-28T11:30:30.575522Z  INFO server::lib::audio::audio_device_monitor: 🔍   → Has input capability
+2025-12-28T11:30:30.575581Z  INFO server::lib::audio::audio_device_monitor: 🔍   → Built-in device, skipping
+2025-12-28T11:30:30.575688Z  INFO server::lib::audio::audio_device_monitor: 🔍 Found audio device: 'HD-Audio Generic, ALC257 Analog'
+2025-12-28T11:30:30.576198Z  INFO server::lib::audio::audio_device_monitor: 🔍   → Has input capability
+2025-12-28T11:30:30.576264Z  INFO server::lib::audio::audio_device_monitor: 🔍   → Built-in device, skipping
+2025-12-28T11:30:30.576385Z  INFO server::lib::audio::audio_device_monitor: 🔍 Found audio device: 'acp, '
+2025-12-28T11:30:30.576796Z  INFO server::lib::audio::audio_device_monitor: 🔍   → No input capability, skipping
+2025-12-28T11:30:30.576872Z  INFO server::lib::audio::audio_device_monitor: 🔍 Found audio device: 'ThinkPad USB-C Dock Gen2 USB Au, USB Audio'
+2025-12-28T11:30:30.583341Z  INFO server::lib::audio::audio_device_monitor: 🔍   → Has input capability
+2025-12-28T11:30:30.583443Z  INFO server::lib::audio::audio_device_monitor: 🔍   → Matches audio interface pattern 'usb audio' (priority 16)
+2025-12-28T11:30:30.583505Z  INFO server::lib::audio::audio_device_monitor: 🔍 Found audio device: 'ThinkPad USB-C Dock Gen2 USB Au, USB Audio'
+2025-12-28T11:30:30.584232Z  INFO server::lib::audio::audio_device_monitor: 🔍   → No input capability, skipping
+2025-12-28T11:30:30.584313Z  INFO server::lib::audio::audio_device_monitor: 🔍 Found audio device: 'ThinkPad USB-C Dock Gen2 USB Au, USB Audio'
+2025-12-28T11:30:30.584978Z  INFO server::lib::audio::audio_device_monitor: 🔍   → No input capability, skipping
+2025-12-28T11:30:30.585056Z  INFO server::lib::audio::audio_device_monitor: 🔍 Found audio device: 'ThinkPad USB-C Dock Gen2 USB Au, USB Audio'
+2025-12-28T11:30:30.585964Z  INFO server::lib::audio::audio_device_monitor: 🔍   → No input capability, skipping
+2025-12-28T11:30:30.586052Z  INFO server::lib::audio::audio_device_monitor: 🔍 Found audio device: 'ThinkPad USB-C Dock Gen2 USB Au, USB Audio'
+2025-12-28T11:30:30.586656Z  INFO server::lib::audio::audio_device_monitor: 🔍   → No input capability, skipping
+2025-12-28T11:30:30.586718Z  INFO server::lib::audio::audio_device_monitor: 🔍 Found audio device: 'ThinkPad USB-C Dock Gen2 USB Au, USB Audio'
+2025-12-28T11:30:30.587285Z  INFO server::lib::audio::audio_device_monitor: 🔍   → No input capability, skipping
+2025-12-28T11:30:30.587362Z  INFO server::lib::audio::audio_device_monitor: 🔍 Found audio device: 'ThinkPad USB-C Dock Gen2 USB Au, USB Audio'
+2025-12-28T11:30:30.587965Z  INFO server::lib::audio::audio_device_monitor: 🔍   → No input capability, skipping
+2025-12-28T11:30:30.588079Z  INFO server::lib::audio::audio_device_monitor: 🔍 Found audio device: 'ThinkPad USB-C Dock Gen2 USB Au, USB Audio'
+2025-12-28T11:30:30.588716Z  INFO server::lib::audio::audio_device_monitor: 🔍   → No input capability, skipping
+2025-12-28T11:30:30.588812Z  INFO server::lib::audio::audio_device_monitor: 🔍 Found audio device: 'ThinkPad USB-C Dock Gen2 USB Au, USB Audio'
+2025-12-28T11:30:30.589735Z  INFO server::lib::audio::audio_device_monitor: 🔍   → No input capability, skipping
+2025-12-28T11:30:31.779502Z  INFO server::lib::audio::encoder: 🎵 Audio pipeline: 2497 frames (2497 audio, 0 silence), fill: 42.7%, rate: 95646 Hz (expected: 96000 Hz)
+🎤 CPAL callback #1200: 2048 samples provided, buffer_size=1024
+2025-12-28T11:30:32.545044Z  INFO server::lib::audio::audio_device_monitor: 🔍 Found audio device: 'Discard all samples (playback) or generate zero samples (capture)'
+2025-12-28T11:30:32.545547Z  INFO server::lib::audio::audio_device_monitor: 🔍   → Has input capability
+2025-12-28T11:30:32.545605Z  INFO server::lib::audio::audio_device_monitor: 🔍   → No pattern match, skipping
+2025-12-28T11:30:32.545629Z  INFO server::lib::audio::audio_device_monitor: 🔍 Found audio device: 'PipeWire Sound Server'
+2025-12-28T11:30:32.549577Z  INFO server::lib::audio::audio_device_monitor: 🔍   → Has input capability
+2025-12-28T11:30:32.549643Z  INFO server::lib::audio::audio_device_monitor: 🔍   → No pattern match, skipping
+2025-12-28T11:30:32.550356Z  INFO server::lib::audio::audio_device_monitor: 🔍 Found audio device: 'Default ALSA Output (currently PipeWire Media Server)'
+2025-12-28T11:30:32.554115Z  INFO server::lib::audio::audio_device_monitor: 🔍   → Has input capability
+2025-12-28T11:30:32.554202Z  INFO server::lib::audio::audio_device_monitor: 🔍   → No pattern match, skipping
+2025-12-28T11:30:32.554946Z  INFO server::lib::audio::audio_device_monitor: 🔍 Found audio device: 'HD-Audio Generic, U27I4K'
+2025-12-28T11:30:32.555263Z  INFO server::lib::audio::audio_device_monitor: 🔍   → No input capability, skipping
+2025-12-28T11:30:32.555305Z  INFO server::lib::audio::audio_device_monitor: 🔍 Found audio device: 'HD-Audio Generic, HDMI 1'
+2025-12-28T11:30:32.555475Z  INFO server::lib::audio::audio_device_monitor: 🔍   → No input capability, skipping
+2025-12-28T11:30:32.555500Z  INFO server::lib::audio::audio_device_monitor: 🔍 Found audio device: 'HD-Audio Generic, HDMI 2'
+2025-12-28T11:30:32.555644Z  INFO server::lib::audio::audio_device_monitor: 🔍   → No input capability, skipping
+2025-12-28T11:30:32.555664Z  INFO server::lib::audio::audio_device_monitor: 🔍 Found audio device: 'HD-Audio Generic, ALC257 Analog'
+2025-12-28T11:30:32.560585Z  INFO server::lib::audio::audio_device_monitor: 🔍   → Has input capability
+2025-12-28T11:30:32.560666Z  INFO server::lib::audio::audio_device_monitor: 🔍   → Built-in device, skipping
+2025-12-28T11:30:32.561016Z  INFO server::lib::audio::audio_device_monitor: 🔍 Found audio device: 'HD-Audio Generic, ALC257 Analog'
+2025-12-28T11:30:32.561393Z  INFO server::lib::audio::audio_device_monitor: 🔍   → Has input capability
+2025-12-28T11:30:32.561413Z  INFO server::lib::audio::audio_device_monitor: 🔍   → Built-in device, skipping
+2025-12-28T11:30:32.561456Z  INFO server::lib::audio::audio_device_monitor: 🔍 Found audio device: 'HD-Audio Generic, ALC257 Analog'
+ALSA lib pcm_route.c:878:(find_matching_chmap) Found no matching channel map
+2025-12-28T11:30:32.561706Z  INFO server::lib::audio::audio_device_monitor: 🔍   → No input capability, skipping
+2025-12-28T11:30:32.561737Z  INFO server::lib::audio::audio_device_monitor: 🔍 Found audio device: 'HD-Audio Generic, ALC257 Analog'
+2025-12-28T11:30:32.561980Z  INFO server::lib::audio::audio_device_monitor: 🔍   → Has input capability
+2025-12-28T11:30:32.562002Z  INFO server::lib::audio::audio_device_monitor: 🔍   → Built-in device, skipping
+2025-12-28T11:30:32.562046Z  INFO server::lib::audio::audio_device_monitor: 🔍 Found audio device: 'HD-Audio Generic, ALC257 Analog'
+ALSA lib pcm_route.c:878:(find_matching_chmap) Found no matching channel map
+2025-12-28T11:30:32.562293Z  INFO server::lib::audio::audio_device_monitor: 🔍   → No input capability, skipping
+2025-12-28T11:30:32.562320Z  INFO server::lib::audio::audio_device_monitor: 🔍 Found audio device: 'HD-Audio Generic, ALC257 Analog'
+ALSA lib pcm_route.c:878:(find_matching_chmap) Found no matching channel map
+2025-12-28T11:30:32.562550Z  INFO server::lib::audio::audio_device_monitor: 🔍   → No input capability, skipping
+2025-12-28T11:30:32.562578Z  INFO server::lib::audio::audio_device_monitor: 🔍 Found audio device: 'HD-Audio Generic, ALC257 Analog'
+2025-12-28T11:30:32.562801Z  INFO server::lib::audio::audio_device_monitor: 🔍   → Has input capability
+2025-12-28T11:30:32.562823Z  INFO server::lib::audio::audio_device_monitor: 🔍   → Built-in device, skipping
+2025-12-28T11:30:32.562860Z  INFO server::lib::audio::audio_device_monitor: 🔍 Found audio device: 'HD-Audio Generic, ALC257 Analog'
+2025-12-28T11:30:32.563087Z  INFO server::lib::audio::audio_device_monitor: 🔍   → Has input capability
+2025-12-28T11:30:32.563105Z  INFO server::lib::audio::audio_device_monitor: 🔍   → Built-in device, skipping
+2025-12-28T11:30:32.563156Z  INFO server::lib::audio::audio_device_monitor: 🔍 Found audio device: 'acp, '
+2025-12-28T11:30:32.563352Z  INFO server::lib::audio::audio_device_monitor: 🔍   → No input capability, skipping
+2025-12-28T11:30:32.563377Z  INFO server::lib::audio::audio_device_monitor: 🔍 Found audio device: 'ThinkPad USB-C Dock Gen2 USB Au, USB Audio'
+2025-12-28T11:30:32.567535Z  INFO server::lib::audio::audio_device_monitor: 🔍   → Has input capability
+2025-12-28T11:30:32.567604Z  INFO server::lib::audio::audio_device_monitor: 🔍   → Matches audio interface pattern 'usb audio' (priority 16)
+2025-12-28T11:30:32.567637Z  INFO server::lib::audio::audio_device_monitor: 🔍 Found audio device: 'ThinkPad USB-C Dock Gen2 USB Au, USB Audio'
+2025-12-28T11:30:32.568031Z  INFO server::lib::audio::audio_device_monitor: 🔍   → No input capability, skipping
+2025-12-28T11:30:32.568077Z  INFO server::lib::audio::audio_device_monitor: 🔍 Found audio device: 'ThinkPad USB-C Dock Gen2 USB Au, USB Audio'
+2025-12-28T11:30:32.568439Z  INFO server::lib::audio::audio_device_monitor: 🔍   → No input capability, skipping
+2025-12-28T11:30:32.568470Z  INFO server::lib::audio::audio_device_monitor: 🔍 Found audio device: 'ThinkPad USB-C Dock Gen2 USB Au, USB Audio'
+2025-12-28T11:30:32.568928Z  INFO server::lib::audio::audio_device_monitor: 🔍   → No input capability, skipping
+2025-12-28T11:30:32.568957Z  INFO server::lib::audio::audio_device_monitor: 🔍 Found audio device: 'ThinkPad USB-C Dock Gen2 USB Au, USB Audio'
+2025-12-28T11:30:32.569331Z  INFO server::lib::audio::audio_device_monitor: 🔍   → No input capability, skipping
+2025-12-28T11:30:32.569360Z  INFO server::lib::audio::audio_device_monitor: 🔍 Found audio device: 'ThinkPad USB-C Dock Gen2 USB Au, USB Audio'
+2025-12-28T11:30:32.569728Z  INFO server::lib::audio::audio_device_monitor: 🔍   → No input capability, skipping
+2025-12-28T11:30:32.569761Z  INFO server::lib::audio::audio_device_monitor: 🔍 Found audio device: 'ThinkPad USB-C Dock Gen2 USB Au, USB Audio'
+2025-12-28T11:30:32.570176Z  INFO server::lib::audio::audio_device_monitor: 🔍   → No input capability, skipping
+2025-12-28T11:30:32.570211Z  INFO server::lib::audio::audio_device_monitor: 🔍 Found audio device: 'ThinkPad USB-C Dock Gen2 USB Au, USB Audio'
+2025-12-28T11:30:32.570584Z  INFO server::lib::audio::audio_device_monitor: 🔍   → No input capability, skipping
+2025-12-28T11:30:32.570611Z  INFO server::lib::audio::audio_device_monitor: 🔍 Found audio device: 'ThinkPad USB-C Dock Gen2 USB Au, USB Audio'
+2025-12-28T11:30:32.571206Z  INFO server::lib::audio::audio_device_monitor: 🔍   → No input capability, skipping
+^C

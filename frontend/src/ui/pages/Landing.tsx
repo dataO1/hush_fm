@@ -343,7 +343,7 @@ function LandingContent() {
       <div class="container mx-auto px-4 sm:px-6 lg:px-8 py-4 sm:py-6 lg:py-8">
         {/* Header */}
         <div class="text-center mb-6 sm:mb-8">
-          <h1 class="text-3xl sm:text-4xl lg:text-5xl font-bold mb-2 text-brand">
+          <h1 class="text-3xl sm:text-4xl lg:text-5xl font-bold mb-2" style="color: #d3869b;">
             HushFM
           </h1>
           <p class="text-sm sm:text-base text-gruvbox-fg-3">Live Audio Streaming</p>

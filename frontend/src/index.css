@@ -22,6 +22,7 @@
     @apply text-gruvbox-yellow-bright;
   }
 
+
   /* Room Status Components */
   .room-dj {
     @apply bg-gruvbox-yellow-bright/25 border-gruvbox-yellow/60 hover:border-gruvbox-yellow-bright/80 hover:bg-gruvbox-yellow-bright/35 animate-music-pulse rounded-sm;
@@ -37,18 +38,43 @@
 
   /* Form Components */
   .input-hush {
-    @apply bg-gruvbox-bg-1 border-2 border-gruvbox-bg-3 text-gruvbox-fg placeholder-gruvbox-fg-4;
-    @apply focus:border-gruvbox-yellow-bright focus:bg-gruvbox-bg-2 focus:outline-none;
+    @apply bg-gruvbox-bg-hard border-2 border-gruvbox-bg-2 text-gruvbox-fg placeholder-gruvbox-fg-4;
+    @apply focus:border-gruvbox-blue focus:bg-gruvbox-bg-1 focus:outline-none;
     @apply disabled:bg-gruvbox-bg-hard disabled:text-gruvbox-fg-4 disabled:border-gruvbox-bg-2 disabled:cursor-not-allowed;
     @apply transition-all duration-150 ease-in-out rounded-sm;
   }
 
   .select-hush {
-    @apply bg-gruvbox-bg-1 border-2 border-gruvbox-bg-3 text-gruvbox-fg;
-    @apply focus:border-gruvbox-yellow-bright focus:bg-gruvbox-bg-2 focus:outline-none;
+    @apply bg-gruvbox-bg-hard border-2 border-gruvbox-bg-2 text-gruvbox-fg;
+    @apply focus:border-gruvbox-blue focus:bg-gruvbox-bg-1 focus:outline-none;
     @apply disabled:bg-gruvbox-bg-hard disabled:text-gruvbox-fg-4 disabled:border-gruvbox-bg-2 disabled:cursor-not-allowed;
     @apply transition-all duration-150 ease-in-out rounded-sm;
     @apply appearance-none cursor-pointer;
+  }
+
+  /* Ensure dropdown options inherit the width constraint from their parent */
+  .select-hush,
+  .select {
+    width: 100%;
+  }
+
+  .select-hush:focus option,
+  .select:focus option {
+    width: 100% !important;
+    max-width: 100% !important;
+  }
+
+  .select-hush option {
+    @apply bg-gruvbox-bg-hard text-gruvbox-fg;
+    width: 100% !important;
+    max-width: 100% !important;
+    overflow: hidden !important;
+    text-overflow: ellipsis !important;
+    white-space: nowrap !important;
+  }
+
+  .select-hush option:hover {
+    @apply bg-gruvbox-blue text-gruvbox-fg;
   }
 
   .label-hush {
@@ -57,20 +83,29 @@
 
   /* DaisyUI Form Overrides */
   .select {
-    @apply bg-gruvbox-bg-1 border-2 border-gruvbox-bg-3 text-gruvbox-fg;
-    @apply focus:border-gruvbox-yellow-bright focus:bg-gruvbox-bg-2 focus:outline-none;
+    @apply bg-gruvbox-bg-hard border-2 border-gruvbox-bg-2 text-gruvbox-fg;
+    @apply focus:border-gruvbox-blue focus:bg-gruvbox-bg-1 focus:outline-none;
     @apply disabled:bg-gruvbox-bg-hard disabled:text-gruvbox-fg-4 disabled:border-gruvbox-bg-2 disabled:cursor-not-allowed;
     @apply transition-all duration-150 ease-in-out rounded-sm;
     @apply shadow-none;
   }
 
   .select option {
-    @apply bg-gruvbox-bg-1 text-gruvbox-fg;
+    @apply bg-gruvbox-bg-hard text-gruvbox-fg;
+    width: 100% !important;
+    max-width: 100% !important;
+    overflow: hidden !important;
+    text-overflow: ellipsis !important;
+    white-space: nowrap !important;
+  }
+
+  .select option:hover {
+    @apply bg-gruvbox-blue text-gruvbox-fg;
   }
 
   .input {
-    @apply bg-gruvbox-bg-1 border-2 border-gruvbox-bg-3 text-gruvbox-fg;
-    @apply focus:border-gruvbox-yellow-bright focus:bg-gruvbox-bg-2 focus:outline-none;
+    @apply bg-gruvbox-bg-hard border-2 border-gruvbox-bg-2 text-gruvbox-fg;
+    @apply focus:border-gruvbox-blue focus:bg-gruvbox-bg-1 focus:outline-none;
     @apply disabled:bg-gruvbox-bg-hard disabled:text-gruvbox-fg-4 disabled:border-gruvbox-bg-2 disabled:cursor-not-allowed;
     @apply transition-all duration-150 ease-in-out rounded-sm;
     @apply shadow-none;
@@ -86,10 +121,11 @@
   
   /* Vintage Button Styles */
   .btn-hush {
-    @apply bg-gruvbox-yellow-bright hover:bg-gruvbox-yellow border-0 text-gruvbox-bg-hard font-medium;
+    @apply bg-gruvbox-blue hover:bg-gruvbox-blue-bright border-0 text-gruvbox-fg font-medium;
     @apply shadow-none hover:shadow-none;
     @apply transition-all duration-150 ease-in-out;
     @apply active:scale-95;
+    @apply px-4 py-2;
   }
   
   .btn-hush-secondary {
@@ -97,6 +133,7 @@
     @apply shadow-none hover:shadow-none;
     @apply transition-all duration-150 ease-in-out;
     @apply active:scale-95;
+    @apply px-4 py-2;
   }
 
   /* Vintage DaisyUI Button Overrides */
@@ -104,10 +141,23 @@
     @apply shadow-none border-0 font-medium;
     @apply transition-all duration-150 ease-in-out;
     @apply active:scale-95;
+    @apply px-4 py-2;
+  }
+
+  .btn-sm {
+    @apply px-3 py-1.5;
+  }
+
+  .btn-md {
+    @apply px-4 py-2;
+  }
+
+  .btn-lg {
+    @apply px-6 py-3;
   }
 
   .btn-primary {
-    @apply bg-gruvbox-yellow hover:bg-gruvbox-yellow-bright border-0 text-gruvbox-bg-hard;
+    @apply bg-gruvbox-blue hover:bg-gruvbox-blue-bright border-0 text-gruvbox-fg;
   }
 
   .btn-ghost {

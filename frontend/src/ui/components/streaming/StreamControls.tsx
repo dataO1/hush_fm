@@ -26,7 +26,7 @@ export function StreamControls(props: StreamControlsProps): JSX.Element {
       
       {/* Mute/Unmute Button */}
       <button
-        class={`btn btn-md sm:btn-lg gap-2 w-full sm:w-auto sm:min-w-32 shadow-none ${
+        class={`btn btn-md sm:btn-lg gap-2 w-36 sm:w-40 shadow-none ${
           props.isPaused() 
             ? 'bg-gruvbox-bg-3 hover:bg-gruvbox-bg-4 border-0 text-gruvbox-red-bright' 
             : 'bg-gruvbox-bg-3 hover:bg-gruvbox-bg-4 border-0 text-gruvbox-green-bright'
@@ -54,13 +54,13 @@ export function StreamControls(props: StreamControlsProps): JSX.Element {
 
       {/* End Stream Button */}
       <button 
-        class="bg-gruvbox-bg-3 hover:bg-gruvbox-bg-4 border-0 text-gruvbox-red-bright shadow-none btn btn-md sm:btn-lg gap-2 w-full sm:w-auto" 
+        class="bg-gruvbox-bg-3 hover:bg-gruvbox-bg-4 border-0 text-gruvbox-red-bright shadow-none btn btn-md sm:btn-lg gap-2 w-36 sm:w-40" 
         onClick={() => props.endStream()}
       >
         <svg class="w-4 h-4 sm:w-5 sm:h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path stroke-linecap="round" stroke-linejoin="round" stroke-width={2} d="M6 18L18 6M6 6l12 12" />
         </svg>
-        <span class="text-sm sm:text-base">End Stream</span>
+        <span class="text-sm sm:text-base">Stop</span>
       </button>
       
     </div>

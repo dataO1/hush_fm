@@ -257,29 +257,49 @@ impl Lobby {
 
     /// Update room and broadcast changes (atomic publication pattern)
     pub async fn update_room(&self, room_id: &Uuid) {
+        tracing::info!(room_id = %room_id, "Lobby.update_room called");
         if let Some(room_arc) = self.get_room(room_id) {
             let room = room_arc.read().await;
 
             // Check if room is now public (Step 16 atomic publication)
             if room.is_public() {
-                // First time becoming public = RoomAdded, subsequent updates = RoomUpdated
-                let event = if matches!(room.status, crate::lib::models::schemas::RoomStatus::Live) {
-                    // Room just became Live for first time (producer created)
+                // Determine event type based on context:
+                // - RoomAdded: Only when room first becomes public (first time DJ goes live)
+                // - RoomUpdated: All subsequent changes (listener joins/leaves, pause/resume, etc.)
+                
+                // Use activity timestamp to determine if room was recently created vs existing
+                // A room that was created within the last 30 seconds and has 0 listeners is likely 
+                // a new room (DJ just went live), otherwise it's an existing room update
+                let now = chrono::Utc::now();
+                let room_age_seconds = (now - room.last_activity).num_seconds() as u64;
+                let is_fresh_room = room_age_seconds <= 30 && room.listener_count == 0;
+                
+                let event = if is_fresh_room && matches!(room.status, crate::lib::models::schemas::RoomStatus::Live) {
+                    // Room just became Live for first time (producer created, no listeners yet)
                     LobbyEvent::RoomAdded {
                         room: room.clone().into(),
                     }
                 } else {
-                    // Subsequent updates (paused/resumed etc.)
+                    // Subsequent updates (listener count changes, paused/resumed, etc.)
                     LobbyEvent::RoomUpdated {
                         room: room.clone().into(),
                     }
                 };
 
+                let event_type_str = match &event { 
+                    LobbyEvent::RoomAdded { .. } => "RoomAdded", 
+                    LobbyEvent::RoomUpdated { .. } => "RoomUpdated", 
+                    _ => "Other" 
+                };
                 let _ = self.broadcast_tx.send(event);
-                tracing::debug!(
+                tracing::info!(
                     room_id = %room_id,
                     room_status = ?room.status,
+                    listener_count = room.listener_count,
                     is_public = room.is_public(),
+                    room_age_seconds = room_age_seconds,
+                    is_fresh_room = is_fresh_room,
+                    event_type = event_type_str,
                     "Room state broadcasted to lobby subscribers"
                 );
             }

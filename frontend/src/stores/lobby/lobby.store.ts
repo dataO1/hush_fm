@@ -73,7 +73,11 @@ export const createLobbyStore = () => {
     },
 
     updateRoom: (room: LobbyRoomInfoType) => {
-      setState({ rooms: state.rooms.map(r => r.id === room.id ? room : r) })
+      // Only update if room exists and has changed to avoid unnecessary array recreation
+      const existingRoom = state.rooms.find(r => r.id === room.id)
+      if (existingRoom && existingRoom.listenerCount !== room.listenerCount) {
+        setState({ rooms: state.rooms.map(r => r.id === room.id ? room : r) })
+      }
     },
 
     removeRoom: (roomId: string) => {

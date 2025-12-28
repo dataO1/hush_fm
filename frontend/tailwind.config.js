@@ -53,7 +53,7 @@ export default {
           '0%, 20%': { opacity: '1', transform: 'scale(1)' },
           '10%': { opacity: '0.8', transform: 'scale(1.02)' },
           '40%, 100%': { opacity: '1', transform: 'scale(1)' },
-        }
+        },
       }
     }
   },

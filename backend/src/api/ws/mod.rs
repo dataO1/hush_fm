@@ -364,7 +364,7 @@ async fn handle_lobby_command(
             let room_result = lobby.get_room(&room_uuid);
             match room_result {
                 Some(room_state) => {
-                    let room_guard = room_state.read().await;
+                    let mut room_guard = room_state.write().await;
                     
                     // Verify room is public and has a producer
                     if !room_guard.is_public() {
@@ -415,6 +415,10 @@ async fn handle_lobby_command(
 
                     // Get room info for response
                     let room_info = room_guard.clone().into();
+                    
+                    // Broadcast room update to lobby with new listener count
+                    drop(room_guard); // Release write lock before lobby call
+                    lobby.update_room(&room_uuid).await;
 
                     listener_flow_span.record("listener.websocket_url", &listener_websocket_url);
                     listener_flow_span.record("flow.phase", "completed");
@@ -1526,6 +1530,11 @@ async fn handle_listener_command(
                             listener_id = %session_id,
                             "Listener left room successfully"
                         );
+                        
+                        // Broadcast room update to lobby with new listener count
+                        drop(room_guard); // Release write lock before lobby call
+                        lobby.update_room(&room_id).await;
+                        
                         // Connection will be closed by the client
                     }
                     Err(e) => {
@@ -1872,7 +1881,7 @@ async fn handle_request_join(
     let room_state = lobby.get_room(&room_id)
         .ok_or_else(|| anyhow::anyhow!("Room not found"))?;
 
-    let room_state_guard = room_state.write().await;
+    let mut room_state_guard = room_state.write().await;
     let room = room_state_guard.clone();
 
     // We'll create the ListenerState after the transport is created (in the return section)
@@ -1902,7 +1911,7 @@ async fn handle_request_join(
         event_tx,
     ).await?;
     
-    // Add the listener to the room's listener collection
+    // Add the listener to the room's listener collection  
     room_state_guard.add_listener(listener);
 
     // Get router RTP capabilities for device initialization
@@ -1919,6 +1928,10 @@ async fn handle_request_join(
         listener_count = room.listener_count,
         "Join request validated - ListenerState created and stored"
     );
+
+    // Broadcast room update to lobby with new listener count
+    drop(room_state_guard); // Release write lock before lobby call
+    lobby.update_room(&room_id).await;
 
     Ok((
         room.into(), // Convert Room to RoomInfo
