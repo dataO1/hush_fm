@@ -13,14 +13,12 @@ use std::sync::Arc;
 use uuid::Uuid;
 use anyhow::{Result, Context};
 
+use crate::lib::config::Config;
 use crate::lib::domain::Lobby;
 use crate::lib::models::schemas::RoomStatus;
 
-/// Audio bot room configuration
-const AUDIO_BOT_ROOM_NAME: &str = "Local Audio Stream";
-const AUDIO_BOT_DJ_NAME: &str = "AudioBot";
+/// Audio bot session ID (fixed, not configurable)
 const AUDIO_BOT_SESSION_ID: &str = "audio-bot-session";
-const AUDIO_BOT_DESCRIPTION: &str = "Local audio input stream from server";
 
 /// Create a room with DirectTransport for local audio injection
 /// 
@@ -37,19 +35,26 @@ const AUDIO_BOT_DESCRIPTION: &str = "Local audio input stream from server";
 /// # Returns
 /// * `(Uuid, Arc<Producer>)` - Room ID and Producer for audio injection
 pub async fn create_audio_bot_room(lobby: &Lobby) -> Result<(Uuid, Arc<Producer>)> {
-    tracing::info!("🎵 Creating audio bot room with DirectTransport");
+    let config = Config::global();
+
+    tracing::info!(
+        room_name = %config.audio_bot_room_name(),
+        dj_name = %config.audio_bot_dj_name(),
+        tags = ?config.audio_bot_tags(),
+        "🎵 Creating audio bot room with DirectTransport"
+    );
 
     // Generate room ID
     let room_id = Uuid::new_v4();
-    
+
     // Create room using existing lobby logic (reuses all the setup code)
     let room = lobby.create_room(
         room_id,
-        AUDIO_BOT_ROOM_NAME.to_string(),
-        AUDIO_BOT_DJ_NAME.to_string(),
+        config.audio_bot_room_name().to_string(),
+        config.audio_bot_dj_name().to_string(),
         AUDIO_BOT_SESSION_ID.to_string(),
-        Some(AUDIO_BOT_DESCRIPTION.to_string()),
-        Some(vec!["local".to_string(), "audio".to_string(), "bot".to_string()]),
+        Some(config.audio_bot_description().to_string()),
+        Some(config.audio_bot_tags().to_vec()),
     ).await.context("Failed to create audio bot room")?;
 
     // Get the router from the created room

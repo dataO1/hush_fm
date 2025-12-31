@@ -85,6 +85,12 @@ pub struct Config {
     // Monitoring Configuration
     stale_listener_timeout: ConfigValue<Duration>,
     
+    // Audio Bot Room Configuration
+    audio_bot_room_name: ConfigValue<String>,
+    audio_bot_dj_name: ConfigValue<String>,
+    audio_bot_description: ConfigValue<String>,
+    audio_bot_tags: ConfigValue<Vec<String>>,
+
     // Audio Configuration
     opus_bitrate: ConfigValue<u32>,
     opus_complexity: ConfigValue<u32>,
@@ -198,6 +204,33 @@ impl Config {
             stale_listener_timeout_secs.source
         );
 
+        // Audio Bot Room Configuration
+        let audio_bot_room_name = Self::parse_env_var_with_default(
+            "HUSHFM_AUDIO_BOT_ROOM_NAME",
+            "Main Floor",
+            "Main Floor".to_string(),
+            &mut warnings
+        );
+
+        let audio_bot_dj_name = Self::parse_env_var_with_default(
+            "HUSHFM_AUDIO_BOT_DJ_NAME",
+            "AudioBot",
+            "AudioBot".to_string(),
+            &mut warnings
+        );
+
+        let audio_bot_description = Self::parse_env_var_with_default(
+            "HUSHFM_AUDIO_BOT_DESCRIPTION",
+            "Local audio input stream from server",
+            "Local audio input stream from server".to_string(),
+            &mut warnings
+        );
+
+        let audio_bot_tags = Self::parse_string_list_env_var(
+            "HUSHFM_AUDIO_BOT_TAGS",
+            vec!["dnb".to_string(), "live".to_string(), "trommeln und bass".to_string(), "party".to_string(), "fun fun fun".to_string()],
+        );
+
         // Audio Configuration
         let opus_bitrate = Self::parse_env_var_with_default(
             "HUSHFM_OPUS_BITRATE",
@@ -273,6 +306,10 @@ impl Config {
             mediasoup_expose_internal_ip,
             mediasoup_worker_debug,
             stale_listener_timeout,
+            audio_bot_room_name,
+            audio_bot_dj_name,
+            audio_bot_description,
+            audio_bot_tags,
             opus_bitrate,
             opus_complexity,
             opus_enable_fec,
@@ -323,6 +360,24 @@ impl Config {
                         ConfigValue::new(default_value, ConfigSource::Default)
                     }
                 }
+            },
+            Err(_) => ConfigValue::new(default_value, ConfigSource::Default),
+        }
+    }
+
+    /// Parse an environment variable as a comma-separated list of strings
+    fn parse_string_list_env_var(
+        var_name: &str,
+        default_value: Vec<String>,
+    ) -> ConfigValue<Vec<String>> {
+        match std::env::var(var_name) {
+            Ok(value) => {
+                let parsed: Vec<String> = value
+                    .split(',')
+                    .map(|s| s.trim().to_string())
+                    .filter(|s| !s.is_empty())
+                    .collect();
+                ConfigValue::new(parsed, ConfigSource::Environment)
             },
             Err(_) => ConfigValue::new(default_value, ConfigSource::Default),
         }
@@ -452,6 +507,15 @@ impl Config {
         };
         tracing::info!("│ Stale Listener Timeout          │ {:15} │ {:10} │", timeout_display, self.stale_listener_timeout.source);
         tracing::info!("├─────────────────────────────────┼─────────────────┼────────────┤");
+        tracing::info!("│ Audio Bot Room Name             │ {:15} │ {:10} │", self.audio_bot_room_name.value, self.audio_bot_room_name.source);
+        tracing::info!("│ Audio Bot DJ Name               │ {:15} │ {:10} │", self.audio_bot_dj_name.value, self.audio_bot_dj_name.source);
+        let tags_display = if self.audio_bot_tags.value.len() > 2 {
+            format!("{}...", self.audio_bot_tags.value[..2].join(", "))
+        } else {
+            self.audio_bot_tags.value.join(", ")
+        };
+        tracing::info!("│ Audio Bot Tags                  │ {:15} │ {:10} │", tags_display, self.audio_bot_tags.source);
+        tracing::info!("├─────────────────────────────────┼─────────────────┼────────────┤");
         tracing::info!("│ Opus Bitrate                    │ {:15} │ {:10} │", format!("{}kbps", self.opus_bitrate.value / 1000), self.opus_bitrate.source);
         tracing::info!("│ Opus Complexity                 │ {:15} │ {:10} │", self.opus_complexity.value, self.opus_complexity.source);
         tracing::info!("│ Opus FEC Enabled                │ {:15} │ {:10} │", self.opus_enable_fec.value, self.opus_enable_fec.source);
@@ -514,6 +578,28 @@ impl Config {
     /// Get stale listener cleanup timeout
     pub fn stale_listener_timeout(&self) -> Duration {
         self.stale_listener_timeout.value
+    }
+
+    // Audio Bot Room Configuration Getters
+
+    /// Get audio bot room name
+    pub fn audio_bot_room_name(&self) -> &str {
+        &self.audio_bot_room_name.value
+    }
+
+    /// Get audio bot DJ name
+    pub fn audio_bot_dj_name(&self) -> &str {
+        &self.audio_bot_dj_name.value
+    }
+
+    /// Get audio bot room description
+    pub fn audio_bot_description(&self) -> &str {
+        &self.audio_bot_description.value
+    }
+
+    /// Get audio bot room tags
+    pub fn audio_bot_tags(&self) -> &[String] {
+        &self.audio_bot_tags.value
     }
 
     // Audio Configuration Getters

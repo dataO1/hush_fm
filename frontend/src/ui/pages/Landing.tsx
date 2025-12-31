@@ -405,20 +405,22 @@ function LandingContent() {
                 />
                 <h2 class="text-xl sm:text-2xl lg:text-3xl font-bold">Live Rooms</h2>
               </div>
-              <button
-                onClick={openModal}
-                class={`btn btn-square btn-sm sm:btn-md lg:btn-lg ${
-                  isActivelyEngaged() 
-                    ? 'btn-disabled opacity-50 cursor-not-allowed' 
-                    : 'btn-primary'
-                }`}
-                title={isActivelyEngaged() ? "Leave current room to create a new one" : "Create New Room"}
-                disabled={isActivelyEngaged()}
-              >
-                <svg class="w-4 h-4 sm:w-6 sm:h-6 lg:w-8 lg:h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width={2} d="M12 4v16m8-8H4" />
-                </svg>
-              </button>
+              <Show when={(sortedRooms()?.length ?? 0) <= 8}>
+                <button
+                  onClick={openModal}
+                  class={`btn btn-square btn-sm sm:btn-md lg:btn-lg ${
+                    isActivelyEngaged()
+                      ? 'btn-disabled opacity-50 cursor-not-allowed'
+                      : 'btn-primary'
+                  }`}
+                  title={isActivelyEngaged() ? "Leave current room to create a new one" : "Create New Room"}
+                  disabled={isActivelyEngaged()}
+                >
+                  <svg class="w-4 h-4 sm:w-6 sm:h-6 lg:w-8 lg:h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width={2} d="M12 4v16m8-8H4" />
+                  </svg>
+                </button>
+              </Show>
             </div>
 
             <Show when={connectionAdapter.isLobbyConnected()} fallback={
