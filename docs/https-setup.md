@@ -27,23 +27,23 @@ Real TLS certificate for `hushfm.dedyn.io` via Let's Encrypt DNS-01 challenge
    (the token needs write access to `hushfm.dedyn.io` DNS records).
 4. Copy the token value — it is shown only once.
 
-### 1d. Write the credentials file on the Pi
+### 1d. Token storage — sops-nix (declarative; ACTUAL SETUP as of 2026-07-03)
 
-SSH into the Raspberry Pi and run:
+The token is NOT stored as a plain file. It lives **sops-encrypted inside the
+Pi's system config repo** and is decrypted automatically at every system
+activation:
 
-```sh
-sudo mkdir -p /var/lib/secrets
-sudo sh -c 'echo "DESEC_TOKEN=<paste-token-here>" > /var/lib/secrets/desec-token.env'
-sudo chmod 600 /var/lib/secrets/desec-token.env
-sudo chown root:root /var/lib/secrets/desec-token.env
-```
+| What | Where |
+|---|---|
+| Encrypted token (safe to commit/push) | `/etc/nixos/secrets/desec.env` (sops, age-encrypted, dotenv content `DESEC_TOKEN=...`) |
+| Decrypted at runtime (by sops-nix) | `/run/secrets/desec-env` (tmpfs, root-only, recreated each activation) |
+| Wiring | `configuration.nix`: `sops.secrets."desec-env" = { sopsFile = ./secrets/desec.env; format = "binary"; };` and `services.hushfm.acme.credentialsFile = config.sops.secrets."desec-env".path;` |
+| Decryption key (Pi, automatic) | the Pi's own SSH host key `/etc/ssh/ssh_host_ed25519_key` (via sops-nix) |
+| Editing key (admin laptop) | age key at `~/.config/sops/age/keys.txt` — edit secrets with `sops edit /etc/nixos/secrets/desec.env` |
+| Recovery of the raw token | user's password vault (canonical backup) — if everything else is lost, re-encrypt with `sops encrypt` using the recipients in `/etc/nixos/.sops.yaml` |
 
-Verify:
-
-```sh
-sudo stat /var/lib/secrets/desec-token.env
-# Access: (0600/-rw-------)  Uid: (0/root)  Gid: (0/root)
-```
+To rotate the token: create a new one in the deSEC UI, then on the laptop
+`sops edit` the secret (or re-encrypt), commit, `nixos-rebuild switch`.
 
 ---
 
@@ -58,8 +58,18 @@ The `services.hushfm` NixOS module exposes these ACME-related options
 | `services.hushfm.acme.email` | `daniel.tabellion@gmx.de` | Let's Encrypt account email |
 | `services.hushfm.acme.credentialsFile` | `/var/lib/secrets/desec-token.env` | File containing `DESEC_TOKEN=...` |
 
-No override is needed if you follow this guide exactly. If you use a different
-token file path, set `services.hushfm.acme.credentialsFile` in your NixOS config.
+The default is a plain-file fallback; the actual Pi config overrides it with the
+sops-nix secret path (see 1d): `config.sops.secrets."desec-env".path`.
+
+### Deploying (after the one-time bootstrap)
+
+Everything is in `/etc/nixos` (git). A deploy is always exactly:
+
+```sh
+# on the Pi (or via ssh — data01 has NOPASSWD sudo for nixos-rebuild only):
+cd ~/Projects/hush_fm && git pull && nix develop -c bash -c 'cd backend && cargo build --release'
+sudo nixos-rebuild switch --flake /etc/nixos#hushfm
+```
 
 ### How offline resilience works
 
