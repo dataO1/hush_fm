@@ -431,8 +431,26 @@
 
             hostName = mkOption {
               type = types.str;
-              default = "localhost";
-              description = "Hostname for the nginx reverse proxy (e.g., 192.168.178.105)";
+              default = "hushfm.dedyn.io";
+              description = "Public hostname for the ACME certificate and nginx server_name (e.g., hushfm.dedyn.io)";
+            };
+
+            acme = {
+              email = mkOption {
+                type = types.str;
+                default = "daniel.tabellion@gmx.de";
+                description = "Email address for Let's Encrypt / ACME account registration";
+              };
+
+              credentialsFile = mkOption {
+                type = types.path;
+                default = "/var/lib/secrets/desec-token.env";
+                description = ''
+                  Path to a file containing the deSEC API token for the DNS-01 challenge.
+                  The file must contain exactly one line: DESEC_TOKEN=<your-api-token>
+                  Permissions must be 600 with owner root:root.
+                '';
+              };
             };
 
           };
@@ -480,104 +498,32 @@
               };
             };
 
-            # Certificate generation service
-            systemd.services.generate-nginx-cert = {
-              description = "Generate self-signed certificate for Nginx";
-              wantedBy = [ "multi-user.target" ];
-              before = [ "nginx.service" ];
-              script = ''
-                cert_dir="/var/lib/nginx/certs"
-                cert_file="$cert_dir/cert.pem"
-                key_file="$cert_dir/key.pem"
+            # ACME / Let's Encrypt certificate via DNS-01 challenge (deSEC provider).
+            #
+            # Offline-resilience: nixpkgs' security.acme module automatically creates
+            # acme-selfsigned-<domain>.service, which generates a temporary self-signed
+            # bootstrap cert on first boot so that nginx always has a cert to start with.
+            # The nginx systemd unit is ordered as:
+            #   after  = acme-selfsigned-<domain>.service  (bootstrap cert guaranteed)
+            #   wants  = acme-finished-<domain>.target     (non-blocking, best-effort)
+            # A failed ACME renewal (e.g., Pi is offline at the party) does NOT block
+            # nginx from starting; it will serve the previously-obtained real cert from
+            # /var/lib/acme/<domain>/ or the bootstrap self-signed cert on first boot.
+            security.acme = {
+              acceptTerms = true;
+              defaults.email = cfg.acme.email;
 
-                # Ensure directory exists
-                mkdir -p "$cert_dir"
-
-                # Generate certificate if it doesn't exist
-                if [ ! -f "$cert_file" ]; then
-                  echo "Generating new SSL certificate..."
-                  ${pkgs.openssl}/bin/openssl req -x509 -newkey rsa:2048 \
-                    -keyout "$key_file" \
-                    -out "$cert_file" \
-                    -days 365 -nodes \
-                    -subj "/CN=hushfm.local" \
-                    -addext "subjectAltName=IP:127.0.0.1,IP:${cfg.hostName},DNS:hushfm.local,DNS:localhost"
-                  echo "SSL certificate generated"
-                else
-                  echo "SSL certificate already exists"
-                fi
-
-                # Always ensure correct ownership and permissions (idempotent)
-                echo "Setting correct ownership and permissions..."
-                chown nginx:nginx "$key_file" "$cert_file"
-                chmod 640 "$key_file"  # nginx group can read
-                chmod 644 "$cert_file"
-
-                echo "Certificate setup complete"
-              '';
-              serviceConfig = {
-                Type = "oneshot";
-                RemainAfterExit = true;
-              };
-            };
-
-            # Certificate renewal service
-            systemd.services.renew-nginx-cert = {
-              description = "Renew nginx self-signed certificate if needed";
-              script = ''
-                cert_file="/var/lib/nginx/certs/cert.pem"
-                key_file="/var/lib/nginx/certs/key.pem"
-
-                # Check if certificate exists and is close to expiry (less than 30 days)
-                if [ -f "$cert_file" ]; then
-                  exp_date=$(${pkgs.openssl}/bin/openssl x509 -in "$cert_file" -noout -enddate | cut -d= -f2)
-                  exp_epoch=$(date -d "$exp_date" +%s)
-                  now_epoch=$(date +%s)
-                  days_until_exp=$(( (exp_epoch - now_epoch) / 86400 ))
-
-                  echo "Certificate expires in $days_until_exp days"
-
-                  if [ $days_until_exp -lt 30 ]; then
-                    echo "Certificate expiring soon, regenerating..."
-                    rm -f "$cert_file" "$key_file"
-
-                    # Generate new certificate
-                    ${pkgs.openssl}/bin/openssl req -x509 -newkey rsa:2048 \
-                      -keyout "$key_file" \
-                      -out "$cert_file" \
-                      -days 365 -nodes \
-                      -subj "/CN=hushfm.local" \
-                      -addext "subjectAltName=IP:127.0.0.1,IP:${cfg.hostName},DNS:hushfm.local,DNS:localhost"
-
-                    # Set proper ownership and permissions (idempotent)
-                    chown nginx:nginx "$key_file" "$cert_file"
-                    chmod 640 "$key_file"  # nginx group can read
-                    chmod 644 "$cert_file"
-
-                    # Reload nginx to use new certificate
-                    systemctl reload nginx
-                    echo "Certificate renewed and nginx reloaded"
-                  else
-                    echo "Certificate is still valid, no renewal needed"
-                  fi
-                else
-                  echo "Certificate file not found, will be generated by generate-nginx-cert service"
-                fi
-              '';
-              serviceConfig = {
-                Type = "oneshot";
-                User = "root";
-              };
-            };
-
-            # Certificate renewal timer (daily check)
-            systemd.timers.renew-nginx-cert = {
-              description = "Timer for nginx certificate renewal check";
-              wantedBy = [ "timers.target" ];
-              timerConfig = {
-                OnCalendar = "daily";
-                Persistent = true;
-                RandomizedDelaySec = "1h";
+              certs."${cfg.hostName}" = {
+                domain = cfg.hostName;
+                # Wildcard covers *.hushfm.dedyn.io (e.g., future subdomains).
+                extraDomainNames = [ "*.${cfg.hostName}" ];
+                dnsProvider = "desec";
+                # environmentFile feeds lego's DESEC_TOKEN env var via systemd
+                # EnvironmentFile=; the file must contain DESEC_TOKEN=<token>.
+                # Do NOT set webroot — DNS-01 challenge requires no HTTP endpoint.
+                environmentFile = cfg.acme.credentialsFile;
+                # Allow nginx to read the private key.
+                group = "nginx";
               };
             };
 
@@ -589,11 +535,16 @@
               recommendedGzipSettings = true;
               recommendedProxySettings = true;  # Enable WebSocket support
 
-              virtualHosts."hushfm-frontend" = {
+              virtualHosts."${cfg.hostName}" = {
+                # serverName ensures the nginx server_name directive matches the domain.
+                # default = true catches all unmatched hostnames (including LAN IP access).
+                serverName = cfg.hostName;
                 default = true;
                 forceSSL = true;
-                sslCertificate = "/var/lib/nginx/certs/cert.pem";
-                sslCertificateKey = "/var/lib/nginx/certs/key.pem";
+                # Delegate cert management to the security.acme block above.
+                # nixpkgs will set sslCertificate/sslCertificateKey automatically,
+                # pointing at /var/lib/acme/<domain>/{cert,key}.pem.
+                useACMEHost = cfg.hostName;
 
                 locations = {
                   # Serve frontend static files
@@ -628,11 +579,9 @@
               };
             };
 
-            # Ensure nginx waits for certificate generation
-            systemd.services.nginx = {
-              after = [ "generate-nginx-cert.service" ];
-              wants = [ "generate-nginx-cert.service" ];
-            };
+            # No manual nginx systemd override needed: security.acme wires up
+            # acme-selfsigned-<domain>.service (bootstrap) and the acme-finished
+            # target automatically so nginx always starts, even offline.
 
             # Create hushfm user and group
             users.users.hushfm = {
