@@ -328,6 +328,20 @@
                 default = 3000;
                 description = "Port for the backend HTTP server";
               };
+
+              binaryPath = mkOption {
+                type = types.str;
+                default = "${self.packages.${pkgs.system}.hushfm-backend}/bin/server";
+                description = ''
+                  Absolute path of the backend binary to run. Default wraps the
+                  flake package (requires the binary inside the flake source).
+                  On the Pi, point this directly at the natively-built binary
+                  (e.g. /home/data01/Projects/hush_fm/backend/target/release/server)
+                  so the flake input can be a slim git+file:// reference instead
+                  of a path: input that would copy the multi-GB target/ dir into
+                  the nix store on every rebuild.
+                '';
+              };
             };
 
             frontend = {
@@ -480,7 +494,7 @@
                 Type = "simple";
                 User = "hushfm";
                 Group = "hushfm";
-                ExecStart = "${self.packages.${pkgs.system}.hushfm-backend}/bin/server";
+                ExecStart = cfg.backend.binaryPath;
                 Restart = "always";
                 RestartSec = 5;
 
@@ -488,7 +502,9 @@
                 NoNewPrivileges = true;
                 PrivateTmp = true;
                 ProtectSystem = "strict";
-                ProtectHome = true;
+                # read-only (not true): binaryPath may live under /home when the
+                # backend is built natively outside nix (see backend.binaryPath)
+                ProtectHome = "read-only";
                 ProtectKernelTunables = true;
                 ProtectKernelModules = true;
                 ProtectControlGroups = true;
