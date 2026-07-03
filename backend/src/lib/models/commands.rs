@@ -235,6 +235,11 @@ pub enum ListenerCommand {
         /// ID of the consumer to resume
         consumer_id: String,
     },
+
+    /// Application-level heartbeat ping (no payload)
+    /// The server replies immediately with ListenerEvent::Pong.
+    #[serde(rename_all = "camelCase")]
+    Ping,
 }
 
 impl LobbyCommand {
@@ -272,6 +277,29 @@ impl ListenerCommand {
             Self::LeaveRoom => "leaveRoom",
             Self::RequestConsumer { .. } => "requestConsumer",
             Self::ResumeConsumer { .. } => "resumeConsumer",
+            Self::Ping => "ping",
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_listener_ping_deserializes() {
+        let json = r#"{"type":"ping"}"#;
+        let cmd: ListenerCommand = serde_json::from_str(json)
+            .expect("Should deserialize Ping from {\"type\":\"ping\"}");
+        assert_eq!(cmd.command_type(), "ping");
+        assert!(matches!(cmd, ListenerCommand::Ping));
+    }
+
+    #[test]
+    fn test_listener_init_listener_deserializes() {
+        let json = r#"{"type":"initListener"}"#;
+        let cmd: ListenerCommand = serde_json::from_str(json)
+            .expect("Should deserialize InitListener");
+        assert!(matches!(cmd, ListenerCommand::InitListener));
     }
 }

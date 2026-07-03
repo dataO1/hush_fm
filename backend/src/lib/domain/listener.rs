@@ -281,10 +281,14 @@ impl Listener {
             return Err(anyhow::anyhow!("Router cannot consume producer with client capabilities"));
         }
 
-        let consumer_options = ConsumerOptions::new(
+        let mut consumer_options = ConsumerOptions::new(
             producer.id(),
             client_capabilities,
         );
+        // Create the consumer paused so the frontend can attach the track to an
+        // HTMLMediaElement before audio starts flowing.  The frontend sends
+        // ResumeConsumer after attaching, which triggers consumer.resume() below.
+        consumer_options.paused = true;
 
         let consumer = transport.consume(consumer_options).await?;
         let consumer_id = consumer.id().to_string();

@@ -544,12 +544,21 @@ async fn handle_listener_socket(socket: WebSocket, room_id_str: String, session_
                 );
             }
             Err(e) => {
-                tracing::error!(
+                tracing::info!(
                     session_id = %session_id,
                     room_id = %room_id,
                     error = %e,
-                    "Failed to handle listener connection"
+                    "Listener session not found - sending listenerNotFound frame then closing"
                 );
+                // Send a structured error frame so the client knows why the socket is closing.
+                // We flush the Text frame first, then send Close so the frame is not lost when
+                // the SplitSink is dropped.
+                if let Ok(msg) = serde_json::to_string(&ListenerEvent::ListenerNotFound {
+                    room_id: room_id.to_string(),
+                }) {
+                    sender.send(Message::Text(msg)).await.ok();
+                }
+                sender.send(Message::Close(None)).await.ok();
                 return;
             }
         }
@@ -1591,6 +1600,18 @@ async fn handle_listener_command(
                         sender.send(Message::Text(msg)).await.ok();
                     }
                 }
+            }
+        }
+        // Application-level heartbeat: reply with Pong immediately.
+        // Does not affect the tokio::select! heartbeat ping/pong interval.
+        ListenerCommand::Ping => {
+            tracing::debug!(
+                room_id = %room_id,
+                session_id = %session_id,
+                "Listener application-level ping received, sending pong"
+            );
+            if let Ok(msg) = serde_json::to_string(&ListenerEvent::Pong) {
+                sender.send(Message::Text(msg)).await.ok();
             }
         }
     }

@@ -239,6 +239,16 @@ pub enum ListenerEvent {
         #[serde(rename = "roomId")]
         room_id: String,
     },
+
+    /// Application-level heartbeat pong (reply to ListenerCommand::Ping)
+    Pong,
+
+    /// Sent immediately before closing a WebSocket when the listener session is not found
+    ListenerNotFound {
+        /// ID of the room that was attempted
+        #[serde(rename = "roomId")]
+        room_id: String,
+    },
 }
 
 /// Events broadcast to all lobby clients
@@ -317,6 +327,8 @@ impl ListenerEvent {
             Self::RoomClosed { .. } => "roomClosed",
             Self::CommandFailed { .. } => "commandFailed",
             Self::RoomNotFound { .. } => "roomNotFound",
+            Self::Pong => "pong",
+            Self::ListenerNotFound { .. } => "listenerNotFound",
         }
     }
 }
@@ -326,10 +338,45 @@ impl LobbyEvent {
     pub fn event_type(&self) -> &'static str {
         match self {
             Self::RoomAdded { .. } => "roomAdded",
-            Self::RoomUpdated { .. } => "roomUpdated", 
+            Self::RoomUpdated { .. } => "roomUpdated",
             Self::RoomRemoved { .. } => "roomRemoved",
             Self::JoinRoomResponse { .. } => "joinRoomResponse",
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_listener_pong_serializes() {
+        let event = ListenerEvent::Pong;
+        let json = serde_json::to_string(&event).expect("Should serialize Pong");
+        let value: serde_json::Value = serde_json::from_str(&json).unwrap();
+        assert_eq!(value["type"], "pong");
+    }
+
+    #[test]
+    fn test_listener_not_found_serializes() {
+        let event = ListenerEvent::ListenerNotFound {
+            room_id: "room-abc".to_string(),
+        };
+        let json = serde_json::to_string(&event).expect("Should serialize ListenerNotFound");
+        let value: serde_json::Value = serde_json::from_str(&json).unwrap();
+        assert_eq!(value["type"], "listenerNotFound");
+        assert_eq!(value["roomId"], "room-abc");
+    }
+
+    #[test]
+    fn test_listener_not_found_has_camel_case_room_id() {
+        let event = ListenerEvent::ListenerNotFound {
+            room_id: "test-room".to_string(),
+        };
+        let json = serde_json::to_string(&event).unwrap();
+        // Must NOT contain snake_case "room_id" key
+        assert!(!json.contains("room_id"), "JSON should not contain room_id (snake_case)");
+        assert!(json.contains("roomId"), "JSON must contain roomId (camelCase)");
     }
 }
 
