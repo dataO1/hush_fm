@@ -93,6 +93,12 @@
           # Monitoring configuration for localhost development
           HUSHFM_STALE_LISTENER_TIMEOUT = "0";
 
+          # Audio Bot Room configuration
+          HUSHFM_AUDIO_BOT_ROOM_NAME = "Main Floor";
+          HUSHFM_AUDIO_BOT_DJ_NAME = "AudioBot";
+          HUSHFM_AUDIO_BOT_DESCRIPTION = "Local audio input stream from server";
+          HUSHFM_AUDIO_BOT_TAGS = "dnb,live,trommeln und bass,party,fun fun fun";
+
           # Rust logging configuration - suppress verbose debug logs
           RUST_LOG = "info,server::lib::audio::encoder=warn,server::lib::audio::audio_device_monitor=info,mediasoup=info,mediasoup::worker=info";
 
@@ -294,6 +300,12 @@
             # Monitoring configuration
             HUSHFM_STALE_LISTENER_TIMEOUT = toString cfg.monitoring.staleListenerTimeout;
 
+            # Audio Bot Room configuration
+            HUSHFM_AUDIO_BOT_ROOM_NAME = cfg.audioBot.roomName;
+            HUSHFM_AUDIO_BOT_DJ_NAME = cfg.audioBot.djName;
+            HUSHFM_AUDIO_BOT_DESCRIPTION = cfg.audioBot.description;
+            HUSHFM_AUDIO_BOT_TAGS = lib.concatStringsSep "," cfg.audioBot.tags;
+
             # Audio optimization configuration
             HUSHFM_OPUS_BITRATE = toString cfg.audio.opusBitrate;
             HUSHFM_OPUS_COMPLEXITY = toString cfg.audio.opusComplexity;
@@ -385,6 +397,32 @@
                 type = types.int;
                 default = 0;
                 description = "Timeout in seconds for cleaning up stale listeners (0 = disabled)";
+              };
+            };
+
+            audioBot = {
+              roomName = mkOption {
+                type = types.str;
+                default = "Main Floor";
+                description = "Name of the auto-created audio bot room";
+              };
+
+              djName = mkOption {
+                type = types.str;
+                default = "AudioBot";
+                description = "DJ name for the audio bot room";
+              };
+
+              description = mkOption {
+                type = types.str;
+                default = "Local audio input stream from server";
+                description = "Description for the audio bot room";
+              };
+
+              tags = mkOption {
+                type = types.listOf types.str;
+                default = [ "dnb" "live" "trommeln und bass" "party" "fun fun fun" ];
+                description = "Tags for the audio bot room";
               };
             };
 
