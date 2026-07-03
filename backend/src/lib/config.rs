@@ -71,6 +71,7 @@ pub struct Config {
     backend_port: ConfigValue<u16>,
     frontend_port: ConfigValue<u16>,
     host_name: ConfigValue<String>,
+    mediasoup_announced_ip: ConfigValue<String>,
     
     // WebRTC Configuration
     worker_port_min: ConfigValue<u16>,
@@ -145,6 +146,18 @@ impl Config {
             "HUSHFM_HOST_NAME", 
             "localhost", 
             "localhost".to_string(), 
+            &mut warnings
+        );
+
+        // Announced address for WebRTC ICE candidates. MUST be an IP literal:
+        // Firefox's ICE stack (nICEr) rejects FQDN candidates outright (parse
+        // error -> zero pairs -> ICE failed), while Chrome/Android resolve them.
+        // Empty (default) falls back to host_name for backward compatibility --
+        // only valid when host_name is itself an IP.
+        let mediasoup_announced_ip = Self::parse_env_var_with_default(
+            "HUSHFM_MEDIASOUP_ANNOUNCED_IP",
+            "",
+            String::new(),
             &mut warnings
         );
 
@@ -299,6 +312,7 @@ impl Config {
             backend_port,
             frontend_port,
             host_name,
+            mediasoup_announced_ip,
             worker_port_min,
             worker_port_max,
             mediasoup_listen_ip,
@@ -490,7 +504,8 @@ impl Config {
         tracing::info!("├─────────────────────────────────┼─────────────────┼────────────┤");
         tracing::info!("│ Backend Port                    │ {:15} │ {:10} │", self.backend_port.value, self.backend_port.source);
         tracing::info!("│ Frontend Port                   │ {:15} │ {:10} │", self.frontend_port.value, self.frontend_port.source);
-        tracing::info!("│ Host Name (announced_ip)        │ {:15} │ {:10} │", self.host_name.value, self.host_name.source);
+        tracing::info!("│ Host Name                       │ {:15} │ {:10} │", self.host_name.value, self.host_name.source);
+        tracing::info!("│ Announced IP (ICE)              │ {:15} │ {:10} │", self.announced_ip(), self.mediasoup_announced_ip.source);
         tracing::info!("│ Worker Port Range               │ {:15} │ {:10} │", 
                       format!("{}-{}", self.worker_port_min.value, self.worker_port_max.value),
                       if self.worker_port_min.source == ConfigSource::Environment || self.worker_port_max.source == ConfigSource::Environment { "Env Var" } else { "Default" }
@@ -555,9 +570,15 @@ impl Config {
         &self.mediasoup_listen_ip.value
     }
 
-    /// Get announced IP (derived from host_name for backward compatibility)
+    /// Announced address for ICE candidates. Prefers the explicit
+    /// HUSHFM_MEDIASOUP_ANNOUNCED_IP (must be an IP literal -- Firefox rejects
+    /// FQDN candidates); falls back to host_name when unset.
     pub fn announced_ip(&self) -> &str {
-        &self.host_name.value
+        if self.mediasoup_announced_ip.value.is_empty() {
+            &self.host_name.value
+        } else {
+            &self.mediasoup_announced_ip.value
+        }
     }
 
     /// Check if MediaSoup TCP transport is enabled

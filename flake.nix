@@ -293,6 +293,7 @@
 
             # MediaSoup configuration
             HUSHFM_MEDIASOUP_LISTEN_IP = cfg.mediasoup.listenIp;
+            HUSHFM_MEDIASOUP_ANNOUNCED_IP = cfg.mediasoup.announcedIp;
             HUSHFM_MEDIASOUP_ENABLE_TCP = if cfg.mediasoup.enableTcp then "true" else "false";
             HUSHFM_MEDIASOUP_EXPOSE_INTERNAL_IP = if cfg.mediasoup.exposeInternalIp then "true" else "false";
             HUSHFM_MEDIASOUP_WORKER_DEBUG = "false";
@@ -383,6 +384,16 @@
                 type = types.bool;
                 default = false;
                 description = "Enable TCP fallback for MediaSoup transports (in addition to UDP)";
+              };
+
+              announcedIp = mkOption {
+                type = types.str;
+                default = "";
+                description = ''
+                  IP address announced in WebRTC ICE candidates. MUST be an IP
+                  literal (Firefox rejects FQDN candidates). Empty = fall back
+                  to hostName (only valid when hostName is an IP).
+                '';
               };
 
               exposeInternalIp = mkOption {
