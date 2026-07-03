@@ -1,4 +1,4 @@
-import { Show, createResource, createSignal, onCleanup, createContext, useContext, ParentComponent } from 'solid-js'
+import { Show, createResource, createSignal, onCleanup, createContext, useContext, ParentComponent, createEffect } from 'solid-js'
 import { useParams, useNavigate, useLocation } from '@solidjs/router'
 import { Option, Effect, Context, ManagedRuntime, Layer } from 'effect'
 import { useConnectionAdapter, useAudioAdapter, useUserAdapter, useAudioClient } from '../../App'
@@ -178,10 +178,14 @@ function ListenerRoomContent() {
     await userService.connect(listenerWebSocketUrl).pipe(Effect.runPromise)
     console.info('✅ ListenerRoom: Listener WebSocket connected successfully')
     
-    // Start the join flow
+    // Start the join flow (pass room metadata for Media Session / lock-screen controls)
     const result = await userService.joinRoomAsListener(
-      currentRoomId, 
-      sessionId
+      currentRoomId,
+      sessionId,
+      {
+        roomName: roomInfo?.name,
+        djName: roomInfo?.djName
+      }
     ).pipe(Effect.runPromise)
 
     console.info('✅ Listener join flow completed successfully')
@@ -231,10 +235,50 @@ function ListenerRoomContent() {
     setLeaveRoomRequest(true)
   }
 
+  // ── Recovery coordinator ───────────────────────────────────────────────────
+  // Started exactly once after the initial joinRoomAsListener succeeds.
+  // Monitors {WS alive × transport dead} and takes the appropriate action
+  // without ever touching a working session (the iOS lock-screen safe path).
+  let recoveryCleanup: (() => void) | null = null
+
+  createEffect(() => {
+    const result = joinRoomOperation()
+    // Only start coordinator on successful initial join; guard with null-check so
+    // it never starts twice (createEffect re-runs on every reactive read change).
+    if (result && recoveryCleanup === null) {
+      Effect.runPromise(
+        userService.startListenerRecovery({
+          roomId: roomId(),
+          sessionId: result.sessionId,
+          meta: {
+            roomName: navigationState.roomInfo?.name,
+            djName: navigationState.roomInfo?.djName
+          },
+          // canRecover: initial join is complete by the time this runs,
+          // so no additional guard is needed here.
+          canRecover: () => !joinRoomOperation.loading && !!joinRoomOperation(),
+          onTerminal: () => {
+            console.info('ListenerRoom: Session expired (listenerNotFound) — navigating to lobby')
+            navigate('/')
+          }
+        })
+      ).then(cleanup => {
+        recoveryCleanup = cleanup
+      }).catch(error => {
+        console.error('ListenerRoom: Failed to start recovery coordinator:', error)
+      })
+    }
+  })
+
   // Cleanup on component unmount
   onCleanup(async () => {
     console.info('🧹 ListenerRoom: Component cleanup - disconnecting user service')
     try {
+      // Stop recovery coordinator before disconnecting (sets terminal=true internally)
+      if (recoveryCleanup) {
+        recoveryCleanup()
+        recoveryCleanup = null
+      }
       await userService.disconnect().pipe(Effect.runPromise)
     } catch (error) {
       console.warn('⚠️ ListenerRoom: Error during cleanup:', error)
@@ -244,8 +288,6 @@ function ListenerRoomContent() {
   // Ensure this return block replaces your current broken return
   return (
     <div class="h-screen w-full bg-hush-main text-gruvbox-fg flex flex-col items-center justify-center p-4 sm:p-6">
-
-      {/* Audio managed by consumer service - no DOM element needed here */}
 
       {/* Connection Error Handler */}
       <WebRTCErrorHandler 
@@ -335,7 +377,10 @@ function ListenerRoomContent() {
                   const currentStream = audioClient.currentStream()
                   if (Option.isSome(currentStream)) {
                     console.info('🔊 ListenerRoom: Attempting to resume audio after user interaction')
-                    await audioClient.connectRemoteStream(currentStream.value).pipe(
+                    await audioClient.connectRemoteStream(currentStream.value, {
+                      roomName: roomName(),
+                      djName: navigationState.roomInfo?.djName ?? 'HushFM DJ'
+                    }).pipe(
                       Effect.provideService(AudioAdapter, audioAdapter),
                       Effect.runPromise
                     )

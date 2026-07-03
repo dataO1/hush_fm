@@ -116,13 +116,6 @@ export interface MediaSoupClientInterface {
 
 
   /**
-   * Consumer auto-reconnection
-   */
-  readonly setConsumerRecreateCallback: (
-    callback: () => Effect.Effect<ConsumerOptionsType, Error>
-  ) => Effect.Effect<void, never>
-
-  /**
    * Clean up all resources
    */
   readonly cleanup: () => Effect.Effect<void, never>
@@ -150,7 +143,7 @@ const createMediaSoupClientImpl = (connectionAdapter: Context.Tag.Service<Connec
   let activeProducer = O.none<types.Producer>()
   let activeConsumer = O.none<types.Consumer>()
   let connectionTimeoutId = O.none<NodeJS.Timeout>()
-  let consumerRecreateCallback = O.none<() => Effect.Effect<ConsumerOptionsType, Error>>()
+  let visibilityHook: (() => void) | null = null
   
   // Internal connection state tracking (not exposed to adapter)
   let transportConnectionState: RTCPeerConnectionState = 'new'
@@ -169,6 +162,10 @@ const createMediaSoupClientImpl = (connectionAdapter: Context.Tag.Service<Connec
         }
       })
     )
+    if (visibilityHook !== null) {
+      document.removeEventListener('visibilitychange', visibilityHook)
+      visibilityHook = null
+    }
   }
 
   // Helper function to create connection deferred
@@ -211,14 +208,33 @@ const createMediaSoupClientImpl = (connectionAdapter: Context.Tag.Service<Connec
     )
   }
 
-  // Helper function to setup connection timeout
+  // Helper function to setup connection timeout.
+  // Visibility-gated: if the tab is hidden when the timeout fires (e.g. iOS lock-screen),
+  // reschedule the full 30 s window to run after the tab becomes visible again,
+  // instead of raising a false connection error during a background-lock scenario.
   const setupConnectionTimeout = () => {
     clearConnectionTimeout()
-    
+
     const timeoutId = setTimeout(() => {
+      // iOS lock-screen hides the document — do not error a healthy background connection
+      if (document.hidden) {
+        console.info('MediaSoup: Connection timeout deferred — tab hidden, rescheduling for visibility resume')
+        connectionTimeoutId = O.none()
+        const onVisible = () => {
+          if (document.visibilityState === 'visible') {
+            document.removeEventListener('visibilitychange', onVisible)
+            visibilityHook = null
+            setupConnectionTimeout()
+          }
+        }
+        visibilityHook = onVisible
+        document.addEventListener('visibilitychange', onVisible)
+        return
+      }
+
       // Check actual connection state before setting error
       const isCurrentlyConnected = connectionAdapter.isConnected()
-      
+
       if (!isCurrentlyConnected) {
         const error = new TransportError({
           cause: 'WebRTC connection timeout after 30 seconds',
@@ -226,12 +242,12 @@ const createMediaSoupClientImpl = (connectionAdapter: Context.Tag.Service<Connec
           direction: 'send',
           timestamp: new Date()
         })
-        
+
         connectionAdapter.setConnectionError(error)
         connectionAdapter.setWebRTCState(WebrtcConnectionState.DISCONNECTED)
       }
     }, 30000)
-    
+
     connectionTimeoutId = O.some(timeoutId)
   }
 
@@ -514,57 +530,6 @@ const createMediaSoupClientImpl = (connectionAdapter: Context.Tag.Service<Connec
                 // Set initial connecting state
                 connectionAdapter.setWebRTCState(WebrtcConnectionState.CONNECTING)
                 connectionAdapter.clearError()
-
-                // Subscribe to newproducer event for automatic consumer reconnection
-                transport.observer.on('newproducer', (producer) => {
-                  console.info('🔄 MediaSoup: New producer detected, attempting consumer reconnection...', { producerId: producer.id })
-                  
-                  pipe(
-                    consumerRecreateCallback,
-                    O.match({
-                      onNone: () => {
-                        console.info('ℹ️ MediaSoup: No consumer recreate callback registered')
-                      },
-                      onSome: (callback) => {
-                        Effect.runPromise(
-                          pipe(
-                            callback(),
-                            Effect.andThen((consumerOptions) => {
-                              console.info('🎧 MediaSoup: Recreating consumer with options:', consumerOptions)
-                              // Use the transport to create consumer directly since it's available in closure
-                              return Effect.tryPromise({
-                                try: () => transport.consume({
-                                  id: consumerOptions.id,
-                                  producerId: consumerOptions.producerId,
-                                  kind: consumerOptions.kind as types.MediaKind,
-                                  rtpParameters: consumerOptions.rtpParameters as types.RtpParameters
-                                }),
-                                catch: error => new MediaSoupError({
-                                  cause: String(error),
-                                  operation: 'createConsumer',
-                                  transportState: transport.connectionState,
-                                  timestamp: new Date()
-                                })
-                              }).pipe(
-                                Effect.map((consumer) => {
-                                  activeConsumer = O.some(consumer)
-                                  console.info('✅ MediaSoup: Consumer reconnected successfully')
-                                  return consumer
-                                })
-                              )
-                            }),
-                            Effect.catchAll((error) => {
-                              console.error('❌ MediaSoup: Consumer reconnection failed:', error)
-                              return Effect.fail(error)
-                            })
-                          )
-                        ).catch((error) => {
-                          console.error('❌ MediaSoup: Consumer reconnection promise failed:', error)
-                        })
-                      }
-                    })
-                  )
-                })
 
                 activeTransport = O.some(transport)
                 return transport
@@ -890,15 +855,6 @@ const createMediaSoupClientImpl = (connectionAdapter: Context.Tag.Service<Connec
      */
     getCurrentConsumer: () => activeConsumer,
 
-
-    /**
-     * Set consumer recreate callback for automatic reconnection
-     */
-    setConsumerRecreateCallback: (callback: () => Effect.Effect<ConsumerOptionsType, Error>) =>
-      Effect.sync(() => {
-        consumerRecreateCallback = O.some(callback)
-        console.info('📋 MediaSoup: Consumer recreate callback registered')
-      }),
 
     /**
      * Clean up all resources

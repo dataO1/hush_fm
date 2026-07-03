@@ -80,7 +80,9 @@ export const WEBSOCKET_LISTENER_EVENT_TYPES = {
   STREAM_RESUMED: 'streamResumed',
   ROOM_CLOSED: 'roomClosed',
   LISTENER_COMMAND_FAILED: 'listenerCommandFailed',
-  ROOM_NOT_FOUND: 'roomNotFound'
+  ROOM_NOT_FOUND: 'roomNotFound',
+  PONG: 'pong',
+  LISTENER_NOT_FOUND: 'listenerNotFound'
 } as const
 
 export type WebSocketListenerEventType = typeof WEBSOCKET_LISTENER_EVENT_TYPES[keyof typeof WEBSOCKET_LISTENER_EVENT_TYPES]
@@ -89,19 +91,20 @@ export type WebSocketListenerEventType = typeof WEBSOCKET_LISTENER_EVENT_TYPES[k
 export const WEBSOCKET_COMMAND_TYPES = {
   // DJ Commands
   INIT_ROOM: 'initRoom',
-  REQUEST_DJ_TRANSPORT: 'requestDjTransport', 
+  REQUEST_DJ_TRANSPORT: 'requestDjTransport',
   CONNECT_DJ_TRANSPORT: 'connectDjTransport',
   PRODUCE: 'produce',
   PAUSE_STREAM: 'pauseStream',
   RESUME_STREAM: 'resumeStream',
   CLOSE_ROOM: 'closeRoom',
-  
+
   // Listener Commands
   INIT_LISTENER: 'initListener',
   CONNECT_LISTENER_TRANSPORT: 'connectListenerTransport',
   REQUEST_CONSUMER: 'requestConsumer',
   RESUME_CONSUMER: 'resumeConsumer',
-  
+  PING: 'ping',
+
   // Lobby Commands
   ANNOUNCE_ROOM: 'announceRoom',
   JOIN_ROOM_REQUEST: 'joinRoomRequest'
@@ -469,6 +472,7 @@ export type ListenerCommandType =
   | S.Schema.Type<typeof RequestConsumerCommandSchema>
   | S.Schema.Type<typeof ResumeConsumerCommandSchema>
   | S.Schema.Type<typeof LeaveRoomCommandSchema>
+  | S.Schema.Type<typeof PingCommandSchema>
 
 /**
  * Listener Events (Server → Client)
@@ -486,6 +490,8 @@ export type ListenerEventType =
   | S.Schema.Type<typeof ListenerRoomClosedEventSchema>
   | S.Schema.Type<typeof ListenerCommandFailedEventSchema>
   | S.Schema.Type<typeof ListenerRoomNotFoundEventSchema>
+  | S.Schema.Type<typeof PongEventSchema>
+  | S.Schema.Type<typeof ListenerNotFoundEventSchema>
 
 // Individual Listener Event Schemas for specific type safety
 export const ListenerTransportReadyEventSchema = S.Struct({
@@ -562,6 +568,24 @@ export const ListenerRoomNotFoundEventSchema = S.Struct({
   type: S.Literal("roomNotFound")
 })
 
+/**
+ * Application-level heartbeat pong (reply to ListenerCommand::Ping)
+ * Matches backend ListenerEvent::Pong which serialises as {"type":"pong"}.
+ */
+export const PongEventSchema = S.Struct({
+  type: S.Literal("pong")
+})
+
+/**
+ * Sent by the server immediately before closing the WebSocket when the
+ * listener session_id is unknown (e.g. session expired or bad URL).
+ * Matches backend ListenerEvent::ListenerNotFound.
+ */
+export const ListenerNotFoundEventSchema = S.Struct({
+  roomId: S.String,
+  type: S.Literal("listenerNotFound")
+})
+
 // Individual Listener Event Types
 export type ListenerTransportReadyEvent = S.Schema.Type<typeof ListenerTransportReadyEventSchema>
 export type JoinReadyEvent = S.Schema.Type<typeof JoinReadyEventSchema>
@@ -574,6 +598,8 @@ export type ListenerStreamResumedEvent = S.Schema.Type<typeof ListenerStreamResu
 export type ListenerRoomClosedEvent = S.Schema.Type<typeof ListenerRoomClosedEventSchema>
 export type ListenerCommandFailedEvent = S.Schema.Type<typeof ListenerCommandFailedEventSchema>
 export type ListenerRoomNotFoundEvent = S.Schema.Type<typeof ListenerRoomNotFoundEventSchema>
+export type PongEvent = S.Schema.Type<typeof PongEventSchema>
+export type ListenerNotFoundEvent = S.Schema.Type<typeof ListenerNotFoundEventSchema>
 
 /**
  * Listener Event Union Schema with discriminated type field
@@ -589,7 +615,9 @@ export const ListenerEventSchema = S.Union(
   ListenerStreamResumedEventSchema,
   ListenerRoomClosedEventSchema,
   ListenerCommandFailedEventSchema,
-  ListenerRoomNotFoundEventSchema
+  ListenerRoomNotFoundEventSchema,
+  PongEventSchema,
+  ListenerNotFoundEventSchema
 )
 
 /**
@@ -654,6 +682,19 @@ export const LeaveRoomCommandSchema = S.Struct({
   )
 })
 
+/**
+ * Application-level heartbeat ping (no payload).
+ * The server replies immediately with ListenerEvent::Pong.
+ * Use fire-and-forget; do NOT add to getExpectedEventType — card 5 handles
+ * the pong subscription via a dedicated subscribe path.
+ */
+export const PingCommandSchema = S.Struct({
+  type: S.Literal("ping").pipe(
+    S.propertySignature,
+    S.withConstructorDefault(() => "ping" as const)
+  )
+})
+
 // Individual Listener Command Types
 export type InitListenerCommand = S.Schema.Type<typeof InitListenerCommandSchema>
 export type GetRouterCapabilitiesCommand = S.Schema.Type<typeof GetRouterCapabilitiesCommandSchema>
@@ -661,6 +702,7 @@ export type ConnectListenerTransportCommand = S.Schema.Type<typeof ConnectListen
 export type RequestConsumerCommand = S.Schema.Type<typeof RequestConsumerCommandSchema>
 export type ResumeConsumerCommand = S.Schema.Type<typeof ResumeConsumerCommandSchema>
 export type LeaveRoomCommand = S.Schema.Type<typeof LeaveRoomCommandSchema>
+export type PingCommand = S.Schema.Type<typeof PingCommandSchema>
 
 /**
  * Listener Command Union Schema with proper transform handling
@@ -672,7 +714,8 @@ export const ListenerCommandSchema = S.Union(
   ConnectListenerTransportCommandSchema,
   RequestConsumerCommandSchema,
   ResumeConsumerCommandSchema,
-  LeaveRoomCommandSchema
+  LeaveRoomCommandSchema,
+  PingCommandSchema
 )
 
 /**

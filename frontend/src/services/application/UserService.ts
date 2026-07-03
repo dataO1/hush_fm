@@ -54,7 +54,8 @@ import {
   type RouterCapabilitiesEvent,
   type ConsumerCreatedEvent,
   type ListenerStreamPausedEvent,
-  type ListenerStreamResumedEvent
+  type ListenerStreamResumedEvent,
+  type ListenerNotFoundEvent
 } from '../../domain/schemas/shared/websocket.schema'
 
 // Import domain schemas and types
@@ -63,7 +64,7 @@ import {
   type UserRoleType,
   type DJPublishResultType
 } from '../../domain/schemas/user.schema'
-import { WebrtcConnectionState, WsConnectionState } from '../../domain/schemas/connection.schema'
+import { WebrtcConnectionState, WsConnectionState, WebSocketError, WebSocketOperation } from '../../domain/schemas/connection.schema'
 
 /**
  * User Service Context Tag
@@ -81,8 +82,22 @@ export class UserService extends Context.Tag("@app/services/UserService")<
     readonly resumeStream: () => Effect.Effect<void, UserServiceError, never>
 
     // Listener Operations
-    readonly joinRoomAsListener: (roomId: string, sessionId: string) => Effect.Effect<{ readonly listenerId: string; readonly roomId: string; readonly sessionId: string; readonly joinedAt: Date }, UserServiceError, never>
+    readonly joinRoomAsListener: (roomId: string, sessionId: string, meta?: { roomName?: string; djName?: string }, options?: { force?: boolean }) => Effect.Effect<{ readonly listenerId: string; readonly roomId: string; readonly sessionId: string; readonly joinedAt: Date }, UserServiceError, never>
     readonly leaveListenerRoom: (listenerId: string) => Effect.Effect<void, UserServiceError, never>
+
+    /**
+     * Start the listener recovery coordinator.
+     * Registers visibilitychange / pageshow / online triggers and a listenerNotFound
+     * subscription.  Returns a cleanup function (remove listeners + unsubscribe).
+     * Must be called AFTER the initial joinRoomAsListener succeeds.
+     */
+    readonly startListenerRecovery: (config: {
+      roomId: string
+      sessionId: string
+      meta?: { roomName?: string; djName?: string }
+      onTerminal: () => void
+      canRecover?: () => boolean
+    }) => Effect.Effect<() => void, never, never>
 
     // Shared Operations
     readonly connect: (url: string) => Effect.Effect<void, UserServiceError, never>
@@ -427,7 +442,7 @@ const createUserServiceImpl = () => {
 
     // ============= Listener Operations =============
 
-    joinRoomAsListener: (roomId: string, sessionId: string) =>
+    joinRoomAsListener: (roomId: string, sessionId: string, meta?: { roomName?: string; djName?: string }, options?: { force?: boolean }) =>
       Effect.gen(function* () {
         const wsClient = yield* UserWebSocket
         const mediaSoupClient = yield* MediaSoupClient
@@ -447,8 +462,11 @@ const createUserServiceImpl = () => {
           webrtcState: connectionState.webrtcConnectionState
         })
 
-        // Check if we already have an active WebRTC connection
-        if (connectionAdapter.isRoomConnected()) {
+        // Check if we already have an active WebRTC connection.
+        // Bypassed when force=true (recovery re-join after mediaSoupClient.cleanup()).
+        // cleanup() already calls connectionAdapter.resetRoom(), making isRoomConnected()
+        // return false, but force ensures safety even if cleanup was partial.
+        if (!options?.force && connectionAdapter.isRoomConnected()) {
           console.info('✅ UserService: Already connected to room, skipping handshake')
           connectionAdapter.setCurrentRoomId(roomId)
           return { listenerId: sessionId, roomId, sessionId, joinedAt: new Date() }
@@ -583,7 +601,10 @@ const createUserServiceImpl = () => {
         // 8. Connect remote stream for audio playback
         console.info('🔊 UserService: Connecting audio stream...')
         const remoteStream = new MediaStream([consumer.track])
-        yield* audioClient.connectRemoteStream(remoteStream).pipe(
+        yield* audioClient.connectRemoteStream(remoteStream, {
+          roomName: meta?.roomName ?? `Room ${roomId}`,
+          djName: meta?.djName ?? 'HushFM DJ'
+        }).pipe(
           Effect.mapError((error) => new UserServiceError({
             cause: `Failed to connect remote stream: ${error}`,
             role: 'listener',
@@ -592,24 +613,23 @@ const createUserServiceImpl = () => {
           }))
         )
 
-        // 9. Resume consumer if needed
-        if (consumer.paused) {
-          console.info('▶️ UserService: Resuming consumer...')
-          // Create command using logging wrapper
-          const makeResumeConsumerCommand = withSchemaLogging(ResumeConsumerCommandSchema, 'ResumeConsumerCommand')
-          const resumeConsumerCommand = yield* makeResumeConsumerCommand({
-            consumerId: consumer.id
-          })
+        // 9. Resume consumer unconditionally — backend now creates consumers paused=true,
+        //    so we must always send ResumeConsumer after attaching the track to prevent
+        //    first-packet loss. Keep ordering: attach track first (step 8), then resume.
+        console.info('▶️ UserService: Resuming consumer...')
+        const makeResumeConsumerCommand = withSchemaLogging(ResumeConsumerCommandSchema, 'ResumeConsumerCommand')
+        const resumeConsumerCommand = yield* makeResumeConsumerCommand({
+          consumerId: consumer.id
+        })
 
-          yield* wsClient.sendCommandFireForget(resumeConsumerCommand).pipe(
-            Effect.mapError((error) => new UserServiceError({
-              cause: `Failed to resume consumer: ${error}`,
-              role: 'listener',
-              operation: 'joinRoomAsListener',
-              timestamp: new Date()
-            }))
-          )
-        }
+        yield* wsClient.sendCommandFireForget(resumeConsumerCommand).pipe(
+          Effect.mapError((error) => new UserServiceError({
+            cause: `Failed to resume consumer: ${error}`,
+            role: 'listener',
+            operation: 'joinRoomAsListener',
+            timestamp: new Date()
+          }))
+        )
 
         console.info('✅ UserService: Listener successfully joined room')
         
@@ -808,8 +828,8 @@ export const UserFeatureLayer = Layer.scoped(
           Effect.provideService(UserWebSocket, userWebSocket),
           Effect.provideService(AudioAdapter, audioAdapter)
         ),
-      joinRoomAsListener: (roomId: string, sessionId: string) =>
-        serviceImpl.joinRoomAsListener(roomId, sessionId).pipe(
+      joinRoomAsListener: (roomId: string, sessionId: string, meta?: { roomName?: string; djName?: string }, options?: { force?: boolean }) =>
+        serviceImpl.joinRoomAsListener(roomId, sessionId, meta, options).pipe(
           Effect.provideService(UserAdapter, userAdapter),
           Effect.provideService(UserWebSocket, userWebSocket),
           Effect.provideService(MediaSoupClient, mediaSoupClient),
@@ -838,7 +858,205 @@ export const UserFeatureLayer = Layer.scoped(
       getCurrentRole: () =>
         serviceImpl.getCurrentRole().pipe(
           Effect.provideService(ConnectionAdapter, connectionAdapter)
-        )
+        ),
+
+      startListenerRecovery: (config) =>
+        Effect.gen(function* () {
+          // ── Internal coordinator state ──────────────────────────────────────
+          let terminal = false
+          let recoveryInFlight = false
+          let lastFullRejoinAt = 0
+          let disconnectedSince: number | null = null
+          let disconnectedDebounceTimer: ReturnType<typeof setTimeout> | null = null
+
+          const clearDebounceTimer = () => {
+            if (disconnectedDebounceTimer !== null) {
+              clearTimeout(disconnectedDebounceTimer)
+              disconnectedDebounceTimer = null
+            }
+          }
+
+          // ── listenerNotFound → terminal ────────────────────────────────────
+          // Subscribe before registering DOM listeners so we never miss the event.
+          const unsubListenerNotFound = yield* userWebSocket.subscribe<ListenerNotFoundEvent>(
+            'listenerNotFound',
+            (_event) => {
+              console.info('Recovery: listenerNotFound received — entering terminal state')
+              terminal = true
+              clearDebounceTimer()
+              // Stop WS reconnection permanently (deliberate-leave semantics)
+              Effect.runPromise(userWebSocket.disconnect()).catch(() => {})
+              // Surface a user-facing error before navigating
+              connectionAdapter.setConnectionError(
+                new WebSocketError({
+                  cause: 'Session expired — rejoin from the lobby',
+                  operation: WebSocketOperation.RECEIVE,
+                  timestamp: new Date()
+                })
+              )
+              config.onTerminal()
+            }
+          )
+
+          // ── Full re-join (single-flight, ≥10 s spacing) ───────────────────
+          const performFullRejoin = async () => {
+            if (recoveryInFlight) return
+            const now = Date.now()
+            if (now - lastFullRejoinAt < 10_000) {
+              console.info('Recovery: Full re-join throttled (< 10 s since last attempt)')
+              return
+            }
+
+            recoveryInFlight = true
+            lastFullRejoinAt = now
+            try {
+              // Tear down stale MediaSoup resources (also calls connectionAdapter.resetRoom())
+              await Effect.runPromise(mediaSoupClient.cleanup())
+              // Re-join with force=true to bypass isRoomConnected() short-circuit
+              await Effect.runPromise(
+                serviceImpl.joinRoomAsListener(
+                  config.roomId,
+                  config.sessionId,
+                  config.meta,
+                  { force: true }
+                ).pipe(
+                  Effect.provideService(UserAdapter, userAdapter),
+                  Effect.provideService(UserWebSocket, userWebSocket),
+                  Effect.provideService(MediaSoupClient, mediaSoupClient),
+                  Effect.provideService(AudioClient, audioClient),
+                  Effect.provideService(AudioAdapter, audioAdapter),
+                  Effect.provideService(ConnectionAdapter, connectionAdapter)
+                )
+              )
+              console.info('Recovery: Full re-join succeeded')
+            } catch (error) {
+              console.error('Recovery: Full re-join failed (not terminal — will retry on next trigger):', error)
+              // Not terminal: allow future evaluate() runs
+            } finally {
+              recoveryInFlight = false
+            }
+          }
+
+          // ── evaluate() — the binding trigger matrix ────────────────────────
+          //
+          // State matrix (wsAlive × transportDead):
+          //   true  × false  → NO-OP   (healthy — never touch; the iOS lock-screen case)
+          //   false × false  → WS reconnect only (no mediasoup teardown)
+          //   true  × true   → Full re-join
+          //   false × true   → WS reconnect, poll until open, then full re-join
+          //
+          // transportDead: state ∈ {failed, closed} immediately;
+          //                'disconnected' only after 4 s continuous (debounced).
+          const evaluate = async () => {
+            if (terminal || recoveryInFlight) return
+            if (config.canRecover && !config.canRecover()) return
+
+            const wsAlive = userWebSocket.isSocketOpen()
+            const transportOpt = mediaSoupClient.getCurrentTransport()
+
+            let transportDead = false
+            if (O.isSome(transportOpt)) {
+              const state = transportOpt.value.connectionState
+              if (state === 'failed' || state === 'closed') {
+                transportDead = true
+                disconnectedSince = null
+                clearDebounceTimer()
+              } else if (state === 'disconnected') {
+                if (disconnectedSince === null) {
+                  // First observation — arm 4.5 s one-shot re-check
+                  disconnectedSince = Date.now()
+                  disconnectedDebounceTimer = setTimeout(() => {
+                    disconnectedDebounceTimer = null
+                    void evaluate().catch(e => console.error('Recovery: evaluate error after debounce:', e))
+                  }, 4500)
+                  // Not yet dead — wait for re-check
+                } else if (Date.now() - disconnectedSince >= 4000) {
+                  transportDead = true
+                }
+                // else: < 4 s elapsed — transportDead stays false
+              } else {
+                // 'new' | 'connecting' | 'connected' — clear debounce
+                disconnectedSince = null
+                clearDebounceTimer()
+              }
+            } else {
+              // No transport after initial join → treat as dead
+              transportDead = true
+              disconnectedSince = null
+              clearDebounceTimer()
+            }
+
+            // Matrix dispatch
+            if (wsAlive && !transportDead) {
+              // NO-OP — both signals healthy; do NOT touch a working session
+              console.info('Recovery evaluate: WS alive + transport healthy — NO-OP')
+              return
+            }
+
+            if (!wsAlive && !transportDead) {
+              // WS-only reconnect — no mediasoup teardown
+              console.info('Recovery evaluate: WS dead, transport ok — WS reconnect only')
+              await Effect.runPromise(userWebSocket.forceReconnectNow())
+              return
+            }
+
+            if (wsAlive && transportDead) {
+              console.info('Recovery evaluate: WS alive, transport dead — FULL RE-JOIN')
+              await performFullRejoin()
+              return
+            }
+
+            // !wsAlive && transportDead
+            console.info('Recovery evaluate: WS dead + transport dead — reconnect then FULL RE-JOIN')
+            await Effect.runPromise(userWebSocket.forceReconnectNow())
+            // Poll up to 10 s for socket to open
+            let waited = 0
+            while (waited < 10_000) {
+              await new Promise<void>(resolve => setTimeout(resolve, 1000))
+              waited += 1000
+              if (userWebSocket.isSocketOpen()) {
+                await performFullRejoin()
+                return
+              }
+            }
+            console.warn('Recovery: WS did not reconnect in 10 s — will retry on next trigger')
+          }
+
+          // ── DOM event handlers ─────────────────────────────────────────────
+          // Both visibilitychange AND pageshow registered — iOS fires them unevenly.
+          // On visibility resume: kick notifyVisibilityResume() (immediate ping/reconnect),
+          // then run evaluate().
+          const onVisibilityChange = () => {
+            if (document.visibilityState === 'visible') {
+              void Effect.runPromise(userWebSocket.notifyVisibilityResume()).catch(() => {})
+              void evaluate().catch(e => console.error('Recovery: evaluate error on visibilitychange:', e))
+            }
+          }
+
+          const onPageShow = (_e: Event) => {
+            void Effect.runPromise(userWebSocket.notifyVisibilityResume()).catch(() => {})
+            void evaluate().catch(e => console.error('Recovery: evaluate error on pageshow:', e))
+          }
+
+          const onOnline = () => {
+            void evaluate().catch(e => console.error('Recovery: evaluate error on online:', e))
+          }
+
+          window.addEventListener('visibilitychange', onVisibilityChange)
+          window.addEventListener('pageshow', onPageShow)
+          window.addEventListener('online', onOnline)
+
+          // ── Return cleanup function ────────────────────────────────────────
+          return () => {
+            // Setting terminal prevents any in-progress or future evaluate() from acting
+            terminal = true
+            clearDebounceTimer()
+            window.removeEventListener('visibilitychange', onVisibilityChange)
+            window.removeEventListener('pageshow', onPageShow)
+            window.removeEventListener('online', onOnline)
+            unsubListenerNotFound()
+          }
+        })
     } satisfies Context.Tag.Service<UserService>
   })
 )
