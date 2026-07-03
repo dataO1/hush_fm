@@ -19,19 +19,23 @@
         version = cargoToml.package.version;
 
 
-        # Common Rust toolchain with cross-compilation targets
+        # Rust toolchain — NATIVE builds only.
+        #
+        # NOTE: NO CROSS-COMPILATION. We tried cross-compiling the backend for
+        # the Pi (aarch64) from x86_64 and it never worked (mediasoup's C++
+        # worker build breaks under cross toolchains). The backend for the Pi
+        # is ALWAYS built natively ON the Pi itself:
+        #   ssh into the Pi → git pull → nix develop → cargo build --release
+        # The flake packages below just wrap whatever binary the local
+        # `cargo build --release` produced (see makePackage).
         rustToolchain = pkgs.rust-bin.stable.latest.default.override {
           extensions = [ "rust-src" "rust-analyzer" "rustfmt" ];
-          targets = [
-            "x86_64-unknown-linux-gnu"
-            "aarch64-unknown-linux-gnu"
-          ];
         };
 
         # Development shell
         devShell = pkgs.mkShell {
           nativeBuildInputs = with pkgs; [
-            # Rust toolchain with cross-compilation support
+            # Rust toolchain (native builds only — see note above)
             rustToolchain
             cargo-watch
 
@@ -150,7 +154,7 @@
               chmod +x $out/bin/server
             else
               echo "❌ Binary not found at ${binaryPath}"
-              echo "💡 Run 'cargo build --release${if targetSystem == "aarch64-linux" then " --target aarch64-unknown-linux-gnu" else ""}' first"
+              echo "💡 Run 'cargo build --release' first (natively on THIS machine — no cross-compilation)"
               exit 1
             fi
           '';
@@ -202,16 +206,13 @@
         };
       in
       {
-        # Packages for both architectures
+        # Packages — NATIVE builds only (no cross-compilation; see toolchain
+        # note above). On every architecture the binary comes from a local
+        # `cargo build --release`, i.e. ./backend/target/release/server.
+        # On the Pi: build ON the Pi, then nixos-rebuild picks it up from here.
         packages = {
-          # Architecture-specific backend packages
-          hushfm-backend-x86_64 = makePackage "x86_64-linux" "./backend/target/release/server";
-          hushfm-backend-aarch64 = makePackage "aarch64-linux" "./backend/target/aarch64-unknown-linux-gnu/server";
-
-          # Default to current system architecture
-          hushfm-backend = if system == "x86_64-linux" then makePackage "x86_64-linux" "./backend/target/release/server"
-                          else if system == "aarch64-linux" then makePackage "aarch64-linux" "./backend/target/aarch64-unknown-linux-gnu/server"
-                          else throw "Unsupported system: ${system}";
+          # Backend package wraps the natively-built binary of THIS machine
+          hushfm-backend = makePackage system "./backend/target/release/server";
 
           inherit hushfm-frontend;
           default = self.packages.${system}.hushfm-backend;
