@@ -12,6 +12,11 @@
 
 # Bugs
 ## Critical
+- [ ] DJ "Go Live" retry after a failure REUSES the previously announced room
+  (old name/id) instead of announcing a new room with the newly entered name —
+  user typed "lkalkja", ended up streaming as the earlier room
+  "hahhahahahhahah" (2026-07-03). AbortRoom on failure or re-announce on retry
+  needed.
 - [ ] waveform oscilloscope only works on chrome based browsers but not for
   firefox based browsers! research why.
 - [ ] on mobile the stream is running perfectly in the background, also in

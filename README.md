@@ -338,3 +338,23 @@ The frontend uses a provider-based architecture with SolidJS Context API for:
 2. Use generated API client exclusively (no manual API types)
 3. Effect.runPromise at UI boundaries with createResource
 4. Proper Suspense/ErrorBoundary hierarchy
+
+## DJ Laptop Troubleshooting (Linux desktop browsers)
+
+This app is deliberately STUN-less (LAN-only): browsers MUST be able to
+produce local host ICE candidates, and the server announces a plain IP
+(`services.hushfm.mediasoup.announcedIp` — never a domain; Firefox rejects
+FQDN ICE candidates).
+
+**Chromium/Chrome on Linux: "stuck connecting" → connection failed.**
+Chromium's network-service sandbox can fail to enumerate network interfaces
+(netlink blocked), leaving WebRTC with only useless wildcard candidates — with
+no STUN to fall back on, ICE fails. Launch the DJ browser with:
+
+```sh
+chromium --disable-features=NetworkServiceSandbox
+```
+
+(Deliberately NOT set permanently — it disables a sandbox layer; use it only
+for DJ sessions.) Firefox needs no flags.
+
