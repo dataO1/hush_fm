@@ -1,5 +1,9 @@
 
 # TODOS
+> **⚠ Party post-mortem worklist (2026-07): see [TODO_PARTY_FIXES.md](TODO_PARTY_FIXES.md)** —
+> Android lock-screen audio loss, old-iPhone bundle crash, offline-router
+> connectivity checks, offline HTTPS. Supersedes the "stream runs perfectly on
+> locked screen" claim below (party disproved it).
 - [ ] Create a proper readme, with sections for architectur explanation, usage
   explanation, deploument (with the weird build steps we have to make due to
   aarch on pi etc). important settings for the flake
