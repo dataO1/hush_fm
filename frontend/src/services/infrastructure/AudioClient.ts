@@ -115,13 +115,18 @@ const clearMediaSession = (): void => {
  * element.volume is applied BEFORE Chromium's audibility measurement, so
  * attenuating via volume would reclassify the anchor as silent.
  *
- * Gated to Android Chromium-family only ("Android" + "Chrome/" covers Chrome,
- * Brave, Ecosia, Samsung Internet — all confirmed/expected affected):
- * iOS Safari already works and a second Now-Playing element could regress it;
- * Firefox/Gecko uses its own media-control path.
+ * Gated to Android only. Chromium family ("Chrome/" covers Chrome, Brave,
+ * Ecosia, Samsung Internet) is confirmed affected AND confirmed fixed by the
+ * anchor mechanism (device test 2026-07-04). Firefox/Gecko on Android showed
+ * the SAME failure (no controls, ~1 min death) on its plain path, so the
+ * anchor mechanism is extended to it experimentally — Gecko also grants
+ * media notifications to audible file-backed elements, so the same shelter
+ * logic plausibly applies. iOS Safari stays excluded: it already works and
+ * a second Now-Playing element could regress it.
  */
 const needsAnchorAudio = (): boolean =>
-  /Android/i.test(navigator.userAgent) && /Chrome\//.test(navigator.userAgent)
+  /Android/i.test(navigator.userAgent) &&
+  (/Chrome\//.test(navigator.userAgent) || /Firefox\//.test(navigator.userAgent))
 
 // ---------------------------------------------------------------------------
 // Audio Client Interface
