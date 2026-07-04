@@ -82,7 +82,25 @@ Implementation (frontend, commit on `party-fixes`):
   drop focus and let Android suspend the tab ~60 s later). OS-interruption
   auto-resume restarts the anchor first.
 
-### Round 2 — pending user test (Android, any Chromium browser)
+### Round 2 — RESULT (2026-07-04): ❌ FAIL
+
+Android still shows NO media notification / lock-screen controls, and audio
+still stops ~1–2 min after lock (instant resume on unlock unchanged). The
+anchor fix as deployed did not produce the expected notification. Not yet
+known WHICH layer failed (anchor never played / played but no focus / focus
+but notification suppressed by the unmuted srcObject player / notification
+suppressed by OEM). On-device debugging required — see round-3 debug
+protocol (research in progress 2026-07-04 evening). Leading untested
+hypothesis: two-player shadowing — the unmuted srcObject element may win
+the tab's media-session routing while being focus-ineligible, suppressing
+the anchor; candidate fix = mute the stream element, route its audio via
+WebAudio (createMediaStreamSource → destination), anchor stays the only
+audible media element. Decision: pursue web fix (prio 1) with proper adb
+debugging; fallback A = Android-only app (Flutter/native WebRTC vs existing
+mediasoup backend; iOS stays on web); fallback B = Snapcast hybrid. Custom
+UDP protocol ruled out by user.
+
+### Round 2 — original checklist (superseded by result above)
 
 1. Join as listener, verify music plays. Faint noise bed should be
    inaudible (if audible when DJ is silent, we lower the file level —
