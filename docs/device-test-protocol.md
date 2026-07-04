@@ -102,13 +102,29 @@ UDP protocol ruled out by user.
 
 ### Round 3 — anchor v2 (mute-pump + WebAudio + anchor) — 2026-07-04
 
-**PARTIAL PASS reported: Android media-player notification now appears.**
-Pending full confirmation: (a) audio survives 10+ min locked, (b) faint
-noise bed inaudible under/without music, (c) lock-screen pause/play works
-(pause = AudioContext suspend; pump+anchor keep running), (d) other
-Chromium browsers (Brave/Ecosia/Samsung Internet), (e) Firefox Android
-(gate OFF there — plain WebRTC path; may fail → would extend gate),
-(f) iPhone regression re-check (non-anchor path unchanged, but verify).
+**PASS on Android Chromium: media-player notification appears** (the
+two-player-shadowing hypothesis was correct — muting the srcObject pump
+let the anchor win the session binding).
+
+Follow-ups same evening, all deployed + user-verified:
+- **Brown noise kept playing after DJ closed the room** → frontend never
+  subscribed to the `roomClosed` event the backend sends before ejecting
+  listeners; raw WebRTC error shown in lobby. FIXED: roomClosed →
+  terminal state with full audio teardown + "The DJ closed the room"
+  message; listenerNotFound terminal got the same teardown (same leak).
+- **Noise bed too audible** → anchor regenerated at **-59.9 dBFS** RMS
+  encoded (was -46.4); 12 dB above Chrome's -72.25 silence cliff = the
+  safe minimum.
+- **Firefox Android failed identically on its plain path** (no controls,
+  ~1 min death — Gecko has the same srcObject media-control exclusion) →
+  anchor mechanism gate extended to Firefox/Android. **USER CONFIRMED:
+  WORKS ON FIREFOX TOO** (2026-07-04 late). Gate now = Android +
+  (Chrome/ or Firefox/) UA; iOS remains untouched/excluded.
+
+Remaining verification for the full matrix: (a) 10+ min locked longevity,
+(b) lock-screen pause/play behavior, (c) Brave/Ecosia/Samsung Internet
+sweep, (d) iPhone regression re-check, (e) call-interruption / WiFi-drop
+recovery items from the round-2 checklist below.
 
 ### Round 2 — original checklist (superseded by result above)
 
