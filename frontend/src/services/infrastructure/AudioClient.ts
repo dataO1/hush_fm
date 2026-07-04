@@ -33,7 +33,8 @@ const setupMediaSession = (
   updateStreamState: (updates: Partial<StreamStateType>) => void,
   onUserPause: () => void,
   onUserPlay: () => void,
-  meta?: { roomName: string; djName: string }
+  meta?: { roomName: string; djName: string },
+  anchor?: HTMLAudioElement | null
 ): void => {
   if (!('mediaSession' in navigator)) return
 
@@ -44,15 +45,30 @@ const setupMediaSession = (
   })
   navigator.mediaSession.playbackState = 'playing'
 
+  // Android-Chromium anchor path only: present as LIVE media (Infinity) so the
+  // notification shows no misleading seek bar. Some builds may reject Infinity —
+  // in that case we silently skip (never pass a finite fake duration).
+  if (anchor) {
+    try {
+      navigator.mediaSession.setPositionState({ duration: Infinity, position: 0, playbackRate: 1 })
+    } catch { /* unsupported value/build — position state is cosmetic */ }
+  }
+
   // 'play' handler: clear intent flag, resume element, update state
   navigator.mediaSession.setActionHandler('play', () => {
     onUserPlay()
+    // Anchor first: it owns the full audio focus the stream element rides under
+    anchor?.play().catch(() => {})
     elem.play().catch(() => {})
     navigator.mediaSession.playbackState = 'playing'
     updateStreamState({ playing: true })
   })
 
-  // 'pause' handler: record user intent, pause element ONLY — never cleanup/null srcObject
+  // 'pause' handler: record user intent, pause the STREAM element only — never
+  // cleanup/null srcObject, and never pause the anchor: the anchor's playback is
+  // what holds the tab's full audio focus / background exemption. Pausing it
+  // would drop focus and let Android suspend the tab ~60 s later, so resume from
+  // the lock screen would silently die. The anchor bed is inaudible (-46 dBFS).
   navigator.mediaSession.setActionHandler('pause', () => {
     onUserPause()
     elem.pause()
@@ -71,7 +87,31 @@ const clearMediaSession = (): void => {
   navigator.mediaSession.playbackState = 'none'
   try { navigator.mediaSession.setActionHandler('play', null) } catch { }
   try { navigator.mediaSession.setActionHandler('pause', null) } catch { }
+  try { navigator.mediaSession.setPositionState() } catch { }
 }
+
+/**
+ * Android-Chromium detection for the anchor-audio workaround.
+ *
+ * Chromium never grants "full" audio focus (media notification + background-
+ * playback exemption) to srcObject/MediaStream-backed elements: full focus
+ * requires a finite duration >= ~5 s, and a live stream reports NaN/Infinity
+ * (w3c/mediasession#261, crbug 41452188). Without it, Android suspends the
+ * tab's audio output ~60 s after screen lock. The workaround is a parallel
+ * DOM <audio> looping a real file (public/anchor.ogg — 20 s brown noise at
+ * -46 dBFS RMS: above Chromium's -72.25 dBFS silence threshold, inaudible
+ * under music) that legitimately earns full focus; the stream element rides
+ * under it. The level is baked into the FILE and played at volume 1.0 —
+ * element.volume is applied BEFORE Chromium's audibility measurement, so
+ * attenuating via volume would reclassify the anchor as silent.
+ *
+ * Gated to Android Chromium-family only ("Android" + "Chrome/" covers Chrome,
+ * Brave, Ecosia, Samsung Internet — all confirmed/expected affected):
+ * iOS Safari already works and a second Now-Playing element could regress it;
+ * Firefox/Gecko uses its own media-control path.
+ */
+const needsAnchorAudio = (): boolean =>
+  /Android/i.test(navigator.userAgent) && /Chrome\//.test(navigator.userAgent)
 
 // ---------------------------------------------------------------------------
 // Audio Client Interface
@@ -150,6 +190,42 @@ const createAudioClientImpl = (): AudioClientInterface => {
   // Internal audio element for playback (listener mode)
   let audioElement: O.Option<HTMLAudioElement> = O.none()
 
+  /**
+   * Anchor element (Android Chromium only, see needsAnchorAudio).
+   * Lives from first connectRemoteStream until full stopStream — deliberately
+   * NOT stopped in stopCurrentStream, so full audio focus survives re-joins.
+   */
+  let anchorElement: HTMLAudioElement | null = null
+
+  /** Create (once) and start the anchor. No-op outside Android Chromium. */
+  const startAnchor = (): void => {
+    if (!needsAnchorAudio()) return
+    if (anchorElement === null) {
+      const anchor = new Audio('/anchor.ogg')
+      anchor.loop = true
+      // volume MUST stay 1.0 — the audible level is baked into the file
+      anchor.volume = 1.0
+      anchor.setAttribute('playsinline', '')
+      anchor.style.display = 'none'
+      document.body.appendChild(anchor)
+      anchorElement = anchor
+    }
+    if (anchorElement.paused) {
+      anchorElement.play().catch((err: DOMException) => {
+        // NotAllowedError: retried on the next connectRemoteStream (gesture modal)
+        console.info('🔊 AudioClient: Anchor play blocked/failed:', err.name)
+      })
+    }
+  }
+
+  /** Stop and remove the anchor (full stop only). */
+  const stopAnchor = (): void => {
+    if (anchorElement === null) return
+    anchorElement.pause()
+    anchorElement.remove()
+    anchorElement = null
+  }
+
   // ---------------------------------------------------------------------------
   // Interruption-handling state
   // ---------------------------------------------------------------------------
@@ -212,6 +288,10 @@ const createAudioClientImpl = (): AudioClientInterface => {
     if (!O.isSome(audioElement) || O.getOrThrow(audioElement) !== elem) return Promise.resolve()
     if (userPausedIntentionally) return Promise.resolve()
     if (elem.srcObject === null) return Promise.resolve()
+
+    // OS interruptions (calls, alarms) pause the anchor too — restart it first
+    // so audio focus is re-established alongside the stream element.
+    startAnchor()
 
     return elem.play().then(() => {
       if (sharedAudioAdapter) {
@@ -594,6 +674,10 @@ const createAudioClientImpl = (): AudioClientInterface => {
         const elem = O.getOrThrow(audioElement)
         elem.srcObject = remoteStream
 
+        // Anchor FIRST (Android Chromium): it must own full audio focus before/
+        // with the stream element. Same gesture context unlocks both play() calls.
+        startAnchor()
+
         // Use standard Promise-based autoplay detection
         yield* Effect.tryPromise({
           try: () => elem.play(),
@@ -628,7 +712,8 @@ const createAudioClientImpl = (): AudioClientInterface => {
               audioAdapter.updateStreamState,
               () => { userPausedIntentionally = true; cancelResumeTimers() },
               () => { userPausedIntentionally = false },
-              meta
+              meta,
+              anchorElement
             )
           }),
           Effect.catchAll((error) => {
@@ -736,6 +821,9 @@ const createAudioClientImpl = (): AudioClientInterface => {
         )
         // Allow fresh element creation on the next join
         audioElement = O.none()
+
+        // Full stop: tear down the anchor too (re-joins keep it alive instead)
+        stopAnchor()
 
         // Remove devicechange listener explicitly (element listeners drop with the element,
         // but devicechange is on navigator.mediaDevices — must be removed manually).
