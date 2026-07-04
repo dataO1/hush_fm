@@ -100,6 +100,16 @@ debugging; fallback A = Android-only app (Flutter/native WebRTC vs existing
 mediasoup backend; iOS stays on web); fallback B = Snapcast hybrid. Custom
 UDP protocol ruled out by user.
 
+### Round 3 — anchor v2 (mute-pump + WebAudio + anchor) — 2026-07-04
+
+**PARTIAL PASS reported: Android media-player notification now appears.**
+Pending full confirmation: (a) audio survives 10+ min locked, (b) faint
+noise bed inaudible under/without music, (c) lock-screen pause/play works
+(pause = AudioContext suspend; pump+anchor keep running), (d) other
+Chromium browsers (Brave/Ecosia/Samsung Internet), (e) Firefox Android
+(gate OFF there — plain WebRTC path; may fail → would extend gate),
+(f) iPhone regression re-check (non-anchor path unchanged, but verify).
+
 ### Round 2 — original checklist (superseded by result above)
 
 1. Join as listener, verify music plays. Faint noise bed should be
