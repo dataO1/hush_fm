@@ -91,6 +91,39 @@ prompt + hushfm.dedyn.io loads with padlock. Definitive Android signal:
 `adb shell dumpsys connectivity | grep -i validat` → must say VALIDATED
 (Tier 1) / shows PARTIAL (Tier 2, expected).
 
+## Investigated and rejected alternatives (research 2026-07-04 late)
+
+**Gatewayless DHCP ("printer-network" pattern — WiFi never claims internet,
+phones keep 4G):** REJECTED for Android. The architectural killer: an
+Android app (incl. the browser) can only send traffic over the phone's
+DEFAULT network unless it explicitly binds sockets to another Network —
+browsers never do. Per-network routing tables mean that with cellular as
+default, the browser CANNOT reach the on-link 192.168.8.0/24 at all
+(HTTPS, WSS, and WebRTC UDP all unroutable; ICE won't even enumerate the
+non-default interface reliably). So the exact cohort the idea targets
+(data-on Android) loses the app entirely. It also does NOT suppress the
+Android nag (a gatewayless net is just "unvalidated" — probes fail with no
+route out). iOS handles it fine (scoped routing; Safari exempt from the
+Local Network permission) — but iOS already works under Tier 1/2.
+The IoT precedent doesn't transfer: printer/GoPro/Chromecast setup apps
+bind to local-only networks via WifiNetworkSpecifier — an app-only API
+with no browser equivalent.
+
+**"Local-only by design" declaration:** no such standard exists for
+settings-joined networks. Capport `captive:false` → Android still runs
+full HTTP+HTTPS probes (fail offline → nag); `captive:true` → guaranteed
+sign-in interstitial + captive mini-browser (WebRTC trap, already
+vetoed); `venue-info-url` is cosmetic.
+
+**The overriding rule: for an Android browser to reach the LAN app, the
+WiFi must be the phone's default (or only) network.** Tier 1 achieves
+that via genuine validation; Tier 2 via mobile-data-off. Both new ideas
+violate it.
+
+Note for the test matrix: Chrome 142+ ships Local Network Access
+permission gating — should not affect us (page is served FROM the private
+IP; WS/WebRTC not gated) but verify on-device once.
+
 ## Proceed plan
 
 1. Do Tier 2 now (base layer; needed anyway as Tier 1's fallback if the
