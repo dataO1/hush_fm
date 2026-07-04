@@ -55,7 +55,8 @@ import {
   type ConsumerCreatedEvent,
   type ListenerStreamPausedEvent,
   type ListenerStreamResumedEvent,
-  type ListenerNotFoundEvent
+  type ListenerNotFoundEvent,
+  type ListenerRoomClosedEvent
 } from '../../domain/schemas/shared/websocket.schema'
 
 // Import domain schemas and types
@@ -876,26 +877,45 @@ export const UserFeatureLayer = Layer.scoped(
             }
           }
 
+          // ── Terminal-state entry (shared by listenerNotFound + roomClosed) ──
+          // MUST tear down the audio machinery: on Android the anchor noise bed
+          // and the WebAudio pipeline keep playing (holding audio focus) unless
+          // stopStream() runs — the room being gone doesn't silence them.
+          const enterTerminal = (reason: string, userMessage: string) => {
+            console.info(`Recovery: ${reason} — entering terminal state`)
+            terminal = true
+            clearDebounceTimer()
+            // Full audio teardown: stream element, anchor bed, AudioContext
+            Effect.runPromise(
+              audioClient.stopStream().pipe(Effect.provideService(AudioAdapter, audioAdapter))
+            ).catch(() => {})
+            // Stop WS reconnection permanently (deliberate-leave semantics)
+            Effect.runPromise(userWebSocket.disconnect()).catch(() => {})
+            // Surface a user-facing error before navigating
+            connectionAdapter.setConnectionError(
+              new WebSocketError({
+                cause: userMessage,
+                operation: WebSocketOperation.RECEIVE,
+                timestamp: new Date()
+              })
+            )
+            config.onTerminal()
+          }
+
           // ── listenerNotFound → terminal ────────────────────────────────────
           // Subscribe before registering DOM listeners so we never miss the event.
           const unsubListenerNotFound = yield* userWebSocket.subscribe<ListenerNotFoundEvent>(
             'listenerNotFound',
-            (_event) => {
-              console.info('Recovery: listenerNotFound received — entering terminal state')
-              terminal = true
-              clearDebounceTimer()
-              // Stop WS reconnection permanently (deliberate-leave semantics)
-              Effect.runPromise(userWebSocket.disconnect()).catch(() => {})
-              // Surface a user-facing error before navigating
-              connectionAdapter.setConnectionError(
-                new WebSocketError({
-                  cause: 'Session expired — rejoin from the lobby',
-                  operation: WebSocketOperation.RECEIVE,
-                  timestamp: new Date()
-                })
-              )
-              config.onTerminal()
-            }
+            (_event) => enterTerminal('listenerNotFound received', 'Session expired — rejoin from the lobby')
+          )
+
+          // ── roomClosed → terminal ──────────────────────────────────────────
+          // The backend notifies every listener BEFORE ejecting them when the
+          // DJ closes the room; without this subscription the client only sees
+          // the subsequent transport death and shows a raw WebRTC error.
+          const unsubRoomClosed = yield* userWebSocket.subscribe<ListenerRoomClosedEvent>(
+            'roomClosed',
+            (_event) => enterTerminal('roomClosed received', 'The DJ closed the room')
           )
 
           // ── Full re-join (single-flight, ≥10 s spacing) ───────────────────
@@ -1055,6 +1075,7 @@ export const UserFeatureLayer = Layer.scoped(
             window.removeEventListener('pageshow', onPageShow)
             window.removeEventListener('online', onOnline)
             unsubListenerNotFound()
+            unsubRoomClosed()
           }
         })
     } satisfies Context.Tag.Service<UserService>
