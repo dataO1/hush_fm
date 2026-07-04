@@ -170,6 +170,55 @@ listeners the same Opus audio over WebSocket → MediaSource Extensions.**
 If the anchor-v2 (mute+WebAudio) test fails, **this is the next web move,
 ahead of the native app** — it keeps zero-install for Android.
 
+### Track 1c — Encoded-Transform loopback (research 2026-07-04 night):
+### the <300 ms client-only path
+
+User rejected 0.5–2 s. Grounded follow-up research (latency table below)
+found a better lever, newly possible: **`RTCRtpScriptTransform` reached
+Chrome Android in v149 (Baseline Oct 2025)**. The receive-side tap sits
+**after the depacketizer/reorder, BEFORE the decoder/NetEq jitter buffer**
+— we get clean, ordered, already-encoded Opus frames at 20 ms cadence and
+skip NetEq's ~150–300 ms playout delay entirely.
+
+**Design (client-only, zero server change, zero re-encode):**
+1. Keep the recv-only WebRTC transport; in ontrack:
+   `receiver.transform = new RTCRtpScriptTransform(worker, ...)`.
+2. Worker: read ordered RTCEncodedAudioFrames, tiny (1–2 frame) slack
+   buffer, mux each as a WebM SimpleBlock (webm-muxer/Mediabunny with live
+   timestamp override, or mse-audio-wrapper `codec:'opus'` with min
+   segmentation thresholds); postMessage transferable chunks.
+3. Main thread: MediaSource → SourceBuffer('audio/webm;codecs=opus'),
+   'sequence' mode, duration=Infinity; append FROM the worker onmessage
+   (event-driven, never setInterval — timers get throttled; audible tabs +
+   WebRTC are exempt from intensive throttling but don't tempt fate).
+   Live-edge governor: if buffered.end − currentTime > ~250 ms, nudge
+   playbackRate 1.02–1.05.
+4. The audible sink = this MSE `<audio>` element — real timeline →
+   media-session eligible → notification + lock survival (YouTube-Live
+   class). Media Session metadata/handlers on it. Anchor becomes redundant.
+5. **Highest-value unknown (test first on device): does the receive
+   pipeline keep delivering frames to the transform with NO srcObject
+   element attached?** If yes → zero WebRTC-backed elements in the tab,
+   MSE element owns the session unambiguously. If no → muted pump element
+   returns, with its focus-shadowing risk (AlexxIT#578).
+- Packet loss: no NetEq PLC — a lost frame ≈ 20 ms glitch in sequence
+  mode (optionally synthesize Opus PLC/silence frames).
+- Support gate: Chrome Android 149+ (legacy createEncodedStreams reaches
+  further back); runtime-detect, fall back to anchor v2 / WS-MSE.
+
+### Grounded latency table (research, LAN)
+
+| Path | E2E floor | Client-only | Confidence |
+|---|---|---|---|
+| **Encoded-transform → mux → MSE** | **~150–350 ms** | ✅ | works: mod-high; latency: component-sum estimate, no field data — we'd be first |
+| WS→MSE server push (20 ms clusters) | ~300–600 ms (200–300 unproven; Flashphoner's 1–3 s incl. video+transcode) | ❌ | moderate |
+| MediaRecorder loopback → MSE | ~500 ms–1 s (re-encodes DECODED track → stacks NetEq + timeslice ≥100 ms + MSE) | ✅ | works: mod-high |
+| Chunked-HTTP `<audio src>` (icecast-style) | ~0.5–1.5 s (field reports 1.5–30 s, mostly source misconfig) | ❌ (trivial client) | eligibility: high |
+
+The original "0.5–2 s" was an internet-live-streaming synthesis, NOT a LAN
+measurement — but sub-300 ms via server-push MSE remains unproven; the
+encoded-transform loopback is the only structurally-<300 ms option.
+
 ## Track 2 addendum — APK distribution reality (research 2026-07-04 late)
 
 - **CORRECTION to native-rewrite-research.md:** Play **open testing IS
