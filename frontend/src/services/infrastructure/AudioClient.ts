@@ -34,7 +34,8 @@ const setupMediaSession = (
   onUserPause: () => void,
   onUserPlay: () => void,
   meta?: { roomName: string; djName: string },
-  anchor?: HTMLAudioElement | null
+  anchor?: HTMLAudioElement | null,
+  webAudio?: { suspend: () => void; resume: () => void } | null
 ): void => {
   if (!('mediaSession' in navigator)) return
 
@@ -54,24 +55,33 @@ const setupMediaSession = (
     } catch { /* unsupported value/build — position state is cosmetic */ }
   }
 
-  // 'play' handler: clear intent flag, resume element, update state
+  // 'play' handler: clear intent flag, resume playback, update state.
+  // Anchor mode: sound flows through WebAudio (the stream element is a muted
+  // RTP pump) — resume the AudioContext; keep anchor + pump playing throughout.
   navigator.mediaSession.setActionHandler('play', () => {
     onUserPlay()
     // Anchor first: it owns the full audio focus the stream element rides under
     anchor?.play().catch(() => {})
     elem.play().catch(() => {})
+    webAudio?.resume()
     navigator.mediaSession.playbackState = 'playing'
     updateStreamState({ playing: true })
   })
 
-  // 'pause' handler: record user intent, pause the STREAM element only — never
-  // cleanup/null srcObject, and never pause the anchor: the anchor's playback is
-  // what holds the tab's full audio focus / background exemption. Pausing it
-  // would drop focus and let Android suspend the tab ~60 s later, so resume from
-  // the lock screen would silently die. The anchor bed is inaudible (-46 dBFS).
+  // 'pause' handler: record user intent; never cleanup/null srcObject, and
+  // never pause the anchor: the anchor's playback is what holds the tab's full
+  // audio focus / background exemption. Pausing it would drop focus and let
+  // Android suspend the tab ~60 s later, so resume from the lock screen would
+  // silently die. The anchor bed is inaudible (-46 dBFS).
+  // Anchor mode: silence = suspend the AudioContext; the muted pump element
+  // must KEEP PLAYING or RTP stops flowing and resume would need a re-join.
   navigator.mediaSession.setActionHandler('pause', () => {
     onUserPause()
-    elem.pause()
+    if (webAudio) {
+      webAudio.suspend()
+    } else {
+      elem.pause()
+    }
     navigator.mediaSession.playbackState = 'paused'
     updateStreamState({ playing: false })
   })
@@ -227,6 +237,48 @@ const createAudioClientImpl = (): AudioClientInterface => {
   }
 
   // ---------------------------------------------------------------------------
+  // WebAudio rendering (anchor mode only)
+  //
+  // Round-2 device test + Chromium evidence (w3c/mediasession#261, AlexxIT/
+  // WebRTC#578): an UNMUTED srcObject element claims the tab's one-per-tab
+  // media-session arbitration while being ineligible for system UI, shadowing
+  // the anchor → no notification at all. Fix: the stream element stays MUTED
+  // (it must keep playing — Chrome only pumps WebRTC audio into a playing sink
+  // element) and the actual sound is rendered via WebAudio, so the anchor is
+  // the tab's only audible media element and wins the session binding.
+  // ---------------------------------------------------------------------------
+
+  let audioCtx: AudioContext | null = null
+  let webAudioSource: MediaStreamAudioSourceNode | null = null
+
+  /** Route the remote stream's audio through WebAudio to the speakers. */
+  const startWebAudioRender = (stream: MediaStream): void => {
+    if (audioCtx === null) {
+      audioCtx = new AudioContext()
+    }
+    if (webAudioSource !== null) {
+      try { webAudioSource.disconnect() } catch { }
+    }
+    webAudioSource = audioCtx.createMediaStreamSource(stream)
+    webAudioSource.connect(audioCtx.destination)
+    if (audioCtx.state !== 'running') {
+      audioCtx.resume().catch(() => { })
+    }
+  }
+
+  /** Disconnect the current source; optionally close the context (full stop). */
+  const stopWebAudioRender = (full: boolean): void => {
+    if (webAudioSource !== null) {
+      try { webAudioSource.disconnect() } catch { }
+      webAudioSource = null
+    }
+    if (full && audioCtx !== null) {
+      audioCtx.close().catch(() => { })
+      audioCtx = null
+    }
+  }
+
+  // ---------------------------------------------------------------------------
   // Interruption-handling state
   // ---------------------------------------------------------------------------
 
@@ -290,8 +342,12 @@ const createAudioClientImpl = (): AudioClientInterface => {
     if (elem.srcObject === null) return Promise.resolve()
 
     // OS interruptions (calls, alarms) pause the anchor too — restart it first
-    // so audio focus is re-established alongside the stream element.
+    // so audio focus is re-established alongside the stream element. The
+    // AudioContext may also have been suspended by the OS; resume it.
     startAnchor()
+    if (audioCtx !== null && audioCtx.state !== 'running' && !userPausedIntentionally) {
+      audioCtx.resume().catch(() => { })
+    }
 
     return elem.play().then(() => {
       if (sharedAudioAdapter) {
@@ -452,6 +508,10 @@ const createAudioClientImpl = (): AudioClientInterface => {
           }
         })
       )
+
+      // Anchor mode: disconnect the old stream's WebAudio source but KEEP the
+      // AudioContext and the anchor alive — full audio focus survives re-joins.
+      stopWebAudioRender(false)
 
       setCurrentStream(O.none())
     })
@@ -674,6 +734,13 @@ const createAudioClientImpl = (): AudioClientInterface => {
         const elem = O.getOrThrow(audioElement)
         elem.srcObject = remoteStream
 
+        // Anchor mode (Android Chromium): the stream element is a muted RTP
+        // pump; sound is rendered via WebAudio; the anchor is the only audible
+        // media element (see WebAudio section above). iOS/Firefox: unmuted
+        // element playback, unchanged.
+        const anchorMode = needsAnchorAudio()
+        elem.muted = anchorMode
+
         // Anchor FIRST (Android Chromium): it must own full audio focus before/
         // with the stream element. Same gesture context unlocks both play() calls.
         startAnchor()
@@ -693,6 +760,23 @@ const createAudioClientImpl = (): AudioClientInterface => {
             // auto-resume (the stuck-flag bug).
             userPausedIntentionally = false
             expectedPause = false
+
+            // Anchor mode: engage WebAudio rendering. A MUTED element's play()
+            // always succeeds regardless of autoplay policy, so the gesture
+            // requirement surfaces through the anchor/AudioContext instead:
+            // if either is still blocked after this tick, raise the modal.
+            if (anchorMode) {
+              startWebAudioRender(remoteStream)
+              setTimeout(() => {
+                const anchorBlocked = anchorElement !== null && anchorElement.paused
+                const ctxBlocked = audioCtx !== null && audioCtx.state !== 'running'
+                if ((anchorBlocked || ctxBlocked) && sharedAudioAdapter) {
+                  console.info('🔊 AudioClient: Anchor/AudioContext blocked — surfacing user-gesture modal', { anchorBlocked, ctxBlocked })
+                  sharedAudioAdapter.updateStreamState({ playing: false, requiresUserGesture: true })
+                }
+              }, 500)
+            }
+
             // Update state for successful playback
             setCurrentStream(O.some(remoteStream))
             audioAdapter.setStreamState({
@@ -713,7 +797,13 @@ const createAudioClientImpl = (): AudioClientInterface => {
               () => { userPausedIntentionally = true; cancelResumeTimers() },
               () => { userPausedIntentionally = false },
               meta,
-              anchorElement
+              anchorElement,
+              anchorMode
+                ? {
+                    suspend: () => { audioCtx?.suspend().catch(() => { }) },
+                    resume: () => { audioCtx?.resume().catch(() => { }) }
+                  }
+                : null
             )
           }),
           Effect.catchAll((error) => {
@@ -822,8 +912,9 @@ const createAudioClientImpl = (): AudioClientInterface => {
         // Allow fresh element creation on the next join
         audioElement = O.none()
 
-        // Full stop: tear down the anchor too (re-joins keep it alive instead)
+        // Full stop: tear down the anchor and WebAudio too (re-joins keep them)
         stopAnchor()
+        stopWebAudioRender(true)
 
         // Remove devicechange listener explicitly (element listeners drop with the element,
         // but devicechange is on navigator.mediaDevices — must be removed manually).

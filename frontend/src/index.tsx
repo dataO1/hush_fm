@@ -10,6 +10,16 @@ import 'solid-devtools'
 import { MediaSoupClientLive } from './services/infrastructure/MediaSoupClient'
 import { AudioClientLive } from './services/infrastructure/AudioClient'
 
+// On-device debug console (eruda, self-hosted for offline use): append
+// ?debug=1 to the URL. Needed because Brave/Ecosia can't be remote-inspected
+// via chrome://inspect — this gives console/elements/network on any phone.
+if (new URLSearchParams(window.location.search).has('debug')) {
+  const s = document.createElement('script')
+  s.src = '/eruda.js'
+  s.onload = () => { (window as any).eruda?.init() }
+  document.head.appendChild(s)
+}
+
 // Store Adapter Layers
 import { 
   AudioAdapterLive,

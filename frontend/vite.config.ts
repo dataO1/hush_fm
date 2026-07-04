@@ -70,12 +70,12 @@ export default defineConfig({
     minify: 'terser',
     terserOptions: {
       compress: {
-        // Remove console.* calls in production
-        drop_console: true,
+        // Keep console.* in production: they are the only on-device diagnostics
+        // for the Android lock-screen debugging (captured by eruda via ?debug=1).
+        drop_console: false,
         drop_debugger: true,
         // Additional compression optimizations for Pi
         passes: 3, // Run compression 3 times for maximum size reduction
-        pure_funcs: ['console.info', 'console.debug', 'console.warn'], // Remove specific console calls
         dead_code: true, // Remove unreachable code
         hoist_funs: true, // Hoist function declarations for better compression
         hoist_vars: true, // Hoist variable declarations

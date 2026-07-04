@@ -628,6 +628,12 @@
                         expires 1y;
                         add_header Cache-Control "public, immutable";
                       }
+
+                      # index.html must always revalidate: phones caching a stale
+                      # SPA shell would load OLD hashed bundles after a deploy.
+                      location = /index.html {
+                        add_header Cache-Control "no-cache";
+                      }
                     '';
                   };
 
