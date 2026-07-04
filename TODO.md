@@ -14,13 +14,17 @@
 ## Critical
 - [ ] **Offline router: phones warn "network has no internet" and DROP the
   WiFi after a while (Android especially — falls back to mobile data / kicks
-  the connection).** Cause: OS connectivity probes (Android
-  `generate_204`, iOS `captive.apple.com`) fail with no uplink. Fix plan in
-  [TODO_PARTY_FIXES.md §3](TODO_PARTY_FIXES.md): stangri's `fakeinternet` on
-  the Flint 2 (spoof probe endpoints; fully fixes iOS + old Android; new
-  Android needs one "stay connected" tap) + guest signage "turn off mobile
-  data". MUST be done before the party — pairs with the dnsmasq override
-  (plan card 8).
+  the connection).** Party field data: "stay connected" did NOT stick —
+  guests were re-prompted all evening (Android re-validates on every
+  reassociation; acceptance doesn't persist; Samsung Intelligent-WiFi is
+  worse). Verified plan 2026-07-04 (supersedes §3's "fakeinternet=done"):
+  [docs/offline-router-connectivity.md](docs/offline-router-connectivity.md)
+  — Tier 2 = fakeinternet spoof (DNS+DNAT; fully cleans iOS/old Android;
+  modern Android still re-prompts but survives with mobile data off) +
+  Tier 1 = minimal real uplink (phone-hotspot USB tether) with a LAN→WAN
+  allowlist for ONLY the probe hosts → genuine HTTPS validation → ZERO
+  prompts on every OS. Do both; signage regardless. MUST be done before
+  the party — pairs with the dnsmasq override (plan card 8).
 - [ ] DJ "Go Live" retry after a failure REUSES the previously announced room
   (old name/id) instead of announcing a new room with the newly entered name —
   user typed "lkalkja", ended up streaming as the earlier room
