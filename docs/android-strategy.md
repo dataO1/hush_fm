@@ -134,6 +134,70 @@ native audio = **Kotlin**.
 - **Pi 4: not the bottleneck** (encode once, fan out N TCP writes). WiFi
   radio is; second AP above ~40 guests (unchanged).
 
+## Track 1b — THE missing web answer: WebSocket → MSE fallback (research 2026-07-04 late)
+
+"How do streaming services do it?" — answered, and it vindicates the user's
+skepticism. **No service delivers WebRTC to passive web listeners.**
+SoundCloud/Spotify/YouTube(-Live)/Twitch web all play through an
+HTMLMediaElement fed by src or **MSE** (HLS/DASH) — a real media timeline →
+full audio focus → notification → lock survival. The load-bearing prior
+art is **X Spaces**: WebRTC/SFU for interactive speakers (app only), but
+**web listeners get HLS** off Periscope infra. The industry answer to
+"WebRTC that must survive a locked browser" is exactly a **playback-path
+split**.
+
+**Proposed: keep WebRTC for iOS (works, ~150-300 ms); serve Android web
+listeners the same Opus audio over WebSocket → MediaSource Extensions.**
+- `audio/webm; codecs=opus` in MSE: supported on Chrome Android (Opus
+  required in WebM since Chrome 33; `audio/mp4; codecs=opus` since 70).
+  Runtime-gate with `MediaSource.isTypeSupported(...)`.
+- MSE live audio = ordinary media playback = the SAME path YouTube
+  Live/Twitch use, which demonstrably shows the notification and survives
+  lock. Highest-confidence web option we have (validate once on-device:
+  it's inference-plus-empirics, no spec line says it verbatim).
+- Latency: realistic **0.5–2 s** (small WebM clusters, chunked SourceBuffer
+  appends in sequence mode, playbackRate catch-up loop to the live edge).
+  Worse than WebRTC's ~150-300 ms — acceptable for listeners? (DJ monitors
+  off the mixer; inter-cohort skew vs iOS ~0.5-1.5 s — same product
+  question as Snapcast but much smaller.)
+- Server effort (Rust, modest): tap the Opus frames we already produce in
+  backend/src/lib/audio/, mux WebM clusters (`webm` crate) or fMP4
+  (`muxide`), broadcast over an Axum WS route; reuse the room model.
+- WebCodecs/AudioWorklet: DEAD END for lock survival (Web Audio output is
+  explicitly excluded from media notifications). Firefox-Android rescue:
+  evidence leans no; not a solution.
+
+If the anchor-v2 (mute+WebAudio) test fails, **this is the next web move,
+ahead of the native app** — it keeps zero-install for Android.
+
+## Track 2 addendum — APK distribution reality (research 2026-07-04 late)
+
+- **CORRECTION to native-rewrite-research.md:** Play **open testing IS
+  gated** behind production access (= the 12-tester/14-day closed test) for
+  new personal accounts. Only **internal testing** (≤100 email-listed
+  testers) is instant. Check account type: org accounts / pre-2023-11
+  personal accounts escape the gate entirely.
+- **Internal testing = prepare-at-home only**: guest's install needs
+  internet + their email pre-added — impossible at the offline venue.
+- **Sideload at the venue works on stock Android** (~8-10 taps, 2 scary
+  screens: one-time unknown-sources + Play Protect offline soft-warning
+  with "install anyway"). **Samsung One UI 6.1.1+ (mid-2024+) is the real
+  blocker**: Auto Blocker hard-refuses all sideloads by default; guest must
+  disable it in Settings beforehand. Non-Samsung success estimate with a
+  good instruction page: ~80-90%; recent-Samsung at the venue: ~0 without
+  prep.
+- Serve APK with `Content-Type: application/vnd.android.package-archive` +
+  `Content-Disposition: attachment` (else Chrome saves it as .zip and the
+  flow dies). Uploading the same APK to a Play track does NOT reliably
+  suppress offline Play Protect warnings — don't count on it.
+- Developer-verification (Sept 2026) hits BR/ID/SG/TH only; Germany 2027+
+  — not a blocker this year.
+- **Two-QR funnel**: home QR ("prepare for the party": internal-testing
+  opt-in or APK download + Samsung Auto Blocker instructions) + venue QR
+  (LAN install page, offline sideload steps, web-player fallback footer).
+  Install-page tone modeled on NewPipe/F-Droid ("this warning is expected,
+  tap X"). F-Droid repo/Obtainium: rejected for normal guests.
+
 ## Recommended sequence
 
 1. **Today/day 1 (non-code, calendar-critical): create the Google Play
