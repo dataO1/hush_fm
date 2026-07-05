@@ -19,6 +19,15 @@
         version = cargoToml.package.version;
 
 
+        # NOTE: ROUTER SETUP IS NOT IN THIS FLAKE. The party WiFi router
+        # (GL.iNet Flint 2) is configured imperatively via
+        #   scripts/router-party-setup.sh   (idempotent; run after any
+        #                                    factory reset or GL-UI change,
+        #                                    then REBOOT the router)
+        #   scripts/router-recover.sh       (emergency: undo a fakeinternet
+        #                                    lockout)
+        # Rationale + research: docs/offline-router-connectivity.md.
+
         # Rust toolchain — NATIVE builds only.
         #
         # NOTE: NO CROSS-COMPILATION. We tried cross-compiling the backend for
