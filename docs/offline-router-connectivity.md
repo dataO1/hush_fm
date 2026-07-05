@@ -208,10 +208,38 @@ ssh root@192.168.8.1 "uci set fakeinternet.config.enabled=0; uci commit fakeinte
 (With no uplink there's no harm in leaving it on all night; disable is for
 returning the router to home duty.)
 
-Still pending on the router: radio/association-stability hardening (waiting
-on the mt76/Flint-2 tuning research + repo notes synthesis); GL-UI-change
-retest rule (any save in the GL web UI may rewrite UCI — re-verify DNS
-override + fakeinternet after UI changes).
+## ✅ Radio hardening APPLIED (2026-07-05, survives reboot)
+
+Research verdicts first (corrects remembered advice): 5 GHz-primary ✓, but
+**do NOT disable MAC-layer retries** (sub-ms, convert 5-30% raw loss to <1%;
+the "no-retry" rule is about app-layer RTX, which WebRTC audio already
+skips via Opus FEC/PLC) and **do NOT disable A-MPDU aggregation** (at 50
+pps/client it's opportunistic — near-zero delay, big airtime win).
+Also: our 40 ms Opus frames (existing config) = 25 pps/client ≈ 30% airtime
+at 80 guests — good.
+
+Applied via uci (NOTE: this GL firmware runs the **MTK proprietary driver**
+(type='mtk', ra0/rax0), NOT mac80211/mt76 — `wifi reload`/`wifi` do NOT
+apply changes; **a reboot does**):
+- **5 GHz = SSID `hushfm`** (the clean name → humans join it), fixed
+  **channel 36**, HE80 (never 160 MHz). **2.4 GHz = `hushfm-24`** (legacy
+  fallback, fixed ch 6) — separate names = no steering roams = no
+  revalidation storms.
+- Both ifaces: `ieee80211k=0`, `bss_transition=0` (were ON).
+- 5 GHz iface: `dtim_period=1`, `max_inactivity=3600`,
+  `disassoc_low_ack=0`, `maxassoc=100` (mac80211-style options — possibly
+  inert on the MTK driver; harmless).
+- Encryption already psk2 (WPA2) ✓, isolate=0 ✓, guest/IoT SSIDs disabled ✓.
+- **Pi side: DSCP 46(EF) → 48(CS6)** (rpi4-nixos configuration.nix,
+  rebuilt+verified in backend log) — EF maps to AC_VI under Linux's
+  RFC 8325 top-3-bit rule; CS6 lands in AC_VO, the U-APSD queue locked
+  phones service. (MTK-driver downlink classification unverified — worth
+  an on-device AC check at the party load test.)
+
+Still pending: GL-UI-change retest rule (any save in the GL web UI may
+rewrite UCI — re-verify DNS override + fakeinternet + radio settings after
+UI changes, then REBOOT to apply); on-site A/B of GL's OFDMA toggle;
+second AP decision above ~40 guests.
 
 ## Proceed plan
 
