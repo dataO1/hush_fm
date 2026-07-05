@@ -46,11 +46,19 @@ sec "2pre. PI: DEVICE FLAP CHECK (want ~0 — the monitor-flapping fix)"
 # With the fix it should connect ONCE and stay. High counts = still flapping.
 $SSH $PI 'w="10 min ago"; echo "window: last 10 min"; echo "device disconnected events: $(journalctl -u hushfm-backend --since "$w" --no-pager 2>/dev/null | grep -c "device disconnected")"; echo "device connected events:    $(journalctl -u hushfm-backend --since "$w" --no-pager 2>/dev/null | grep -c "device connected")"; echo "--- lifecycle transitions (should be ONE connect, then stable):"; journalctl -u hushfm-backend --since "$w" --no-pager 2>/dev/null | grep -iE "USB audio device (connected|disconnected)|WaitingForDevice|absent .* polls" | tail -20'
 
-sec "2. PI: THE CHOPPINESS SIGNALS — drops / timeouts / xruns / buffer"
-echo "--- DirectProducer send-timeout drops (each = a dropped audio packet):"
-$SSH $PI 'journalctl -u hushfm-backend --since "40 min ago" --no-pager 2>/dev/null | grep -c "DirectProducer send timeout"'
-echo "--- recent drop/timeout/buffer/underrun/error lines:"
-$SSH $PI 'journalctl -u hushfm-backend --since "40 min ago" --no-pager 2>/dev/null | grep -iE "timeout|drop|underrun|overrun|xrun|starv|lag|behind|buffer full|buffer empty|error|warn|fail|reconnect|disconnect|silence" | tail -80'
+sec "2. PI: THE CHOPPINESS SIGNALS — scoped to the CURRENT backend run"
+# Scope to the current service invocation so stale overruns from a previous
+# (pre-fix) binary don't confuse the picture.
+$SSH $PI 'START=$(systemctl show -p ActiveEnterTimestamp --value hushfm-backend); echo "backend started: $START"
+echo "--- counts in the CURRENT run (want 0):"
+echo "ring buffer overruns: $(journalctl -u hushfm-backend --since "$START" --no-pager 2>/dev/null | grep -c "Ring buffer overrun")"
+echo "callback drops:       $(journalctl -u hushfm-backend --since "$START" --no-pager 2>/dev/null | grep -c "ring buffer full")"
+echo "rate mismatches:      $(journalctl -u hushfm-backend --since "$START" --no-pager 2>/dev/null | grep -ic "rate.*mismatch\|Consumption rate off")"
+echo "DirectProducer drops: $(journalctl -u hushfm-backend --since "$START" --no-pager 2>/dev/null | grep -c "DirectProducer send timeout")"
+echo "--- encoder pipeline metrics (fill% = latency contribution; rate should be ~96000):"
+journalctl -u hushfm-backend --since "$START" --no-pager 2>/dev/null | grep -E "Audio pipeline" | tail -4
+echo "--- any drop/error lines this run:"
+journalctl -u hushfm-backend --since "$START" --no-pager 2>/dev/null | grep -iE "timeout|drop|underrun|overrun|starv|behind|POLLERR|stream error" | tail -15'
 
 sec "3. PI: ALSA view of the Scarlett (sample rate / channels / format)"
 $SSH $PI 'arecord -l 2>&1; echo "--- hw params per card:"; for c in $(arecord -l 2>/dev/null | sed -n "s/^card \([0-9]*\):.*/\1/p" | sort -u); do echo "== card $c =="; arecord -D hw:$c,0 --dump-hw-params 2>&1 | grep -iE "^RATE|^CHANNELS|^FORMAT|^PERIOD_SIZE|^BUFFER_SIZE"; done'
