@@ -8,6 +8,38 @@ Status legend: `[ ]` open · `[~]` in progress · `[x]` done
 
 ---
 
+## 0. STATUS SUMMARY — updated 2026-07-05
+
+Authoritative current state (supersedes individual checkboxes below where they conflict):
+
+**DONE & verified in code / on the Pi:**
+- **§1 Android lock-screen** — SOLVED via the "anchor" approach (muted `srcObject` RTP
+  pump + WebAudio render + audible looping `anchor.ogg` as the media-session-eligible
+  sink) plus `navigator.mediaSession`. Verified on-device on Chromium AND Firefox;
+  iOS already worked (regression-safe). `AudioClient.ts`, `frontend/public/anchor.ogg`.
+- **§3 Offline router** — SOLVED. `scripts/router-party-setup.sh` (idempotent one-shot:
+  dnsmasq hostname override + fakeinternet + auto-toggle watchdog + radio hardening).
+  `fakeinternet-auto` auto-enables spoof when no uplink (no manual toggle). Verified
+  8/8 party-mode + 4/4 home-mode via `scripts/router-party-test.sh`.
+- **§4 Trusted HTTPS offline** — SOLVED. LE wildcard via DNS-01 (deSEC), real domain
+  `hushfm.dedyn.io`, sops-encrypted token, router dnsmasq resolves to the Pi.
+- **NEW — Pi audio-bot line-in path (Scarlett 18i20 → cpal → Opus → mediasoup):**
+  now stable and clean. Fixed: device-monitor flapping, PipeWire removed from the
+  capture path (direct ALSA), encoder keeps up under load (full-drain + 200ms ring
+  headroom), and a cpal frames/samples buffer bug that doubled capture latency.
+  Field-tested "definitely good enough" 2026-07-05. See §6.
+
+**OPEN — top remaining party-critical item:**
+- **§2 old-iPhone `esnext` crash — STILL OPEN.** `vite.config.ts` still targets
+  `esnext` in all 3 places → iOS ≤14.4 crashes before mount. This is the #1 next fix.
+
+**OPEN — optional / measure-first:**
+- NetEQ receive-latency levers (§7, new) — researched 2026-07-05; not applied.
+- Various non-party bugs in `TODO.md` (DJ reconnection, Go-Live-retry room reuse,
+  Firefox oscilloscope).
+
+---
+
 ## 1. Android: audio/connection lost on lock screen  ⟵ MOST PRESSING
 
 **Symptom at party:** Android listeners lost audio and/or connection after the phone
@@ -214,9 +246,71 @@ already correctly false for music; mDNS candidate obfuscation (server is ICE-lit
 
 ---
 
+## 6. Pi audio-bot line-in path + latency (NEW — worked 2026-07-05)
+
+The DJ rig feeds XLR → Scarlett 18i20 (USB) → Pi; the Rust server captures via cpal
+and produces the Opus stream directly (DirectProducer), no browser DJ. Getting this
+clean took three stacked fixes, all DONE + deployed + verified:
+
+- [x] **Device-monitor flapping** — false "disconnect" during active capture; fixed
+      with name-enumeration debounce (3-poll threshold), no open-probe while running.
+- [x] **PipeWire removed from the capture path** — its ALSA layer sat between the
+      Scarlett and cpal, async-resampling → rate drift (~89k vs 96k) → ring overruns
+      → choppy. `services.pipewire/pulseaudio.enable = false` on the Pi; cpal opens
+      the Scarlett directly via ALSA (still gets 48k/2ch).
+- [x] **Encoder keeps up under load** — consumer now drains the full backlog each
+      wake; ring buffer 4800→19200 (200ms headroom, runs near-empty ~12ms measured).
+- [x] **cpal buffer unit bug** — `BufferSize::Fixed`/`Range` are in FRAMES, not
+      samples (verified cpal 0.17 source); code passed frames×2 → 2048-frame ALSA
+      period (42.7ms). Fixed → 1024-frame period (21.3ms). Halved capture latency.
+
+**Deployed on the Pi: 1024-frame capture buffer (commit 2e5f776f).** A further
+1024→512 tune (~11ms period, commit 47039398) is committed but NOT deployed — deploy
+it if you want ~10ms more (env-var only, revert to 1024 if the diagnostic shows
+xruns/POLLERR).
+
+Tooling: `scripts/deploy-pi.sh` (one-shot push+build+rebuild+restart+verify),
+`scripts/diagnose-party.sh` (offline diagnostic log: network path, capture device,
+period_size, flap count, overruns, `fill:%/ms` metric, CPU/thermal, router WiFi).
+
+- [ ] Optional bulletproofing: current path assumes 48kHz + ≥2ch (Scarlett + most DJ
+      gear OK). A `rubato` resampler + channel-adapt stage would make it work with
+      ANY interface (44.1k-only / mono). Deferred — not needed for the party rig.
+- [ ] Optional: startup guard that logs a clear error on a non-48k/non-stereo device.
+
+## 7. NetEQ receive-jitter-buffer latency (RESEARCHED 2026-07-05, not applied)
+
+Full 3-agent research in the session transcript + memory. Core finding: the browser
+NetEQ buffer (~100ms, biggest remaining latency) is big because it **adapts to real
+WiFi jitter** — `playoutDelayHint=0` is already set, so the JS knob is near-maxed on
+Chrome/Android. The real lever is **reducing on-air jitter** (mainly phone WiFi
+power-save bursts) so NetEQ voluntarily shrinks. Structural floor is ~40-80ms (20ms
+ptime + decode + OS buffer), so the realistic win is ~100 → ~50-80ms, not zero.
+
+Rejected: NetEQ bypass (WebCodecs/AudioWorklet) — modest gain AND re-breaks the §1
+Android lock-screen fix (AudioWorklet is media-session-ineligible). FEC/RED don't
+shrink the buffer (only make a small buffer safe under loss). Already on UDP
+(enable_udp + prefer_udp true; TCP is an unused fallback candidate).
+
+Ranked levers (impact/risk), all UNAPPLIED — decide before implementing:
+- [ ] Verify WMM + U-APSD on / DTIM=1 on the router (biggest, low risk — kills
+      power-save burst jitter).
+- [ ] Add `jitterBufferTarget = 40` (ms, small non-zero — 0 stutters) alongside the
+      existing `playoutDelayHint` at `MediaSoupClient.ts:721`; extends the lever to
+      Firefox, inert on iOS. Low risk.
+- [ ] `enableTcp = false` (configuration.nix) — defensive; removes any TCP-select risk.
+- [ ] A/B ptime 20→40ms (`HUSHFM_OPUS_FRAME_DURATION`) — halves on-air packet rate
+      but +20ms fixed; net win only if NetEQ shrinks more. MUST field-measure.
+- [ ] DSCP→AC_VI (nftables on Pi) — near-zero benefit on a dedicated audio LAN;
+      user's stance is "leave DSCP as-is". Skip unless page-load/reconnect chatter.
+- [ ] 2nd AP / band-split — biggest physical jitter cut for 40-100 phones.
+Verify any change on-device via `getStats()` `jitterBufferDelay/jitterBufferEmittedCount`.
+
+---
+
 ## Suggested execution order
 
-1. §2 build-target fix (5 lines, unblocks old iPhones)
-2. §4 domain + cert + dnsmasq (prerequisite for §1)
-3. §1 Android lock-screen work (largest chunk, frontend + small backend additions)
-4. §3 router `fakeinternet` + signage (independent, can run anytime)
+1. **§2 build-target fix** (5 lines, unblocks old iPhones) — TOP remaining party item.
+2. §1/§3/§4 — DONE (see §0 status).
+3. §6 audio-bot path — DONE; optional 512 deploy + resampler bulletproofing remain.
+4. §7 NetEQ latency levers — optional, measure-first; setup is "good enough" as-is.
