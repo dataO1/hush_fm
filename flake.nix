@@ -119,7 +119,7 @@
           HUSHFM_OPUS_PACKET_LOSS_PERC = "10";   # only active when FEC on
           HUSHFM_OPUS_ENABLE_VBR = "false";      # CBR = predictable airtime
           HUSHFM_OPUS_FRAME_DURATION = "20";     # low latency; 10ms saturates airtime
-          HUSHFM_AUDIO_BUFFER_SIZE = "1024";     # CPAL buffer size in frames
+          HUSHFM_AUDIO_BUFFER_SIZE = "512";    # cpal capture frames (~10.7ms period) — see module option
           HUSHFM_RING_BUFFER_CAPACITY = "19200";  # 200ms headroom (drained each wake → near-empty)
           HUSHFM_ENABLE_THREAD_PRIORITY = "true"; # Real-time priority
           # NOTE: DSCP is currently INERT — set_dscp_marking() is never called and
@@ -501,8 +501,8 @@
 
               bufferSize = mkOption {
                 type = types.int;
-                default = 1024;
-                description = "CPAL audio buffer size in frames";
+                default = 512;
+                description = "cpal capture buffer in FRAMES (ALSA period). 512 = ~10.7ms period / ~21ms ALSA latency. Lower = less capture latency but the RT capture callback must be serviced more often (xrun risk under load). Was 1024 (~21ms period). Bump back up if the diagnostic shows xruns/POLLERR.";
               };
 
               ringBufferCapacity = mkOption {
