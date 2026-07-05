@@ -1,257 +1,144 @@
-# Offline-router connectivity: killing the "no internet" prompts
+# Party Router (GL.iNet Flint 2) — setup & operation
 
-Verified research 2026-07-04 (deep-dive incl. AOSP NetworkMonitor source,
-fakeinternet package source, GL.iNet specifics). Supersedes the
-TODO_PARTY_FIXES §3 assumption that "install fakeinternet = done".
+The party runs on a GL.iNet Flint 2 (GL-MT6000) with **no internet uplink**.
+This doc is the current-state reference. The router config is imperative
+(not in the Nix flake) and lives in two scripts:
 
-## The verified mechanics
+- **`scripts/router-party-setup.sh`** — idempotent one-shot that makes a
+  (possibly factory-reset) router fully party-ready. Re-run after any
+  factory reset or GL web-UI change.
+- **`scripts/router-party-test.sh party|home`** — self-contained PASS/FAIL
+  verifier (Claude/tools have no internet while on the offline party net,
+  so testing is a script you run yourself).
 
-- Every OS probes a known URL on join. iOS: `http://captive.apple.com/
-  hotspot-detect.html` (expects "Success" — HTTP, fully spoofable).
-  Android: BOTH `http://connectivitycheck.gstatic.com/generate_204` AND
-  `https://www.google.com/generate_204`.
-- **Since Android 9, VALIDATED requires the HTTPS probe to succeed** —
-  unspoofable without a Google cert. HTTP-only success = "partial
-  connectivity" → the "limited connectivity / stay connected?" dialog.
-- **The party's re-prompt loop is by design:** NetworkMonitor re-evaluates
-  on every reassociation (WiFi power-save wake, roam, DHCP renew) and
-  periodically (1 s → 10 min backoff). "Stay connected" acceptance is
-  per-WifiConfiguration and does NOT reliably survive re-evaluation.
-  Samsung One UI adds its own "Intelligent Wi-Fi / switch to mobile data"
-  layer on top (per-device setting, cannot be fixed from our side).
-- **Conclusion: no spoof (DNS or DNAT) can produce zero prompts on modern
-  Android.** Spoofing fully fixes iOS + Android ≤8 + Fire/desktop probes,
-  and keeps the LAN route alive; the dialog recurrence on Android 9+ can
-  only be eliminated by making the HTTPS probe genuinely succeed.
+Setup prerequisites (one-time after a factory reset): set the admin
+password in the GL wizard, `ssh-copy-id root@192.168.8.1`, and give the
+router internet **once** so the fakeinternet package can install.
 
-## fakeinternet package — verified state
+Verified live end-to-end on 2026-07-05.
 
-Maintained (HEAD 2025-08; docs.mossdef.org/fakeinternet). Mechanism = BOTH
-dnsmasq `address=` hijacks AND procd firewall **DNAT of LAN-outbound ports
-53/80/443** to a local uhttpd CGI responder on :65530 (DNAT excludes
-LAN-destined traffic → hushfm.dedyn.io → Pi is untouched, padlock safe;
-no port-80 collision with the GL admin UI). The DNAT layer catches
-hardcoded-IP and DoH-resolved HTTP probes that pure DNS spoofing misses.
-Serves exact probe responses (204 for generate_204/gen_204, Apple Success
-page, GNOME/Firefox/Kindle paths, generic 200 otherwise).
+---
 
-Default config gaps to add: Microsoft NCSI (www.msftconnecttest.com),
-Samsung (connectivitycheck.samsung.com), connectivitycheck.android.com,
-clients3.google.com. Do NOT use the `#` catch-all (would swallow
-hushfm.dedyn.io). OpenWrt ≥15.05 compatible → Flint 2 GL firmware OK.
-Risk: GL web-UI saves can rewrite UCI firewall/dhcp — retest after any
-UI change.
+## What the router does
 
-Rejected alternative: embracing a captive portal (RFC 8908) — it
-*guarantees* an interstitial and routes guests into the stripped captive
-mini-browser, a known WebRTC trap. DIY-on-Pi-only cannot match the
-router's DNAT (only the gateway can redirect other devices' traffic).
+### 1. Serves the app over a trusted name
+dnsmasq resolves `hushfm.dedyn.io → 192.168.8.100` (the Pi) via a
+persistent uci `address` entry. The Pi holds a real Let's Encrypt cert for
+that name, so phones get a clean padlock with no internet. (`/etc/dnsmasq.d`
+on this firmware is tmpfs — uci is the persistent path.)
 
-## The two tiers
+### 2. Silences the "no internet" warnings (fakeinternet, automatic)
+Phones validate a new WiFi by fetching probe URLs; with no uplink these
+fail, so the OS shows "no internet", deprioritises the WiFi, and (Android
+with mobile data on) switches to cellular — breaking the LAN app.
 
-### Tier 1 — bulletproof, zero prompts on EVERY OS (recommended)
-Give the Flint 2 WAN a minimal real uplink (phone hotspot via USB tether,
-or a cheap LTE dongle) + **firewall allowlist LAN→WAN to ONLY the probe
-hosts** (connectivitycheck.gstatic.com, www.google.com,
-clients3.google.com, connectivitycheck.android.com, captive.apple.com,
-www.apple.com, www.msftconnecttest.com, connectivitycheck.samsung.com,
-detectportal.firefox.com on 80/443 + DNS); DROP all other LAN→WAN.
-- HTTPS probe genuinely succeeds → VALIDATED → no dialog ever, no
-  mobile-data switch, on all OSes; guests still get no usable internet
-  (no bandwidth leak); mobile-data-off signage becomes optional.
-- Effort: ~30 min tether + allowlist rules, on top of Tier 2.
+**fakeinternet** answers those probes locally (real HTTP 204 / Apple
+"Success" / etc.) via a dnsmasq hijack **plus** a firewall DNAT of all
+LAN-outbound 53/80/443 — the DNAT also catches phones with pinned DoH/
+Private-DNS that bypass dnsmasq. LAN-destined traffic is excluded, so the
+Pi and its padlock are untouched.
 
-### Tier 2 — offline spoof (fallback / base layer, works with no uplink)
-Install fakeinternet on the Flint 2 (stangri feed), add the missing
-domains above, verify hushfm.dedyn.io still resolves to the Pi.
-- iOS + old Android: fully clean. Modern Android: "limited connectivity"
-  prompts still recur on reassociation, BUT with mobile data off there is
-  no cell route to switch to → WiFi stays default → app keeps working.
-- Signage becomes LOAD-BEARING: "Turn OFF mobile data (or airplane mode
-  + WiFi). Samsung: Intelligent Wi-Fi → disable 'Switch to mobile data'.
-  If asked 'stay connected?' → Yes. No always-on VPN / Private DNS."
-- Effort: 30–60 min on the router.
+Per-OS result:
+- **iOS / old Android / Fire / desktop:** fully clean, no prompts.
+- **Android 9+ :** the HTTPS probe to Google is unspoofable, so the network
+  is "partial connectivity" until the guest taps **once** — after that
+  Android stores `mUseHttps=false` for the network (persists across reboot),
+  the HTTP-204 spoof then validates it, and it goes quiet. So modern Android
+  is "one tap, then quiet" (not zero-touch; that would need a real uplink,
+  which we deliberately don't have).
 
-## Per-OS outcome (spoof-only vs Tier 1)
+The spoof answers probes with a genuine **204, never a 302 redirect** — a
+302 lands phones in captive-portal state (restricted WebView, no WebRTC,
+re-prompts every reconnect).
 
-| Device | Spoof only (Tier 2) | + real probe uplink (Tier 1) |
-|---|---|---|
-| iOS 16-19 | ✅ clean, no prompts | ✅ |
-| Android ≤8 | ✅ validated | ✅ |
-| Android 9-17 stock | ⚠️ recurring "limited connectivity"; works with mobile data OFF | ✅ VALIDATED, zero prompts |
-| Samsung One UI | ⚠️ prompts + Intelligent-WiFi auto-switch (needs per-device toggle) | ✅ |
-| Fire OS/desktop | ✅ | ✅ |
-
-## Test protocol (pre-party, extends device-test-protocol.md)
-
-Airplane-mode matrix per device (iPhone, stock Android 13+, Samsung):
-join SSID → watch for the no-internet notification → leave locked 10+ min
-(forces power-save reassociation → re-probe) → confirm no recurring
-prompt + hushfm.dedyn.io loads with padlock. Definitive Android signal:
-`adb shell dumpsys connectivity | grep -i validat` → must say VALIDATED
-(Tier 1) / shows PARTIAL (Tier 2, expected).
-
-## Investigated and rejected alternatives (research 2026-07-04 late)
-
-**Gatewayless DHCP ("printer-network" pattern — WiFi never claims internet,
-phones keep 4G):** REJECTED for Android. The architectural killer: an
-Android app (incl. the browser) can only send traffic over the phone's
-DEFAULT network unless it explicitly binds sockets to another Network —
-browsers never do. Per-network routing tables mean that with cellular as
-default, the browser CANNOT reach the on-link 192.168.8.0/24 at all
-(HTTPS, WSS, and WebRTC UDP all unroutable; ICE won't even enumerate the
-non-default interface reliably). So the exact cohort the idea targets
-(data-on Android) loses the app entirely. It also does NOT suppress the
-Android nag (a gatewayless net is just "unvalidated" — probes fail with no
-route out). iOS handles it fine (scoped routing; Safari exempt from the
-Local Network permission) — but iOS already works under Tier 1/2.
-The IoT precedent doesn't transfer: printer/GoPro/Chromecast setup apps
-bind to local-only networks via WifiNetworkSpecifier — an app-only API
-with no browser equivalent.
-
-**"Local-only by design" declaration:** no such standard exists for
-settings-joined networks. Capport `captive:false` → Android still runs
-full HTTP+HTTPS probes (fail offline → nag); `captive:true` → guaranteed
-sign-in interstitial + captive mini-browser (WebRTC trap, already
-vetoed); `venue-info-url` is cosmetic.
-
-**The overriding rule: for an Android browser to reach the LAN app, the
-WiFi must be the phone's default (or only) network.** Tier 1 achieves
-that via genuine validation; Tier 2 via mobile-data-off. Both new ideas
-violate it.
-
-Note for the test matrix: Chrome 142+ ships Local Network Access
-permission gating — should not affect us (page is served FROM the private
-IP; WS/WebRTC not gated) but verify on-device once.
-
-## Final sweep (2026-07-05): the Tier-2 upgrade + hardening checklist
-
-**The one new mechanism that matters (AOSP NetworkMonitor):** when a guest
-accepts "partial connectivity" ONCE, Android calls
-`setAcceptPartialConnectivity()` → `maybeDisableHttpsProbing(true)` →
-**`mUseHttps = false` is stored for that saved network and persists across
-reboot**. From then on the HTTP-204 spoof alone satisfies validation → the
-network is promoted to **VALIDATED**, nag gone, real browser, WebRTC works.
-This reconciles the party experience: the endless re-prompting happened in
-the NO-spoof regime (both probes failing = "no internet" dialog path, no
-acceptance bit). **With the Tier-2 spoof in place, modern Android becomes
-"one tap, then quiet"** — modulo OEM skins (Samsung/MIUI more aggressive)
-and MAC-randomization/forget-network resetting the bit. Still below
-Tier 1's zero-tap, but far better than previously assumed.
-
-Spoof engineering rules that make this work:
-- Answer HTTP probes with a REAL `204` — **never a 302 redirect** (302 →
-  CAPTIVE state → the restricted CaptivePortalLogin WebView: no WebRTC,
-  re-prompts every reconnect, and IIAB documented 30-s connection drops.
-  The deliberate-captive idea is dead).
-- Let the HTTPS probe fail FAST (TCP RST beats blackhole — same resulting
-  state, snappier UX). fakeinternet's DNAT does this.
-- Disable GL.iNet's "DNS Rebinding Attack Protection" (would block local-
-  hostname answers).
-
-**Router association-stability checklist** (each reassociation re-runs
-validation → fewer reassociations = fewer prompt opportunities):
-- Single SSID, band steering OFF (or 2.4 GHz-only SSID for listeners).
-- Disable 802.11r/k/v (no roaming exists on one AP; 11r causes spurious
-  reconnects).
-- hostapd: `max_inactivity` 300→3600, `disassoc_low_ack 0` (stop deauthing
-  dozing phones).
-- DHCP lease 24 h+.
-- (Evidence qualitative; changes the COUNT of validations, not outcomes.)
-
-**Prior art (offline-education at scale — IIAB/RACHEL/Kiwix):** converged
-on captive portal OFF for Android + memorable plain-HTTP hostname + heavy
-signage. Confirms our direction; their captive-portal lessons are why we
-must stay in PARTIAL, never CAPTIVE.
-
-**Exotic levers, all confirmed dead:** user CA certs (probe trusts system
-store only), captive_portal_* device settings (adb-only), Passpoint (same
-probes), WISPr (legacy), scoring/suggestion APIs (app-only).
-
-**iOS 18 note:** the captive sheet may no longer auto-appear — moot for us
-(we spoof Apple's probe → validated), but signage should still say "open
-hushfm.dedyn.io in Safari".
-
-## ✅ INSTALLED on the Flint 2 (2026-07-05, post factory-reset)
-
-Router state is NOT declarative — this section is the reproducible runbook
-(re-run after any future factory reset). SSH: `root@192.168.8.1` (password
-= web admin password; laptop key installed via ssh-copy-id).
-
-Applied and verified:
-1. **DNS override (persistent, uci — card 8):**
-   `uci add_list dhcp.@dnsmasq[0].address='/hushfm.dedyn.io/192.168.8.100'
-   && uci commit dhcp && /etc/init.d/dnsmasq restart`
-   Verified: resolves to the Pi from router + laptop; HTTPS via LAN DNS =
-   HTTP 200, TLS verify clean.
-2. **stangri feed + fakeinternet 0.1.4-5:** usign key →
-   `/etc/opkg/keys/7ffc7517c4cc0c56`; `src/gz stangri_repo
-   https://ipk.mossdef.org` in customfeeds.conf; `opkg install
-   fakeinternet` (luci app not in feed — uci-managed). uhttpd +
-   dnsmasq-full were already present.
-3. **Config:** defaults (google.com/gstatic/apple/firefox/gnome domains,
-   subdomains covered) + added: android.com, msftconnecttest.com,
-   msftncsi.com, connectivitycheck.samsung.com, connect.rom.miui.com,
-   connectivitycheck.platform.hicloud.com (15 policies). Service
-   **enabled='0' at home** (its DNAT hijacks ALL LAN port-53/80/443 —
-   would break home internet while the uplink exists).
-4. **Live-tested (30 s window):** generate_204→204 ✓, Apple→Success ✓,
-   HTTPS probe→fast fail ✓, hushfm.dedyn.io unaffected during hijack ✓
-   (LAN exclusion), home internet restored after disable ✓.
-
-**PARTY-DAY TOGGLE: NONE — fully automatic since 2026-07-05.** A watchdog
+**Fully automatic — no manual toggle.** A watchdog
 (`/usr/bin/fakeinternet-auto`, cron every 2 min + WAN hotplug) enables
-fakeinternet when the uplink is gone and disables it when it returns.
-END-TO-END VERIFIED: reboot with WAN unplugged → auto-enabled at boot
-(party test 8/8: all probes spoofed, app clean-TLS, HTTPS probe fails);
-cable back in without reboot → auto-disabled within ~90 s (home test 4/4).
-The watchdog checks IP LITERALS ONLY (ping 8.8.8.8/1.1.1.1) — v1 used
-hostnames and deadlocked because fakeinternet hijacks the router's own DNS
-(post-mortem in scripts/router-recover.sh). Everything is codified in
-**scripts/router-party-setup.sh** (idempotent one-shot; run after factory
-reset or GL-UI change, then reboot) and verified by
-**scripts/router-party-test.sh party|home** (self-contained PASS/FAIL —
-Claude has no internet while on the party network).
+fakeinternet when the uplink is gone (party) and disables it when it's back
+(home). It checks **IP literals only** (`ping 8.8.8.8`) — hostname checks
+would deadlock because fakeinternet hijacks the router's own DNS.
 
-## ✅ Radio hardening APPLIED (2026-07-05, survives reboot)
+### 3. Radio tuned for 50-80 phones streaming audio on an open field
+- **2.4 GHz = PRIMARY**, SSID **`hushfm`**, fixed **channel 1**, HE20.
+  Chosen on technical merit for an outdoor crowd: human bodies attenuate
+  5 GHz ~2-3 dB more each (a dance floor stacks 12-18 dB), 5 GHz also
+  starts ~6.5 dB behind on free-space loss, and 2.4's usual weakness
+  (congestion) doesn't exist on an empty field. The load is packet-RATE
+  bound (~2000 pps at 80 guests), which is band-independent — so 2.4's
+  better penetration wins with no throughput downside. (Legality is not a
+  factor in this choice; 2.4 is simply the better radio through a crowd.)
+- **5 GHz = SECONDARY**, SSID **`hushfm-5`**, fixed **channel 36**, HE80 —
+  headroom for phones near the booth with line-of-sight.
+- **Fixed channels, no DFS** (ch ≥100): a radar hit → channel move → mass
+  reassociation → Android revalidation storm. Never auto/ACS.
+- **802.11k / BSS-transition OFF** on both: steering roams re-run Android's
+  captive validation.
+- `dtim 1`, `max_inactivity 3600`, `disassoc_low_ack 0`, `maxassoc 100`:
+  fewer forced reassociations of dozing phones.
+- **Left ON deliberately:** MAC-layer retries (sub-ms, turn 5-30% raw loss
+  into <1%) and A-MPDU aggregation (opportunistic at our packet rate —
+  saves airtime, ~zero added delay). The "no retries / no aggregation for
+  latency" instinct is wrong here; those help.
+- **AP placement (physical, not scriptable):** elevate 2.5-3 m above head
+  height at the floor edge, angled in — the single biggest coverage lever
+  through a crowd. Plan a **second AP above ~40-50 guests** (single-radio
+  ceiling; tuning can't move it).
 
-Research verdicts first (corrects remembered advice): 5 GHz-primary ✓, but
-**do NOT disable MAC-layer retries** (sub-ms, convert 5-30% raw loss to <1%;
-the "no-retry" rule is about app-layer RTX, which WebRTC audio already
-skips via Opus FEC/PLC) and **do NOT disable A-MPDU aggregation** (at 50
-pps/client it's opportunistic — near-zero delay, big airtime win).
-Also: our 40 ms Opus frames (existing config) = 25 pps/client ≈ 30% airtime
-at 80 guests — good.
+**MTK driver quirk:** `wifi reload` and even reboot do NOT reliably apply
+wireless uci changes — `wifi down; wifi up` does (the setup script does this
+automatically). After any GL web-UI save, re-run the setup script (the UI
+rewrites the uci files).
 
-Applied via uci (NOTE: this GL firmware runs the **MTK proprietary driver**
-(type='mtk', ra0/rax0), NOT mac80211/mt76 — `wifi reload`/`wifi` do NOT
-apply changes; **a reboot does**):
-- **5 GHz = SSID `hushfm`** (the clean name → humans join it), fixed
-  **channel 36**, HE80 (never 160 MHz). **2.4 GHz = `hushfm-24`** (legacy
-  fallback, fixed ch 6) — separate names = no steering roams = no
-  revalidation storms.
-- Both ifaces: `ieee80211k=0`, `bss_transition=0` (were ON).
-- 5 GHz iface: `dtim_period=1`, `max_inactivity=3600`,
-  `disassoc_low_ack=0`, `maxassoc=100` (mac80211-style options — possibly
-  inert on the MTK driver; harmless).
-- Encryption already psk2 (WPA2) ✓, isolate=0 ✓, guest/IoT SSIDs disabled ✓.
-- **Pi side: DSCP 46(EF) → 48(CS6)** (rpi4-nixos configuration.nix,
-  rebuilt+verified in backend log) — EF maps to AC_VI under Linux's
-  RFC 8325 top-3-bit rule; CS6 lands in AC_VO, the U-APSD queue locked
-  phones service. (MTK-driver downlink classification unverified — worth
-  an on-device AC check at the party load test.)
+---
 
-Still pending: GL-UI-change retest rule (any save in the GL web UI may
-rewrite UCI — re-verify DNS override + fakeinternet + radio settings after
-UI changes, then REBOOT to apply); on-site A/B of GL's OFDMA toggle;
-second AP decision above ~40 guests.
+## Pi-side companions (in the Nix flake / rpi4-nixos)
 
-## Proceed plan
+These are declarative (rpi4-nixos configuration.nix), not router config:
+- **Audio (party-tuned):** 40 ms Opus frames (25 pps/client — packet rate
+  is the ceiling), 160 kbps stereo (earbud-transparent; 256k was overkill),
+  **FEC on** (crowd body-shadow fades MAC retries can't always bridge),
+  **CBR** (`opusEnableVbr=false` — predictable airtime under load).
+- **DSCP 48 (CS6)** so downlink audio lands in the WiFi voice queue (AC_VO)
+  that locked phones' U-APSD services — EF/46 maps to AC_VI (video) under
+  Linux's RFC 8325 rule. (Downlink AC on the MTK driver is worth an
+  on-device check at the load test.)
+- **CPU governor `performance`** + onboard WiFi blacklisted (Pi is wired):
+  consistent latency for a 6-hour encode; check `vcgencmd get_throttled`
+  stays `0x0` (needs a heatsink/fan).
 
-1. Do Tier 2 now (base layer; needed anyway as Tier 1's fallback if the
-   venue tether dies mid-party).
-2. Add Tier 1 at the venue: any guest phone hotspot on USB suffices —
-   the allowlist means probe-only traffic (~KB/hour).
-3. Print the signage regardless (covers Samsung Intelligent-WiFi + VPN/
-   Private-DNS edge cases).
-4. Run the airplane-mode matrix at home before the party.
+---
+
+## Pre-party test protocol
+
+**Router (offline verifier):**
+1. Unplug WAN, power-cycle, wait ~2 min (watchdog cron), laptop on `hushfm`.
+2. `./scripts/router-party-test.sh party` → expect all PASS (probes spoofed,
+   DNS→Pi, app clean-TLS, HTTPS probe correctly failing, watchdog enabled).
+3. Optional: join with a phone — iOS silent, Android one sticky tap, app loads.
+4. Plug WAN back, wait ~2 min, `./scripts/router-party-test.sh home` → all PASS.
+
+**1-hour Pi/RF burn-in (catch thermal/airtime/OFDMA before guests):**
+- Confirm `iw reg get` = DE; baseline `vcgencmd measure_temp` /
+  `get_throttled` (0x0) and mediasoup worker RSS.
+- Drive 60-80 consumers with real DJ audio for the full hour.
+- Every ~10 min: router `iw dev <wlan> station dump` — watch `tx retries` /
+  `tx failed` climbing or rates collapsing to legacy = airtime saturation →
+  go to 60 ms frames or lower bitrate.
+- A/B GL's OFDMA toggle 20 min on / 20 min off; keep the cleaner one
+  (MT7986 OFDMA maturity is unproven — verify, don't assume).
+- Temp < 80 °C throughout, `get_throttled` stays 0x0, worker RSS flat.
+- Crowd sim: 5-10 people between AP and a far phone — audio survives
+  (validates FEC + AP height). WiFi off/on a phone → rejoins in seconds,
+  no persistent re-prompt (validates steering-off).
+
+## Signage (residuals no router setting can fix)
+"Connect to **hushfm** WiFi, open **hushfm.dedyn.io**." For Android: if
+asked "stay connected?", tap yes (once). Samsung: Settings → Connections →
+Wi-Fi → Intelligent Wi-Fi → turn off "Switch to mobile data". Turn off any
+always-on VPN / Private DNS if the app won't load.
+
+## Facts / gotchas
+- SSH `root@192.168.8.1` (password = GL admin password; laptop key installed).
+- fakeinternet default config never uses the `#` catch-all (would swallow
+  hushfm.dedyn.io); domain list extended with Samsung/MS/Xiaomi/Huawei.
+- Re-verify DNS + fakeinternet + radio after any GL web-UI save (it rewrites
+  uci) by re-running the setup script.

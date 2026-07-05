@@ -8,17 +8,17 @@ HushFM now supports configurable audio optimization settings via environment var
 ### Backend Audio Settings
 ```bash
 # Opus encoder settings
-HUSHFM_OPUS_BITRATE="256000"        # 256kbps (down from 320kbps)
+HUSHFM_OPUS_BITRATE="160000"      # earbud-transparent (party); packet RATE is the ceiling, not bitrate
 HUSHFM_OPUS_COMPLEXITY="8"          # Complexity 8 (down from 10)
-HUSHFM_OPUS_ENABLE_FEC="false"      # Disabled for WiFi 6
-HUSHFM_OPUS_ENABLE_VBR="true"       # Enable Variable Bit Rate
-HUSHFM_OPUS_FRAME_DURATION="20"     # 20ms frames (10ms for experiment)
+HUSHFM_OPUS_ENABLE_FEC="true"      # crowd body-shadow fades MAC retries cant always bridge
+HUSHFM_OPUS_ENABLE_VBR="false"     # CBR: predictable airtime under 80-client load
+HUSHFM_OPUS_FRAME_DURATION="40"    # 25 pps/client; halves packet rate vs 20ms
 
 # Audio capture settings
 HUSHFM_AUDIO_BUFFER_SIZE="1024"     # CPAL buffer size in frames (stereo)
 HUSHFM_RING_BUFFER_CAPACITY="4800"  # Ring buffer capacity in samples
 HUSHFM_ENABLE_THREAD_PRIORITY="true" # Real-time audio thread
-HUSHFM_DSCP_MARKING="46"            # QoS marking (EF)
+HUSHFM_DSCP_MARKING="48"          # CS6 -> AC_VO voice queue (EF/46 maps to AC_VI video)
 ```
 
 ## Performance Optimizations Implemented
@@ -28,11 +28,15 @@ HUSHFM_DSCP_MARKING="46"            # QoS marking (EF)
 - **jitterBufferDelayHint = 0**: Minimizes jitter buffer on Chrome/Edge
 - **Existing**: Echo cancellation, noise suppression, AGC already disabled
 
-### 2. Backend Opus Optimization
-- **256kbps bitrate**: Transparent quality, 20% less bandwidth
-- **Complexity 8**: High quality, ~20% less CPU usage  
-- **FEC disabled**: Removes processing overhead (not needed on WiFi 6)
-- **VBR enabled**: Constrained Variable Bit Rate for efficiency
+### 2. Backend Opus Optimization (party-tuned 2026-07-05 for 50-80 clients)
+- **160kbps stereo**: earbud-transparent; the 80-client ceiling is packet
+  RATE, not bitrate (see docs/offline-router-connectivity.md)
+- **Complexity 8**: high quality; single encode on the Pi, not a bottleneck
+- **FEC enabled**: crowd body-shadowing causes >20 dB fades that MAC-layer
+  retries can't always bridge; costs ~1 frame of decoder delay
+- **CBR (VBR disabled)**: predictable airtime under an 80-client shared
+  medium; unconstrained VBR bursts hurt jitter
+- **40ms frames**: 25 pps/client — halves packet rate vs 20ms
 
 ### 3. Audio Capture Improvements
 - **1024 frame buffer**: Matches CPAL's native buffer size (~21ms)

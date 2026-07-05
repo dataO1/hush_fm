@@ -23,24 +23,43 @@
 #      auto-disables when it is back (home). IP-LITERAL pings only — the
 #      router's own DNS is hijacked while enabled; hostname checks deadlock
 #      (2026-07-05 lockout post-mortem, see scripts/router-recover.sh).
-#   4. Radio hardening for 30-80 phones streaming WebRTC audio:
-#      - 5 GHz carries the primary SSID 'hushfm' (humans join the clean
-#        name), FIXED channel 36, HE80 (never auto/ACS: a mid-party channel
-#        change = mass reassociation = Android revalidation storm)
-#      - 2.4 GHz demoted to fallback SSID 'hushfm-24', fixed channel 6
+#   4. Radio hardening for 30-80 phones streaming WebRTC audio.
+#      BAND PLAN (open-field research 2026-07-05 — OUTDOOR party):
+#      - 2.4 GHz carries the PRIMARY SSID 'hushfm' (humans join the clean
+#        name), FIXED channel 1, HE20. Outdoors 2.4 wins: bodies attenuate
+#        5 GHz ~2-3 dB more each (a crowd stacks 12-18 dB), 5 GHz starts
+#        6.5 dB behind on free-space loss, and 2.4's usual congestion
+#        problem doesn't exist on an empty field. The load is packet-RATE
+#        bound (2000 pps at 80 guests), which is band-independent.
+#      - 5 GHz = secondary SSID 'hushfm-5', fixed ch 36, HE80 — headroom
+#        for phones near the booth with line-of-sight. NEVER DFS channels
+#        (100+): a radar hit = channel move = mass reassociation = Android
+#        revalidation storm. Fixed channels everywhere (no auto/ACS, same
+#        reason).
 #      - 802.11k/BSS-transition OFF (steering roams re-run Android's
 #        captive validation)
 #      - dtim 1, max_inactivity 3600, disassoc_low_ack 0, maxassoc 100
 #        (fewer forced reassociations of dozing phones)
 #      - deliberately NOT touched: MAC retries + A-MPDU stay ON (they are
 #        sub-ms and prevent 5-30% loss; disabling would hurt — research)
+#      - AP PLACEMENT (not scriptable): elevate 2.5-3 m above head height,
+#        floor edge angled in — the single biggest coverage lever through
+#        a crowd.
 #
-# QUIRK: this GL firmware uses MediaTek's proprietary driver — `wifi reload`
-# does NOT apply wireless changes; only a REBOOT does. The script offers one
-# at the end when wireless changed.
+# QUIRK: this GL firmware uses MediaTek's proprietary driver. `wifi reload`
+# and even a REBOOT do NOT reliably apply wireless uci changes; the method
+# that works is a full netifd restart: `wifi down; wifi up`. The script does
+# this automatically when wireless changed (you briefly lose WiFi — SSH/LAN
+# drop for ~10 s, then the new SSIDs come up).
 #
 # After any change in the GL WEB UI: re-run this script (the UI rewrites
-# UCI files) and reboot.
+# UCI files).
+#
+# EMERGENCY (rare): if you are ever locked out by fakeinternet, just PLUG IN
+# the WAN cable — the watchdog auto-disables it within ~2 min. To force it
+# off by hand over SSH (SSH is never hijacked, only DNS/HTTP/HTTPS):
+#   ssh root@192.168.8.1 'uci set fakeinternet.config.enabled=0; \
+#     uci commit fakeinternet; /etc/init.d/fakeinternet restart'
 # ============================================================================
 set -euo pipefail
 
@@ -126,14 +145,24 @@ grep -q fakeinternet-auto /etc/crontabs/root 2>/dev/null \
 /etc/init.d/cron restart
 echo "[3] watchdog installed (cron every 2 min + wan hotplug)"
 
-# ── 4. Radio hardening ─────────────────────────────────────────────────────
+# ── 4. Radio hardening (band plan: see header) ─────────────────────────────
 set_w() { # set_w <uci-key> <value>
   if [ "$(uci -q get "$1")" != "$2" ]; then
     uci set "$1=$2"; CHANGED_WIRELESS=1; echo "[4] $1 -> $2"
   fi
 }
-# 5 GHz = primary, clean name, fixed channel (radio: mt798612, iface: wifi5g)
-set_w wireless.wifi5g.ssid            'hushfm'
+# 2.4 GHz = PRIMARY (radio: mt798611, iface: wifi2g) — crowd penetration
+set_w wireless.wifi2g.ssid            'hushfm'
+set_w wireless.mt798611.channel       '1'
+set_w wireless.mt798611.htmode        'HE20'
+set_w wireless.wifi2g.ieee80211k      '0'
+set_w wireless.wifi2g.bss_transition  '0'
+set_w wireless.wifi2g.dtim_period     '1'
+set_w wireless.wifi2g.max_inactivity  '3600'
+set_w wireless.wifi2g.disassoc_low_ack '0'
+set_w wireless.wifi2g.maxassoc        '100'
+# 5 GHz = secondary, booth-proximity headroom (radio: mt798612, iface: wifi5g)
+set_w wireless.wifi5g.ssid            'hushfm-5'
 set_w wireless.mt798612.channel       '36'
 set_w wireless.mt798612.htmode        'HE80'
 set_w wireless.wifi5g.ieee80211k      '0'
@@ -142,29 +171,28 @@ set_w wireless.wifi5g.dtim_period     '1'
 set_w wireless.wifi5g.max_inactivity  '3600'
 set_w wireless.wifi5g.disassoc_low_ack '0'
 set_w wireless.wifi5g.maxassoc        '100'
-# 2.4 GHz = fallback, demoted name, fixed channel
-set_w wireless.wifi2g.ssid            'hushfm-24'
-set_w wireless.mt798611.channel       '6'
-set_w wireless.wifi2g.ieee80211k      '0'
-set_w wireless.wifi2g.bss_transition  '0'
 uci commit wireless
 
 # ── 5. Report ──────────────────────────────────────────────────────────────
 echo "── state ──"
 echo "dns:          $(uci -q get dhcp.@dnsmasq[0].address)"
 echo "fakeinternet: enabled=$(uci -q get fakeinternet.config.enabled) ($(uci -q show fakeinternet | grep -c policy) policies)"
-echo "5g:  ssid=$(uci -q get wireless.wifi5g.ssid) ch=$(uci -q get wireless.mt798612.channel)"
-echo "2g:  ssid=$(uci -q get wireless.wifi2g.ssid) ch=$(uci -q get wireless.mt798611.channel)"
-[ "$CHANGED_WIRELESS" = "1" ] && echo "WIRELESS_CHANGED" || true
+echo "2g:  ssid=$(uci -q get wireless.wifi2g.ssid) ch=$(uci -q get wireless.mt798611.channel) $(uci -q get wireless.mt798611.htmode) (PRIMARY)"
+echo "5g:  ssid=$(uci -q get wireless.wifi5g.ssid) ch=$(uci -q get wireless.mt798612.channel) $(uci -q get wireless.mt798612.htmode) (secondary)"
+# Apply wireless via full netifd restart if it changed (MTK driver quirk —
+# reboot is unreliable, wifi down/up works). Backgrounded with nohup so the
+# SSH drop during the radio bounce doesn't abort the script.
+if [ "$CHANGED_WIRELESS" = "1" ]; then
+  echo "[4] applying wireless (wifi down/up — ~10 s WiFi outage)..."
+  nohup sh -c 'sleep 1; wifi down; sleep 3; wifi up' >/dev/null 2>&1 &
+fi
 REMOTE
 
 echo
 echo "== laptop-side verification =="
+echo "(if wireless changed, wait ~20 s and reconnect to the 'hushfm' SSID first)"
 sleep 2
-nslookup "$DOMAIN" 192.168.8.1 | grep -A1 "^Name" || echo "DNS check failed"
+nslookup "$DOMAIN" 192.168.8.1 | grep -A1 "^Name" || echo "DNS check failed (reconnect to hushfm?)"
 curl -s -o /dev/null -w "app via LAN DNS: HTTP %{http_code}, TLS verify %{ssl_verify_result}\n" -m 8 "https://$DOMAIN/" || true
-
 echo
-echo "NOTE: if any '[4] ...' line appeared above, wireless changed —"
-echo "      the MTK driver only applies wireless via REBOOT:"
-echo "      ssh $ROUTER reboot"
+echo "Verify the full party state any time with:  ./scripts/router-party-test.sh party|home"
