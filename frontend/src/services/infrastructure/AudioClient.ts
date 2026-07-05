@@ -659,6 +659,14 @@ const createAudioClientImpl = (): AudioClientInterface => {
           try: async () => {
             const stream = await navigator.mediaDevices.getUserMedia(constraints)
 
+            // Stereo verification: many interfaces expose each input as a
+            // separate MONO device, so a "stereo" selection can silently be 1ch.
+            // Log the real captured channel count so the DJ can confirm (2 = true
+            // stereo). If it says 1, the source device is mono — use a combined
+            // stereo device or the Pi line-in path (see docs).
+            const ch = stream.getAudioTracks()[0]?.getSettings().channelCount
+            console.info(`🎚️ DJ capture: ${ch === 2 ? 'STEREO (2ch) ✓' : `${ch ?? '?'} channel(s) — NOT stereo`}`)
+
             setCurrentStream(O.some(stream))
 
             audioAdapter.setStreamState({

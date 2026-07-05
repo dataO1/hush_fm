@@ -98,6 +98,7 @@ pub struct Config {
     opus_enable_fec: ConfigValue<bool>,
     opus_enable_vbr: ConfigValue<bool>,
     opus_frame_duration: ConfigValue<u32>,
+    opus_packet_loss_perc: ConfigValue<u8>,
     audio_buffer_size: ConfigValue<u32>,
     ring_buffer_capacity: ConfigValue<u32>,
     enable_thread_priority: ConfigValue<bool>,
@@ -245,17 +246,22 @@ impl Config {
         );
 
         // Audio Configuration
+        // Audio defaults are party-tuned (2026-07-05, see docs/offline-router-
+        // connectivity.md): 160k earbud-transparent, complexity 5 (WebRTC's ARM
+        // default — transparent at 160k, avoids the 8-9 dead zone, banks Pi CPU),
+        // FEC off (music+PLC hides single-frame loss; toggle on for dropouts),
+        // CBR (predictable airtime), 20 ms frames (latency vs packet rate).
         let opus_bitrate = Self::parse_env_var_with_default(
             "HUSHFM_OPUS_BITRATE",
-            "256000",
-            256000,
+            "160000",
+            160000,
             &mut warnings
         );
 
         let opus_complexity = Self::parse_env_var_with_default(
             "HUSHFM_OPUS_COMPLEXITY",
-            "8",
-            8,
+            "5",
+            5,
             &mut warnings
         );
 
@@ -268,8 +274,8 @@ impl Config {
 
         let opus_enable_vbr = Self::parse_env_var_with_default(
             "HUSHFM_OPUS_ENABLE_VBR",
-            "true",
-            true,
+            "false",
+            false,
             &mut warnings
         );
 
@@ -277,6 +283,15 @@ impl Config {
             "HUSHFM_OPUS_FRAME_DURATION",
             "20",
             20,
+            &mut warnings
+        );
+
+        // Only takes effect when FEC is enabled: tells Opus the expected loss so
+        // it actually inserts redundancy (FEC stays dormant at 0).
+        let opus_packet_loss_perc = Self::parse_env_var_with_default(
+            "HUSHFM_OPUS_PACKET_LOSS_PERC",
+            "10",
+            10u8,
             &mut warnings
         );
 
@@ -329,6 +344,7 @@ impl Config {
             opus_enable_fec,
             opus_enable_vbr,
             opus_frame_duration,
+            opus_packet_loss_perc,
             audio_buffer_size,
             ring_buffer_capacity,
             enable_thread_priority,
@@ -534,6 +550,7 @@ impl Config {
         tracing::info!("│ Opus Bitrate                    │ {:15} │ {:10} │", format!("{}kbps", self.opus_bitrate.value / 1000), self.opus_bitrate.source);
         tracing::info!("│ Opus Complexity                 │ {:15} │ {:10} │", self.opus_complexity.value, self.opus_complexity.source);
         tracing::info!("│ Opus FEC Enabled                │ {:15} │ {:10} │", self.opus_enable_fec.value, self.opus_enable_fec.source);
+        tracing::info!("│ Opus Packet Loss % (FEC only)   │ {:15} │ {:10} │", format!("{}%", self.opus_packet_loss_perc.value), self.opus_packet_loss_perc.source);
         tracing::info!("│ Opus VBR Enabled                │ {:15} │ {:10} │", self.opus_enable_vbr.value, self.opus_enable_vbr.source);
         tracing::info!("│ Opus Frame Duration             │ {:15} │ {:10} │", format!("{}ms", self.opus_frame_duration.value), self.opus_frame_duration.source);
         tracing::info!("│ Audio Buffer Size               │ {:15} │ {:10} │", format!("{} frames", self.audio_buffer_size.value), self.audio_buffer_size.source);
@@ -648,6 +665,11 @@ impl Config {
     /// Get Opus frame duration in milliseconds (10, 20, or 40)
     pub fn opus_frame_duration(&self) -> u32 {
         self.opus_frame_duration.value
+    }
+
+    /// Get Opus expected packet-loss percent (only active when FEC is enabled)
+    pub fn opus_packet_loss_perc(&self) -> u8 {
+        self.opus_packet_loss_perc.value
     }
 
     /// Get audio buffer size in samples

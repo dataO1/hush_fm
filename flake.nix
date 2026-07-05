@@ -111,16 +111,21 @@
           # Rust logging configuration - suppress verbose debug logs
           RUST_LOG = "info,server::lib::audio::encoder=warn,server::lib::audio::audio_device_monitor=info,mediasoup=info,mediasoup::worker=info";
 
-          # Audio optimization configuration
-          HUSHFM_OPUS_BITRATE = "256000";        # 256kbps for transparent quality
-          HUSHFM_OPUS_COMPLEXITY = "8";          # High quality, less CPU
-          HUSHFM_OPUS_ENABLE_FEC = "false";      # No FEC on WiFi 6
-          HUSHFM_OPUS_ENABLE_VBR = "true";       # Constrained VBR
-          HUSHFM_OPUS_FRAME_DURATION = "10";     # 20ms frames (10ms experimental)
+          # Audio optimization configuration (dev-shell defaults; the deployed
+          # values come from the NixOS module options — keep these in sync)
+          HUSHFM_OPUS_BITRATE = "160000";        # earbud-transparent
+          HUSHFM_OPUS_COMPLEXITY = "5";          # transparent at 160k, avoids 8-9 dead zone
+          HUSHFM_OPUS_ENABLE_FEC = "false";      # PLC hides single-frame loss; toggle for dropouts
+          HUSHFM_OPUS_PACKET_LOSS_PERC = "10";   # only active when FEC on
+          HUSHFM_OPUS_ENABLE_VBR = "false";      # CBR = predictable airtime
+          HUSHFM_OPUS_FRAME_DURATION = "20";     # low latency; 10ms saturates airtime
           HUSHFM_AUDIO_BUFFER_SIZE = "1024";     # CPAL buffer size in frames
           HUSHFM_RING_BUFFER_CAPACITY = "4800";  # 100ms buffer
           HUSHFM_ENABLE_THREAD_PRIORITY = "true"; # Real-time priority
-          HUSHFM_DSCP_MARKING = "46";            # QoS EF marking
+          # NOTE: DSCP is currently INERT — set_dscp_marking() is never called and
+          # mediasoup-rust exposes no DSCP API, so nothing marks the wire. Kept as
+          # config for when/if QoS is done router-side (nft mark UDP 40000-49999).
+          HUSHFM_DSCP_MARKING = "48";            # CS6 (would map to AC_VO) — see note
 
           shellHook = ''
             echo "🎵 HushFM Development Environment"
@@ -322,6 +327,7 @@
             HUSHFM_OPUS_ENABLE_FEC = if cfg.audio.opusEnableFec then "true" else "false";
             HUSHFM_OPUS_ENABLE_VBR = if cfg.audio.opusEnableVbr then "true" else "false";
             HUSHFM_OPUS_FRAME_DURATION = toString cfg.audio.opusFrameDuration;
+            HUSHFM_OPUS_PACKET_LOSS_PERC = toString cfg.audio.opusPacketLossPerc;
             HUSHFM_AUDIO_BUFFER_SIZE = toString cfg.audio.bufferSize;
             HUSHFM_RING_BUFFER_CAPACITY = toString cfg.audio.ringBufferCapacity;
             HUSHFM_ENABLE_THREAD_PRIORITY = if cfg.audio.enableThreadPriority then "true" else "false";
@@ -331,11 +337,16 @@
             RUST_LOG = "info,server::lib::audio::encoder=warn,server::lib::audio::audio_device_monitor=info,mediasoup=info,mediasoup::worker=info";
           };
 
-          # Build frontend with only frontend-relevant environment variables
+          # Build frontend with only frontend-relevant environment variables.
+          # The Opus vars flow into the DJ produce codecOptions (path B) so the
+          # browser DJ encodes to match the line-in path (Vite exposes HUSHFM_*
+          # via import.meta.env — see vite.config.ts envPrefix).
           frontendEnv = {
             HUSHFM_BACKEND_PORT = toString cfg.backend.port;
             HUSHFM_FRONTEND_PORT = toString cfg.frontend.port;
             HUSHFM_HOST_NAME = cfg.hostName;
+            HUSHFM_OPUS_BITRATE = toString cfg.audio.opusBitrate;
+            HUSHFM_OPUS_ENABLE_FEC = if cfg.audio.opusEnableFec then "true" else "false";
           };
 
           frontendPackage = buildFrontend frontendEnv;
@@ -446,35 +457,46 @@
               };
             };
 
+            # Audio defaults are party-tuned (2026-07-05, see
+            # docs/offline-router-connectivity.md) and drive BOTH ingress paths:
+            # the line-in "audio bot" (backend encoder) and the browser DJ
+            # (mediasoup router caps + frontend produce codecOptions, fed via the
+            # frontendEnv build vars below).
             audio = {
               opusBitrate = mkOption {
                 type = types.int;
-                default = 256000;
-                description = "Opus bitrate in bps (256000 for transparent quality)";
+                default = 160000;
+                description = "Opus bitrate in bps (160k = earbud-transparent; packet RATE, not bitrate, is the WiFi ceiling)";
               };
 
               opusComplexity = mkOption {
                 type = types.int;
-                default = 8;
-                description = "Opus complexity (0-10, higher = better quality, more CPU)";
+                default = 5;
+                description = "Opus complexity 0-10 (line-in path only). 5 = WebRTC's ARM default, transparent at 160k, avoids the 8-9 dead zone. Single encode on Pi 4, so 10 is also ~free.";
               };
 
               opusEnableFec = mkOption {
                 type = types.bool;
                 default = false;
-                description = "Enable Opus Forward Error Correction";
+                description = "Opus in-band FEC. Off by default (music+PLC hides single-frame loss); enable if the party shows dropouts. Pairs with opusPacketLossPerc.";
+              };
+
+              opusPacketLossPerc = mkOption {
+                type = types.int;
+                default = 10;
+                description = "Expected packet-loss %% for FEC (only active when opusEnableFec = true; FEC stays dormant at 0)";
               };
 
               opusEnableVbr = mkOption {
                 type = types.bool;
-                default = true;
-                description = "Enable Opus Variable Bit Rate";
+                default = false;
+                description = "Opus VBR. Off = CBR for predictable airtime under many-listener WiFi load (VBR bursts hurt jitter)";
               };
 
               opusFrameDuration = mkOption {
                 type = types.int;
-                default = 10;
-                description = "Opus frame duration in ms (10, 20, 40, 60)";
+                default = 20;
+                description = "Opus frame duration in ms (10/20/40/60). 20 = low latency; higher halves packet rate per listener (the WiFi ceiling). 10 saturates airtime — avoid.";
               };
 
               bufferSize = mkOption {

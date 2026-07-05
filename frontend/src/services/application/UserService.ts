@@ -282,12 +282,17 @@ const createUserServiceImpl = () => {
 
           // 8. Create producer from audio track (this will trigger the events)
           console.info('🎵 UserService: Creating producer...')
-          const producer = yield* mediaSoupClient.createProducer(audioTrack, {codecOptions: {
+          // Opus produce options — driven by build-time env (from the Nix flake
+          // cfg.audio.*) so the browser DJ path (B) matches the line-in path (A).
+          const env = (import.meta as any).env ?? {}
+          const djCodecOptions = {
             opusStereo: true,
-            opusFec: true, // Forward Error Correction
-            opusDtx: false, // Explicitly disable DTX
-            opusMaxAverageBitrate: 128000 // Target 128kbps for high-quality music
-          }}).pipe(
+            opusFec: env.HUSHFM_OPUS_ENABLE_FEC === 'true', // match backend FEC setting
+            opusDtx: false, // continuous music is never silent — DTX off
+            opusMaxAverageBitrate: Number(env.HUSHFM_OPUS_BITRATE) || 160000
+          }
+          console.info('🎚️ DJ produce Opus options:', djCodecOptions)
+          const producer = yield* mediaSoupClient.createProducer(audioTrack, {codecOptions: djCodecOptions}).pipe(
             Effect.catchAll((error) => {
               console.error('❌ UserService: createProducer failed, triggering cleanup:', error)
               

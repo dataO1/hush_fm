@@ -453,18 +453,24 @@ impl DJ {
     /// Get preferred audio codec capabilities for MediaSoup routers
     /// Optimized for high-quality music streaming with low latency
     pub fn get_preferred_audio_capabilities() -> Vec<RtpCodecCapability> {
-        // Create music-optimized Opus parameters
+        // These caps are what a BROWSER DJ negotiates against (path B). Drive
+        // the tunable values from the same config as the line-in path (path A,
+        // encoder.rs) so a listener gets an equivalent stream either way.
+        let config = Config::global();
         let mut opus_params = RtpCodecParametersParameters::default();
 
-        // Essential Opus parameters for high-quality music streaming
-        opus_params.insert("useinbandfec", "1");  // Forward Error Correction for packet loss
+        // Music-optimized Opus parameters (config-driven where it matters)
+        opus_params.insert("useinbandfec", if config.opus_enable_fec() { "1" } else { "0" });
         opus_params.insert("stereo", "1");        // Enable stereo encoding
         opus_params.insert("sprop-stereo", "1");  // Signal stereo preference to receiver
-        opus_params.insert("maxaveragebitrate", "320000"); // 320kbps for music quality
+        opus_params.insert("maxaveragebitrate", config.opus_bitrate()); // matches line-in bitrate
         opus_params.insert("maxplaybackrate", "48000");    // Full 48kHz bandwidth
-        opus_params.insert("ptime", "20");        // 20ms frame size for low latency
-        opus_params.insert("minptime", "3");      // Allow down to 3ms for ultra-low latency
-        opus_params.insert("maxptime", "60");     // Allow up to 60ms if needed
+        // Pin packetization to the configured frame duration (also set client-side
+        // via codecOptions since browsers ignore remote ptime).
+        let frame = config.opus_frame_duration();
+        opus_params.insert("ptime", frame);
+        opus_params.insert("minptime", frame);
+        opus_params.insert("maxptime", frame);
 
         vec![
             // Opus - optimized for high-quality music streaming
@@ -475,8 +481,11 @@ impl DJ {
                 channels: NonZero::new(2).unwrap(), // Stereo for music
                 parameters: opus_params,
                 rtcp_feedback: vec![
-                    RtcpFeedback::TransportCc, // Transport-wide congestion control for network adaptation
-                    RtcpFeedback::Nack,        // NACK for packet loss recovery
+                    // TransportCc only. NACK (retransmission) is dropped: for
+                    // one-way audio fanned to many WiFi listeners it invites a
+                    // per-listener RTX storm that worsens the packet-rate ceiling;
+                    // Opus in-band FEC + PLC handle loss without a round trip.
+                    RtcpFeedback::TransportCc,
                 ],
             },
             // PCMU - fallback for compatibility

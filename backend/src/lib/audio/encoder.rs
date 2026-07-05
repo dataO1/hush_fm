@@ -89,10 +89,14 @@ impl AudioEncoder {
             opus_encoder.disable_vbr().context("Failed to disable Opus VBR")?;
         }
 
-        // Configure forward error correction based on config
+        // Configure forward error correction based on config.
+        // FEC only inserts redundancy when the encoder expects loss, so pair it
+        // with the configured packet-loss percentage — otherwise it stays dormant.
         if config.opus_enable_fec() {
             opus_encoder.enable_inband_fec()
                 .context("Failed to enable Opus FEC")?;
+            opus_encoder.set_packet_loss_perc(config.opus_packet_loss_perc())
+                .context("Failed to set Opus packet-loss percentage")?;
         } else {
             opus_encoder.disable_inband_fec()
                 .context("Failed to disable Opus FEC")?;
