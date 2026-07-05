@@ -304,8 +304,8 @@ impl Config {
 
         let ring_buffer_capacity = Self::parse_env_var_with_default(
             "HUSHFM_RING_BUFFER_CAPACITY",
-            "4800",
-            4800,
+            "19200",
+            19200,
             &mut warnings
         );
 

@@ -169,70 +169,64 @@ impl AudioEncoder {
             // Check if we have enough samples for a frame
             let available_samples = self.ring_consumer.len();
             let samples_needed = (self.config.opus_frame_size() * OPUS_CHANNELS as u32) as usize;
-            
-            // Detect ring buffer overrun and recover
             let buffer_capacity = self.config.ring_buffer_capacity() as usize;
-            let overrun_threshold = buffer_capacity * 9 / 10; // 90% of buffer capacity
+
+            // Overrun recovery: if the backlog is deep (we were starved), drop
+            // down to a SMALL backlog so we don't add latency. Target must be
+            // BELOW the buffer or this drops nothing (the old target was 3
+            // frames = 5760 > 4800 capacity → a silent no-op that let the
+            // capture callback drop instead).
+            let overrun_threshold = buffer_capacity * 8 / 10; // 80%
             if available_samples >= overrun_threshold {
-                tracing::warn!("Ring buffer overrun detected ({} samples, {:.1}% full), clearing excess data", 
-                             available_samples, (available_samples as f32 / buffer_capacity as f32) * 100.0);
-                // Clear excess samples to get back to manageable level (keep ~3 frames worth)
-                let target_samples = samples_needed * 3;
+                let target_samples = samples_needed * 2; // keep ~2 frames
                 let samples_to_drop = available_samples.saturating_sub(target_samples);
                 for _ in 0..samples_to_drop {
-                    if self.ring_consumer.pop().is_none() {
+                    if self.ring_consumer.pop().is_none() { break; }
+                }
+                if samples_to_drop > 0 {
+                    tracing::warn!("Ring buffer overrun ({} samples, {:.0}% full) — dropped {} to keep latency low",
+                                 available_samples, (available_samples as f32 / buffer_capacity as f32) * 100.0, samples_to_drop);
+                }
+            }
+
+            if self.ring_consumer.len() >= samples_needed {
+                // DRAIN the entire backlog this wake. The encoder is an async
+                // task sharing the runtime with the mediasoup workers, so it may
+                // not be scheduled every 20 ms; when it DOES run it must clear
+                // whatever accumulated, otherwise it falls behind real time
+                // (~7% deficit observed) and the buffer overruns → crackle.
+                let mut processed = 0;
+                while self.ring_consumer.len() >= samples_needed && processed < 256 {
+                    if let Err(e) = self.process_audio_frame(frame_count).await {
+                        tracing::error!("Audio encoding error: {}", e);
                         break;
                     }
+                    frame_count += 1;
+                    total_samples_consumed += samples_needed as u64;
+                    processed += 1;
                 }
-                tracing::info!("Dropped {} samples, buffer now has {} samples", 
-                             samples_to_drop, self.ring_consumer.len());
-            }
-            
-            if available_samples >= samples_needed {
-                // Process the frame with real audio data
-                if let Err(e) = self.process_audio_frame(frame_count).await {
-                    tracing::error!("Audio encoding error: {}", e);
-                }
-                frame_count += 1;
-                total_samples_consumed += samples_needed as u64;
                 last_audio_time = std::time::Instant::now();
-                
-                // Adaptive processing: If buffer is getting full, process multiple frames to catch up
-                let catch_up_threshold = samples_needed * 3; // 3 frames worth
-                if available_samples >= catch_up_threshold {
-                    tracing::debug!("Ring buffer filling up ({}), processing additional frames", available_samples);
-                    // Process up to 2 more frames to catch up
-                    for _ in 0..2 {
-                        if self.ring_consumer.len() >= samples_needed {
-                            if let Err(e) = self.process_audio_frame(frame_count).await {
-                                tracing::error!("Catch-up encoding error: {}", e);
-                                break;
-                            }
-                            frame_count += 1;
-                            total_samples_consumed += samples_needed as u64;
-                        } else {
-                            break;
-                        }
-                    }
-                }
-                
+
                 // Log metrics every 5 seconds with rate analysis
                 if last_metrics_log.elapsed() >= Duration::from_secs(5) {
-                    let fill_ratio = available_samples as f32 / buffer_capacity as f32;
+                    let fill_ratio = self.ring_consumer.len() as f32 / buffer_capacity as f32;
                     let elapsed = start_time.elapsed().as_secs_f64();
                     let consumption_rate = total_samples_consumed as f64 / elapsed;
-                    let expected_rate = 48000.0 * 2.0; // 48kHz stereo
-                    
-                    tracing::info!("🎵 Audio pipeline: {} frames ({} audio, {} silence), fill: {:.1}%, rate: {:.0} Hz (expected: {:.0} Hz)", 
+                    let expected_rate = (48000 * OPUS_CHANNELS) as f64;
+
+                    tracing::info!("🎵 Audio pipeline: {} frames ({} audio, {} silence), fill: {:.1}%, rate: {:.0} Hz (expected: {:.0} Hz)",
                                  frame_count, frame_count - silence_frames_sent, silence_frames_sent, fill_ratio * 100.0, consumption_rate, expected_rate);
-                    
-                    if (consumption_rate - expected_rate).abs() > 1000.0 {
-                        tracing::warn!("⚠️ Sample rate mismatch: consuming at {:.0} Hz vs expected {:.0} Hz", 
+
+                    if (consumption_rate - expected_rate).abs() > 2000.0 {
+                        tracing::warn!("⚠️ Consumption rate off: {:.0} Hz vs expected {:.0} Hz (encoder starved or format mismatch)",
                                      consumption_rate, expected_rate);
                     }
-                    
                     last_metrics_log = std::time::Instant::now();
                 }
+
+                // Yield briefly so we don't monopolise the runtime, but far
+                // shorter than a frame so the next drain is timely.
+                tokio::time::sleep(Duration::from_micros(500)).await;
             } else {
                 // Ring buffer underrun - send silence to maintain stream timing
                 let silence_threshold = Duration::from_millis(50); // Send silence after 50ms without audio

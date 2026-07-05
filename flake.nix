@@ -120,7 +120,7 @@
           HUSHFM_OPUS_ENABLE_VBR = "false";      # CBR = predictable airtime
           HUSHFM_OPUS_FRAME_DURATION = "20";     # low latency; 10ms saturates airtime
           HUSHFM_AUDIO_BUFFER_SIZE = "1024";     # CPAL buffer size in frames
-          HUSHFM_RING_BUFFER_CAPACITY = "4800";  # 100ms buffer
+          HUSHFM_RING_BUFFER_CAPACITY = "19200";  # 200ms headroom (drained each wake → near-empty)
           HUSHFM_ENABLE_THREAD_PRIORITY = "true"; # Real-time priority
           # NOTE: DSCP is currently INERT — set_dscp_marking() is never called and
           # mediasoup-rust exposes no DSCP API, so nothing marks the wire. Kept as
@@ -507,8 +507,8 @@
 
               ringBufferCapacity = mkOption {
                 type = types.int;
-                default = 4800;
-                description = "Ring buffer capacity in frames (100ms buffer)";
+                default = 19200;
+                description = "Capture ring buffer capacity in SAMPLES (48kHz stereo: 19200 = 200ms headroom). Near-latency-free — the encoder drains it fully each wake, so it stays near-empty; the capacity only absorbs a scheduling stall so the capture callback never has to drop. Was 4800 (50ms), too small vs one ~43ms callback → overran.";
               };
 
               enableThreadPriority = mkOption {
