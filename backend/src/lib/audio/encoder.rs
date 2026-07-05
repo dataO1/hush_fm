@@ -214,8 +214,12 @@ impl AudioEncoder {
                     let consumption_rate = total_samples_consumed as f64 / elapsed;
                     let expected_rate = (48000 * OPUS_CHANNELS) as f64;
 
-                    tracing::info!("🎵 Audio pipeline: {} frames ({} audio, {} silence), fill: {:.1}%, rate: {:.0} Hz (expected: {:.0} Hz)",
-                                 frame_count, frame_count - silence_frames_sent, silence_frames_sent, fill_ratio * 100.0, consumption_rate, expected_rate);
+                    // eprintln! (not tracing::info!) so it's visible even with
+                    // RUST_LOG=...encoder=warn. fill% = the ring buffer's latency
+                    // contribution (near-0 = buffer not the latency culprit).
+                    let fill_ms = self.ring_consumer.len() as f32 / (48.0 * OPUS_CHANNELS as f32);
+                    eprintln!("🎵 Audio pipeline: {} frames ({} audio, {} silence), fill: {:.1}% ({:.0}ms), rate: {:.0} Hz (expected: {:.0} Hz)",
+                                 frame_count, frame_count - silence_frames_sent, silence_frames_sent, fill_ratio * 100.0, fill_ms, consumption_rate, expected_rate);
 
                     if (consumption_rate - expected_rate).abs() > 2000.0 {
                         tracing::warn!("⚠️ Consumption rate off: {:.0} Hz vs expected {:.0} Hz (encoder starved or format mismatch)",

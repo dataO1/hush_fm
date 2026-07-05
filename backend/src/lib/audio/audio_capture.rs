@@ -315,28 +315,18 @@ impl AudioCapture {
         let supported_buffer_size = supported_config.buffer_size();
         tracing::info!("🎤 Device supported buffer size: {:?}", supported_buffer_size);
         
-        // Determine optimal buffer size
+        // cpal's SupportedBufferSize::Range and BufferSize::Fixed are both in
+        // FRAMES (samples-per-channel), NOT total samples. The previous code
+        // passed frames*channels to Fixed(), so a requested 1024-frame buffer
+        // became a 2048-FRAME ALSA period (42.7ms) — DOUBLE the intended latency
+        // (confirmed via /proc period_size=2048). Request the frame count directly.
         let requested_buffer_frames = config_global.audio_buffer_size() as u32;
         let buffer_size = match supported_buffer_size {
             cpal::SupportedBufferSize::Range { min, max } => {
-                let total_samples_requested = requested_buffer_frames * (final_channels as u32);
-                
-                // For small buffer sizes (< 1024 frames), use Default to avoid CPAL/ALSA conflicts
-                if requested_buffer_frames < 1024 {
-                    tracing::info!("🎤 Using Default buffer size for small requests ({} frames) to avoid CPAL/ALSA conflicts", 
-                                  requested_buffer_frames);
-                    cpal::BufferSize::Default
-                } else if total_samples_requested >= *min && total_samples_requested <= *max {
-                    tracing::info!("🎤 Using requested buffer size: {} frames ({} samples)", 
-                                  requested_buffer_frames, total_samples_requested);
-                    cpal::BufferSize::Fixed(total_samples_requested)
-                } else {
-                    let clamped_samples = total_samples_requested.clamp(*min, *max);
-                    let clamped_frames = clamped_samples / (final_channels as u32);
-                    tracing::warn!("🎤 Requested buffer size {} samples out of range [{}, {}], using {} samples ({} frames)", 
-                                  total_samples_requested, min, max, clamped_samples, clamped_frames);
-                    cpal::BufferSize::Fixed(clamped_samples)
-                }
+                let frames = requested_buffer_frames.clamp(*min, *max);
+                tracing::info!("🎤 Requesting capture buffer: {} frames ({:.1}ms) [device range {}-{}]",
+                              frames, (frames as f32) / (SAMPLE_RATE as f32) * 1000.0, min, max);
+                cpal::BufferSize::Fixed(frames)
             },
             cpal::SupportedBufferSize::Unknown => {
                 tracing::warn!("🎤 Device buffer size unknown, using default");
@@ -345,14 +335,9 @@ impl AudioCapture {
         };
         
         let (final_buffer_frames, final_buffer_samples) = match &buffer_size {
-            cpal::BufferSize::Fixed(samples) => {
-                let frames = samples / (final_channels as u32);
-                (frames, *samples)
-            },
-            cpal::BufferSize::Default => {
-                // For default, we don't know the exact size until runtime
-                (0, 0) // Will be determined by CPAL
-            }
+            // Fixed holds FRAMES; total samples = frames * channels.
+            cpal::BufferSize::Fixed(frames) => (*frames, frames * (final_channels as u32)),
+            cpal::BufferSize::Default => (0, 0), // determined by CPAL at runtime
         };
         
         if final_buffer_frames > 0 {
