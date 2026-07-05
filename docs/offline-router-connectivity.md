@@ -124,6 +124,54 @@ Note for the test matrix: Chrome 142+ ships Local Network Access
 permission gating — should not affect us (page is served FROM the private
 IP; WS/WebRTC not gated) but verify on-device once.
 
+## Final sweep (2026-07-05): the Tier-2 upgrade + hardening checklist
+
+**The one new mechanism that matters (AOSP NetworkMonitor):** when a guest
+accepts "partial connectivity" ONCE, Android calls
+`setAcceptPartialConnectivity()` → `maybeDisableHttpsProbing(true)` →
+**`mUseHttps = false` is stored for that saved network and persists across
+reboot**. From then on the HTTP-204 spoof alone satisfies validation → the
+network is promoted to **VALIDATED**, nag gone, real browser, WebRTC works.
+This reconciles the party experience: the endless re-prompting happened in
+the NO-spoof regime (both probes failing = "no internet" dialog path, no
+acceptance bit). **With the Tier-2 spoof in place, modern Android becomes
+"one tap, then quiet"** — modulo OEM skins (Samsung/MIUI more aggressive)
+and MAC-randomization/forget-network resetting the bit. Still below
+Tier 1's zero-tap, but far better than previously assumed.
+
+Spoof engineering rules that make this work:
+- Answer HTTP probes with a REAL `204` — **never a 302 redirect** (302 →
+  CAPTIVE state → the restricted CaptivePortalLogin WebView: no WebRTC,
+  re-prompts every reconnect, and IIAB documented 30-s connection drops.
+  The deliberate-captive idea is dead).
+- Let the HTTPS probe fail FAST (TCP RST beats blackhole — same resulting
+  state, snappier UX). fakeinternet's DNAT does this.
+- Disable GL.iNet's "DNS Rebinding Attack Protection" (would block local-
+  hostname answers).
+
+**Router association-stability checklist** (each reassociation re-runs
+validation → fewer reassociations = fewer prompt opportunities):
+- Single SSID, band steering OFF (or 2.4 GHz-only SSID for listeners).
+- Disable 802.11r/k/v (no roaming exists on one AP; 11r causes spurious
+  reconnects).
+- hostapd: `max_inactivity` 300→3600, `disassoc_low_ack 0` (stop deauthing
+  dozing phones).
+- DHCP lease 24 h+.
+- (Evidence qualitative; changes the COUNT of validations, not outcomes.)
+
+**Prior art (offline-education at scale — IIAB/RACHEL/Kiwix):** converged
+on captive portal OFF for Android + memorable plain-HTTP hostname + heavy
+signage. Confirms our direction; their captive-portal lessons are why we
+must stay in PARTIAL, never CAPTIVE.
+
+**Exotic levers, all confirmed dead:** user CA certs (probe trusts system
+store only), captive_portal_* device settings (adb-only), Passpoint (same
+probes), WISPr (legacy), scoring/suggestion APIs (app-only).
+
+**iOS 18 note:** the captive sheet may no longer auto-appear — moot for us
+(we spoof Apple's probe → validated), but signage should still say "open
+hushfm.dedyn.io in Safari".
+
 ## Proceed plan
 
 1. Do Tier 2 now (base layer; needed anyway as Tier 1's fallback if the
