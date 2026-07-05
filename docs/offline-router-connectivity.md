@@ -172,6 +172,47 @@ probes), WISPr (legacy), scoring/suggestion APIs (app-only).
 (we spoof Apple's probe → validated), but signage should still say "open
 hushfm.dedyn.io in Safari".
 
+## ✅ INSTALLED on the Flint 2 (2026-07-05, post factory-reset)
+
+Router state is NOT declarative — this section is the reproducible runbook
+(re-run after any future factory reset). SSH: `root@192.168.8.1` (password
+= web admin password; laptop key installed via ssh-copy-id).
+
+Applied and verified:
+1. **DNS override (persistent, uci — card 8):**
+   `uci add_list dhcp.@dnsmasq[0].address='/hushfm.dedyn.io/192.168.8.100'
+   && uci commit dhcp && /etc/init.d/dnsmasq restart`
+   Verified: resolves to the Pi from router + laptop; HTTPS via LAN DNS =
+   HTTP 200, TLS verify clean.
+2. **stangri feed + fakeinternet 0.1.4-5:** usign key →
+   `/etc/opkg/keys/7ffc7517c4cc0c56`; `src/gz stangri_repo
+   https://ipk.mossdef.org` in customfeeds.conf; `opkg install
+   fakeinternet` (luci app not in feed — uci-managed). uhttpd +
+   dnsmasq-full were already present.
+3. **Config:** defaults (google.com/gstatic/apple/firefox/gnome domains,
+   subdomains covered) + added: android.com, msftconnecttest.com,
+   msftncsi.com, connectivitycheck.samsung.com, connect.rom.miui.com,
+   connectivitycheck.platform.hicloud.com (15 policies). Service
+   **enabled='0' at home** (its DNAT hijacks ALL LAN port-53/80/443 —
+   would break home internet while the uplink exists).
+4. **Live-tested (30 s window):** generate_204→204 ✓, Apple→Success ✓,
+   HTTPS probe→fast fail ✓, hushfm.dedyn.io unaffected during hijack ✓
+   (LAN exclusion), home internet restored after disable ✓.
+
+**PARTY-DAY TOGGLE (when router runs with no uplink):**
+```
+ssh root@192.168.8.1 "uci set fakeinternet.config.enabled=1; uci commit fakeinternet; /etc/init.d/fakeinternet restart"
+# after the party (back home):
+ssh root@192.168.8.1 "uci set fakeinternet.config.enabled=0; uci commit fakeinternet; /etc/init.d/fakeinternet restart"
+```
+(With no uplink there's no harm in leaving it on all night; disable is for
+returning the router to home duty.)
+
+Still pending on the router: radio/association-stability hardening (waiting
+on the mt76/Flint-2 tuning research + repo notes synthesis); GL-UI-change
+retest rule (any save in the GL web UI may rewrite UCI — re-verify DNS
+override + fakeinternet after UI changes).
+
 ## Proceed plan
 
 1. Do Tier 2 now (base layer; needed anyway as Tier 1's fallback if the
