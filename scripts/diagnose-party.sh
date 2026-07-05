@@ -41,6 +41,11 @@ sec "1b. PI: audio-bot capture device (Scarlett) — WHAT cpal actually opened"
 # The backend logs the selected device name, channel count and sample rate.
 $SSH $PI 'journalctl -u hushfm-backend --since "40 min ago" --no-pager 2>/dev/null | grep -iE "audio bot|device|channel|sample.?rate|cpal|capture|WaitingForDevice|Running|Initializing|DeviceError|usb|Encoder configured" | tail -50'
 
+sec "2pre. PI: DEVICE FLAP CHECK (want ~0 — the monitor-flapping fix)"
+# Before the fix the Scarlett false-disconnected every 2-4s during capture.
+# With the fix it should connect ONCE and stay. High counts = still flapping.
+$SSH $PI 'w="10 min ago"; echo "window: last 10 min"; echo "device disconnected events: $(journalctl -u hushfm-backend --since "$w" --no-pager 2>/dev/null | grep -c "device disconnected")"; echo "device connected events:    $(journalctl -u hushfm-backend --since "$w" --no-pager 2>/dev/null | grep -c "device connected")"; echo "--- lifecycle transitions (should be ONE connect, then stable):"; journalctl -u hushfm-backend --since "$w" --no-pager 2>/dev/null | grep -iE "USB audio device (connected|disconnected)|WaitingForDevice|absent .* polls" | tail -20'
+
 sec "2. PI: THE CHOPPINESS SIGNALS — drops / timeouts / xruns / buffer"
 echo "--- DirectProducer send-timeout drops (each = a dropped audio packet):"
 $SSH $PI 'journalctl -u hushfm-backend --since "40 min ago" --no-pager 2>/dev/null | grep -c "DirectProducer send timeout"'
