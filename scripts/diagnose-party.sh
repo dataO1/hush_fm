@@ -50,6 +50,14 @@ $SSH $PI 'journalctl -u hushfm-backend --since "40 min ago" --no-pager 2>/dev/nu
 sec "3. PI: ALSA view of the Scarlett (sample rate / channels / format)"
 $SSH $PI 'arecord -l 2>&1; echo "--- hw params per card:"; for c in $(arecord -l 2>/dev/null | sed -n "s/^card \([0-9]*\):.*/\1/p" | sort -u); do echo "== card $c =="; arecord -D hw:$c,0 --dump-hw-params 2>&1 | grep -iE "^RATE|^CHANNELS|^FORMAT|^PERIOD_SIZE|^BUFFER_SIZE"; done'
 
+sec "3b. PI: LIVE capture rate (the 48k-vs-96k check — mismatch = ring overrun)"
+# While the audio bot is capturing, the running PCM exposes its real params.
+# rate: 48000 = correct. rate: 88200/96000 = the mismatch that overruns the
+# ring buffer 2x and makes audio choppy/fast.
+$SSH $PI 'for hp in /proc/asound/card*/pcm0c/sub0/hw_params; do echo "== $hp =="; cat "$hp" 2>/dev/null; done'
+echo "--- backend's opened stream config (should say 48000Hz):"
+$SSH $PI 'journalctl -u hushfm-backend --since "40 min ago" --no-pager 2>/dev/null | grep -iE "Audio config|Stream config|Encoder configured" | tail -5'
+
 sec "4. PI: USB / kernel audio messages (disconnects, xruns, rate changes)"
 $SSH $PI 'sudo dmesg -T 2>/dev/null | grep -iE "usb|scarlett|focusrite|snd|xrun|underrun|rate|disconnect|reset" | tail -40 || dmesg 2>/dev/null | tail -40'
 
