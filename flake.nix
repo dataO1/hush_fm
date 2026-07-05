@@ -578,8 +578,20 @@
                 Restart = "always";
                 RestartSec = 5;
 
-                # Security settings
-                NoNewPrivileges = true;
+                # Real-time audio scheduling. WITHOUT this the encode thread
+                # can't get RT priority (fails with EACCES / error 13) and
+                # falls behind the capture callback → the ring buffer overruns
+                # continuously and audio is dropped (choppy). CAP_SYS_NICE +
+                # LimitRTPRIO let the audio thread run SCHED_FIFO; RestrictRealtime
+                # MUST be false (true is what blocks it).
+                AmbientCapabilities = [ "CAP_SYS_NICE" ];
+                CapabilityBoundingSet = [ "CAP_SYS_NICE" ];
+                LimitRTPRIO = 99;
+                LimitNICE = -20;
+                RestrictRealtime = false;
+
+                # Security settings (NoNewPrivileges dropped: it would strip the
+                # ambient CAP_SYS_NICE the audio thread needs)
                 PrivateTmp = true;
                 ProtectSystem = "strict";
                 # read-only (not true): binaryPath may live under /home when the
@@ -589,7 +601,6 @@
                 ProtectKernelModules = true;
                 ProtectControlGroups = true;
                 RestrictSUIDSGID = true;
-                RestrictRealtime = true;
                 RestrictNamespaces = true;
                 LockPersonality = true;
               };
