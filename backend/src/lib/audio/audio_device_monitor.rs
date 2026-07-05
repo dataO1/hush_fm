@@ -27,6 +27,11 @@ pub struct DeviceInfo {
     pub has_input: bool,
 }
 
+/// How many consecutive polls a connected device must be ABSENT from the
+/// enumeration before we declare it disconnected. Debounces transient
+/// enumeration hiccups (× 2 s poll = ~6 s grace).
+const DISCONNECT_MISS_THRESHOLD: u32 = 3;
+
 /// Monitors USB audio device availability
 pub struct AudioDeviceMonitor {
     /// Current device state
@@ -35,6 +40,8 @@ pub struct AudioDeviceMonitor {
     poll_interval: Duration,
     /// Last successful poll time
     last_poll: Instant,
+    /// Consecutive polls the current device was absent (debounce disconnect).
+    absent_polls: u32,
     /// Event sender for manual events
     manual_event_tx: Option<tokio::sync::mpsc::UnboundedSender<DeviceEvent>>,
 }
@@ -49,6 +56,7 @@ impl AudioDeviceMonitor {
             current_device: None,
             poll_interval,
             last_poll: Instant::now(),
+            absent_polls: 0,
             manual_event_tx: None,
         }
     }
@@ -90,53 +98,64 @@ impl AudioDeviceMonitor {
 
     /// Check device status and send events if state changed
     async fn check_device_status(&mut self, event_tx: &tokio::sync::mpsc::UnboundedSender<DeviceEvent>) {
-        match Self::scan_for_usb_device().await {
-            Ok(Some(detected_device)) => {
-                // Device available - check if it's different from what we had
-                if self.current_device.as_ref() != Some(&detected_device) {
-                    // State change: device connected or changed
-                    if self.current_device.is_none() {
-                        tracing::info!("🔌 USB audio device connected: {}", detected_device.name);
-                        let _ = event_tx.send(DeviceEvent::Connected { 
-                            name: detected_device.name.clone() 
-                        });
-                    } else {
-                        // Different device - old one disconnected, new one connected
-                        let old_name = self.current_device.as_ref().unwrap().name.clone();
-                        tracing::info!("🔄 USB audio device changed: {} -> {}", 
-                                     old_name, detected_device.name);
-                        let _ = event_tx.send(DeviceEvent::Disconnected { name: old_name });
-                        let _ = event_tx.send(DeviceEvent::Connected { 
-                            name: detected_device.name.clone() 
-                        });
-                    }
-                    self.current_device = Some(detected_device);
-                }
-                // No state change needed if same device
-            },
-            Ok(None) => {
-                // No device available
-                if self.current_device.is_some() {
-                    // State change: device disconnected
-                    let old_name = self.current_device.take().unwrap().name;
-                    tracing::warn!("🔌 USB audio device disconnected: {}", old_name);
-                    let _ = event_tx.send(DeviceEvent::Disconnected { name: old_name });
+        // If we already have a device, DON'T re-probe it by opening it — while
+        // our capture stream owns the interface, an open-probe (default_input_
+        // config) fails with "busy" and would look like a disconnect, causing a
+        // teardown→reopen flap every poll. Instead just check whether the device
+        // NAME is still present in the enumeration (cheap, no open), with a
+        // debounce so a transient enumeration hiccup doesn't tear down a live
+        // capture.
+        if let Some(current_name) = self.current_device.as_ref().map(|d| d.name.clone()) {
+            let present = Self::is_device_name_present(&current_name).await;
+            if present {
+                self.absent_polls = 0; // still here
+            } else {
+                self.absent_polls += 1;
+                if self.absent_polls >= DISCONNECT_MISS_THRESHOLD {
+                    tracing::warn!("🔌 USB audio device disconnected: {} (absent {} polls)", current_name, self.absent_polls);
+                    self.current_device = None;
+                    self.absent_polls = 0;
+                    let _ = event_tx.send(DeviceEvent::Disconnected { name: current_name });
                     let _ = event_tx.send(DeviceEvent::NoDevices);
-                }
-            },
-            Err(e) => {
-                tracing::warn!("🔍 Error scanning for USB audio devices: {}", e);
-                
-                // On scan errors, if we had a device, consider it potentially disconnected
-                // This handles cases where ALSA errors occur but device enumeration fails
-                if self.current_device.is_some() {
-                    tracing::warn!("🔍 Device scan failed, considering current device potentially disconnected");
-                    let old_name = self.current_device.take().unwrap().name;
-                    let _ = event_tx.send(DeviceEvent::Disconnected { name: old_name });
-                    let _ = event_tx.send(DeviceEvent::NoDevices);
+                } else {
+                    tracing::debug!("🔍 Device {} absent this poll ({}/{}), not disconnecting yet", current_name, self.absent_polls, DISCONNECT_MISS_THRESHOLD);
                 }
             }
+            return;
         }
+
+        // No current device — do the full probe scan to find AND verify a new
+        // device before connecting (open-probe is fine here: nothing owns it).
+        match Self::scan_for_usb_device().await {
+            Ok(Some(detected_device)) => {
+                tracing::info!("🔌 USB audio device connected: {}", detected_device.name);
+                let _ = event_tx.send(DeviceEvent::Connected { name: detected_device.name.clone() });
+                self.current_device = Some(detected_device);
+                self.absent_polls = 0;
+            },
+            Ok(None) => { /* still no device — nothing to do */ },
+            Err(e) => {
+                tracing::warn!("🔍 Error scanning for USB audio devices: {}", e);
+            }
+        }
+    }
+
+    /// Cheap presence check: is a device with this exact name in the current
+    /// enumeration? Does NOT open the device (so it succeeds even while our own
+    /// capture stream holds it). This is what breaks the disconnect/reconnect
+    /// flap.
+    async fn is_device_name_present(name: &str) -> bool {
+        let target = name.to_string();
+        tokio::task::spawn_blocking(move || {
+            let host = cpal::default_host();
+            match host.devices() {
+                Ok(devices) => devices.filter_map(|d| d.description().ok().map(|desc| desc.name().to_string()))
+                    .any(|n| n == target),
+                Err(_) => true, // enumeration failed — assume still present (debounce handles real loss)
+            }
+        })
+        .await
+        .unwrap_or(true)
     }
 
     /// Scan for available USB audio devices (async wrapper)
