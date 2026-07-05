@@ -199,14 +199,19 @@ Applied and verified:
    HTTPS probe→fast fail ✓, hushfm.dedyn.io unaffected during hijack ✓
    (LAN exclusion), home internet restored after disable ✓.
 
-**PARTY-DAY TOGGLE (when router runs with no uplink):**
-```
-ssh root@192.168.8.1 "uci set fakeinternet.config.enabled=1; uci commit fakeinternet; /etc/init.d/fakeinternet restart"
-# after the party (back home):
-ssh root@192.168.8.1 "uci set fakeinternet.config.enabled=0; uci commit fakeinternet; /etc/init.d/fakeinternet restart"
-```
-(With no uplink there's no harm in leaving it on all night; disable is for
-returning the router to home duty.)
+**PARTY-DAY TOGGLE: NONE — fully automatic since 2026-07-05.** A watchdog
+(`/usr/bin/fakeinternet-auto`, cron every 2 min + WAN hotplug) enables
+fakeinternet when the uplink is gone and disables it when it returns.
+END-TO-END VERIFIED: reboot with WAN unplugged → auto-enabled at boot
+(party test 8/8: all probes spoofed, app clean-TLS, HTTPS probe fails);
+cable back in without reboot → auto-disabled within ~90 s (home test 4/4).
+The watchdog checks IP LITERALS ONLY (ping 8.8.8.8/1.1.1.1) — v1 used
+hostnames and deadlocked because fakeinternet hijacks the router's own DNS
+(post-mortem in scripts/router-recover.sh). Everything is codified in
+**scripts/router-party-setup.sh** (idempotent one-shot; run after factory
+reset or GL-UI change, then reboot) and verified by
+**scripts/router-party-test.sh party|home** (self-contained PASS/FAIL —
+Claude has no internet while on the party network).
 
 ## ✅ Radio hardening APPLIED (2026-07-05, survives reboot)
 
