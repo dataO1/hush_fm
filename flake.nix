@@ -99,8 +99,10 @@
           HUSHFM_MEDIASOUP_EXPOSE_INTERNAL_IP = "false";
           HUSHFM_MEDIASOUP_WORKER_DEBUG = "false";
 
-          # Monitoring configuration for localhost development
-          HUSHFM_STALE_LISTENER_TIMEOUT = "0";
+          # Monitoring configuration for localhost development.
+          # Grace period (seconds) before a disconnected listener is reaped;
+          # reconnect within the grace cancels the reap. 0 disables reaping.
+          HUSHFM_STALE_LISTENER_TIMEOUT = "600";
 
           # Audio Bot Room configuration
           HUSHFM_AUDIO_BOT_ROOM_NAME = "Main Floor";
@@ -426,8 +428,8 @@
             monitoring = {
               staleListenerTimeout = mkOption {
                 type = types.int;
-                default = 0;
-                description = "Timeout in seconds for cleaning up stale listeners (0 = disabled)";
+                default = 600;
+                description = "Grace period in seconds before a disconnected listener (closed tab / crashed app) is reaped from its room. A reconnection with the same sessionId within the grace cancels the reap, so reload / back-forward keeps the same listener. 0 = disabled (ghost listeners accumulate forever).";
               };
             };
 

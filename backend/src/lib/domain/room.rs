@@ -493,30 +493,38 @@ impl Room {
         Ok(())
     }
 
-    /// Handle listener WebSocket connection (reconnection or fresh join)
-    /// Returns true if listener exists (reconnection), false if needs to be created
+    /// Handle listener WebSocket connection (reconnection or fresh join).
+    /// Rebinds the event channel, cancels any pending disconnect-cleanup timer,
+    /// and bumps the listener's connection epoch. Returns the epoch assigned to
+    /// this connection so the caller can arm a matching reap timer on close.
     pub async fn handle_listener_connection(
         &self,
         session_id: &str,
         event_tx: tokio::sync::mpsc::UnboundedSender<crate::lib::models::ListenerEvent>
-    ) -> Result<bool> {
+    ) -> Result<u64> {
         // Check if listener already exists (reconnection scenario)
         if let Some(listener_ref) = self.get_listener(session_id) {
             // Update the event channel for the existing listener
             drop(listener_ref); // Release the reference before calling update_listener
-            
+
+            let mut assigned_epoch: u64 = 0;
             let update_success = self.update_listener(session_id, |listener| {
                 listener.event_tx = event_tx;
+                // Bump the connection epoch so any reap timer armed by a previous
+                // socket is invalidated, then cancel a currently-pending timer.
+                listener.connection_epoch = listener.connection_epoch.wrapping_add(1);
+                assigned_epoch = listener.connection_epoch;
                 listener.cancel_disconnect_cleanup_timer(); // Cancel cleanup timer on reconnection
             });
-            
+
             if update_success {
                 tracing::info!(
                     session_id = %session_id,
                     room_id = %self.id,
-                    "Updated existing listener's event channel for reconnection"
+                    connection_epoch = assigned_epoch,
+                    "Updated existing listener's event channel for (re)connection"
                 );
-                Ok(true) // Reconnection scenario
+                Ok(assigned_epoch)
             } else {
                 Err(anyhow::anyhow!("Failed to update listener event channel"))
             }

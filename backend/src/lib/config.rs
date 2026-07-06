@@ -207,10 +207,16 @@ impl Config {
         );
 
         // Monitoring Configuration
+        // Grace period (seconds) before a disconnected listener is reaped. A WS
+        // close (tab close / crash) arms a per-listener cleanup timer; a
+        // reconnection with the same sessionId within the grace cancels it, so
+        // reload / back-forward navigation keeps the same listener. Default 600s
+        // (10 min) reaps genuine leavers while tolerating real reconnections.
+        // 0 disables reaping entirely (ghosts accumulate forever).
         let stale_listener_timeout_secs = Self::parse_env_var_with_default(
-            "HUSHFM_STALE_LISTENER_TIMEOUT", 
-            "0", 
-            0u64, 
+            "HUSHFM_STALE_LISTENER_TIMEOUT",
+            "600",
+            600u64,
             &mut warnings
         );
         let stale_listener_timeout = ConfigValue::new(
@@ -708,16 +714,17 @@ mod tests {
         // Temporarily clear environment variables
         std::env::remove_var("HUSHFM_BACKEND_PORT");
         std::env::remove_var("HUSHFM_HOST_NAME");
-        
+        std::env::remove_var("HUSHFM_STALE_LISTENER_TIMEOUT");
+
         let config = Config::load().expect("Should load with defaults");
-        
+
         assert_eq!(config.backend_port(), 3000);
         assert_eq!(config.host_name(), "localhost");
         assert_eq!(config.worker_port_range(), 40000..=49999);
         assert_eq!(config.mediasoup_listen_ip(), "0.0.0.0");
         assert!(!config.mediasoup_enable_tcp());
         assert!(!config.mediasoup_expose_internal_ip());
-        assert_eq!(config.stale_listener_timeout(), Duration::from_secs(0));
+        assert_eq!(config.stale_listener_timeout(), Duration::from_secs(600));
     }
 
     #[test]

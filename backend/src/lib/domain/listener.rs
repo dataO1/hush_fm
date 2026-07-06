@@ -37,6 +37,12 @@ pub struct Listener {
     pub connected_at: chrono::DateTime<chrono::Utc>,
     /// When listener last disconnected (WebSocket closed)
     pub last_disconnected_at: Option<chrono::DateTime<chrono::Utc>>,
+    /// Monotonically-increasing counter bumped on every WS (re)connection.
+    /// The disconnect-cleanup timer captures the epoch of the connection that
+    /// armed it and only reaps if it still matches, so a reap armed by an old
+    /// socket cannot remove a listener that has since reconnected (guards the
+    /// close-arm / reconnect-cancel reorder race).
+    pub connection_epoch: u64,
     /// Cleanup timer handle (cancelled on reconnection)
     pub cleanup_timer: Option<tokio::task::JoinHandle<()>>,
     /// Event channel for sending WebSocket events to listener
@@ -61,6 +67,7 @@ impl Listener {
             producer_id: None,
             connected_at: chrono::Utc::now(),
             last_disconnected_at: None,
+            connection_epoch: 0,
             cleanup_timer: None,
             event_tx,
         }
@@ -537,6 +544,7 @@ impl Listener {
         session_id: String,
         lobby: crate::lib::domain::Lobby,
         timeout: std::time::Duration,
+        armed_epoch: u64,
     ) {
         // Cancel any existing timer
         if let Some(timer) = self.cleanup_timer.take() {
@@ -568,10 +576,16 @@ impl Listener {
             // Check if listener is still disconnected and remove if so
             if let Some(room_state) = lobby.get_room(&room_id) {
                 // First check if cleanup is needed
+                // Only reap if the listener is still disconnected AND no newer
+                // connection has replaced the one that armed this timer. The
+                // epoch check closes the race where a fast reconnect cancels the
+                // reap before the old socket's close handler arms it.
                 let should_cleanup = {
                     let room_guard = room_state.read().await;
                     let listener_ref = room_guard.get_listener(&session_id);
-                    listener_ref.map_or(false, |l| l.last_disconnected_at.is_some())
+                    listener_ref.map_or(false, |l| {
+                        l.last_disconnected_at.is_some() && l.connection_epoch == armed_epoch
+                    })
                 };
 
                 if should_cleanup {

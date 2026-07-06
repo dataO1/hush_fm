@@ -521,26 +521,23 @@ async fn handle_listener_socket(socket: WebSocket, room_id_str: String, session_
         }
     };
 
-    // Handle listener connection using domain logic (reconnection or fresh join)
+    // Handle listener connection using domain logic (reconnection or fresh join).
+    // Capture the connection epoch so a reap timer armed when this socket closes
+    // can be invalidated by any later reconnection.
+    let connection_epoch;
     let mut event_rx = {
         let (event_tx, event_rx) = tokio::sync::mpsc::unbounded_channel();
-        
+
         // Use domain method to handle connection
         let room_guard = room_state.read().await;
         match room_guard.handle_listener_connection(&session_id, event_tx).await {
-            Ok(true) => {
+            Ok(epoch) => {
+                connection_epoch = epoch;
                 tracing::info!(
                     session_id = %session_id,
                     room_id = %room_id,
-                    "Successfully handled listener reconnection"
-                );
-            }
-            Ok(false) => {
-                // This shouldn't happen with current implementation but could be extended for fresh joins
-                tracing::info!(
-                    session_id = %session_id,
-                    room_id = %room_id,
-                    "Successfully handled fresh listener join"
+                    connection_epoch = epoch,
+                    "Successfully handled listener (re)connection"
                 );
             }
             Err(e) => {
@@ -707,11 +704,13 @@ async fn handle_listener_socket(socket: WebSocket, room_id_str: String, session_
         drop(room_guard);
         
         if listener_exists {
-            // Use room's update method to start disconnect timer
+            // Use room's update method to start disconnect timer. The timer is
+            // tagged with this connection's epoch; if the listener reconnects
+            // (epoch bumped) before the grace elapses, the reap is skipped.
             let timeout = crate::lib::config::Config::global().stale_listener_timeout();
             let room_guard_for_update = room_state.read().await;
             room_guard_for_update.update_listener(&session_id, |listener| {
-                listener.start_disconnect_cleanup_timer(room_id, session_id.clone(), lobby.clone(), timeout);
+                listener.start_disconnect_cleanup_timer(room_id, session_id.clone(), lobby.clone(), timeout, connection_epoch);
             });
         }
     }
