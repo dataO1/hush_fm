@@ -42,12 +42,28 @@ pub async fn listener_handler(
     ws.on_upgrade(move |socket| handle_listener_socket(socket, room_id, session_id, lobby))
 }
 
+/// Server heartbeat cadence. Short enough that WS_PONG_TIMEOUT detects a
+/// vanished (half-open) client in ~30-40s rather than the ~15min the OS TCP
+/// retransmit tail would otherwise take.
+const WS_PING_INTERVAL: Duration = Duration::from_secs(10);
+
+/// If no pong (nor any inbound frame) arrives within this window, the peer is
+/// treated as gone and the loop breaks. A phone that locks / leaves range /
+/// crashes sends no Close frame, so absence-of-pong is the only timely signal;
+/// breaking the loop is what arms the listener disconnect-cleanup (reap) timer.
+/// A briefly-backgrounded phone that trips this simply reconnects (the frontend
+/// re-join machinery handles it), so the only cost of an aggressive value is a
+/// transient reconnect, not lost audio.
+const WS_PONG_TIMEOUT: Duration = Duration::from_secs(30);
+
 async fn handle_room_socket(socket: WebSocket, room_id: Uuid, lobby: Lobby) {
     let (mut sender, mut receiver) = socket.split();
 
-    // Create heartbeat interval (25 seconds to stay under typical 60s proxy timeouts)
-    let mut heartbeat_interval = interval(Duration::from_secs(25));
+    // Heartbeat: ping every WS_PING_INTERVAL; if no pong arrives for
+    // WS_PONG_TIMEOUT the peer is treated as gone (see the tick arm below).
+    let mut heartbeat_interval = interval(WS_PING_INTERVAL);
     heartbeat_interval.set_missed_tick_behavior(MissedTickBehavior::Delay);
+    let mut last_pong = std::time::Instant::now();
 
     let lobby_clone = lobby.clone();
     
@@ -57,6 +73,12 @@ async fn handle_room_socket(socket: WebSocket, room_id: Uuid, lobby: Lobby) {
         tokio::select! {
             // Send heartbeat ping every 25 seconds
             _ = heartbeat_interval.tick() => {
+                // Pong deadline: a half-open client sends no Close/error, so the
+                // absence of pongs is the only timely liveness signal.
+                if last_pong.elapsed() > WS_PONG_TIMEOUT {
+                    tracing::debug!(room_id = %room_id, "DJ WebSocket: no pong within WS_PONG_TIMEOUT, treating connection as dead");
+                    break;
+                }
                 if sender.send(Message::Ping(vec![].into())).await.is_err() {
                     tracing::debug!(room_id = %room_id, "DJ WebSocket heartbeat failed, connection dropped");
                     break;
@@ -68,6 +90,7 @@ async fn handle_room_socket(socket: WebSocket, room_id: Uuid, lobby: Lobby) {
             msg = receiver.next() => {
                 match msg {
                     Some(Ok(Message::Text(text))) => {
+                        last_pong = std::time::Instant::now(); // any inbound frame proves liveness
                         let message_span = tracing::debug_span!(
                             "websocket_message_received",
                             room_id = %room_id,
@@ -98,8 +121,8 @@ async fn handle_room_socket(socket: WebSocket, room_id: Uuid, lobby: Lobby) {
                         break;
                     }
                     Some(Ok(Message::Pong(_))) => {
+                        last_pong = std::time::Instant::now();
                         tracing::trace!(room_id = %room_id, "DJ WebSocket pong received");
-                        // Pong received - connection is alive, continue
                     }
                     Some(Err(e)) => {
                         tracing::error!(room_id = %room_id, error = %e, "DJ WebSocket error");
@@ -119,9 +142,11 @@ async fn handle_room_socket(socket: WebSocket, room_id: Uuid, lobby: Lobby) {
 async fn handle_lobby_socket(socket: WebSocket, lobby: Lobby) {
     let (mut sender, mut receiver) = socket.split();
 
-    // Create heartbeat interval (25 seconds to stay under typical 60s proxy timeouts)
-    let mut heartbeat_interval = interval(Duration::from_secs(25));
+    // Heartbeat: ping every WS_PING_INTERVAL; if no pong arrives for
+    // WS_PONG_TIMEOUT the peer is treated as gone (see the tick arm below).
+    let mut heartbeat_interval = interval(WS_PING_INTERVAL);
     heartbeat_interval.set_missed_tick_behavior(MissedTickBehavior::Delay);
+    let mut last_pong = std::time::Instant::now();
 
     tracing::debug!("Lobby WebSocket connection established with heartbeat");
 
@@ -143,6 +168,11 @@ async fn handle_lobby_socket(socket: WebSocket, lobby: Lobby) {
         tokio::select! {
             // Send heartbeat ping every 25 seconds
             _ = heartbeat_interval.tick() => {
+                // Pong deadline (see WS_PONG_TIMEOUT): break on a vanished peer.
+                if last_pong.elapsed() > WS_PONG_TIMEOUT {
+                    tracing::debug!("Lobby WebSocket: no pong within WS_PONG_TIMEOUT, treating connection as dead");
+                    break;
+                }
                 if sender.send(Message::Ping(vec![].into())).await.is_err() {
                     tracing::debug!("Lobby WebSocket heartbeat failed, connection dropped");
                     break;
@@ -154,6 +184,7 @@ async fn handle_lobby_socket(socket: WebSocket, lobby: Lobby) {
             msg = receiver.next() => {
                 match msg {
                     Some(Ok(Message::Text(text))) => {
+                        last_pong = std::time::Instant::now(); // any inbound frame proves liveness
                         if let Ok(lobby_cmd) = serde_json::from_str::<LobbyCommand>(&text) {
                             tracing::debug!("Received lobby command: {:?}", lobby_cmd.command_type());
                             if let Err(e) = handle_lobby_command(lobby_cmd, &lobby_clone, &mut sender).await {
@@ -166,8 +197,8 @@ async fn handle_lobby_socket(socket: WebSocket, lobby: Lobby) {
                         break;
                     }
                     Some(Ok(Message::Pong(_))) => {
+                        last_pong = std::time::Instant::now();
                         tracing::trace!("Lobby WebSocket pong received");
-                        // Pong received - connection is alive, continue
                     }
                     Some(Err(e)) => {
                         tracing::error!(error = %e, "Lobby WebSocket error");
@@ -569,9 +600,11 @@ async fn handle_listener_socket(socket: WebSocket, room_id_str: String, session_
         "Listener WebSocket connection established - waiting for InitListener command"
     );
 
-    // Create heartbeat interval (25 seconds to stay under typical 60s proxy timeouts)
-    let mut heartbeat_interval = interval(Duration::from_secs(25));
+    // Heartbeat: ping every WS_PING_INTERVAL; if no pong arrives for
+    // WS_PONG_TIMEOUT the peer is treated as gone (see the tick arm below).
+    let mut heartbeat_interval = interval(WS_PING_INTERVAL);
     heartbeat_interval.set_missed_tick_behavior(MissedTickBehavior::Delay);
+    let mut last_pong = std::time::Instant::now();
 
     // Handle both incoming messages and outgoing events concurrently
     let lobby_clone = lobby.clone();
@@ -586,6 +619,17 @@ async fn handle_listener_socket(socket: WebSocket, room_id_str: String, session_
         tokio::select! {
             // Send heartbeat ping every 25 seconds
             _ = heartbeat_interval.tick() => {
+                // Pong deadline: a half-open listener (locked/crashed phone) sends
+                // no Close/error; without this the loop never breaks and the
+                // disconnect-cleanup (reap) timer below is never armed.
+                if last_pong.elapsed() > WS_PONG_TIMEOUT {
+                    tracing::debug!(
+                        session_id = %session_id,
+                        room_id = %room_id,
+                        "Listener WebSocket: no pong within WS_PONG_TIMEOUT, treating connection as dead"
+                    );
+                    break;
+                }
                 if sender.send(Message::Ping(vec![].into())).await.is_err() {
                     tracing::debug!(
                         session_id = %session_id,
@@ -605,6 +649,7 @@ async fn handle_listener_socket(socket: WebSocket, room_id_str: String, session_
             msg = receiver.next() => {
                 match msg {
                     Some(Ok(Message::Text(text))) => {
+                        last_pong = std::time::Instant::now(); // any inbound frame proves liveness
                         let message_span = tracing::debug_span!(
                             "listener_websocket_message_received",
                             room_id = %room_id,
@@ -640,12 +685,12 @@ async fn handle_listener_socket(socket: WebSocket, room_id_str: String, session_
                         break;
                     }
                     Some(Ok(Message::Pong(_))) => {
+                        last_pong = std::time::Instant::now();
                         tracing::trace!(
                             session_id = %session_id,
                             room_id = %room_id,
                             "Listener WebSocket pong received"
                         );
-                        // Pong received - connection is alive, continue
                     }
                     Some(Err(e)) => {
                         tracing::error!(
