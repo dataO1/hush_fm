@@ -17,11 +17,11 @@
 > Full detail + per-bug validation tracking: **[docs/bug-audit-2026-07-06.md](docs/bug-audit-2026-07-06.md)**
 > 5 CRITICAL, 8 HIGH, 13 MEDIUM found by a 3-agent client-side audit. We deep-dive
 > and validate each before fixing. Status so far:
-- [ ] X1 ✅ "Enable Audio" modal can permanently silence the listener (kills its own track on iOS / no-op on Android)
+- [x] X1 ✔️FIXED "Enable Audio" modal can permanently silence the listener (kills its own track on iOS / no-op on Android)
 - [ ] X2 `try/catch` in `Effect.gen` = dead DJ-publish cleanup
 - [ ] X3 nav-away leaks media pipeline (DJ mic stays hot; anchor bed leaks) + stale-connected no-ops re-joins
 - [ ] X4 wake-up recovery race ("unlock → silent → lock/unlock again")
-- [ ] X5 ✅ sessionId deterministic fingerprint → identical phones collide (no anti-collision randomness in code)
+- [x] X5 ✔️FIXED sessionId deterministic fingerprint → identical phones collide (no anti-collision randomness in code)
 - [ ] X6 backend errors never resolve pending request → 30s hang; dead-room → reconnect churn
 - [ ] X7 DJ WS death → zombie public rooms
 - [ ] X8 zombie/duplicate reconnect loops
