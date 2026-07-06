@@ -103,6 +103,11 @@
           # Grace period (seconds) before a disconnected listener is reaped;
           # reconnect within the grace cancels the reap. 0 disables reaping.
           HUSHFM_STALE_LISTENER_TIMEOUT = "600";
+          # Grace period (seconds) before a room whose DJ vanished is closed.
+          # DJ disconnect pauses the stream; a DJ reconnection within the
+          # grace resumes it. On expiry the room closes and every listener is
+          # notified + ejected. 0 disables the close (paused rooms linger).
+          HUSHFM_DJ_DISCONNECT_TIMEOUT = "900";
 
           # Audio Bot Room configuration
           HUSHFM_AUDIO_BOT_ROOM_NAME = "Main Floor";
@@ -316,6 +321,7 @@
 
             # Monitoring configuration
             HUSHFM_STALE_LISTENER_TIMEOUT = toString cfg.monitoring.staleListenerTimeout;
+            HUSHFM_DJ_DISCONNECT_TIMEOUT = toString cfg.monitoring.djDisconnectTimeout;
 
             # Audio Bot Room configuration
             HUSHFM_AUDIO_BOT_ROOM_NAME = cfg.audioBot.roomName;
@@ -430,6 +436,12 @@
                 type = types.int;
                 default = 600;
                 description = "Grace period in seconds before a disconnected listener (closed tab / crashed app) is reaped from its room. A reconnection with the same sessionId within the grace cancels the reap, so reload / back-forward keeps the same listener. 0 = disabled (ghost listeners accumulate forever).";
+              };
+
+              djDisconnectTimeout = mkOption {
+                type = types.int;
+                default = 900;
+                description = "Grace period in seconds before a room whose DJ disconnected (locked phone / WiFi drop / crashed tab) is closed. The DJ disconnect immediately pauses the stream and notifies listeners; a DJ reconnection within the grace cancels the close and resumes the stream. On expiry the room is closed and every listener receives roomClosed and is ejected. 0 = disabled (DJ-less rooms stay paused until restart).";
               };
             };
 

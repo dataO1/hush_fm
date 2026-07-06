@@ -38,6 +38,23 @@ pub struct DJ {
     pub is_paused: bool,
     /// When DJ connected to the room
     pub connected_at: chrono::DateTime<chrono::Utc>,
+    /// When the DJ's room WebSocket last disconnected (None while connected).
+    /// Set when the disconnect-grace timer is armed, cleared on reconnection.
+    pub last_disconnected_at: Option<chrono::DateTime<chrono::Utc>>,
+    /// Monotonically-increasing counter bumped on every DJ room-socket
+    /// (re)connection. Mirrors Listener::connection_epoch: the disconnect-close
+    /// timer captures the epoch of the socket that armed it and only closes the
+    /// room if it still matches, so a stale socket's exit path can neither pause
+    /// nor close a room whose DJ has since reconnected.
+    pub connection_epoch: u64,
+    /// True when the producer was paused by the server because the DJ's room
+    /// socket vanished (as opposed to an explicit DjCommand::PauseStream).
+    /// A reconnecting DJ socket auto-resumes the stream only when this is set.
+    pub paused_by_disconnect: bool,
+    /// Disconnect-grace timer handle (closes the room on expiry; aborted on
+    /// reconnection). Arc-shared so Room/DJ clones (used for API snapshots)
+    /// reference the same timer instead of duplicating it.
+    pub disconnect_timer: Arc<std::sync::Mutex<Option<tokio::task::JoinHandle<()>>>>,
     /// Event channel for sending WebSocket events to DJ
     pub event_tx: Option<mpsc::UnboundedSender<ListenerEvent>>,
 }
@@ -60,6 +77,10 @@ impl DJ {
             is_streaming: false,
             is_paused: false,
             connected_at: chrono::Utc::now(),
+            last_disconnected_at: None,
+            connection_epoch: 0,
+            paused_by_disconnect: false,
+            disconnect_timer: Arc::new(std::sync::Mutex::new(None)),
             event_tx,
         }
     }
@@ -343,6 +364,14 @@ impl DJ {
             tracing::info!(dj_id = %self.dj_id, "Transport cleaned up");
         }
 
+        // Step 3: Abort a pending disconnect-grace timer. Harmless if left to
+        // fire (it re-checks room existence + epoch), but aborting here keeps
+        // no stray task alive after the room is gone.
+        if let Some(timer) = self.disconnect_timer.lock().unwrap().take() {
+            timer.abort();
+            tracing::debug!(dj_id = %self.dj_id, "Aborted pending DJ disconnect-grace timer during cleanup");
+        }
+
         // Record cleanup results in tracing span
         span.record("producer_cleaned", producer_cleaned);
         span.record("transport_cleaned", transport_cleaned);
@@ -355,6 +384,93 @@ impl DJ {
         );
 
         Ok(())
+    }
+
+    /// Arm the DJ disconnect-grace timer (X7). Mirrors
+    /// Listener::start_disconnect_cleanup_timer: if the DJ has not reconnected
+    /// when the grace elapses, the room is closed via lobby.close_room (which
+    /// notifies + ejects every listener). The timer is tagged with the epoch of
+    /// the socket that armed it; a reconnection bumps the epoch (and aborts the
+    /// handle), so a stale timer firing late is a guaranteed no-op.
+    pub fn start_disconnect_close_timer(
+        &mut self,
+        room_id: Uuid,
+        lobby: crate::lib::domain::Lobby,
+        grace: std::time::Duration,
+        armed_epoch: u64,
+    ) {
+        // Cancel any existing timer
+        if let Some(timer) = self.disconnect_timer.lock().unwrap().take() {
+            timer.abort();
+        }
+
+        // Grace of zero disables the close-on-disconnect entirely
+        if grace.is_zero() {
+            tracing::debug!(
+                dj_id = %self.dj_id,
+                room_id = %room_id,
+                "DJ disconnect close disabled (timeout = 0)"
+            );
+            return;
+        }
+
+        // Record disconnect time
+        self.last_disconnected_at = Some(chrono::Utc::now());
+
+        tracing::info!(
+            dj_id = %self.dj_id,
+            room_id = %room_id,
+            grace_seconds = grace.as_secs(),
+            "Starting DJ disconnect-grace timer (room closes on expiry)"
+        );
+
+        let disconnect_timer = tokio::spawn(async move {
+            tokio::time::sleep(grace).await;
+
+            // Only close if the DJ is still disconnected AND no newer socket has
+            // replaced the one that armed this timer (epoch guard, mirroring the
+            // listener reap timer's reconnect race protection).
+            let should_close = if let Some(room_state) = lobby.get_room(&room_id) {
+                let room_guard = room_state.read().await;
+                room_guard.dj.as_ref().map_or(false, |dj| {
+                    dj.last_disconnected_at.is_some() && dj.connection_epoch == armed_epoch
+                })
+                // guard dropped here, before the close_room await below
+            } else {
+                false // room already gone (explicit close raced us)
+            };
+
+            if should_close {
+                tracing::info!(
+                    room_id = %room_id,
+                    grace_seconds = grace.as_secs(),
+                    "DJ disconnect grace expired without reconnection - closing room"
+                );
+                if let Err(e) = lobby.close_room(&room_id).await {
+                    tracing::error!(
+                        room_id = %room_id,
+                        error = %e,
+                        "Failed to close room after DJ disconnect grace expiry"
+                    );
+                }
+            }
+        });
+
+        *self.disconnect_timer.lock().unwrap() = Some(disconnect_timer);
+    }
+
+    /// Cancel the disconnect-grace timer when the DJ reconnects
+    pub fn cancel_disconnect_close_timer(&mut self) {
+        if let Some(timer) = self.disconnect_timer.lock().unwrap().take() {
+            timer.abort();
+            tracing::debug!(
+                dj_id = %self.dj_id,
+                "Cancelled DJ disconnect-grace timer due to reconnection"
+            );
+        }
+
+        // Clear disconnect timestamp since the DJ is now connected
+        self.last_disconnected_at = None;
     }
 
     /// Check if DJ has a transport ready

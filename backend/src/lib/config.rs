@@ -85,6 +85,7 @@ pub struct Config {
     
     // Monitoring Configuration
     stale_listener_timeout: ConfigValue<Duration>,
+    dj_disconnect_timeout: ConfigValue<Duration>,
     
     // Audio Bot Room Configuration
     audio_bot_room_name: ConfigValue<String>,
@@ -224,6 +225,25 @@ impl Config {
             stale_listener_timeout_secs.source
         );
 
+        // Grace period (seconds) before a room whose DJ vanished is closed. A
+        // DJ room-socket disconnect pauses the stream (listeners see
+        // streamPaused) and arms this timer; a DJ reconnection within the grace
+        // cancels it and resumes the stream. On expiry the room is closed via
+        // lobby.close_room, which notifies + ejects every listener. Default
+        // 900s (15 min) tolerates phone locks / venue WiFi drops while not
+        // leaving DJ-less rooms up all night. 0 disables the close (paused
+        // rooms then linger until server restart).
+        let dj_disconnect_timeout_secs = Self::parse_env_var_with_default(
+            "HUSHFM_DJ_DISCONNECT_TIMEOUT",
+            "900",
+            900u64,
+            &mut warnings
+        );
+        let dj_disconnect_timeout = ConfigValue::new(
+            Duration::from_secs(dj_disconnect_timeout_secs.value),
+            dj_disconnect_timeout_secs.source
+        );
+
         // Audio Bot Room Configuration
         let audio_bot_room_name = Self::parse_env_var_with_default(
             "HUSHFM_AUDIO_BOT_ROOM_NAME",
@@ -341,6 +361,7 @@ impl Config {
             mediasoup_expose_internal_ip,
             mediasoup_worker_debug,
             stale_listener_timeout,
+            dj_disconnect_timeout,
             audio_bot_room_name,
             audio_bot_dj_name,
             audio_bot_description,
@@ -543,6 +564,12 @@ impl Config {
             format!("{}s", self.stale_listener_timeout.value.as_secs())
         };
         tracing::info!("│ Stale Listener Timeout          │ {:15} │ {:10} │", timeout_display, self.stale_listener_timeout.source);
+        let dj_timeout_display = if self.dj_disconnect_timeout.value.is_zero() {
+            "0s (disabled)".to_string()
+        } else {
+            format!("{}s", self.dj_disconnect_timeout.value.as_secs())
+        };
+        tracing::info!("│ DJ Disconnect Timeout           │ {:15} │ {:10} │", dj_timeout_display, self.dj_disconnect_timeout.source);
         tracing::info!("├─────────────────────────────────┼─────────────────┼────────────┤");
         tracing::info!("│ Audio Bot Room Name             │ {:15} │ {:10} │", self.audio_bot_room_name.value, self.audio_bot_room_name.source);
         tracing::info!("│ Audio Bot DJ Name               │ {:15} │ {:10} │", self.audio_bot_dj_name.value, self.audio_bot_dj_name.source);
@@ -622,6 +649,12 @@ impl Config {
     /// Get stale listener cleanup timeout
     pub fn stale_listener_timeout(&self) -> Duration {
         self.stale_listener_timeout.value
+    }
+
+    /// Get DJ disconnect grace period (room closes after this without a DJ
+    /// reconnection; zero disables the close-on-disconnect)
+    pub fn dj_disconnect_timeout(&self) -> Duration {
+        self.dj_disconnect_timeout.value
     }
 
     // Audio Bot Room Configuration Getters
@@ -715,6 +748,7 @@ mod tests {
         std::env::remove_var("HUSHFM_BACKEND_PORT");
         std::env::remove_var("HUSHFM_HOST_NAME");
         std::env::remove_var("HUSHFM_STALE_LISTENER_TIMEOUT");
+        std::env::remove_var("HUSHFM_DJ_DISCONNECT_TIMEOUT");
 
         let config = Config::load().expect("Should load with defaults");
 
@@ -725,6 +759,7 @@ mod tests {
         assert!(!config.mediasoup_enable_tcp());
         assert!(!config.mediasoup_expose_internal_ip());
         assert_eq!(config.stale_listener_timeout(), Duration::from_secs(600));
+        assert_eq!(config.dj_disconnect_timeout(), Duration::from_secs(900));
     }
 
     #[test]

@@ -539,6 +539,89 @@ impl Room {
         }
     }
 
+    /// Handle a DJ room-socket (re)connection. Mirrors handle_listener_connection:
+    /// bumps the DJ connection epoch (invalidating any disconnect-grace timer
+    /// armed by an older socket), cancels a pending timer, and reports whether
+    /// the stream was paused by a previous disconnect so the caller can resume
+    /// it. Returns (epoch assigned to this connection, should_resume), or None
+    /// if the room has no DJ.
+    pub fn handle_dj_connection(&mut self) -> Option<(u64, bool)> {
+        let dj = self.dj.as_mut()?;
+        dj.connection_epoch = dj.connection_epoch.wrapping_add(1);
+        let epoch = dj.connection_epoch;
+        let should_resume = dj.paused_by_disconnect;
+        dj.paused_by_disconnect = false;
+        dj.cancel_disconnect_close_timer();
+
+        tracing::info!(
+            room_id = %self.id,
+            dj_id = %dj.dj_id,
+            connection_epoch = epoch,
+            resume_after_reconnect = should_resume,
+            "DJ room-socket (re)connection registered"
+        );
+
+        self.update_activity();
+        Some((epoch, should_resume))
+    }
+
+    /// Handle a DJ room-socket disconnect (X7: pause-then-close).
+    /// If `disconnected_epoch` is stale (a newer socket already took over) this
+    /// is a no-op. Otherwise: pause the producer if it was streaming, notify
+    /// listeners (StreamPaused), and arm the disconnect-grace timer that closes
+    /// the room via lobby.close_room on expiry.
+    /// Returns Ok(true) if the stream was paused by this call (caller should
+    /// broadcast the room update to the lobby).
+    pub async fn handle_dj_disconnect(
+        &mut self,
+        lobby: crate::lib::domain::Lobby,
+        disconnected_epoch: u64,
+        grace: std::time::Duration,
+    ) -> Result<bool> {
+        let room_id = self.id;
+        let was_streaming;
+        {
+            let Some(dj) = self.dj.as_mut() else {
+                return Ok(false); // room being torn down, nothing to do
+            };
+            if dj.connection_epoch != disconnected_epoch {
+                tracing::debug!(
+                    room_id = %room_id,
+                    stale_epoch = disconnected_epoch,
+                    current_epoch = dj.connection_epoch,
+                    "Stale DJ socket disconnect ignored - a newer DJ connection exists"
+                );
+                return Ok(false);
+            }
+
+            was_streaming = dj.has_producer() && !dj.is_producer_paused();
+            if was_streaming {
+                dj.pause().await?; // mediasoup producer.pause()
+                dj.paused_by_disconnect = true;
+            }
+
+            // Arm the grace timer regardless of streaming state: a vanished DJ
+            // in a setup/paused room must not leak the room forever either.
+            dj.start_disconnect_close_timer(room_id, lobby, grace, disconnected_epoch);
+        }
+
+        if was_streaming {
+            self.pause(); // Live -> Paused (room stays public/listed as paused)
+            self.sync_streaming_state();
+            self.broadcast_to_listeners(crate::lib::models::ListenerEvent::StreamPaused {
+                room_id: room_id.to_string(),
+            });
+            tracing::info!(
+                room_id = %room_id,
+                listener_count = self.listener_count,
+                "DJ vanished - stream paused and listeners notified (StreamPaused)"
+            );
+        }
+
+        self.update_activity();
+        Ok(was_streaming)
+    }
+
     /// Comprehensive room closure with graceful listener cleanup
     /// Handles DJ stopping stream, ejecting all listeners, and cleaning up resources
     pub async fn close_room(&mut self) -> Result<()> {

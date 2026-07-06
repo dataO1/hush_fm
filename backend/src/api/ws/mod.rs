@@ -56,8 +56,64 @@ const WS_PING_INTERVAL: Duration = Duration::from_secs(10);
 /// transient reconnect, not lost audio.
 const WS_PONG_TIMEOUT: Duration = Duration::from_secs(30);
 
+/// Backpressure bound on outbound WS sends. `sender.send(...).await` blocks
+/// while the OS send buffer is full; a client that stopped reading (locked
+/// phone, dead radio) would otherwise wedge the whole task for the ~15min TCP
+/// retransmit tail — during which the loop can neither ping nor detect the
+/// missing pongs. If a send doesn't complete within this bound the peer is
+/// treated as dead and the loop breaks (arming the listener reaper / the DJ
+/// disconnect handling, respectively).
+const WS_SEND_TIMEOUT: Duration = Duration::from_secs(10);
+
+/// Send a frame with the backpressure bound applied. Returns false when the
+/// connection should be considered dead (send error OR timeout). On timeout
+/// the in-flight send future is dropped, which can leave the sink mid-frame —
+/// callers MUST break the loop and stop using the sink afterwards.
+async fn send_ws(
+    sender: &mut futures_util::stream::SplitSink<WebSocket, Message>,
+    msg: Message,
+) -> bool {
+    match tokio::time::timeout(WS_SEND_TIMEOUT, sender.send(msg)).await {
+        Ok(Ok(())) => true,
+        Ok(Err(_)) => false,
+        Err(_) => {
+            tracing::debug!("WebSocket send timed out (client not reading) - treating connection as dead");
+            false
+        }
+    }
+}
+
 async fn handle_room_socket(socket: WebSocket, room_id: Uuid, lobby: Lobby) {
     let (mut sender, mut receiver) = socket.split();
+
+    // Register this socket as the DJ's live control connection: bump the DJ
+    // connection epoch (invalidates any disconnect-grace timer / stale exit
+    // path from an older socket) and learn whether a previous disconnect
+    // paused the stream so we can resume it now. Owned Arc from get_room; the
+    // room write guard is dropped before any further awaits.
+    let (connection_epoch, resume_after_reconnect) = match lobby.get_room(&room_id) {
+        Some(room_state) => {
+            let mut room_guard = room_state.write().await;
+            room_guard.handle_dj_connection().unwrap_or((0, false))
+        }
+        // Room unknown (e.g. bad URL): keep legacy behavior — the command
+        // handlers below answer RoomNotFound; nothing to clean up on exit.
+        None => (0, false),
+    };
+
+    if resume_after_reconnect {
+        tracing::info!(
+            room_id = %room_id,
+            "DJ reconnected within disconnect grace - resuming stream"
+        );
+        if let Err(e) = handle_resume_producing(room_id, &lobby).await {
+            tracing::warn!(
+                room_id = %room_id,
+                error = %e,
+                "Failed to auto-resume stream after DJ reconnection"
+            );
+        }
+    }
 
     // Heartbeat: ping every WS_PING_INTERVAL; if no pong arrives for
     // WS_PONG_TIMEOUT the peer is treated as gone (see the tick arm below).
@@ -79,7 +135,7 @@ async fn handle_room_socket(socket: WebSocket, room_id: Uuid, lobby: Lobby) {
                     tracing::debug!(room_id = %room_id, "DJ WebSocket: no pong within WS_PONG_TIMEOUT, treating connection as dead");
                     break;
                 }
-                if sender.send(Message::Ping(vec![].into())).await.is_err() {
+                if !send_ws(&mut sender, Message::Ping(vec![].into())).await {
                     tracing::debug!(room_id = %room_id, "DJ WebSocket heartbeat failed, connection dropped");
                     break;
                 }
@@ -137,6 +193,49 @@ async fn handle_room_socket(socket: WebSocket, room_id: Uuid, lobby: Lobby) {
     }
     
     tracing::debug!(room_id = %room_id, "DJ WebSocket handler exiting");
+
+    // X7 (pause-then-close): the loop broke. If the room still exists this was
+    // a DISCONNECT — an explicit DjCommand::CloseRoom removes the room from the
+    // lobby before the socket closes, so get_room returns None for that path
+    // (and for a grace-expiry close racing an old half-open socket). Pause the
+    // stream, notify listeners, and arm the configurable disconnect-grace
+    // timer; handle_dj_disconnect's epoch guard makes this a no-op if a newer
+    // DJ socket has already taken over.
+    if let Some(room_state) = lobby.get_room(&room_id) {
+        let grace = crate::lib::config::Config::global().dj_disconnect_timeout();
+        let pause_result = {
+            let mut room_guard = room_state.write().await;
+            room_guard
+                .handle_dj_disconnect(lobby.clone(), connection_epoch, grace)
+                .await
+            // write guard dropped here, before the lobby broadcast below
+        };
+        match pause_result {
+            Ok(true) => {
+                // Stream was paused by the disconnect: broadcast the room
+                // update so lobby clients see it flip to "paused".
+                lobby.update_room(&room_id).await;
+                tracing::info!(
+                    room_id = %room_id,
+                    grace_seconds = grace.as_secs(),
+                    "DJ disconnected - stream paused, disconnect-grace timer armed"
+                );
+            }
+            Ok(false) => {
+                tracing::debug!(
+                    room_id = %room_id,
+                    "DJ socket closed without an active stream to pause (stale socket, setup room, or already paused)"
+                );
+            }
+            Err(e) => {
+                tracing::error!(
+                    room_id = %room_id,
+                    error = %e,
+                    "Failed to handle DJ disconnect cleanup"
+                );
+            }
+        }
+    }
 }
 
 async fn handle_lobby_socket(socket: WebSocket, lobby: Lobby) {
@@ -150,13 +249,17 @@ async fn handle_lobby_socket(socket: WebSocket, lobby: Lobby) {
 
     tracing::debug!("Lobby WebSocket connection established with heartbeat");
 
-    // Send initial room list
+    // Send initial room list (bounded: a client that connects but never reads
+    // must not wedge this task before the loop's heartbeat can catch it)
     let rooms = lobby.get_public_rooms().await;
     if !rooms.is_empty() {
         if let Ok(msg) = serde_json::to_string(&LobbyEvent::RoomAdded {
             room: rooms.first().unwrap().clone().into(),
         }) {
-            sender.send(Message::Text(msg)).await.ok();
+            if !send_ws(&mut sender, Message::Text(msg)).await {
+                tracing::debug!("Lobby WebSocket initial room-list send failed, connection dropped");
+                return;
+            }
         }
     }
 
@@ -173,7 +276,7 @@ async fn handle_lobby_socket(socket: WebSocket, lobby: Lobby) {
                     tracing::debug!("Lobby WebSocket: no pong within WS_PONG_TIMEOUT, treating connection as dead");
                     break;
                 }
-                if sender.send(Message::Ping(vec![].into())).await.is_err() {
+                if !send_ws(&mut sender, Message::Ping(vec![].into())).await {
                     tracing::debug!("Lobby WebSocket heartbeat failed, connection dropped");
                     break;
                 }
@@ -213,7 +316,9 @@ async fn handle_lobby_socket(socket: WebSocket, lobby: Lobby) {
                 match broadcast_msg {
                     Ok(broadcast_msg) => {
                         if let Ok(msg) = serde_json::to_string(&broadcast_msg) {
-                            if sender.send(Message::Text(msg)).await.is_err() {
+                            // Bounded send: a lobby client that stopped reading
+                            // must not wedge this task on a full send buffer.
+                            if !send_ws(&mut sender, Message::Text(msg)).await {
                                 break;
                             }
                         }
@@ -265,7 +370,13 @@ async fn handle_lobby_command(
                     session_id = %session_id,
                     "Step 1: Found existing room for DJ session - returning existing room"
                 );
-                
+                // NOTE (DJ reconnection): the disconnect-grace timer is NOT
+                // cancelled here on purpose. Cancellation + auto-resume happen
+                // in handle_room_socket when the DJ actually opens the room
+                // socket (handle_dj_connection bumps the epoch). Cancelling at
+                // announce time would leak the room forever if the DJ announces
+                // but never completes the room-socket connection.
+
                 drop(existing_room_guard); // Release read lock
                 existing_room
             } else {
@@ -630,7 +741,7 @@ async fn handle_listener_socket(socket: WebSocket, room_id_str: String, session_
                     );
                     break;
                 }
-                if sender.send(Message::Ping(vec![].into())).await.is_err() {
+                if !send_ws(&mut sender, Message::Ping(vec![].into())).await {
                     tracing::debug!(
                         session_id = %session_id,
                         room_id = %room_id,
@@ -717,8 +828,16 @@ async fn handle_listener_socket(socket: WebSocket, room_id_str: String, session_
             // Handle outgoing events
             event = event_rx.recv() => {
                 if let Some(event) = event {
+                    // roomClosed is terminal: after delivering it we close the
+                    // socket ourselves instead of relying on the event channel
+                    // closing when the listener is removed from the room. This
+                    // makes the kick-on-close immediate and unambiguous.
+                    let is_terminal = matches!(event, ListenerEvent::RoomClosed { .. });
                     if let Ok(msg) = serde_json::to_string(&event) {
-                        if sender.send(Message::Text(msg)).await.is_err() {
+                        // Bounded send: a listener that stopped reading must not
+                        // wedge this task (it would also block the terminal
+                        // roomClosed delivery for the ~15min TCP tail).
+                        if !send_ws(&mut sender, Message::Text(msg)).await {
                             tracing::debug!(
                                 room_id = %room_id,
                                 session_id = %session_id,
@@ -726,6 +845,17 @@ async fn handle_listener_socket(socket: WebSocket, room_id_str: String, session_
                             );
                             break;
                         }
+                    }
+                    if is_terminal {
+                        tracing::info!(
+                            room_id = %room_id,
+                            session_id = %session_id,
+                            "Delivered terminal roomClosed to listener - closing socket"
+                        );
+                        // Flush a proper Close frame after the Text frame so the
+                        // client sees a clean close instead of an abrupt drop.
+                        send_ws(&mut sender, Message::Close(None)).await;
+                        break;
                     }
                 } else {
                     // Event channel closed
