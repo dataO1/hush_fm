@@ -370,20 +370,24 @@ function ListenerRoomContent() {
               roomName={roomName()}
               onEnableAudio={async () => {
                 try {
-                  // Clear the requiresUserGesture flag and try to resume audio playback
-                  audioAdapter.updateStreamState({ requiresUserGesture: false })
-                  
-                  // Try to resume the stream if there's one available
+                  // Resume the ALREADY-connected stream inside this user gesture.
+                  // Never connectRemoteStream here (X1): re-connecting the same
+                  // stream would stop its own tracks (irreversible on iOS) or
+                  // early-return without resuming the AudioContext.
                   const currentStream = audioClient.currentStream()
                   if (Option.isSome(currentStream)) {
                     console.info('🔊 ListenerRoom: Attempting to resume audio after user interaction')
-                    await audioClient.connectRemoteStream(currentStream.value, {
+                    await audioClient.resumePlayback({
                       roomName: roomName(),
                       djName: navigationState.roomInfo?.djName ?? 'HushFM DJ'
                     }).pipe(
                       Effect.provideService(AudioAdapter, audioAdapter),
                       Effect.runPromise
                     )
+                    // Clear the gesture flag only AFTER resumePlayback resolved
+                    // successfully (trust the tap — no re-verify loop). On failure
+                    // the catch below leaves the modal up for another attempt.
+                    audioAdapter.updateStreamState({ requiresUserGesture: false })
                   }
                 } catch (error) {
                   console.error('❌ Failed to enable audio after user interaction:', error)

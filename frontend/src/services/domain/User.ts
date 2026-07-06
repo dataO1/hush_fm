@@ -2,9 +2,10 @@
  * User Domain Service
  *
  * Pure business logic for User entity.
- * Handles browser fingerprint computation and session ID generation.
- * Provides deterministic session identification without persistence.
- * 
+ * Handles session ID generation: a persistent random per-device id
+ * (localStorage, X5) with a deterministic browser-fingerprint fallback
+ * when storage is unavailable.
+ *
  * All methods are static and have no external dependencies.
  */
 
@@ -185,7 +186,71 @@ export class User {
   }
 
   /**
+   * localStorage key for the persistent per-device random id (X5).
+   */
+  private static readonly DEVICE_ID_STORAGE_KEY = 'hushfm-device-id'
+
+  /**
+   * Generate a UUIDv4 using crypto.getRandomValues.
+   *
+   * Deliberately NOT crypto.randomUUID — that is iOS 15.4+ only, while
+   * getRandomValues is iOS 10+ (old-iPhone support is a project goal).
+   */
+  private static generateUuidV4(): string {
+    const bytes = new Uint8Array(16)
+    crypto.getRandomValues(bytes)
+    // RFC 4122 §4.4: set version (4) and variant (10xx) bits
+    bytes[6] = (bytes[6] & 0x0f) | 0x40
+    bytes[8] = (bytes[8] & 0x3f) | 0x80
+    const hex = Array.from(bytes, (b) => b.toString(16).padStart(2, '0'))
+    return `${hex.slice(0, 4).join('')}-${hex.slice(4, 6).join('')}-${hex.slice(6, 8).join('')}-${hex.slice(8, 10).join('')}-${hex.slice(10, 16).join('')}`
+  }
+
+  /**
+   * Get or create the persistent random device id (X5).
+   *
+   * A deterministic fingerprint hash collides across identical phone models
+   * (the backend then treats guest B as guest A's reconnection and tears down
+   * A's transport). "Stable AND unique per unit" can only come from
+   * generate-once + persist: a random UUIDv4 frozen in localStorage.
+   *
+   * Returns Option.some('session-<uuid>') on success; Option.none() when
+   * localStorage is unavailable/blocked (e.g. private mode) — the caller then
+   * falls back to the fingerprint-based id.
+   */
+  private static getOrCreateDeviceId(): Effect.Effect<Option.Option<string>, never> {
+    return Effect.sync(() => {
+      try {
+        const existing = window.localStorage.getItem(User.DEVICE_ID_STORAGE_KEY)
+        if (existing !== null && existing.trim() !== '') {
+          return Option.some(`session-${existing}`)
+        }
+
+        const uuid = User.generateUuidV4()
+        window.localStorage.setItem(User.DEVICE_ID_STORAGE_KEY, uuid)
+
+        // Read back: some storage-restricted modes accept setItem without
+        // persisting. If it did not stick, a fresh id would be generated on
+        // every load (permanent churn) — prefer the stable fallback instead.
+        if (window.localStorage.getItem(User.DEVICE_ID_STORAGE_KEY) !== uuid) {
+          return Option.none()
+        }
+
+        return Option.some(`session-${uuid}`)
+      } catch {
+        // localStorage blocked (private mode / storage policy / quota) —
+        // fall back to the fingerprint-based id (rare-collision edge case).
+        return Option.none()
+      }
+    })
+  }
+
+  /**
    * Convert browser fingerprint to session ID
+   *
+   * FALLBACK path only (X5): deterministic device-attribute hash — two
+   * identical phone models produce the SAME id. Used only when localStorage
+   * is unavailable and the random per-device id cannot be persisted.
    */
   private static fingerprintToSessionId(fingerprint: BrowserFingerprintType): Effect.Effect<string, UserServiceError> {
     return pipe(
@@ -218,18 +283,38 @@ export class User {
   }
 
   /**
-   * Compute session ID from browser fingerprint
-   * 
+   * Compute session ID
+   *
+   * Primary source (X5): persistent random per-device id from localStorage —
+   * stable across reloads AND unique per unit (identical phone models no
+   * longer collide). Fallback when localStorage is unavailable: the legacy
+   * deterministic fingerprint hash.
+   *
    * Public static method that can be called from anywhere
    * Returns Effect with session computation result
    */
   public static computeSessionId(): Effect.Effect<SessionIdComputationType, UserServiceError> {
     return pipe(
       Effect.gen(function* (_) {
-        console.info('🔐 Computing session ID from browser fingerprint...')
-        
+        console.info('🔐 Computing session ID...')
+
+        // The fingerprint is still computed: it is part of the result shape
+        // (SessionIdComputationType) and the fallback id source.
         const fingerprint = yield* _(User.computeBrowserFingerprint())
-        const sessionId = yield* _(User.fingerprintToSessionId(fingerprint))
+
+        const deviceId = yield* _(User.getOrCreateDeviceId())
+        const sessionId = yield* _(
+          pipe(
+            deviceId,
+            Option.match({
+              onNone: () => {
+                console.warn('🔐 localStorage unavailable — falling back to fingerprint-based session ID')
+                return User.fingerprintToSessionId(fingerprint)
+              },
+              onSome: (id) => Effect.succeed(id)
+            })
+          )
+        )
         const computedAt = new Date()
         
         console.info('✅ Session ID computed successfully:', { 

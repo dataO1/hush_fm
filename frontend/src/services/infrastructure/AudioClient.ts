@@ -163,6 +163,18 @@ interface AudioClientInterface {
     AudioAdapter
   >
 
+  // Resume playback of the ALREADY-connected stream inside a user gesture
+  // (the "Enable Audio" modal). Purely state-driven unlock:
+  // anchor → AudioContext.resume → elem.play. Never stops tracks and never
+  // re-assigns srcObject — safe to call with the current stream on any device.
+  // On success it mirrors connectRemoteStream's success side-effects
+  // (stream state, Media Session, WebAudio render in anchor mode).
+  readonly resumePlayback: (meta?: { roomName: string; djName: string }) => Effect.Effect<
+    void,
+    AudioPlaybackError,
+    AudioAdapter
+  >
+
   // Stop any active stream
   // Updates state in AudioAdapter
   readonly stopStream: () => Effect.Effect<
@@ -488,15 +500,23 @@ const createAudioClientImpl = (): AudioClientInterface => {
    * Stop the current stream tracks and reset element srcObject.
    * Keeps the audio element alive for re-use on the next connectRemoteStream call.
    * Sets expectedPause so the 'pause' listener ignores the programmatic pause.
+   *
+   * `stopTracks: false` skips `track.stop()` — used when the incoming stream is
+   * the SAME object as the current one (X1): stopping a remote consumer track
+   * is irreversible (readyState='ended'), so a same-stream reconnect must never
+   * kill the track it is about to (re-)play.
    */
-  const stopCurrentStream = (): Effect.Effect<void, never, never> =>
+  const stopCurrentStream = (options?: { readonly stopTracks?: boolean }): Effect.Effect<void, never, never> =>
     Effect.sync(() => {
+      const stopTracks = options?.stopTracks ?? true
       pipe(
         currentStream(),
         O.match({
           onNone: () => {},
           onSome: (stream) => {
-            stream.getTracks().forEach(track => track.stop())
+            if (stopTracks) {
+              stream.getTracks().forEach(track => track.stop())
+            }
           }
         })
       )
@@ -716,7 +736,12 @@ const createAudioClientImpl = (): AudioClientInterface => {
 
         // Stop any existing stream (pauses + nulls srcObject; keeps element alive).
         // stopCurrentStream sets expectedPause=true before the programmatic pause.
-        yield* stopCurrentStream()
+        // Defensive (X1): NEVER stop tracks when the incoming stream is the same
+        // object as the current one — track.stop() on a remote consumer track is
+        // irreversible and would permanently silence the stream we are about to
+        // (re-)play. Genuinely-new streams still get the full stop + swap.
+        const isSameStream = O.isSome(existing) && existing.value === remoteStream
+        yield* stopCurrentStream({ stopTracks: !isSameStream })
 
         // Capture adapter for use in browser event callbacks (outside Effect context)
         sharedAudioAdapter = audioAdapter
@@ -844,7 +869,7 @@ const createAudioClientImpl = (): AudioClientInterface => {
             if (isAutoplayBlocked) {
               // Autoplay blocked is expected behavior — succeed but UI will show modal.
               // Media Session will be applied once the user unlocks via the modal
-              // (modal calls connectRemoteStream again, which reaches the success path).
+              // (modal calls resumePlayback, which mirrors this success path).
               console.info('🔊 AudioClient: Autoplay blocked by browser, user interaction required')
               return Effect.succeed(undefined)
             } else {
@@ -857,6 +882,108 @@ const createAudioClientImpl = (): AudioClientInterface => {
               }))
             }
           })
+        )
+      }),
+
+    resumePlayback: (meta?: { roomName: string; djName: string }) =>
+      Effect.gen(function* () {
+        const audioAdapter = yield* AudioAdapter
+
+        // State-driven: operate only on an already-connected element + stream.
+        // Setup of a NEW stream belongs to connectRemoteStream, never here.
+        const streamOpt = currentStream()
+        if (!O.isSome(audioElement) || !O.isSome(streamOpt)) {
+          console.info('🔊 AudioClient: resumePlayback without active element/stream — no-op')
+          return
+        }
+        const elem = O.getOrThrow(audioElement)
+        const stream = streamOpt.value
+
+        // Capture adapter for browser event callbacks and clear pause intent:
+        // an explicit user gesture always means "play". Pending auto-resume
+        // timers are superseded by the gesture.
+        sharedAudioAdapter = audioAdapter
+        userPausedIntentionally = false
+        cancelResumeTimers()
+
+        // 1. Anchor first (no-op outside anchor mode): it owns the tab's full
+        //    audio focus; the same gesture context unlocks its play().
+        startAnchor()
+
+        // 2. Resume a suspended AudioContext inside the gesture (anchor mode:
+        //    the muted pump plays, but sound flows through WebAudio).
+        if (audioCtx !== null && audioCtx.state !== 'running') {
+          audioCtx.resume().catch(() => { })
+        }
+
+        // 3. Play the element if paused (iOS / non-anchor cold-block path).
+        //    NEVER touches tracks or srcObject — the stream stays alive.
+        if (elem.paused) {
+          yield* Effect.tryPromise({
+            try: () => elem.play(),
+            catch: (error: any) => error
+          }).pipe(
+            Effect.catchAll((error) => {
+              const isAutoplayBlocked = error?.name === 'NotAllowedError'
+              console.warn('🔊 AudioClient: resumePlayback play() failed:', {
+                errorName: error?.name,
+                isAutoplayBlocked,
+                message: String(error)
+              })
+              // Keep the gesture modal up — callers clear it only on success
+              audioAdapter.updateStreamState({
+                playing: false,
+                requiresUserGesture: true,
+                error: isAutoplayBlocked ? O.none() : O.some(String(error))
+              })
+              return Effect.fail(new AudioPlaybackError({
+                cause: String(error),
+                operation: 'play',
+                autoplayBlocked: isAutoplayBlocked,
+                timestamp: new Date()
+              }))
+            })
+          )
+        }
+
+        // Success — mirror connectRemoteStream's success side-effects so the
+        // session behaves identically regardless of how playback started.
+        console.info('🔊 AudioClient: resumePlayback succeeded')
+        userPausedIntentionally = false
+        expectedPause = false
+
+        // Anchor mode (state marker: elem is a muted RTP pump): (re-)engage
+        // WebAudio rendering; startWebAudioRender also resumes the context.
+        if (elem.muted) {
+          startWebAudioRender(stream)
+        }
+
+        audioAdapter.setStreamState({
+          playing: true,
+          deviceId: O.none(),
+          constraints: O.none(),
+          acquiredAt: O.some(new Date()),
+          error: O.none(),
+          requiresUserGesture: false,
+          permission: audioAdapter.getPermission()
+        })
+
+        // Register Media Session now: on the cold-block path the initial
+        // play() failed, so connectRemoteStream never reached setupMediaSession
+        // and lock-screen controls were missing until this gesture.
+        setupMediaSession(
+          elem,
+          audioAdapter.updateStreamState,
+          () => { userPausedIntentionally = true; cancelResumeTimers() },
+          () => { userPausedIntentionally = false },
+          meta,
+          anchorElement,
+          elem.muted
+            ? {
+                suspend: () => { audioCtx?.suspend().catch(() => { }) },
+                resume: () => { audioCtx?.resume().catch(() => { }) }
+              }
+            : null
         )
       }),
 
