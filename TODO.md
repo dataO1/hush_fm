@@ -13,6 +13,19 @@
 
 # Performance
 
+# TO TEST AT HOME — fixes on party-fixes, NOT yet device-verified (2026-07-06)
+> Deployed via frontend rebuild + backend rebuild. Test on real phones.
+- [ ] **X1 Enable-Audio modal** (38b8e860): on an old iPhone (autoplay usually blocked)
+  AND an Android phone, tap "Enable Audio" → audio should actually PLAY (was permanent
+  silence). No regression on: fresh join, OS-interruption resume (call/alarm), reconnect.
+- [ ] **X5 session id** (38b8e860): two identical phone models can BOTH listen without
+  kicking each other off; a reload keeps the same listener (check `localStorage`
+  key `hushfm-device-id` persists and is unique per device).
+- [ ] **Ghost reaper** (03ad6c05 = timeout 0→600s): close a listener's tab cleanly →
+  after ~10 min `listener_count` drops. ⚠️ BUT the reaper likely has a DEEPER bug (see
+  research below): a *vanished* mobile client (locked / out of range / crashed, no clean
+  WS close) may NEVER arm the reap timer at all — verify that scenario specifically.
+
 # Client-Side Bug Audit (2026-07-06)
 > Full detail + per-bug validation tracking: **[docs/bug-audit-2026-07-06.md](docs/bug-audit-2026-07-06.md)**
 > 5 CRITICAL, 8 HIGH, 13 MEDIUM found by a 3-agent client-side audit. We deep-dive
