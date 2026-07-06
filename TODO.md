@@ -15,16 +15,25 @@
 
 # TO TEST AT HOME — fixes on party-fixes, NOT yet device-verified (2026-07-06)
 > Deployed via frontend rebuild + backend rebuild. Test on real phones.
+- [ ] **0. DEPLOY the full new stack** (party-fixes: X1/X5 frontend + reaper + pong-deadline
+  + DJ-disconnect/backpressure) in ONE deploy (`./scripts/deploy-pi.sh`), then run all below.
 - [ ] **X1 Enable-Audio modal** (38b8e860): on an old iPhone (autoplay usually blocked)
   AND an Android phone, tap "Enable Audio" → audio should actually PLAY (was permanent
   silence). No regression on: fresh join, OS-interruption resume (call/alarm), reconnect.
 - [ ] **X5 session id** (38b8e860): two identical phone models can BOTH listen without
   kicking each other off; a reload keeps the same listener (check `localStorage`
   key `hushfm-device-id` persists and is unique per device).
-- [ ] **Ghost reaper** (03ad6c05 = timeout 0→600s): close a listener's tab cleanly →
-  after ~10 min `listener_count` drops. ⚠️ BUT the reaper likely has a DEEPER bug (see
-  research below): a *vanished* mobile client (locked / out of range / crashed, no clean
-  WS close) may NEVER arm the reap timer at all — verify that scenario specifically.
+- [ ] **Ghost reaper — vanished mobile client** (reaper 600s + pong-deadline debde1e7):
+  lock a listener phone / kill its WiFi / force-close the app (NO clean WS close) → the
+  server detects it in ~30-40s (pong deadline) and reaps the listener after the 10-min
+  grace; `listener_count` drops. Reconnect within the grace → same listener kept.
+- [ ] **DJ disconnect → room pause/close** (X7): DJ closes tab / phone locks / crashes →
+  room PAUSES (listeners see paused); after the ~15-min DJ grace the room CLOSES.
+  DJ reconnect within the grace → stream resumes.
+- [ ] **Listeners kicked on room close**: when a room closes (DJ ends it OR the DJ-disconnect
+  grace expires), ALL listeners are notified + removed — no ghost listeners, no stuck UI.
+- [ ] **Backpressure**: a listener/DJ that stops reading must not hang the server task
+  (WS sends are timeout-bounded).
 
 # Client-Side Bug Audit (2026-07-06)
 > Full detail + per-bug validation tracking: **[docs/bug-audit-2026-07-06.md](docs/bug-audit-2026-07-06.md)**
