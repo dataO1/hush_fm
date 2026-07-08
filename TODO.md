@@ -168,10 +168,13 @@
   10s timeout to the inline connect. [impact: med, effort: M]
 
 ## Performance
-- [ ] **Reconnect backoff has zero jitter → synchronized thundering herd after an AP blip**
-  (WebSocketClient.ts:351): 80 phones retry in lockstep waves (1s, 2s, 4s…) hammering WS
-  upgrade + rebind simultaneously. → ±50% random jitter on the computed delay (one line,
-  disproportionate payoff). [impact: med, effort: S]
+- [~] **Reconnect backoff has zero jitter** — DROPPED as NON-ISSUE (grilled 2026-07-08).
+  Real-world impact negligible: clients detect a drop at naturally-staggered times (TCP/WS
+  close detection + OS WiFi state + reassociation), so `detection + delay` is already spread
+  without jitter; WiFi MAC-layer (CSMA/CA) adds more; and the actual bottleneck is the
+  single-threaded mediasoup worker which SERIALIZES consumer creation regardless of arrival
+  spread — jitter barely touches the real limiter. Party scale (60-80) is trivial for
+  Axum/tokio. Not worth the change.
 - [ ] **Command responses bypass the `send_ws` backpressure bound** (ws/mod.rs — all
   command replies use raw `sender.send(...)` e.g. :934,:1233,:1507,:1687,:1763, despite
   send_ws's own doc): a client that stops reading mid-command can wedge that connection's
@@ -184,11 +187,13 @@
   logger). [impact: med, effort: S]
 
 ## Battery
-- [ ] **Double heartbeat stack wakes each phone's radio every ~7s all night**
-  (server WS_PING_INTERVAL=10s to every socket + client 22s app-ping): liveness doesn't
-  need this cadence — graces are 600/900s. → Server ping 20-25s + 60s pong deadline
-  (detection ~1min, still fine), client app-ping 45-60s; consider visibility-aware cadence.
-  [impact: med, effort: S]
+- [~] **Double heartbeat stack wakes each phone's radio every ~7s** — DROPPED as NON-ISSUE
+  (grilled 2026-07-08). A listener playing audio is already receiving a continuous ~50 pkt/s
+  Opus RTP stream — the radio is fully awake for that, and the ~0.1 Hz heartbeat is <0.3% of
+  packet volume (rounding error against the audio). When the phone is locked the client 22s
+  ping doesn't even fire (background timers frozen). Battery is dominated by RTP reception +
+  decode + screen, not the ping. The server ping's real job (pong-deadline reap) is worth
+  keeping as-is. The genuine battery bug is #19 below (paused listener still pulls full-rate RTP).
 - [ ] **`listenerCountUpdated` broadcast to every listener on every join/leave and no
   client code consumes it** (room.rs:122-127,234-239; zero frontend subscribers): arrival
   wave = O(N²) frames whose only effect is waking 80 radios. → Debounce/coalesce (2-5s)
