@@ -193,18 +193,22 @@
   packet volume (rounding error against the audio). When the phone is locked the client 22s
   ping doesn't even fire (background timers frozen). Battery is dominated by RTP reception +
   decode + screen, not the ping. The server ping's real job (pong-deadline reap) is worth
-  keeping as-is. The genuine battery bug is #19 below (paused listener still pulls full-rate RTP).
+  keeping as-is. (Note: the "paused listener still pulls RTP" item below was ALSO dropped —
+  see it; the RTP-during-lock-screen-pause is a deliberate design choice, not waste.)
 - [ ] **`listenerCountUpdated` broadcast to every listener on every join/leave and no
   client code consumes it** (room.rs:122-127,234-239; zero frontend subscribers): arrival
   wave = O(N²) frames whose only effect is waking 80 radios. → Debounce/coalesce (2-5s)
   server-side; either display the count (see UX) or stop sending to listeners.
   [impact: med, effort: S]
-- [ ] **A user-paused listener keeps receiving full-rate RTP** (AudioClient.ts:78-87
-  pause only suspends AudioContext, RTP keeps flowing; backend `Listener::pause()` fully
-  implemented but unwired): a paused phone burns ~160kbps radio + decode for hours.
-  → Wire pauseConsumer/resumeConsumer to user-pause intent (server `consumer.pause()`
-  keeps transport/ICE alive → resume is one RTT; anchor/focus mechanics untouched).
-  [impact: med, effort: M]
+- [~] **A user-paused listener keeps receiving full-rate RTP** — DROPPED as NON-ISSUE
+  (grilled 2026-07-08). (1) Listeners cannot pause in-app — the listener page has only
+  Leave / navigate-to-lobby / Enable-Audio; they listen or leave. (2) The ONLY pause path
+  is the lock-screen Media Session control, and its handler (AudioClient.ts:76-87)
+  DELIBERATELY keeps the muted RTP pump playing — explicit comment: "the muted pump element
+  must KEEP PLAYING or RTP stops flowing and resume would need a re-join". So RTP-during-
+  lock-screen-pause is not waste; it's the deliberate price for instant resume + Android
+  audio-focus survival. Pausing the consumer server-side would REGRESS the hard-won
+  lock-screen resume behavior. There is no hours-long "paused but consuming" state to fix.
 - [ ] **Oscilloscope: 60fps rAF loop + its own third AudioContext per listener**
   (Oscilloscope.tsx:32,78,127): Android anchor mode = three live audio graphs + continuous
   canvas draws while screen on. → Throttle to ~15fps, reuse AudioClient's render context,
