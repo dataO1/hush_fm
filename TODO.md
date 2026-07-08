@@ -54,6 +54,13 @@
   during the join handshake) → NO 30s frozen "Connecting…" spinner; the client silently
   retries under the spinner for up to 15s once the socket is back; if it still can't recover
   → bounced to the lobby with an explanatory error banner ("Lost connection while joining …").
+- [ ] **#11 follow-up (LOW, verifier flag)**: a genuinely-dead room that manifests as an
+  abrupt socket close (instead of an app-level `roomClosed`/`listenerNotFound` reply) will
+  flush ConnectionDroppedError → burn the full 15s retry → bounce with the generic
+  WiFi-drop message (cause misattribution + 15s stall). Common dead-room paths are app-level
+  and correctly surfaced, so this is a corner. Optional hardening: backend sends a terminal
+  "room gone" reply on the pending command before closing, or a fast-path distinguishes
+  "socket closed with zero reconnect progress" from a transient blip. [impact: low, effort: M]
 
 # Client-Side Bug Audit (2026-07-06)
 > Full detail + per-bug validation tracking: **[docs/bug-audit-2026-07-06.md](docs/bug-audit-2026-07-06.md)**
