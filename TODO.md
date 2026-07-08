@@ -59,6 +59,159 @@
 - [ ] X8 zombie/duplicate reconnect loops
 - [ ] X9–X13 + M1–M13 — see the doc
 
+# Full-Flow Review (2026-07-08)
+> Fable 5 deep scan of the complete DJ-create → N-listener-join → reconnect →
+> pause/close → 3h-steady-state → UX flow. NOT bugs (those live in the audit
+> above) — architectural gaps, missing corner cases, perf/battery/UX. All
+> claims verified against code at scan time (line refs may drift).
+> Coverage verdicts: DJ-create partial · N-join partial · reconnect partial ·
+> pause/close covered-well · steady-state partial · UX partial.
+> **Highest-leverage cluster for the next party, in order:** DJ re-publish
+> orphaning + DJ reload recovery (together make a DJ phone hiccup survivable),
+> reconnect jitter, pending-request flush on socket close, heartbeat cadence
+> relaxation, DJ listener-count display.
+
+## Architecture
+- [ ] **DJ re-publish orphans all existing listeners** (dj.rs:211,302): a DJ page-reload
+  re-runs publish; `create_sender_transport`/`create_producer` overwrite the old
+  Arc<Transport>/Arc<Producer>, closing the old producer — every listener's consumer dies
+  server-side with NO event sent, while their transport stays `connected` so recovery sees
+  "healthy" and never re-joins → permanent silence. → Broadcast `producerChanged {producerId}`
+  from `Room::create_producer` when replacing; listener treats it as forced re-consume /
+  full re-join. (This is the precise mechanism behind the old "DJ reconnect should renew
+  listener transport/consumer" TODO.) [impact: high, effort: L]
+- [ ] **DJ reload is a dead end** (DJRoom.tsx:104-124): DJRoom depends entirely on router
+  `location.state.djWebSocketUrl`; reload/crash → lobby → forced re-announce (hits the
+  stale-name bug). Listener page already derives its WS URL from route params. → Derive
+  `/ws/room/{roomId}` from the route param + persist roomId in sessionStorage so a reloaded
+  DJ lands back in their live room within the grace window. [impact: high, effort: S]
+- [ ] **Announce-reuse returns stale room metadata** (ws/mod.rs:363-402) — confirms the
+  known Go-Live-retry bug is still present: `AnnounceRoom` finds the existing room by DJ
+  session_id and ignores the new name/description/tags. → Update metadata on reuse, or
+  close-and-recreate when the room has no producer yet. [impact: med, effort: S]
+- [ ] **Setup-state rooms can leak forever; no idle sweeper; AbortRoom never implemented**
+  (room.rs:167 `idle_duration` has zero callers): grace timer only arms on WS *close* — a DJ
+  that announces but never opens the room WS leaks a room+router permanently. → Periodic
+  lobby sweep closing Setup rooms idle > N min via the existing `idle_duration()`.
+  [impact: med, effort: S]
+- [ ] **WS `subscribe()` is last-writer-wins per event type** (WebSocketClient.ts:642-669):
+  one handler per event type in a HashMap — a second subscriber to e.g. `roomClosed`
+  silently replaces the first; works today only because subscriber sets are disjoint.
+  → Store a Set of handlers per type; unsubscribe removes only its own. [impact: med, effort: S]
+- [ ] **RoomAdded vs RoomUpdated decided by 30s wall-clock heuristic; client drops updates
+  for unknown rooms** (lobby.rs:270-287; lobby.store.ts:75-81): a DJ taking >30s between
+  announce and produce (slow mic prompt) publishes as `RoomUpdated` → connected lobbies
+  never show the room. → Backend: track `was_public`, send `RoomAdded` exactly on the
+  false→true transition; frontend: make `updateRoom` an upsert. [impact: med, effort: S]
+- [ ] **Graceful shutdown is dead code** (main.rs:113 no `.with_graceful_shutdown`;
+  `shutdown_signal` defined at 120-144, never referenced): SIGTERM (deploy/restart on the
+  Pi) abruptly kills all sockets → reconnect churn against a booting server. → Wire it +
+  broadcast "server restarting" to all rooms before exit. [impact: med, effort: S]
+- [ ] **Dead-code cluster in WS/domain layer** (ws/mod.rs:2067-2137 `handle_request_join`
+  uncalled; room.rs `connect_dj`/`pause_streaming`/`resume_streaming`/`stop_streaming`
+  bypassed by inline handlers; listener.rs `pause`/`resume` unwired): inline WS handlers
+  reimplement transport connect, losing the domain's 10s connect timeout. → Delete or route
+  through domain methods so timeouts/DTLS-role logic live in one place. [impact: low, effort: S]
+
+## Edge cases
+- [ ] **Joining a paused room shows "live/playing" until next resume** (UserService.ts
+  ~:644-650 sets STREAMING + playing unconditionally): backend sends `producer_paused` in
+  consumer params (listener.rs:495), schema decodes it, nothing reads it — a listener
+  joining during DJ pause (incl. the 15-min grace) sees healthy UI over silence. → Branch
+  on `consumerParameters.producerPaused` after createConsumer → set PAUSED. [impact: med, effort: S]
+- [ ] **`streamResumed` handler lacks the guard `streamPaused` has** (UserService.ts
+  ~:771-791): sets STREAMING unconditionally — a stray frame after teardown re-poisons
+  `webrtcConnectionState` (the stale-flag class X3 fixed). → Same activeRole+isConnected
+  guard. [impact: low, effort: S]
+- [ ] **In-flight commands not failed on socket drop → 30s frozen spinner on a
+  mid-handshake WiFi blip** (WebSocketClient.ts:411-431 `onclose` never touches
+  `pendingRequests`): distinct from X6 (error *frames*); this is the socket-close case,
+  common on party WiFi during the multi-command join handshake. → Fail all pending
+  deferreds in `onclose` so joins error fast and retry kicks in. [impact: med, effort: S]
+- [ ] **ResumeConsumer failures computed then thrown away — listener stuck in silence with
+  zero signal** (ws/mod.rs:1557-1617: success/error built, response block commented out;
+  client fire-and-forgets): if `consumer.resume()` fails, the paused-created consumer never
+  unpauses and neither side knows. → Re-enable the response (pairs with M3 type-mapping fix);
+  client treats failure as full-re-join trigger. [impact: med, effort: S]
+- [ ] **More lock/guard-across-await instances beyond M2** (lobby.rs:150-191 DashMap iter
+  entry held across per-room RwLock reads; ws/mod.rs:2233-2259 room WRITE guard held across
+  `transport.consume().await` — serializes all consumer creations during a join wave;
+  ws/mod.rs:2159-2205 room read guard across an UN-TIMED `transport.connect().await`, unlike
+  the domain method's 10s timeout): one wedged DTLS handshake can stall the room's writer
+  queue and block every concurrent join. → Clone Arcs out of guards before awaiting; add the
+  10s timeout to the inline connect. [impact: med, effort: M]
+
+## Performance
+- [ ] **Reconnect backoff has zero jitter → synchronized thundering herd after an AP blip**
+  (WebSocketClient.ts:351): 80 phones retry in lockstep waves (1s, 2s, 4s…) hammering WS
+  upgrade + rebind simultaneously. → ±50% random jitter on the computed delay (one line,
+  disproportionate payoff). [impact: med, effort: S]
+- [ ] **Command responses bypass the `send_ws` backpressure bound** (ws/mod.rs — all
+  command replies use raw `sender.send(...)` e.g. :934,:1233,:1507,:1687,:1763, despite
+  send_ws's own doc): a client that stops reading mid-command can wedge that connection's
+  task, during which its heartbeat ticks can't fire. → Route every reply through `send_ws`,
+  break on false. [impact: med, effort: S]
+- [ ] **Per-message console logging at party scale** (WebSocketClient.ts:210-297 ~8
+  console.info per inbound frame incl. every pong; similar density in UserService/
+  MediaSoupClient): 80 phones × every frame × 3h = real CPU/battery + signal swamped.
+  → Gate behind debug flag / strip console.info in prod Vite build (esbuild drop / leveled
+  logger). [impact: med, effort: S]
+
+## Battery
+- [ ] **Double heartbeat stack wakes each phone's radio every ~7s all night**
+  (server WS_PING_INTERVAL=10s to every socket + client 22s app-ping): liveness doesn't
+  need this cadence — graces are 600/900s. → Server ping 20-25s + 60s pong deadline
+  (detection ~1min, still fine), client app-ping 45-60s; consider visibility-aware cadence.
+  [impact: med, effort: S]
+- [ ] **`listenerCountUpdated` broadcast to every listener on every join/leave and no
+  client code consumes it** (room.rs:122-127,234-239; zero frontend subscribers): arrival
+  wave = O(N²) frames whose only effect is waking 80 radios. → Debounce/coalesce (2-5s)
+  server-side; either display the count (see UX) or stop sending to listeners.
+  [impact: med, effort: S]
+- [ ] **A user-paused listener keeps receiving full-rate RTP** (AudioClient.ts:78-87
+  pause only suspends AudioContext, RTP keeps flowing; backend `Listener::pause()` fully
+  implemented but unwired): a paused phone burns ~160kbps radio + decode for hours.
+  → Wire pauseConsumer/resumeConsumer to user-pause intent (server `consumer.pause()`
+  keeps transport/ICE alive → resume is one RTT; anchor/focus mechanics untouched).
+  [impact: med, effort: M]
+- [ ] **Oscilloscope: 60fps rAF loop + its own third AudioContext per listener**
+  (Oscilloscope.tsx:32,78,127): Android anchor mode = three live audio graphs + continuous
+  canvas draws while screen on. → Throttle to ~15fps, reuse AudioClient's render context,
+  and/or tap-to-enable. [impact: low, effort: S]
+
+## UX
+- [ ] **DJ (and listeners) have zero visibility of listener count/health** (DJRoom has no
+  count anywhere; `DJ.event_tx` never written; ListenerCountUpdated goes to listeners only
+  and their UI ignores it): the DJ can't tell if 5 or 50 people hear them. → New
+  `DjEvent::ListenerCountUpdated` on the DJ socket + render count on both pages.
+  [impact: med, effort: M]
+- [ ] **Create-room button silently vanishes at >8 lobby rooms** (Landing.tsx:408):
+  no message, no disabled state. → Disabled state + "room limit reached" copy, or lift the
+  arbitrary limit. [impact: low, effort: S]
+- [ ] **Lobby list not refetched after a lobby WS flap** (WebSocketClient.ts:419-422 clears
+  the store on disconnect; REST refetch only on mount): after any blip the Landing page
+  shows an empty list until manual reload. → Trigger `getRoomList()` from an on-reconnect
+  hook (pairs with X4's proposed onReconnected callback). [impact: med, effort: S]
+
+## Observability
+- [ ] **No health endpoint** (main.rs:91-99): no cheap way for nginx/deploy scripts/a phone
+  to confirm the backend is up on the headless Pi. → `GET /health` with version + worker +
+  room count. [impact: med, effort: S]
+- [ ] **Rich mediasoup stats implemented but unreachable** (dj.rs:492-499
+  `get_producer_stats`, listener.rs:409-416 `get_consumer_stats` — dead code): mid-party
+  "is RTP flowing to that phone?" requires log archaeology. → `GET /api/debug/rooms`
+  dumping per-room DJ/producer state + listener entries (epoch, disconnected_at, consumer
+  paused) + optional per-consumer stats. [impact: med, effort: M]
+- [ ] **Info-level raw-frame logging churns the Pi's SD card for 3 hours**
+  (ws/mod.rs:158-159,773-774 raw message content per frame; main.rs:40 plain fmt::init, no
+  EnvFilter): 80 phones × heartbeats × join waves = flash writes all night + unreadable
+  logs. → Demote raw-content to `trace`, default EnvFilter info/warn, per-frame logs behind
+  `HUSHFM_WS_TRACE`. [impact: low, effort: S]
+- [ ] **Phone-side failures unobservable after the fact** (no client log capture anywhere):
+  every party post-mortem so far has been guesswork. → Small in-memory ring buffer of
+  warn/error lines, POSTed to `POST /api/client-log` on pagehide/terminal errors, tagged
+  with the device id — next post-mortem becomes data. [impact: med, effort: M]
+
 # Bugs
 ## Critical
 - [ ] **Offline router: phones warn "network has no internet" and DROP the
