@@ -61,6 +61,10 @@
   and correctly surfaced, so this is a corner. Optional hardening: backend sends a terminal
   "room gone" reply on the pending command before closing, or a fast-path distinguishes
   "socket closed with zero reconnect progress" from a transient blip. [impact: low, effort: M]
+- [ ] **#3 Go-Live rename**: start a room, crash/abandon mid-setup (before it goes live), then
+  create a NEW room with a DIFFERENT name → you stream under the NEW name (old half-setup room
+  is scrapped), no stale name. And: a live/paused room + reconnect keeps its original name and
+  its listeners.
 
 # Client-Side Bug Audit (2026-07-06)
 > Full detail + per-bug validation tracking: **[docs/bug-audit-2026-07-06.md](docs/bug-audit-2026-07-06.md)**
@@ -113,10 +117,11 @@
   request resolves, the 2nd producerChanged is dropped by the 10s throttle → listener stuck
   consuming the dead A (evaluate() won't catch it — transport stays alive). → Re-arm a single
   deferred re-join when a producerChanged is dropped by the throttle. [impact: low, effort: S]
-- [ ] **Announce-reuse returns stale room metadata** (ws/mod.rs:363-402) — confirms the
-  known Go-Live-retry bug is still present: `AnnounceRoom` finds the existing room by DJ
-  session_id and ignores the new name/description/tags. → Update metadata on reuse, or
-  close-and-recreate when the room has no producer yet. [impact: med, effort: S]
+- [x] **Announce-reuse returns stale room metadata** (ws/mod.rs:363-402) — ✔️FIXED: the
+  known Go-Live-retry bug is resolved via a server-authoritative `is_public()` split in the
+  reuse branch — a no-producer (Setup) room is scrapped (`lobby.close_room`) and recreated
+  fresh with the new name/description/tags; a live/paused room is reused unchanged (never
+  renamed under a live audience). [impact: med, effort: S]
 - [ ] **Setup-state rooms can leak forever; no idle sweeper; AbortRoom never implemented**
   (room.rs:167 `idle_duration` has zero callers): grace timer only arms on WS *close* — a DJ
   that announces but never opens the room WS leaks a room+router permanently. → Periodic
@@ -269,11 +274,12 @@
   allowlist for ONLY the probe hosts → genuine HTTPS validation → ZERO
   prompts on every OS. Do both; signage regardless. MUST be done before
   the party — pairs with the dnsmasq override (plan card 8).
-- [ ] DJ "Go Live" retry after a failure REUSES the previously announced room
+- [x] ✔️FIXED DJ "Go Live" retry after a failure REUSES the previously announced room
   (old name/id) instead of announcing a new room with the newly entered name —
   user typed "lkalkja", ended up streaming as the earlier room
-  "hahhahahahhahah" (2026-07-03). AbortRoom on failure or re-announce on retry
-  needed.
+  "hahhahahahhahah" (2026-07-03). Fix: server-authoritative `is_public()` split in the
+  AnnounceRoom reuse branch — scrap-and-recreate the no-producer (Setup) room with the
+  fresh metadata; reuse a live/paused room unchanged.
 - [ ] waveform oscilloscope only works on chrome based browsers but not for
   firefox based browsers! research why.
 - [ ] on mobile the stream is running perfectly in the background, also in

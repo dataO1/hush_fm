@@ -361,24 +361,92 @@ async fn handle_lobby_command(
 
             // Check if DJ already has an existing room
             let room_state = if let Some(existing_room) = lobby.find_room_by_dj_session_id(&session_id).await {
-                let existing_room_guard = existing_room.read().await;
-                let existing_room_id = existing_room_guard.id;
+                // Read the id AND the public/producer status, then drop the read
+                // guard BEFORE any await that takes a write lock (close_room takes
+                // its own write lock via the lobby). Never hold a room guard across
+                // close_room() — this repo has had guard-across-await footguns.
+                let (existing_room_id, existing_is_public) = {
+                    let existing_room_guard = existing_room.read().await;
+                    (existing_room_guard.id, existing_room_guard.is_public())
+                };
                 dj_flow_span.record("room.id", existing_room_id.to_string());
-                
-                tracing::info!(
-                    room_id = %existing_room_id,
-                    session_id = %session_id,
-                    "Step 1: Found existing room for DJ session - returning existing room"
-                );
-                // NOTE (DJ reconnection): the disconnect-grace timer is NOT
-                // cancelled here on purpose. Cancellation + auto-resume happen
-                // in handle_room_socket when the DJ actually opens the room
-                // socket (handle_dj_connection bumps the epoch). Cancelling at
-                // announce time would leak the room forever if the DJ announces
-                // but never completes the room-socket connection.
 
-                drop(existing_room_guard); // Release read lock
-                existing_room
+                if existing_is_public {
+                    // GENUINE RECONNECT: the found room is public (is_public() is
+                    // true for BOTH Live AND Paused — room.rs:64 — so a paused
+                    // room in the DJ-disconnect grace window, with a present-but-
+                    // paused producer and listeners still waiting, is treated as a
+                    // reconnect here, NOT scrapped). Reuse it exactly as before:
+                    // do NOT rename or scrap a room that has an audience under
+                    // their feet. The client's reconnect path passes the room's
+                    // existing name, so the fresh announce metadata is ignored on
+                    // purpose.
+                    tracing::info!(
+                        room_id = %existing_room_id,
+                        session_id = %session_id,
+                        "Step 1: Found existing PUBLIC room for DJ session (live or paused-in-grace) - reusing existing room"
+                    );
+                    // NOTE (DJ reconnection): the disconnect-grace timer is NOT
+                    // cancelled here on purpose. Cancellation + auto-resume happen
+                    // in handle_room_socket when the DJ actually opens the room
+                    // socket (handle_dj_connection bumps the epoch). Cancelling at
+                    // announce time would leak the room forever if the DJ announces
+                    // but never completes the room-socket connection.
+
+                    existing_room
+                } else {
+                    // STALE HALF-SETUP ROOM: the found room is NOT public
+                    // (Setup state — no producer, nobody listening, not in the
+                    // lobby list). This is a DJ whose prior Go-Live half-finished
+                    // (e.g. crashed mid-setup) and who is now re-announcing with a
+                    // NEW name/description/tags. Unconditional recreate would be
+                    // unsafe (it can't distinguish a harmless Setup room from a
+                    // live room with listeners); keying on is_public() lets the
+                    // SERVER independently protect the one-room invariant without
+                    // trusting the UI. A no-producer room may also carry a
+                    // stale/dead transport from the crashed session, so scrap it
+                    // fully and recreate a clean slate with the freshly-typed
+                    // metadata, rather than reusing it in place with the stale name.
+                    tracing::info!(
+                        room_id = %existing_room_id,
+                        session_id = %session_id,
+                        "Step 1: Found existing NON-public room for DJ session (abandoned half-setup) - scrapping and recreating with fresh metadata"
+                    );
+
+                    // Drop our local Arc to the stale room BEFORE close_room so the
+                    // Room (and its Arc<Router>) actually drops once close_room()
+                    // removes the lobby's map entry. mediasoup-rust closes the
+                    // router (and any transports) on last-Arc-drop; holding this
+                    // reference open would leak the router. The pooled workers are
+                    // shared/never freed per-room, so the router is the resource to
+                    // release here.
+                    drop(existing_room);
+
+                    // Full mediasoup/router cleanup + remove from map. close_room()
+                    // skips the lobby broadcast because the room is not public.
+                    lobby.close_room(&existing_room_id).await?;
+
+                    // Fall through to the SAME creation path the no-existing-room
+                    // branch uses, so the DJ gets a clean room carrying the
+                    // name/description/tags they just typed.
+                    let room_id = uuid::Uuid::new_v4();
+                    dj_flow_span.record("room.id", room_id.to_string());
+
+                    tracing::info!(
+                        room_id = %room_id,
+                        session_id = %session_id,
+                        "Step 1: Recreating room with fresh MediaSoup worker after scrapping abandoned half-setup room"
+                    );
+
+                    let new_room = lobby.create_room(room_id, name.clone(), dj_name.clone(), session_id.clone(), description, tags).await?;
+
+                    tracing::info!(
+                        room_id = %room_id,
+                        "Step 1: Room recreated successfully with fresh metadata, MediaSoup router and worker"
+                    );
+
+                    new_room
+                }
             } else {
                 // Create new room in setup state (not public yet)
                 let room_id = uuid::Uuid::new_v4();
