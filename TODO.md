@@ -46,10 +46,12 @@
 - [x] X1 ✔️FIXED "Enable Audio" modal can permanently silence the listener (kills its own track on iOS / no-op on Android)
 - [ ] X2 `try/catch` in `Effect.gen` = dead DJ-publish cleanup
 - [x] X3 ✔️FIXED nav-away leaks media pipeline (DJ mic stays hot; anchor bed leaks) + stale-connected no-ops re-joins
-- [ ] X4 wake-up recovery race ("unlock → silent → lock/unlock again")
+- [ ] X4 wake-up recovery race — DEMOTED to MEDIUM 2026-07-08 (never user-observed;
+      server pong-deadline makes the force-close race mostly moot; what survives: no
+      `evaluate()` after reconnect + no screen-on recovery trigger — re-scope after home tests)
 - [x] X5 ✔️FIXED sessionId deterministic fingerprint → identical phones collide (no anti-collision randomness in code)
 - [ ] X6 backend errors never resolve pending request → 30s hang; dead-room → reconnect churn
-- [ ] X7 DJ WS death → zombie public rooms
+- [x] X7 ✔️FIXED DJ WS death → zombie public rooms (3a04d3f2: pause + 15-min grace + close; pong deadline detects vanished DJs)
 - [ ] X8 zombie/duplicate reconnect loops
 - [ ] X9–X13 + M1–M13 — see the doc
 
