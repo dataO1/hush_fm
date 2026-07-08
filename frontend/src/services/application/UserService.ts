@@ -143,20 +143,27 @@ const createUserServiceImpl = () => {
   // whose cleanup effect may not fail. Every step is best-effort with errors
   // swallowed via Effect.catchAll — never a JS try/catch around yield* (a
   // failing yield* short-circuits the fiber and would skip the catch).
-  const cleanupFailedDJConnection = () =>
+  const cleanupFailedDJConnection = (options?: { readonly sendCloseRoom?: boolean }) =>
     Effect.gen(function* () {
-      const connectionAdapter = yield* ConnectionAdapter
       const wsClient = yield* UserWebSocket
       const mediaSoupClient = yield* MediaSoupClient
       const audioClient = yield* AudioClient
+      const sendCloseRoom = options?.sendCloseRoom ?? true
 
       console.info('🧹 UserService: Cleaning up failed DJ connection...')
 
       // 1. Explicit CloseRoom: a publish failure leaves the WS OPEN, so the
       // server's DJ grace timer never arms — this send is the only immediate
-      // teardown of the Setup-state room. Best-effort: create + send in one
-      // guarded pipe; any failure is logged and swallowed.
-      if (connectionAdapter.isRoomConnected()) {
+      // teardown of the Setup-state room. Guarded by isSocketOpen(), NOT
+      // isRoomConnected(): during a pre-producer failure webrtcConnectionState
+      // is CONNECTING/ERROR (never CONNECTED|STREAMING), so isRoomConnected()
+      // would be false and the send silently skipped — leaking the Setup room
+      // (verifier finding, 2026-07-08). Skipped entirely on interruption
+      // (sendCloseRoom=false): a back-button mid-publish is X3's accidental-
+      // navigation case — the unmount closes the WS, arming the server's
+      // pause-then-grace instead. Best-effort: create + send in one guarded
+      // pipe; any failure is logged and swallowed.
+      if (sendCloseRoom && wsClient.isSocketOpen()) {
         console.info('🧹 UserService: Sending close room command to backend...')
         const makeCloseRoomCommand = withSchemaLogging(CloseRoomCommandSchema, 'CloseRoomCommand')
         yield* pipe(
@@ -342,10 +349,15 @@ const createUserServiceImpl = () => {
         Effect.onError((cause: Cause.Cause<unknown>) =>
           Effect.gen(function* () {
             console.error('❌ UserService: DJ publishing flow failed or interrupted:\n' + Cause.pretty(cause))
-            // Comprehensive cleanup: CloseRoom (WS stays open on publish
-            // failure, so the server grace timer never arms), stop mic
-            // tracks, MediaSoup cleanup (drops the stuck spinner), role reset.
-            yield* cleanupFailedDJConnection()
+            // Comprehensive cleanup: stop mic tracks, MediaSoup cleanup
+            // (drops the stuck spinner), role reset — always. CloseRoom only
+            // on genuine failure: an interrupted-only cause (back-button
+            // mid-publish → X3 teardownOnUnmount) must NOT kill the room —
+            // the unmount's WS close arms the server's pause-then-grace,
+            // matching X3's accidental-navigation semantics.
+            yield* cleanupFailedDJConnection({
+              sendCloseRoom: !Cause.isInterruptedOnly(cause)
+            })
           })
         )
       ) as Effect.Effect<DJPublishResultType, UserServiceError, UserAdapter | UserWebSocket | MediaSoupClient | AudioClient | AudioAdapter | ConnectionAdapter>,
