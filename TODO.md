@@ -38,13 +38,17 @@
   server slot freed; (b) DJ back-button → mic light off immediately, room pauses then
   closes after grace; (c) listener back-button then join a DIFFERENT room → new room
   audio plays.
+- [ ] **X2 DJ publish-failure cleanup**: force a publish failure (e.g. deny mic
+  permission mid-flow or kill backend between transport-create and produce) → error
+  message shows, NO stuck 'Connecting…' spinner, mic light off, room does not linger
+  in Setup on the server, DJ can retry without reload.
 
 # Client-Side Bug Audit (2026-07-06)
 > Full detail + per-bug validation tracking: **[docs/bug-audit-2026-07-06.md](docs/bug-audit-2026-07-06.md)**
 > 5 CRITICAL, 8 HIGH, 13 MEDIUM found by a 3-agent client-side audit. We deep-dive
 > and validate each before fixing. Status so far:
 - [x] X1 ✔️FIXED "Enable Audio" modal can permanently silence the listener (kills its own track on iOS / no-op on Android)
-- [ ] X2 `try/catch` in `Effect.gen` = dead DJ-publish cleanup
+- [x] X2 ✔️FIXED `try/catch` in `Effect.gen` = dead DJ-publish cleanup (Effect.onError on the pipe chain + completed cleanup: mic stop, WebRTC state reset, CloseRoom kept)
 - [x] X3 ✔️FIXED nav-away leaks media pipeline (DJ mic stays hot; anchor bed leaks) + stale-connected no-ops re-joins
 - [ ] X4 wake-up recovery race — DEMOTED to MEDIUM 2026-07-08 (never user-observed;
       server pong-deadline makes the force-close race mostly moot; what survives: no

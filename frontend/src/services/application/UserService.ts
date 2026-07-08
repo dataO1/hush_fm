@@ -16,7 +16,7 @@
  * - Cleanup and disconnection
  */
 
-import { Effect, Context, Layer, Option as O, pipe } from 'effect'
+import { Effect, Context, Layer, Option as O, Cause, pipe } from 'effect'
 
 // Import only adapters via Context.Tag
 import { ConnectionAdapter, UserAdapter, AudioAdapter } from '../../stores'
@@ -138,59 +138,61 @@ const createUserServiceImpl = () => {
   // Store active WebSocket connections for proper cleanup
   let activeRole = O.none<UserRoleType>()
 
-  // Internal helper function to cleanup DJ room on connection failure
+  // Internal helper function to cleanup DJ room on connection failure (X2).
+  // MUST be infallible (E = never): it runs inside Effect.onError finalizers,
+  // whose cleanup effect may not fail. Every step is best-effort with errors
+  // swallowed via Effect.catchAll — never a JS try/catch around yield* (a
+  // failing yield* short-circuits the fiber and would skip the catch).
   const cleanupFailedDJConnection = () =>
     Effect.gen(function* () {
       const connectionAdapter = yield* ConnectionAdapter
       const wsClient = yield* UserWebSocket
       const mediaSoupClient = yield* MediaSoupClient
-      
+      const audioClient = yield* AudioClient
+
       console.info('🧹 UserService: Cleaning up failed DJ connection...')
 
-      // Send close command if we have a room connection
+      // 1. Explicit CloseRoom: a publish failure leaves the WS OPEN, so the
+      // server's DJ grace timer never arms — this send is the only immediate
+      // teardown of the Setup-state room. Best-effort: create + send in one
+      // guarded pipe; any failure is logged and swallowed.
       if (connectionAdapter.isRoomConnected()) {
-        try {
-          console.info('🧹 UserService: Sending close room command to backend...')
-          
-          // Create command using logging wrapper
-          const makeCloseRoomCommand = withSchemaLogging(CloseRoomCommandSchema, 'CloseRoomCommand')
-          const closeRoomCommand = yield* makeCloseRoomCommand({}).pipe(
-            Effect.mapError((error) => {
-              console.warn('⚠️ UserService: Failed to create close room command:', error)
-              return new UserServiceError({
-                cause: `Failed to create close room command: ${error}`,
-                role: 'dj',
-                operation: 'cleanupFailedDJConnection',
-                timestamp: new Date()
-              })
-            })
-          )
-
-          // Send close command (fire-and-forget, don't fail if it errors)
-          yield* wsClient.sendCommand<RoomClosedEvent>(closeRoomCommand).pipe(
-            Effect.catchAll((error) => {
-              console.warn('⚠️ UserService: Failed to send close room command (ignoring):', error)
-              return Effect.succeed(undefined) // Don't fail cleanup on close command error
-            })
-          )
-          
-          console.info('✅ UserService: Close room command sent successfully')
-        } catch (error) {
-          console.warn('⚠️ UserService: Error during close room command (ignoring):', error)
-        }
+        console.info('🧹 UserService: Sending close room command to backend...')
+        const makeCloseRoomCommand = withSchemaLogging(CloseRoomCommandSchema, 'CloseRoomCommand')
+        yield* pipe(
+          makeCloseRoomCommand({}),
+          Effect.andThen((command) => wsClient.sendCommand<RoomClosedEvent>(command)),
+          Effect.andThen(() => Effect.sync(() => {
+            console.info('✅ UserService: Close room command sent successfully')
+          })),
+          Effect.catchAll((error) => Effect.sync(() => {
+            console.warn('⚠️ UserService: Failed to send close room command (ignoring):', error)
+          }))
+        )
       }
 
-      // Always cleanup MediaSoup resources
+      // 2. Stop the DJ mic tracks — releases the captured getUserMedia stream
+      // (OS privacy indicator off) after a failed publish.
+      yield* audioClient.stopStream().pipe(
+        Effect.catchAll(() => Effect.void)
+      )
+
+      // 3. Close MediaSoup resources (producer/transport/device). cleanup()
+      // also calls connectionAdapter.resetRoom(), which sets
+      // webrtcConnectionState → DISCONNECTED — that is what drops the stuck
+      // "Connecting…" spinner (isConnecting() derives purely from that state),
+      // so an extra explicit setWebRTCState(DISCONNECTED) here would be
+      // redundant double-setting.
       yield* mediaSoupClient.cleanup().pipe(
         Effect.catchAll((error) => {
           console.warn('⚠️ UserService: MediaSoup cleanup failed (ignoring):', error)
           return Effect.succeed(undefined) // Don't fail on cleanup errors
         })
       )
-      
+
       // Reset active role
       activeRole = O.none()
-      
+
       console.info('✅ UserService: Failed DJ connection cleanup completed')
     })
 
@@ -240,119 +242,113 @@ const createUserServiceImpl = () => {
         activeRole = O.some('dj' as UserRoleType)
         userAdapter.setCurrentRole('dj')
 
-        try {
-          // 3. Initialize room and get RTP capabilities (WebSocket already connected from DJRoom mount)
-          console.info('📡 UserService: Initializing room and waiting for capabilities...')
+        // 3. Initialize room and get RTP capabilities (WebSocket already connected from DJRoom mount)
+        console.info('📡 UserService: Initializing room and waiting for capabilities...')
 
-          // Create command using logging wrapper
-          const makeInitRoomCommand = withSchemaLogging(InitRoomCommandSchema, 'InitRoomCommand')
-          const initRoomCommand = yield* makeInitRoomCommand({ roomId })
+        // Create command using logging wrapper
+        const makeInitRoomCommand = withSchemaLogging(InitRoomCommandSchema, 'InitRoomCommand')
+        const initRoomCommand = yield* makeInitRoomCommand({ roomId })
 
-          // Send command and wait for response in one call
-          const rtpCapabilitiesEvent = yield* wsClient.sendCommand<RoomInitializedEvent>(initRoomCommand)
+        // Send command and wait for response in one call
+        const rtpCapabilitiesEvent = yield* wsClient.sendCommand<RoomInitializedEvent>(initRoomCommand)
 
-          // 4. Initialize MediaSoup device
-          console.info('🎛️ UserService: Initializing MediaSoup device...')
-          yield* mediaSoupClient.initDevice(rtpCapabilitiesEvent.rtpCapabilities)
+        // 4. Initialize MediaSoup device
+        console.info('🎛️ UserService: Initializing MediaSoup device...')
+        yield* mediaSoupClient.initDevice(rtpCapabilitiesEvent.rtpCapabilities)
 
-          // 5. Request transport from server
-          console.info('🚛 UserService: Requesting transport...')
+        // 5. Request transport from server
+        console.info('🚛 UserService: Requesting transport...')
 
-          // Create command using logging wrapper
-          const makeRequestDjTransportCommand = withSchemaLogging(RequestDjTransportCommandSchema, 'RequestDjTransportCommand')
-          const requestTransportCommand = yield* makeRequestDjTransportCommand({})
+        // Create command using logging wrapper
+        const makeRequestDjTransportCommand = withSchemaLogging(RequestDjTransportCommandSchema, 'RequestDjTransportCommand')
+        const requestTransportCommand = yield* makeRequestDjTransportCommand({})
 
-          // Send command and wait for response in one call
-          const transportEvent = yield* wsClient.sendCommand<DjTransportReadyEvent>(requestTransportCommand)
+        // Send command and wait for response in one call
+        const transportEvent = yield* wsClient.sendCommand<DjTransportReadyEvent>(requestTransportCommand)
 
-          // 6. Create send transport WITH event handlers
-          console.info('🔧 UserService: Creating send transport with event handlers...')
-          const transport = yield* mediaSoupClient.createSendTransport(transportEvent.transportOptions, {
-            onConnect: async (dtlsParameters) => {
-              console.info('🔗 UserService: Transport connect event - sending DTLS params')
+        // 6. Create send transport WITH event handlers
+        console.info('🔧 UserService: Creating send transport with event handlers...')
+        const transport = yield* mediaSoupClient.createSendTransport(transportEvent.transportOptions, {
+          onConnect: async (dtlsParameters) => {
+            console.info('🔗 UserService: Transport connect event - sending DTLS params')
 
-              // Create command using logging wrapper
-              const makeConnectDjTransportCommand = withSchemaLogging(ConnectDjTransportCommandSchema, 'ConnectDjTransportCommand')
-              const connectTransportCommand = await makeConnectDjTransportCommand({
-                transportId: O.some(transport.id),
-                dtlsParameters
-              }).pipe(Effect.runPromise)
+            // Create command using logging wrapper
+            const makeConnectDjTransportCommand = withSchemaLogging(ConnectDjTransportCommandSchema, 'ConnectDjTransportCommand')
+            const connectTransportCommand = await makeConnectDjTransportCommand({
+              transportId: O.some(transport.id),
+              dtlsParameters
+            }).pipe(Effect.runPromise)
 
-              // Send command and wait for response in one call
-              await wsClient.sendCommand<TransportConnectedEvent>(connectTransportCommand).pipe(Effect.runPromise)
-              console.info('✅ UserService: Transport connected successfully')
-            },
-            onProduce: async (rtpParameters) => {
-              console.info('🎤 UserService: Transport produce event - sending RTP params')
+            // Send command and wait for response in one call
+            await wsClient.sendCommand<TransportConnectedEvent>(connectTransportCommand).pipe(Effect.runPromise)
+            console.info('✅ UserService: Transport connected successfully')
+          },
+          onProduce: async (rtpParameters) => {
+            console.info('🎤 UserService: Transport produce event - sending RTP params')
 
-              // Create command using logging wrapper
-              const makeProduceCommand = withSchemaLogging(ProduceCommandSchema, 'ProduceCommand')
-              const produceCommand = await makeProduceCommand({ rtpParameters }).pipe(Effect.runPromise)
+            // Create command using logging wrapper
+            const makeProduceCommand = withSchemaLogging(ProduceCommandSchema, 'ProduceCommand')
+            const produceCommand = await makeProduceCommand({ rtpParameters }).pipe(Effect.runPromise)
 
-              // Send command and wait for response in one call
-              const producerEvent = await wsClient.sendCommand<ProducerCreatedEvent>(produceCommand).pipe(Effect.runPromise)
-              console.info('✅ UserService: Producer created successfully', { producerId: producerEvent.producerId })
-              
-              // Update connection state to STREAMING after successful producer creation
-              connectionAdapter.setWebRTCState(WebrtcConnectionState.STREAMING)
-              console.info('🎯 UserService: Updated connection state to STREAMING')
-              
-              return producerEvent.producerId
-            }
-          })
+            // Send command and wait for response in one call
+            const producerEvent = await wsClient.sendCommand<ProducerCreatedEvent>(produceCommand).pipe(Effect.runPromise)
+            console.info('✅ UserService: Producer created successfully', { producerId: producerEvent.producerId })
 
-          // 8. Create producer from audio track (this will trigger the events)
-          console.info('🎵 UserService: Creating producer...')
-          // Opus produce options — driven by build-time env (from the Nix flake
-          // cfg.audio.*) so the browser DJ path (B) matches the line-in path (A).
-          const env = (import.meta as any).env ?? {}
-          const djCodecOptions = {
-            opusStereo: true,
-            opusFec: env.HUSHFM_OPUS_ENABLE_FEC === 'true', // match backend FEC setting
-            opusDtx: false, // continuous music is never silent — DTX off
-            opusMaxAverageBitrate: Number(env.HUSHFM_OPUS_BITRATE) || 160000
+            // Update connection state to STREAMING after successful producer creation
+            connectionAdapter.setWebRTCState(WebrtcConnectionState.STREAMING)
+            console.info('🎯 UserService: Updated connection state to STREAMING')
+
+            return producerEvent.producerId
           }
-          console.info('🎚️ DJ produce Opus options:', djCodecOptions)
-          const producer = yield* mediaSoupClient.createProducer(audioTrack, {codecOptions: djCodecOptions}).pipe(
-            Effect.catchAll((error) => {
-              console.error('❌ UserService: createProducer failed, triggering cleanup:', error)
-              
-              // Use Effect.gen to compose cleanup with error propagation
-              return Effect.gen(function* () {
-                // Attempt cleanup but don't fail if it errors
-                yield* cleanupFailedDJConnection().pipe(
-                  Effect.catchAll((cleanupError) => {
-                    console.warn('⚠️ UserService: Cleanup failed during createProducer error:', cleanupError)
-                    return Effect.succeed(undefined)
-                  })
-                )
-                
-                // After cleanup, propagate the original error
-                return yield* Effect.fail(error)
-              })
-            })
-          )
+        })
 
-          // Ensure audio adapter shows as playing when streaming starts
-          const audioAdapter = yield* AudioAdapter
-          audioAdapter.updateStreamState({ playing: true })
-          console.info('🎯 UserService: Updated audio adapter state to playing')
-
-          return {
-            roomId,
-            producerId: producer.id,
-            djWebSocketUrl,
-            publishedAt: new Date()
-          }
-        } catch (error) {
-          console.error('❌ UserService: Error in DJ publishing flow:', error)
-          
-          // Perform comprehensive cleanup including sending close room command
-          yield* cleanupFailedDJConnection()
-
-          throw error
+        // 8. Create producer from audio track (this will trigger the events).
+        // No inner catchAll — failure cleanup is handled once, by the
+        // Effect.onError handler on the pipe chain below.
+        console.info('🎵 UserService: Creating producer...')
+        // Opus produce options — driven by build-time env (from the Nix flake
+        // cfg.audio.*) so the browser DJ path (B) matches the line-in path (A).
+        const env = (import.meta as any).env ?? {}
+        const djCodecOptions = {
+          opusStereo: true,
+          opusFec: env.HUSHFM_OPUS_ENABLE_FEC === 'true', // match backend FEC setting
+          opusDtx: false, // continuous music is never silent — DTX off
+          opusMaxAverageBitrate: Number(env.HUSHFM_OPUS_BITRATE) || 160000
         }
-      }) as Effect.Effect<DJPublishResultType, UserServiceError, UserAdapter | UserWebSocket | MediaSoupClient | AudioClient>,
+        console.info('🎚️ DJ produce Opus options:', djCodecOptions)
+        const producer = yield* mediaSoupClient.createProducer(audioTrack, {codecOptions: djCodecOptions})
+
+        // Ensure audio adapter shows as playing when streaming starts
+        const audioAdapter = yield* AudioAdapter
+        audioAdapter.updateStreamState({ playing: true })
+        console.info('🎯 UserService: Updated audio adapter state to playing')
+
+        return {
+          roomId,
+          producerId: producer.id,
+          djWebSocketUrl,
+          publishedAt: new Date()
+        }
+      }).pipe(
+        // X2: the old JS try/catch around the yield* steps was dead code — a
+        // failing yield* short-circuits the fiber and never throws into a JS
+        // catch. Effect.onError is the correct combinator here (do not swap):
+        // - catchAll would miss interruption (a DJ navigating away mid-publish
+        //   is a real path since X3's teardownOnUnmount can interrupt the flow)
+        // - ensuring/onExit would also fire on success
+        // onError fires on failure + interruption only, receives the Cause,
+        // runs uninterruptibly, and does NOT swallow — the original error
+        // still propagates to the caller (DJRoom's streamingOperation).
+        Effect.onError((cause: Cause.Cause<unknown>) =>
+          Effect.gen(function* () {
+            console.error('❌ UserService: DJ publishing flow failed or interrupted:\n' + Cause.pretty(cause))
+            // Comprehensive cleanup: CloseRoom (WS stays open on publish
+            // failure, so the server grace timer never arms), stop mic
+            // tracks, MediaSoup cleanup (drops the stuck spinner), role reset.
+            yield* cleanupFailedDJConnection()
+          })
+        )
+      ) as Effect.Effect<DJPublishResultType, UserServiceError, UserAdapter | UserWebSocket | MediaSoupClient | AudioClient | AudioAdapter | ConnectionAdapter>,
 
     closeDJRoom: () =>
       Effect.gen(function* () {
