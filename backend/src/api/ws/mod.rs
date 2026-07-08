@@ -1625,64 +1625,73 @@ async fn handle_listener_command(
             let mut success = false;
             let mut error_msg = String::new();
 
-            if let Some(room_state) = lobby.get_room(&room_id) {
-                // Room uses DashMap for listeners, so we don't need a write lock on the whole room
-                // We just need to access the listeners map
-
-                // Listeners map is keyed by session_id
-
-                if let Some(mut listener_entry) = room_state.read().await.listeners.get_mut(&session_id) {
-                    let listener_state = listener_entry.value_mut();
+            // Fix (A): resolve ownership + clone the Arc<Consumer> out under the
+            // guards, then DROP both the DashMap entry guard and the room
+            // read-guard BEFORE the resume().await. No lock is held across the
+            // await, so the reaper / a reconnect can touch this listener entry
+            // concurrently without deadlocking.
+            let consumer_to_resume = if let Some(room_state) = lobby.get_room(&room_id) {
+                // Room uses DashMap for listeners, so we only need a room read
+                // guard to reach the listeners map (keyed by session_id).
+                let room_guard = room_state.read().await;
+                let resolved = if let Some(listener_entry) = room_guard.listeners.get(&session_id) {
+                    let listener_state = listener_entry.value();
 
                     // Verify this listener actually owns the requested consumer
                     if let Some(current_consumer_id) = &listener_state.consumer_id {
                         if current_consumer_id == &consumer_id {
                             if let Some(consumer) = &listener_state.consumer {
-                                 match consumer.resume().await {
-                                    Ok(_) => {
-                                        tracing::info!("Successfully resumed mediasoup consumer {}", consumer_id);
-                                        success = true;
-                                    },
-                                    Err(e) => {
-                                        error_msg = format!("Mediasoup error: {}", e);
-                                        tracing::error!("Failed to resume consumer {}: {}", consumer_id, e);
-                                    }
-                                }
+                                Some(consumer.clone())
                             } else {
                                 error_msg = "Consumer object missing in listener state".to_string();
+                                None
                             }
                         } else {
                             error_msg = format!("Listener owns different consumer: {:?}", current_consumer_id);
+                            None
                         }
                     } else {
                         error_msg = "Listener has no active consumer".to_string();
+                        None
                     }
+                    // DashMap entry guard (`listener_entry`) dropped at end of this block
                 } else {
                     error_msg = format!("Listener {} not found in room", session_id);
-                }
+                    None
+                };
+                drop(room_guard); // Release room read-guard before the resume().await
+                resolved
             } else {
                 error_msg = "Room not found".to_string();
+                None
+            };
+
+            if let Some(consumer) = consumer_to_resume {
+                match consumer.resume().await {
+                    Ok(_) => {
+                        tracing::info!("Successfully resumed mediasoup consumer {}", consumer_id);
+                        success = true;
+                    }
+                    Err(e) => {
+                        error_msg = format!("Mediasoup error: {}", e);
+                        tracing::error!("Failed to resume consumer {}: {}", consumer_id, e);
+                    }
+                }
             }
 
-            // Send response back to client
-            // if success {
-            //      let response = ListenerEvent::ConsumerResumed {
-            //         consumer_id: consumer_id.clone(),
-            //     };
-            //
-            //     if let Ok(msg) = serde_json::to_string(&response) {
-            //         sender.send(Message::Text(msg)).await.ok();
-            //     }
-            // } else {
-            //      let response = ListenerEvent::CommandFailed {
-            //         command: "resumeConsumer".to_string(),
-            //         error: format!("Failed to resume consumer {}: {}", consumer_id, error_msg),
-            //     };
-            //
-            //     if let Ok(msg) = serde_json::to_string(&response) {
-            //         sender.send(Message::Text(msg)).await.ok();
-            //     }
-            // }
+            // Fix (B): the client sends ResumeConsumer fire-and-forget and does
+            // not need a success event. On FAILURE ONLY, signal the client so it
+            // can recover (full re-join) instead of sitting silent on a paused
+            // consumer. Best-effort send, matching the sibling handlers.
+            if !success {
+                let response = ListenerEvent::CommandFailed {
+                    command: "resumeConsumer".to_string(),
+                    error: format!("Failed to resume consumer {}: {}", consumer_id, error_msg),
+                };
+                if let Ok(msg) = serde_json::to_string(&response) {
+                    sender.send(Message::Text(msg)).await.ok();
+                }
+            }
         }
         ListenerCommand::GetRouterCapabilities { room_id: requested_room_id, .. } => {
             // Validate that the requested room ID matches the WebSocket path

@@ -61,6 +61,9 @@
   and correctly surfaced, so this is a corner. Optional hardening: backend sends a terminal
   "room gone" reply on the pending command before closing, or a fast-path distinguishes
   "socket closed with zero reconnect progress" from a transient blip. [impact: low, effort: M]
+- [ ] **#12 resume-failure recovery**: (hard to force naturally) if a listener's ResumeConsumer
+  fails server-side, the client should auto full-re-join and recover audio rather than sit silent;
+  primarily verify NO regression to the normal join (audio still starts on every normal join).
 - [ ] **#3 Go-Live rename**: start a room, crash/abandon mid-setup (before it goes live), then
   create a NEW room with a DIFFERENT name → you stream under the NEW name (old half-setup room
   is scrapped), no stale name. And: a live/paused room + reconnect keeps its original name and
@@ -166,11 +169,17 @@
   `ConnectionDroppedError` via `Schedule.spaced(1s)` capped by `Schedule.upTo(15s)`; on budget
   exhaustion it navigates to the lobby and sets the lobby error banner via
   `lobbyAdapter.setCreationError(...)`. No 30s hang. [impact: med, effort: S]
-- [ ] **ResumeConsumer failures computed then thrown away — listener stuck in silence with
+- [x] **ResumeConsumer failures computed then thrown away — listener stuck in silence with
   zero signal** (ws/mod.rs:1557-1617: success/error built, response block commented out;
   client fire-and-forgets): if `consumer.resume()` fails, the paused-created consumer never
   unpauses and neither side knows. → Re-enable the response (pairs with M3 type-mapping fix);
   client treats failure as full-re-join trigger. [impact: med, effort: S]
+  FIXED (#12): lock-across-await fixed via clone-then-drop (clone the `Arc<Consumer>` under the
+  room read-guard + DashMap entry guard, then drop BOTH before `consumer.resume().await`);
+  `ListenerEvent::CommandFailed { command: "resumeConsumer", .. }` now sent on failure ONLY
+  (no success event — client fire-and-forgets success); client's `startListenerRecovery`
+  subscribes to `commandFailed`, filters to `resumeConsumer`, and re-joins via the existing
+  throttled single-flight `performFullRejoin()` on failure.
 - [ ] **More lock/guard-across-await instances beyond M2** (lobby.rs:150-191 DashMap iter
   entry held across per-room RwLock reads; ws/mod.rs:2233-2259 room WRITE guard held across
   `transport.consume().await` — serializes all consumer creations during a join wave;

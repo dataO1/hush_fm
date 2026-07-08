@@ -57,7 +57,8 @@ import {
   type ListenerStreamResumedEvent,
   type ListenerNotFoundEvent,
   type ListenerRoomClosedEvent,
-  type ListenerProducerChangedEvent
+  type ListenerProducerChangedEvent,
+  type ListenerCommandFailedEvent
 } from '../../domain/schemas/shared/websocket.schema'
 
 // Import domain schemas and types
@@ -1148,6 +1149,24 @@ export const UserFeatureLayer = Layer.scoped(
             }
           )
 
+          // ── commandFailed(resumeConsumer) → forced full re-join ─────────────
+          // The server failed to resume our consumer (fire-and-forget from the
+          // join path). The consumer is now in a bad state → we would sit on a
+          // paused consumer in permanent silence with no other signal. A clean
+          // full re-join rebuilds the consumer. STRICTLY filtered to the
+          // resumeConsumer command so we never react to other CommandFailed
+          // events. Reuses the same single-flight + 10 s throttle.
+          const unsubResumeFailed = yield* userWebSocket.subscribe<ListenerCommandFailedEvent>(
+            'commandFailed',
+            (event) => {
+              if (event.command !== 'resumeConsumer') return
+              if (terminal) return
+              console.info('Recovery: resumeConsumer failed server-side — forcing full re-join', event.error)
+              void performFullRejoin().catch(e =>
+                console.error('Recovery: resumeConsumer re-join error:', e))
+            }
+          )
+
           // ── evaluate() — the binding trigger matrix ────────────────────────
           //
           // State matrix (wsAlive × transportDead):
@@ -1268,6 +1287,7 @@ export const UserFeatureLayer = Layer.scoped(
             unsubListenerNotFound()
             unsubRoomClosed()
             unsubProducerChanged()
+            unsubResumeFailed()
           }
         })
     } satisfies Context.Tag.Service<UserService>
