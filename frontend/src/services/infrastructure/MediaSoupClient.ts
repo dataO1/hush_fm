@@ -940,11 +940,18 @@ const createMediaSoupClientImpl = (connectionAdapter: Context.Tag.Service<Connec
  *
  * Live implementation layer that provides the MediaSoupClient.
  * Use this in your app's main Layer composition.
+ *
+ * Layer.scoped (X3): cleanup() runs as a finalizer when the owning runtime is
+ * disposed (page-level ManagedRuntime.dispose() on unmount). This is a safety
+ * net behind the explicit teardown paths — cleanup() is idempotent (every
+ * resource is an Option guarded before close), so double-invocation is safe.
  */
-export const MediaSoupClientLive = Layer.effect(
+export const MediaSoupClientLive = Layer.scoped(
   MediaSoupClient,
   Effect.gen(function* () {
     const connectionAdapter = yield* ConnectionAdapter
-    return createMediaSoupClientImpl(connectionAdapter)
+    const client = createMediaSoupClientImpl(connectionAdapter)
+    yield* Effect.addFinalizer(() => client.cleanup())
+    return client
   })
 )

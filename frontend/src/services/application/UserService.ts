@@ -104,6 +104,27 @@ export class UserService extends Context.Tag("@app/services/UserService")<
     readonly connect: (url: string) => Effect.Effect<void, UserServiceError, never>
     readonly disconnect: () => Effect.Effect<void, UserServiceError, never>
     readonly getCurrentRole: () => Effect.Effect<UserRoleType | null, never, never>
+
+    /**
+     * Full client-side teardown for page unmount (back-button / route change) — X3.
+     * Role-aware, WS-polite, never fails:
+     * - listener: best-effort LeaveRoom (short timeout, errors swallowed) so the
+     *   server frees the slot immediately, then stop audio playback, close all
+     *   MediaSoup resources, disconnect the WS.
+     * - dj: deliberately NO CloseRoom — the server gives a disconnected DJ
+     *   pause-then-grace semantics, so accidental navigation must not kill the
+     *   party. But the local mic IS released (privacy light off), MediaSoup
+     *   resources closed, WS disconnected.
+     * Explicit Leave/Close buttons keep using leaveListenerRoom/closeDJRoom.
+     */
+    readonly teardownOnUnmount: () => Effect.Effect<void, never, never>
+
+    /**
+     * Register a window 'pagehide' handler that fire-and-forgets a LeaveRoom
+     * command over the open WS (no await — the page is going away). Returns an
+     * unregister function; the caller's onCleanup must invoke it.
+     */
+    readonly registerPagehideLeave: () => Effect.Effect<() => void, never, never>
   }
 >() {}
 
@@ -468,14 +489,42 @@ const createUserServiceImpl = () => {
           webrtcState: connectionState.webrtcConnectionState
         })
 
-        // Check if we already have an active WebRTC connection.
+        // Check if we already have an active WebRTC connection TO THIS ROOM (X3).
         // Bypassed when force=true (recovery re-join after mediaSoupClient.cleanup()).
         // cleanup() already calls connectionAdapter.resetRoom(), making isRoomConnected()
         // return false, but force ensures safety even if cleanup was partial.
+        //
+        // roomId-aware: a WS close only resets roomWsState — nothing resets
+        // webrtcConnectionState (it can stay STREAMING from a previous room). A new
+        // WS to a DIFFERENT room then makes isRoomConnected() true and the old
+        // flag-based guard returned a fake join result (no consumer for the new
+        // room → silence). Only short-circuit when the tracked roomId matches;
+        // on mismatch/absence treat the state as stale: clean up and run the
+        // FULL handshake.
         if (!options?.force && connectionAdapter.isRoomConnected()) {
-          console.info('✅ UserService: Already connected to room, skipping handshake')
-          connectionAdapter.setCurrentRoomId(roomId)
-          return { listenerId: sessionId, roomId, sessionId, joinedAt: new Date() }
+          const sameRoom = pipe(
+            connectionAdapter.getCurrentRoomId(),
+            O.match({
+              onNone: () => false,
+              onSome: (currentId) => currentId === roomId
+            })
+          )
+          if (sameRoom) {
+            console.info('✅ UserService: Already connected to this room, skipping handshake')
+            connectionAdapter.setCurrentRoomId(roomId)
+            return { listenerId: sessionId, roomId, sessionId, joinedAt: new Date() }
+          }
+
+          console.warn('⚠️ UserService: Stale connected state (roomId mismatch/absent) — cleaning up and running full handshake', {
+            requestedRoomId: roomId,
+            trackedRoomId: O.getOrNull(connectionAdapter.getCurrentRoomId())
+          })
+          yield* mediaSoupClient.cleanup()
+          // cleanup() resets roomWsState to DISCONNECTED, but the socket we just
+          // connected is genuinely open — restore the truthful WS state.
+          if (wsClient.isSocketOpen()) {
+            connectionAdapter.setRoomWSState(WsConnectionState.CONNECTED)
+          }
         }
 
         // 2. Request RTP capabilities from backend
@@ -781,7 +830,59 @@ const createUserServiceImpl = () => {
       ) as Effect.Effect<void, UserServiceError, never>,
 
     getCurrentRole: () =>
-      Effect.succeed(O.getOrNull(activeRole)) as Effect.Effect<UserRoleType | null, never, ConnectionAdapter>
+      Effect.succeed(O.getOrNull(activeRole)) as Effect.Effect<UserRoleType | null, never, ConnectionAdapter>,
+
+    // ============= Unmount teardown (X3) =============
+    //
+    // Role-aware full client-side teardown for back-button / route change.
+    // Must NEVER fail or hang unmount: every step is best-effort with errors
+    // swallowed (try/catch inside Effect.gen would NOT catch a failing yield* —
+    // hence Effect.catchAll on every fallible step).
+    teardownOnUnmount: () =>
+      Effect.gen(function* () {
+        const wsClient = yield* UserWebSocket
+        const audioClient = yield* AudioClient
+        const mediaSoupClient = yield* MediaSoupClient
+
+        const role = O.getOrNull(activeRole)
+        console.info(`🧹 UserService: Unmount teardown starting (role: ${role ?? 'none'})`)
+
+        // Listener: best-effort LeaveRoom so the server frees the slot immediately.
+        // DJ: deliberately NO CloseRoom — server-side a vanished DJ gets
+        // pause-then-grace, so an accidental back-button must not kill the party.
+        if (role === 'listener' && wsClient.isSocketOpen()) {
+          const makeLeaveRoomCommand = withSchemaLogging(LeaveRoomCommandSchema, 'LeaveRoomCommand')
+          yield* pipe(
+            makeLeaveRoomCommand({}),
+            Effect.andThen((command) => wsClient.sendCommandFireForget(command)),
+            Effect.timeout('500 millis'),
+            Effect.catchAll((error) => Effect.sync(() => {
+              console.warn('⚠️ UserService: Best-effort LeaveRoom on unmount failed (ignoring):', error)
+            }))
+          )
+        }
+
+        // Stop local audio: listener playback element + anchor bed / AudioContext,
+        // DJ captured getUserMedia mic tracks (releases the OS privacy indicator).
+        yield* audioClient.stopStream().pipe(
+          Effect.catchAll((error) => Effect.sync(() => {
+            console.warn('⚠️ UserService: stopStream on unmount failed (ignoring):', error)
+          }))
+        )
+
+        // Close producer/consumer/transport/device; also resets the connection
+        // store's room state (webrtcConnectionState → DISCONNECTED, roomId cleared)
+        // so a later join can never short-circuit on stale flags.
+        yield* mediaSoupClient.cleanup()
+
+        // WS last — the LeaveRoom frame (if any) was already handed to the socket.
+        yield* wsClient.disconnect().pipe(
+          Effect.catchAll(() => Effect.succeed(undefined))
+        )
+
+        activeRole = O.none()
+        console.info('✅ UserService: Unmount teardown completed')
+      }) as Effect.Effect<void, never, UserWebSocket | AudioClient | MediaSoupClient | AudioAdapter>
   }
 }
 
@@ -865,6 +966,37 @@ export const UserFeatureLayer = Layer.scoped(
         serviceImpl.getCurrentRole().pipe(
           Effect.provideService(ConnectionAdapter, connectionAdapter)
         ),
+
+      teardownOnUnmount: () =>
+        serviceImpl.teardownOnUnmount().pipe(
+          Effect.provideService(UserWebSocket, userWebSocket),
+          Effect.provideService(MediaSoupClient, mediaSoupClient),
+          Effect.provideService(AudioClient, audioClient),
+          Effect.provideService(AudioAdapter, audioAdapter)
+        ),
+
+      registerPagehideLeave: () =>
+        Effect.sync(() => {
+          // pagehide = tab close / swipe-away / bfcache navigation. Best-effort
+          // LeaveRoom over the open WS — fire-and-forget, strictly synchronous
+          // (runSync): pagehide gives no time for async work, and the encode +
+          // ws.send path is fully synchronous.
+          const onPageHide = () => {
+            if (!userWebSocket.isSocketOpen()) return
+            try {
+              const makeLeaveRoomCommand = withSchemaLogging(LeaveRoomCommandSchema, 'LeaveRoomCommand')
+              Effect.runSync(
+                makeLeaveRoomCommand({}).pipe(
+                  Effect.andThen((command) => userWebSocket.sendCommandFireForget(command))
+                )
+              )
+            } catch {
+              // best-effort only — never throw during pagehide
+            }
+          }
+          window.addEventListener('pagehide', onPageHide)
+          return () => window.removeEventListener('pagehide', onPageHide)
+        }),
 
       startListenerRecovery: (config) =>
         Effect.gen(function* () {

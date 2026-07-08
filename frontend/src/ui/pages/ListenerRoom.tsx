@@ -270,16 +270,26 @@ function ListenerRoomContent() {
     }
   })
 
+  // X3: pagehide (tab close / swipe-away / bfcache navigation) — fire-and-forget
+  // LeaveRoom over the open WS so the server frees the slot immediately.
+  // registerPagehideLeave is synchronous (Effect.sync); unregistered in onCleanup.
+  const unregisterPagehideLeave = userService.registerPagehideLeave().pipe(Effect.runSync)
+
   // Cleanup on component unmount
   onCleanup(async () => {
-    console.info('🧹 ListenerRoom: Component cleanup - disconnecting user service')
+    // X3: full client-side teardown on navigate-away — best-effort LeaveRoom
+    // (server frees the slot immediately instead of after the reaper grace),
+    // stop audio playback, close all MediaSoup resources, then the WS.
+    // The explicit Leave button still uses leaveListenerRoom().
+    console.info('🧹 ListenerRoom: Component cleanup - full teardown of user service')
     try {
-      // Stop recovery coordinator before disconnecting (sets terminal=true internally)
+      // Stop recovery coordinator before tearing down (sets terminal=true internally)
       if (recoveryCleanup) {
         recoveryCleanup()
         recoveryCleanup = null
       }
-      await userService.disconnect().pipe(Effect.runPromise)
+      unregisterPagehideLeave()
+      await userService.teardownOnUnmount().pipe(Effect.runPromise)
     } catch (error) {
       console.warn('⚠️ ListenerRoom: Error during cleanup:', error)
     }

@@ -34,6 +34,10 @@
   grace expires), ALL listeners are notified + removed — no ghost listeners, no stuck UI.
 - [ ] **Backpressure**: a listener/DJ that stops reading must not hang the server task
   (WS sends are timeout-bounded).
+- [ ] **X3 navigate-away tests**: (a) listener back-button → audio stops immediately,
+  server slot freed; (b) DJ back-button → mic light off immediately, room pauses then
+  closes after grace; (c) listener back-button then join a DIFFERENT room → new room
+  audio plays.
 
 # Client-Side Bug Audit (2026-07-06)
 > Full detail + per-bug validation tracking: **[docs/bug-audit-2026-07-06.md](docs/bug-audit-2026-07-06.md)**
@@ -41,7 +45,7 @@
 > and validate each before fixing. Status so far:
 - [x] X1 ✔️FIXED "Enable Audio" modal can permanently silence the listener (kills its own track on iOS / no-op on Android)
 - [ ] X2 `try/catch` in `Effect.gen` = dead DJ-publish cleanup
-- [ ] X3 nav-away leaks media pipeline (DJ mic stays hot; anchor bed leaks) + stale-connected no-ops re-joins
+- [x] X3 ✔️FIXED nav-away leaks media pipeline (DJ mic stays hot; anchor bed leaks) + stale-connected no-ops re-joins
 - [ ] X4 wake-up recovery race ("unlock → silent → lock/unlock again")
 - [x] X5 ✔️FIXED sessionId deterministic fingerprint → identical phones collide (no anti-collision randomness in code)
 - [ ] X6 backend errors never resolve pending request → 30s hang; dead-room → reconnect churn

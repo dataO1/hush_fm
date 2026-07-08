@@ -126,10 +126,14 @@ function DJRoomContent() {
   // Component initialization completed
 
   onCleanup(async () => {
-    // SolidJS 2025: Cleanup handled by SolidJS onCleanup
-    console.info('🧹 DJRoom: Component cleanup - disconnecting user service')
+    // X3: full client-side teardown on navigate-away — stops the captured mic
+    // (privacy light off), closes all MediaSoup resources, then the WS.
+    // Deliberately sends NO CloseRoom: the server gives a vanished DJ
+    // pause-then-grace semantics, so an accidental back-button can't kill the
+    // party. The explicit End-Stream button still uses closeDJRoom().
+    console.info('🧹 DJRoom: Component cleanup - full teardown of user service')
     try {
-      await userService.disconnect().pipe(Effect.runPromise)
+      await userService.teardownOnUnmount().pipe(Effect.runPromise)
     } catch (error) {
       console.warn('⚠️ DJRoom: Error during cleanup:', error)
     }
