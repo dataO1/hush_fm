@@ -88,6 +88,16 @@
   15-min grace), rejoins → back in DJ view → reconnects; the re-publish then triggers the
   ProducerChanged fix above so listeners recover. sessionStorage-persist approach was
   conceptually fine but unnecessary.
+- [ ] **ProducerChanged follow-up — thundering herd on DJ reload** (verifier flag, med): on a
+  DJ reload with N listeners, all N run a full handshake (~4 WS round-trips + transport/
+  consumer creation) within ~1-2s → real load spike on the Pi at 50+ listeners. Deferred
+  (surgical per-listener re-consume was the alternative). → Add jitter to the re-join, or
+  do surgical re-consume, if room sizes grow. [impact: med, effort: M]
+- [ ] **ProducerChanged follow-up — narrow double-republish stranding window** (verifier flag,
+  low): if a DJ produces A then B within ~10s and B lands after the first re-join's consumer
+  request resolves, the 2nd producerChanged is dropped by the 10s throttle → listener stuck
+  consuming the dead A (evaluate() won't catch it — transport stays alive). → Re-arm a single
+  deferred re-join when a producerChanged is dropped by the throttle. [impact: low, effort: S]
 - [ ] **Announce-reuse returns stale room metadata** (ws/mod.rs:363-402) — confirms the
   known Go-Live-retry bug is still present: `AnnounceRoom` finds the existing room by DJ
   session_id and ignores the new name/description/tags. → Update metadata on reuse, or
