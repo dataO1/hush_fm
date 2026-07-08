@@ -46,6 +46,14 @@
   hearing audio → DJ reloads/reconnects and re-goes-live (or: DJ back to lobby → rejoin →
   reconnect) → within a few seconds every listener's audio resumes automatically (forced
   re-join to the new producer), no manual reload needed, no permanent silence.
+- [ ] **#9 join-while-paused UI**: join a room while the DJ is paused (manual pause OR the
+  15-min disconnect grace) → the listener sees PAUSED UI + a "{djName} paused" ⏸ glyph in the
+  oscilloscope, NOT a fake "live" waveform; when the DJ resumes → audio + UI recover
+  automatically (no manual action needed on the listener side).
+- [ ] **#11 join-drop fast-fail → retry → lobby**: drop WiFi mid-join (freeze / go offline
+  during the join handshake) → NO 30s frozen "Connecting…" spinner; the client silently
+  retries under the spinner for up to 15s once the socket is back; if it still can't recover
+  → bounced to the lobby with an explanatory error banner ("Lost connection while joining …").
 
 # Client-Side Bug Audit (2026-07-06)
 > Full detail + per-bug validation tracking: **[docs/bug-audit-2026-07-06.md](docs/bug-audit-2026-07-06.md)**
@@ -127,20 +135,25 @@
   through domain methods so timeouts/DTLS-role logic live in one place. [impact: low, effort: S]
 
 ## Edge cases
-- [ ] **Joining a paused room shows "live/playing" until next resume** (UserService.ts
-  ~:644-650 sets STREAMING + playing unconditionally): backend sends `producer_paused` in
-  consumer params (listener.rs:495), schema decodes it, nothing reads it — a listener
-  joining during DJ pause (incl. the 15-min grace) sees healthy UI over silence. → Branch
-  on `consumerParameters.producerPaused` after createConsumer → set PAUSED. [impact: med, effort: S]
+- [x] **Joining a paused room shows "live/playing" until next resume** (#9) ✔️FIXED 2026-07-08
+  (DISPLAY-ONLY): `joinRoomAsListener` now reads `consumerParameters.producerPaused` after
+  createConsumer → producerPaused ⇒ PAUSED + playing:false, else STREAMING + playing:true;
+  Oscilloscope shows a centered ⏸ glyph + "{djName} paused" caption instead of a fake live
+  waveform. DJ-resume recovery already works (step 8 audio unlock + step 9 unconditional
+  ResumeConsumer untouched; the `streamResumed` broadcast flips the UI back to STREAMING).
 - [ ] **`streamResumed` handler lacks the guard `streamPaused` has** (UserService.ts
   ~:771-791): sets STREAMING unconditionally — a stray frame after teardown re-poisons
   `webrtcConnectionState` (the stale-flag class X3 fixed). → Same activeRole+isConnected
   guard. [impact: low, effort: S]
-- [ ] **In-flight commands not failed on socket drop → 30s frozen spinner on a
-  mid-handshake WiFi blip** (WebSocketClient.ts:411-431 `onclose` never touches
-  `pendingRequests`): distinct from X6 (error *frames*); this is the socket-close case,
-  common on party WiFi during the multi-command join handshake. → Fail all pending
-  deferreds in `onclose` so joins error fast and retry kicks in. [impact: med, effort: S]
+- [x] **In-flight commands not failed on socket drop → 30s frozen spinner on a
+  mid-handshake WiFi blip** (#11) ✔️FIXED 2026-07-08: `onclose` now flushes every pending
+  deferred with a new retriable `ConnectionDroppedError` on NON-deliberate closes (gated on
+  `shouldReconnect`; deliberate `disconnect()` keeps its own WebSocketError flush) — a
+  recovery reconnect orphans in-flight replies too, so we flush on all non-deliberate closes.
+  The ListenerRoom join wrapper retries the whole connect+join under the spinner ONLY on
+  `ConnectionDroppedError` via `Schedule.spaced(1s)` capped by `Schedule.upTo(15s)`; on budget
+  exhaustion it navigates to the lobby and sets the lobby error banner via
+  `lobbyAdapter.setCreationError(...)`. No 30s hang. [impact: med, effort: S]
 - [ ] **ResumeConsumer failures computed then thrown away — listener stuck in silence with
   zero signal** (ws/mod.rs:1557-1617: success/error built, response block commented out;
   client fire-and-forgets): if `consumer.resume()` fails, the paused-created consumer never

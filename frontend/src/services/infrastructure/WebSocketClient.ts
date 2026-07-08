@@ -44,6 +44,7 @@ import {
 
 import {
   WebSocketError,
+  ConnectionDroppedError,
   WebSocketOperation,
   WsConnectionState
 } from '../../domain/schemas/connection.schema'
@@ -80,10 +81,14 @@ export interface WebSocketClientServiceImpl {
   /**
    * Send command and wait for typed response.
    * Schema inferred from command, expected event type inferred from T.
+   *
+   * Fails with ConnectionDroppedError (instead of hanging until the 30 s
+   * timeout) when the socket closes non-deliberately while this reply is still
+   * in flight — see the onclose flush in setupWebSocketHandlers.
    */
   readonly sendCommand: <T extends WebSocketEvent>(
     command: WebSocketCommand
-  ) => Effect.Effect<T, WebSocketError>
+  ) => Effect.Effect<T, WebSocketError | ConnectionDroppedError>
 
   /**
    * Send command without waiting for response (fire and forget).
@@ -153,6 +158,18 @@ const createWebSocketError = (operation: WebSocketOperation, cause: string, orig
   })
 
 /**
+ * Retriable "socket closed with in-flight request" error. Used to fail every
+ * pending deferred immediately on a non-deliberate onclose so an awaiting
+ * command Effect fails fast instead of hanging to the 30 s timeout.
+ */
+const createConnectionDroppedError = (cause: string): ConnectionDroppedError =>
+  new ConnectionDroppedError({
+    cause,
+    operation: WebSocketOperation.RECEIVE,
+    timestamp: new Date()
+  })
+
+/**
  * Helper to get expected event type from command type.
  * Maps command types to their corresponding event types.
  */
@@ -202,7 +219,7 @@ const getExpectedEventType = (command: WebSocketCommand): Effect.Effect<string, 
 const createMessageProcessor = (
   messageQueue: Queue.Queue<string>,
   eventPubSub: PubSub.PubSub<ParsedMessage>,
-  pendingRequests: Ref.Ref<HashMap.HashMap<string, Deferred.Deferred<unknown, WebSocketError>>>,
+  pendingRequests: Ref.Ref<HashMap.HashMap<string, Deferred.Deferred<unknown, WebSocketError | ConnectionDroppedError>>>,
   eventCallbacks: Ref.Ref<HashMap.HashMap<string, (event: WebSocketEvent) => void>>,
   onInternalPong?: () => Effect.Effect<void, never, never>
 ): Effect.Effect<void, never, never> =>
@@ -394,6 +411,8 @@ const setupWebSocketHandlers = (
   connectionState: Ref.Ref<Option.Option<WebSocket>>,
   connectionAdapter: Context.Tag.Service<ConnectionAdapter>,
   connectionType: 'lobby' | 'room',
+  pendingRequests: Ref.Ref<HashMap.HashMap<string, Deferred.Deferred<unknown, WebSocketError | ConnectionDroppedError>>>,
+  shouldReconnect: Ref.Ref<boolean>,
   reconnectCallback?: () => void,
   lobbyAdapter?: ReturnType<typeof getGlobalLobbyAdapter> | null
 ): Effect.Effect<void, never, never> =>
@@ -411,6 +430,32 @@ const setupWebSocketHandlers = (
     ws.onclose = () => {
       Effect.runSync(Ref.set(connectionState, Option.none()))
       console.info('❌ WebSocket disconnected')
+
+      // Fast-fail in-flight commands on a NON-deliberate close (#11). The
+      // deliberate disconnect() path sets shouldReconnect=false BEFORE closing
+      // the socket and does its own pending-flush with WebSocketError, so gate
+      // on shouldReconnect here: only flush with ConnectionDroppedError when the
+      // close was NOT deliberate (a real WiFi blip or a recovery reconnect —
+      // both orphan the old socket's replies). Without this the awaiting Effect
+      // hangs to the 30 s timeout → frozen "Connecting…" spinner.
+      const deliberate = !Effect.runSync(Ref.get(shouldReconnect))
+      if (!deliberate) {
+        const pendingMap = Effect.runSync(Ref.get(pendingRequests))
+        const pendingCount = HashMap.size(pendingMap)
+        if (pendingCount > 0) {
+          console.info(`⚡ WebSocketClient: Non-deliberate close with ${pendingCount} in-flight request(s) — failing them with ConnectionDroppedError`)
+          Effect.runSync(
+            Effect.forEach(
+              HashMap.values(pendingMap),
+              (deferred) => Deferred.fail(deferred, createConnectionDroppedError(
+                'WebSocket closed while a command reply was in flight'
+              )).pipe(Effect.catchAll(() => Effect.void)),
+              { discard: true }
+            )
+          )
+          Effect.runSync(Ref.set(pendingRequests, HashMap.empty()))
+        }
+      }
 
       // Update appropriate WebSocket state
       if (connectionType === 'lobby') {
@@ -467,7 +512,7 @@ const make = (connectionType: 'lobby' | 'room') => Effect.gen(function* () {
 
   // Core state
   const connectionState = yield* Ref.make(Option.none<WebSocket>())
-  const pendingRequests = yield* Ref.make(HashMap.empty<string, Deferred.Deferred<unknown, WebSocketError>>())
+  const pendingRequests = yield* Ref.make(HashMap.empty<string, Deferred.Deferred<unknown, WebSocketError | ConnectionDroppedError>>())
   const eventCallbacks = yield* Ref.make(HashMap.empty<string, (event: WebSocketEvent) => void>())
   const messageQueue = yield* Queue.unbounded<string>()
   const eventPubSub = yield* PubSub.unbounded<ParsedMessage>()
@@ -579,7 +624,7 @@ const make = (connectionType: 'lobby' | 'room') => Effect.gen(function* () {
       yield* sendRawMessage(JSON.stringify(encoded))
     })
 
-  const sendCommand = <T extends WebSocketEvent>(command: WebSocketCommand): Effect.Effect<T, WebSocketError, never> =>
+  const sendCommand = <T extends WebSocketEvent>(command: WebSocketCommand): Effect.Effect<T, WebSocketError | ConnectionDroppedError, never> =>
     Effect.gen(function* () {
       // 1. Validate WebSocket connection state
       const currentWs = yield* Ref.get(connectionState)
@@ -602,7 +647,7 @@ const make = (connectionType: 'lobby' | 'room') => Effect.gen(function* () {
 
       console.info('✅ WebSocketClient: WebSocket connection validated for command:', command.type)
 
-      const deferred = yield* Deferred.make<T, WebSocketError>()
+      const deferred = yield* Deferred.make<T, WebSocketError | ConnectionDroppedError>()
 
       // Get expected event type using the Effect-based helper
       const eventType = yield* getExpectedEventType(command)
@@ -611,7 +656,7 @@ const make = (connectionType: 'lobby' | 'room') => Effect.gen(function* () {
 
       // Register pending request using expected event type as key
       yield* Ref.update(pendingRequests, map => {
-        const newMap = HashMap.set(map, eventType, deferred as Deferred.Deferred<unknown, WebSocketError>)
+        const newMap = HashMap.set(map, eventType, deferred as Deferred.Deferred<unknown, WebSocketError | ConnectionDroppedError>)
         console.info('📋 WebSocketClient: Registered pending request for event type:', eventType, 'Total pending:', HashMap.size(newMap))
         return newMap
       })
@@ -824,6 +869,8 @@ const make = (connectionType: 'lobby' | 'room') => Effect.gen(function* () {
               connectionState,
               connectionAdapter,
               connectionType,
+              pendingRequests,
+              shouldReconnect,
               reconnectCallback,
               lobbyAdapter
             ))

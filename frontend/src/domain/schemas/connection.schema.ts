@@ -60,15 +60,30 @@ export class WebSocketError extends Data.TaggedError('WebSocketError')<{
 }> {}
 
 /**
+ * Raised when the WebSocket closes while one or more command replies are still
+ * in flight (a socket drop mid-handshake). Distinct from WebSocketError so the
+ * join flow can retry ONLY on this signal (a recovery-driven reconnect will
+ * bring the socket back, at which point the whole handshake is safe to re-run).
+ * A deliberate disconnect() still fails pending requests with WebSocketError, so
+ * this tag never leaks from an intentional teardown.
+ */
+export class ConnectionDroppedError extends Data.TaggedError('ConnectionDroppedError')<{
+  readonly cause: string
+  readonly operation: WebSocketOperation
+  readonly timestamp: Date
+}> {}
+
+/**
  * Connection Error Union Type
  */
-export type ConnectionError = 
+export type ConnectionError =
   | MediaSoupDeviceError
   | ProducerError
   | ConsumerError
   | TransportError
   | RouterCompatibilityError
   | WebSocketError
+  | ConnectionDroppedError
 
 /**
  * Connection State - combining WebRTC and WebSocket connection states

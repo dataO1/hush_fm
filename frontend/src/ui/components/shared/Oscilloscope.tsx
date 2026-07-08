@@ -1,9 +1,17 @@
-import { onMount, onCleanup, createEffect } from 'solid-js'
+import { onMount, onCleanup, createEffect, createMemo, Show } from 'solid-js'
 
 interface OscilloscopeProps {
   stream?: MediaStream
   class?: string
   height?: number
+  /**
+   * #9 — Reactive getter: true while the DJ's producer is paused (no media
+   * flowing). When set, the waveform is replaced by a centered ⏸ glyph + a
+   * DJ-attributed caption instead of showing a fake "live" flat line.
+   */
+  paused?: () => boolean
+  /** DJ display name for the paused caption ("{djName} paused"). */
+  djName?: string
 }
 
 export function Oscilloscope(props: OscilloscopeProps) {
@@ -80,12 +88,21 @@ export function Oscilloscope(props: OscilloscopeProps) {
     }
     lastFrameTime = currentTime || performance.now()
 
-    // Get waveform data
-    analyser.getByteTimeDomainData(dataArray)
-
     const canvas = canvasRef
     const ctx = canvas.getContext('2d')
     if (!ctx) return
+
+    // #9 — While paused, keep the canvas cleared (no flat "dead" line under the
+    // glyph overlay) but keep the RAF loop alive so it resumes instantly on
+    // unpause. The ⏸ glyph + caption are rendered as a DOM overlay below.
+    if (props.paused?.()) {
+      ctx.clearRect(0, 0, canvas.width, canvas.height)
+      animationId = requestAnimationFrame(draw)
+      return
+    }
+
+    // Get waveform data
+    analyser.getByteTimeDomainData(dataArray)
 
     // Clear canvas
     ctx.clearRect(0, 0, canvas.width, canvas.height)
@@ -185,13 +202,32 @@ export function Oscilloscope(props: OscilloscopeProps) {
     cleanup()
   })
 
+  // #9 — DJ-attributed caption. NEVER phrase as the user's own action; falls
+  // back to a neutral DJ-side message when the DJ name is unknown.
+  const pausedCaption = createMemo(() => {
+    const name = props.djName?.trim()
+    return name ? `${name} paused` : 'Stream paused'
+  })
+
   return (
-    <div class={`card-glass rounded-lg p-3 ${props.class || ''}`}>
+    <div class={`card-glass rounded-lg p-3 relative ${props.class || ''}`}>
       <canvas
         ref={canvasRef}
         class="w-full"
         style={`height: ${props.height || 60}px; background: transparent;`}
       />
+      {/* #9 — Paused affordance, kept inside the visualization area only. Reuses
+          the PAUSED palette (gruvbox yellow) that ConnectionStatusDot uses. */}
+      <Show when={props.paused?.()}>
+        <div
+          class="absolute inset-0 flex flex-col items-center justify-center gap-1 text-gruvbox-yellow-bright pointer-events-none"
+          role="status"
+          aria-label={pausedCaption()}
+        >
+          <span class="text-2xl leading-none" aria-hidden="true">⏸</span>
+          <span class="text-sm font-medium">{pausedCaption()}</span>
+        </div>
+      </Show>
     </div>
   )
 }

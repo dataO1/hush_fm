@@ -1,12 +1,12 @@
 import { Show, createResource, createSignal, onCleanup, createContext, useContext, ParentComponent, createEffect } from 'solid-js'
 import { useParams, useNavigate, useLocation } from '@solidjs/router'
-import { Option, Effect, Context, ManagedRuntime, Layer } from 'effect'
-import { useConnectionAdapter, useAudioAdapter, useUserAdapter, useAudioClient } from '../../App'
+import { Option, Effect, Context, ManagedRuntime, Layer, Schedule, Duration } from 'effect'
+import { useConnectionAdapter, useAudioAdapter, useUserAdapter, useAudioClient, useLobbyAdapter } from '../../App'
 import { UserService, UserServiceLive } from '../../services/application/UserService'
 import { AudioClient } from '../../services/infrastructure/AudioClient'
 import { AudioAdapter } from '../../stores/audio'
 import { UserAdapter, ConnectionAdapter } from '../../stores'
-import { WebrtcConnectionState } from '../../domain/schemas/connection.schema'
+import { WebrtcConnectionState, ConnectionDroppedError } from '../../domain/schemas/connection.schema'
 import { Oscilloscope } from '../components/shared/Oscilloscope'
 import { WebRTCErrorHandler } from '../components/WebRTCErrorHandler'
 import { RoomHeader } from '../components/room/RoomHeader'
@@ -86,7 +86,8 @@ function ListenerRoomContent() {
   const connectionAdapter = useConnectionAdapter()
   const audioAdapter = useAudioAdapter()
   const userAdapter = useUserAdapter()
-  
+  const lobbyAdapter = useLobbyAdapter()
+
   // Get scoped user feature services
   const { userService } = useUserFeature()
   
@@ -173,23 +174,55 @@ function ListenerRoomContent() {
       isReturning: !!isReturning
     })
     
-    // Connect to WebSocket and start join flow - services handle internal state/checks
-    console.info('🔗 ListenerRoom: Connecting to listener WebSocket...', { listenerWebSocketUrl })
-    await userService.connect(listenerWebSocketUrl).pipe(Effect.runPromise)
-    console.info('✅ ListenerRoom: Listener WebSocket connected successfully')
-    
-    // Start the join flow (pass room metadata for Media Session / lock-screen controls)
-    const result = await userService.joinRoomAsListener(
-      currentRoomId,
-      sessionId,
-      {
-        roomName: roomInfo?.name,
-        djName: roomInfo?.djName
-      }
-    ).pipe(Effect.runPromise)
+    // #11 — Mid-handshake WiFi blip must NOT freeze the spinner for 30 s.
+    // The join is a multi-command WS handshake; if the socket drops mid-flight,
+    // WebSocketClient's onclose now fast-fails the awaiting command with
+    // ConnectionDroppedError (instead of hanging to the 30 s timeout). Here we
+    // silently re-attempt the WHOLE connect+join under the existing spinner —
+    // connect() re-establishes the socket (its own bounded retries ride out the
+    // blip / recovery reconnect), then the handshake re-runs clean — repeating
+    // ONLY on ConnectionDroppedError, bounded by a 15 s wall-clock budget.
+    const wsUrl = listenerWebSocketUrl
+    const meta = { roomName: roomInfo?.name, djName: roomInfo?.djName }
 
-    console.info('✅ Listener join flow completed successfully')
-    return result
+    const connectAndJoin = userService.connect(wsUrl).pipe(
+      Effect.andThen(() => userService.joinRoomAsListener(currentRoomId, sessionId, meta))
+    )
+
+    // Retry ONLY on ConnectionDroppedError (a real WiFi blip / reconnect), never
+    // on genuine join failures (codec mismatch, etc.). Schedule.upTo caps the
+    // TOTAL elapsed retry time at 15 s; the 1 s spacing gives the socket time to
+    // come back between attempts.
+    const retrySchedule = Schedule.spaced(Duration.seconds(1)).pipe(
+      Schedule.upTo(Duration.seconds(15))
+    )
+
+    console.info('🔗 ListenerRoom: Connecting + joining (retriable on connection drop)...', { wsUrl })
+    return await connectAndJoin.pipe(
+      Effect.retry({
+        schedule: retrySchedule,
+        while: (error) => error._tag === 'ConnectionDroppedError'
+      }),
+      Effect.tap(() => Effect.sync(() =>
+        console.info('✅ Listener join flow completed successfully')
+      )),
+      // Budget exhausted while still dropping → bounce to lobby with a banner.
+      // Other errors (UserServiceError) fall through to the resource error path
+      // (existing in-room "Failed to join room" panel).
+      Effect.catchIf(
+        (error): error is ConnectionDroppedError =>
+          error._tag === 'ConnectionDroppedError',
+        () => Effect.sync(() => {
+          console.warn('⚠️ ListenerRoom: Connection kept dropping during join — bouncing to lobby')
+          lobbyAdapter.setCreationError(
+            `Lost connection while joining ${roomName()} — please try again.`
+          )
+          navigate('/')
+          return null
+        })
+      ),
+      Effect.runPromise
+    )
   })
 
   // Effect to set up audio playback when stream changes
@@ -365,10 +398,17 @@ function ListenerRoomContent() {
             <Show when={!audioAdapter.requiresUserGesture() && Option.getOrNull(audioClient.currentStream())} fallback={null}>
               {(stream) => (
                 <div class="w-full">
-                  <Oscilloscope 
+                  <Oscilloscope
                     stream={stream()}
-                    height={60} 
+                    height={60}
                     class="mb-0"
+                    // #9 — When the producer is paused (join-while-paused, or a
+                    // live DJ pause), swap the dead/flat waveform for a ⏸ glyph
+                    // attributed to the DJ. Derived from the same PAUSED webrtc
+                    // state ConnectionStatusDot reads — the streamResumed
+                    // broadcast flips it back to STREAMING automatically.
+                    paused={() => getWebrtcState() === WebrtcConnectionState.PAUSED}
+                    djName={navigationState.roomInfo?.djName}
                   />
                 </div>
               )}

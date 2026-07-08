@@ -66,7 +66,7 @@ import {
   type UserRoleType,
   type DJPublishResultType
 } from '../../domain/schemas/user.schema'
-import { WebrtcConnectionState, WsConnectionState, WebSocketError, WebSocketOperation } from '../../domain/schemas/connection.schema'
+import { WebrtcConnectionState, WsConnectionState, WebSocketError, WebSocketOperation, ConnectionDroppedError } from '../../domain/schemas/connection.schema'
 
 /**
  * User Service Context Tag
@@ -84,7 +84,7 @@ export class UserService extends Context.Tag("@app/services/UserService")<
     readonly resumeStream: () => Effect.Effect<void, UserServiceError, never>
 
     // Listener Operations
-    readonly joinRoomAsListener: (roomId: string, sessionId: string, meta?: { roomName?: string; djName?: string }, options?: { force?: boolean }) => Effect.Effect<{ readonly listenerId: string; readonly roomId: string; readonly sessionId: string; readonly joinedAt: Date }, UserServiceError, never>
+    readonly joinRoomAsListener: (roomId: string, sessionId: string, meta?: { roomName?: string; djName?: string }, options?: { force?: boolean }) => Effect.Effect<{ readonly listenerId: string; readonly roomId: string; readonly sessionId: string; readonly joinedAt: Date }, UserServiceError | ConnectionDroppedError, never>
     readonly leaveListenerRoom: (listenerId: string) => Effect.Effect<void, UserServiceError, never>
 
     /**
@@ -545,12 +545,16 @@ const createUserServiceImpl = () => {
         const routerCapabilitiesEvent = yield* wsClient.sendCommand<RouterCapabilitiesEvent>(
           getRouterCapabilitiesCommand
         ).pipe(
-          Effect.mapError((error) => new UserServiceError({
-            cause: `Failed to get router capabilities: ${error}`,
-            role: 'listener',
-            operation: 'joinRoomAsListener',
-            timestamp: new Date()
-          }))
+          // Preserve ConnectionDroppedError so the join retry (#11) can key on it;
+          // only genuine WebSocketErrors become terminal UserServiceErrors.
+          Effect.mapError((error) => error._tag === 'ConnectionDroppedError'
+            ? error
+            : new UserServiceError({
+                cause: `Failed to get router capabilities: ${error}`,
+                role: 'listener',
+                operation: 'joinRoomAsListener',
+                timestamp: new Date()
+              }))
         )
 
         // 3. Initialize MediaSoup device with RTP capabilities
@@ -573,12 +577,14 @@ const createUserServiceImpl = () => {
         const transportEvent = yield* wsClient.sendCommand<ListenerTransportReadyEvent>(
           initListenerCommand
         ).pipe(
-          Effect.mapError((error) => new UserServiceError({
-            cause: `Failed to get transport options: ${error}`,
-            role: 'listener',
-            operation: 'joinRoomAsListener',
-            timestamp: new Date()
-          }))
+          Effect.mapError((error) => error._tag === 'ConnectionDroppedError'
+            ? error
+            : new UserServiceError({
+                cause: `Failed to get transport options: ${error}`,
+                role: 'listener',
+                operation: 'joinRoomAsListener',
+                timestamp: new Date()
+              }))
         )
 
         // 5. Create receive transport locally WITH event handlers
@@ -624,12 +630,14 @@ const createUserServiceImpl = () => {
         const consumerEvent = yield* wsClient.sendCommand<ConsumerCreatedEvent>(
           requestConsumerCommand
         ).pipe(
-          Effect.mapError((error) => new UserServiceError({
-            cause: `Failed to request consumer: ${error}`,
-            role: 'listener',
-            operation: 'joinRoomAsListener',
-            timestamp: new Date()
-          }))
+          Effect.mapError((error) => error._tag === 'ConnectionDroppedError'
+            ? error
+            : new UserServiceError({
+                cause: `Failed to request consumer: ${error}`,
+                role: 'listener',
+                operation: 'joinRoomAsListener',
+                timestamp: new Date()
+              }))
         )
 
         // Check for error response
@@ -653,14 +661,30 @@ const createUserServiceImpl = () => {
           }))
         )
         
-        // Update connection state to STREAMING after successful consumer creation
-        connectionAdapter.setWebRTCState(WebrtcConnectionState.STREAMING)
-        console.info('🎯 UserService: Updated listener connection state to STREAMING')
-        
-        // Set audio adapter to playing when listener starts streaming
+        // #9 — Join-while-paused display fix. The backend creates listener
+        // consumers paused and reports the PRODUCER's pause state as
+        // producerParameters.producerPaused (listener.rs:495 → decoded by
+        // ConsumerParametersTransformSchema). If the DJ was paused (manual pause
+        // OR the 15-min disconnect grace) at join time, reflecting STREAMING +
+        // playing:true would show a healthy "live" UI over silence. Instead
+        // mirror the producer's state:
+        //   producerPaused === true  → PAUSED + playing:false
+        //   producerPaused === false → STREAMING + playing:true (unchanged)
+        // This is DISPLAY-ONLY: step 8 (connectRemoteStream, audio unlock) and
+        // step 9 (unconditional ResumeConsumer) are untouched, so when the DJ
+        // resumes, the streamResumed broadcast flips the UI back to STREAMING
+        // and media auto-flows — DJ-resume recovery already works.
+        const producerPaused = consumerEvent.consumerParameters.producerPaused
         const audioAdapter = yield* AudioAdapter
-        audioAdapter.updateStreamState({ playing: true })
-        console.info('🎯 UserService: Updated listener audio adapter state to playing')
+        if (producerPaused) {
+          connectionAdapter.setWebRTCState(WebrtcConnectionState.PAUSED)
+          audioAdapter.updateStreamState({ playing: false })
+          console.info('⏸️ UserService: Joined while producer paused — listener state set to PAUSED (not playing)')
+        } else {
+          connectionAdapter.setWebRTCState(WebrtcConnectionState.STREAMING)
+          audioAdapter.updateStreamState({ playing: true })
+          console.info('🎯 UserService: Updated listener connection state to STREAMING (playing)')
+        }
 
         // 8. Connect remote stream for audio playback
         console.info('🔊 UserService: Connecting audio stream...')
@@ -716,11 +740,14 @@ const createUserServiceImpl = () => {
             yield* mediaSoupClient.cleanup()
             activeRole = O.none()
 
-            // Return the error (it's already a UserServiceError from mapError calls)
+            // Re-raise unchanged: a UserServiceError from the mapError calls, OR
+            // a ConnectionDroppedError (#11) which the ListenerRoom join wrapper
+            // retries on. The cleanup above (mediaSoupClient.cleanup() resets the
+            // room state) makes the next retry attempt run a full clean handshake.
             return yield* Effect.fail(error)
           })
         )
-      ) as Effect.Effect<{ readonly listenerId: string; readonly roomId: string; readonly sessionId: string; readonly joinedAt: Date }, UserServiceError, UserAdapter | UserWebSocket | MediaSoupClient | AudioClient | ConnectionAdapter>,
+      ) as Effect.Effect<{ readonly listenerId: string; readonly roomId: string; readonly sessionId: string; readonly joinedAt: Date }, UserServiceError | ConnectionDroppedError, UserAdapter | UserWebSocket | MediaSoupClient | AudioClient | ConnectionAdapter>,
 
     leaveListenerRoom: (_listenerId: string) =>
       Effect.gen(function* () {
