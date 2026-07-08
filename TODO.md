@@ -42,6 +42,10 @@
   permission mid-flow or kill backend between transport-create and produce) → error
   message shows, NO stuck 'Connecting…' spinner, mic light off, room does not linger
   in Setup on the server, DJ can retry without reload.
+- [ ] **DJ re-publish → listeners recover (ProducerChanged)**: DJ live with N listeners
+  hearing audio → DJ reloads/reconnects and re-goes-live (or: DJ back to lobby → rejoin →
+  reconnect) → within a few seconds every listener's audio resumes automatically (forced
+  re-join to the new producer), no manual reload needed, no permanent silence.
 
 # Client-Side Bug Audit (2026-07-06)
 > Full detail + per-bug validation tracking: **[docs/bug-audit-2026-07-06.md](docs/bug-audit-2026-07-06.md)**
@@ -72,19 +76,18 @@
 > relaxation, DJ listener-count display.
 
 ## Architecture
-- [ ] **DJ re-publish orphans all existing listeners** (dj.rs:211,302): a DJ page-reload
-  re-runs publish; `create_sender_transport`/`create_producer` overwrite the old
-  Arc<Transport>/Arc<Producer>, closing the old producer — every listener's consumer dies
-  server-side with NO event sent, while their transport stays `connected` so recovery sees
-  "healthy" and never re-joins → permanent silence. → Broadcast `producerChanged {producerId}`
-  from `Room::create_producer` when replacing; listener treats it as forced re-consume /
-  full re-join. (This is the precise mechanism behind the old "DJ reconnect should renew
-  listener transport/consumer" TODO.) [impact: high, effort: L]
-- [ ] **DJ reload is a dead end** (DJRoom.tsx:104-124): DJRoom depends entirely on router
-  `location.state.djWebSocketUrl`; reload/crash → lobby → forced re-announce (hits the
-  stale-name bug). Listener page already derives its WS URL from route params. → Derive
-  `/ws/room/{roomId}` from the route param + persist roomId in sessionStorage so a reloaded
-  DJ lands back in their live room within the grace window. [impact: high, effort: S]
+- [x] **DJ re-publish orphans all existing listeners** ✔️FIXED 2026-07-08: on producer
+  REPLACE, `Room::create_producer` now broadcasts a new `ProducerChanged {roomId,producerId}`
+  ListenerEvent (events.rs); the listener recovery coordinator subscribes and calls
+  performFullRejoin() DIRECTLY — bypassing the transportDead matrix, which would NO-OP since
+  the transport stays ICE/DTLS-connected → cleanup + force re-join to the new producer.
+  Reuses the single-flight + 10s throttle. (This was the precise mechanism behind the old "DJ
+  reconnect should renew listener transport/consumer" TODO.)
+- [~] **DJ reload is a dead end** — WON'T FIX (user decision 2026-07-08): not crucial. A
+  reloaded DJ is routed to the lobby, sees their still-live room (server holds it in the
+  15-min grace), rejoins → back in DJ view → reconnects; the re-publish then triggers the
+  ProducerChanged fix above so listeners recover. sessionStorage-persist approach was
+  conceptually fine but unnecessary.
 - [ ] **Announce-reuse returns stale room metadata** (ws/mod.rs:363-402) — confirms the
   known Go-Live-retry bug is still present: `AnnounceRoom` finds the existing room by DJ
   session_id and ignores the new name/description/tags. → Update metadata on reuse, or

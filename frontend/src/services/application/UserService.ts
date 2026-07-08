@@ -56,7 +56,8 @@ import {
   type ListenerStreamPausedEvent,
   type ListenerStreamResumedEvent,
   type ListenerNotFoundEvent,
-  type ListenerRoomClosedEvent
+  type ListenerRoomClosedEvent,
+  type ListenerProducerChangedEvent
 } from '../../domain/schemas/shared/websocket.schema'
 
 // Import domain schemas and types
@@ -1102,6 +1103,24 @@ export const UserFeatureLayer = Layer.scoped(
             }
           }
 
+          // ── producerChanged → forced full re-join ──────────────────────────
+          // The DJ re-published (page reload / reconnect-then-Go-Live), which
+          // REPLACED the room's producer. mediasoup closed our consumer
+          // server-side, but our transport stays ICE/DTLS-connected — so
+          // evaluate()'s matrix sees "healthy" (wsAlive && !transportDead) and
+          // would NO-OP forever → permanent silence. Trigger performFullRejoin()
+          // DIRECTLY (bypassing the transportDead check) to cleanup + re-consume
+          // the new producer. Reuses the same single-flight + 10 s throttle.
+          const unsubProducerChanged = yield* userWebSocket.subscribe<ListenerProducerChangedEvent>(
+            'producerChanged',
+            (event) => {
+              if (terminal) return
+              console.info('Recovery: producerChanged received — forcing full re-join to new producer', event.producerId)
+              void performFullRejoin().catch(e =>
+                console.error('Recovery: producerChanged re-join error:', e))
+            }
+          )
+
           // ── evaluate() — the binding trigger matrix ────────────────────────
           //
           // State matrix (wsAlive × transportDead):
@@ -1221,6 +1240,7 @@ export const UserFeatureLayer = Layer.scoped(
             window.removeEventListener('online', onOnline)
             unsubListenerNotFound()
             unsubRoomClosed()
+            unsubProducerChanged()
           }
         })
     } satisfies Context.Tag.Service<UserService>

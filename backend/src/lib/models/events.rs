@@ -210,14 +210,29 @@ pub enum ListenerEvent {
     },
     
     /// Audio stream has been resumed (DJ unmuted) - broadcasted to listeners
-    StreamResumed { 
+    StreamResumed {
         /// ID of the room where stream was resumed
         #[serde(rename = "roomId")]
         room_id: String,
     },
 
+    /// The room's audio producer was REPLACED (DJ re-ran the publish flow,
+    /// e.g. page reload or reconnect-then-Go-Live). Replacing drops the old
+    /// producer, which mediasoup closes — killing every existing consumer
+    /// server-side while listener transports stay ICE/DTLS-connected, so
+    /// clients see a "healthy" session over permanent silence. Broadcasted to
+    /// listeners, who MUST treat it as a forced full re-join trigger.
+    ProducerChanged {
+        /// ID of the room whose producer was replaced
+        #[serde(rename = "roomId")]
+        room_id: String,
+        /// ID of the NEW producer to consume from
+        #[serde(rename = "producerId")]
+        producer_id: String,
+    },
+
     /// Room has been closed by DJ - broadcasted to listeners
-    RoomClosed { 
+    RoomClosed {
         /// ID of the closed room
         #[serde(rename = "roomId")]
         room_id: String,
@@ -324,6 +339,7 @@ impl ListenerEvent {
             Self::ListenerCountUpdated { .. } => "listenerCountUpdated",
             Self::StreamPaused { .. } => "streamPaused",
             Self::StreamResumed { .. } => "streamResumed",
+            Self::ProducerChanged { .. } => "producerChanged",
             Self::RoomClosed { .. } => "roomClosed",
             Self::CommandFailed { .. } => "commandFailed",
             Self::RoomNotFound { .. } => "roomNotFound",
@@ -366,6 +382,22 @@ mod tests {
         let value: serde_json::Value = serde_json::from_str(&json).unwrap();
         assert_eq!(value["type"], "listenerNotFound");
         assert_eq!(value["roomId"], "room-abc");
+    }
+
+    #[test]
+    fn test_producer_changed_serializes_camel_case() {
+        let event = ListenerEvent::ProducerChanged {
+            room_id: "room-abc".to_string(),
+            producer_id: "producer-xyz".to_string(),
+        };
+        let json = serde_json::to_string(&event).expect("Should serialize ProducerChanged");
+        let value: serde_json::Value = serde_json::from_str(&json).unwrap();
+        assert_eq!(value["type"], "producerChanged");
+        assert_eq!(value["roomId"], "room-abc");
+        assert_eq!(value["producerId"], "producer-xyz");
+        // Must NOT contain snake_case keys (frontend schema decodes camelCase)
+        assert!(!json.contains("room_id"), "JSON should not contain room_id (snake_case)");
+        assert!(!json.contains("producer_id"), "JSON should not contain producer_id (snake_case)");
     }
 
     #[test]

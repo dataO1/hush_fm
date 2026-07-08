@@ -78,6 +78,7 @@ export const WEBSOCKET_LISTENER_EVENT_TYPES = {
   LISTENER_COUNT_UPDATED: 'listenerCountUpdated',
   STREAM_PAUSED: 'streamPaused',
   STREAM_RESUMED: 'streamResumed',
+  PRODUCER_CHANGED: 'producerChanged',
   ROOM_CLOSED: 'roomClosed',
   LISTENER_COMMAND_FAILED: 'listenerCommandFailed',
   ROOM_NOT_FOUND: 'roomNotFound',
@@ -487,6 +488,7 @@ export type ListenerEventType =
   | S.Schema.Type<typeof ListenerCountUpdatedEventSchema>
   | S.Schema.Type<typeof ListenerStreamPausedEventSchema>
   | S.Schema.Type<typeof ListenerStreamResumedEventSchema>
+  | S.Schema.Type<typeof ListenerProducerChangedEventSchema>
   | S.Schema.Type<typeof ListenerRoomClosedEventSchema>
   | S.Schema.Type<typeof ListenerCommandFailedEventSchema>
   | S.Schema.Type<typeof ListenerRoomNotFoundEventSchema>
@@ -551,6 +553,20 @@ export const ListenerStreamResumedEventSchema = S.Struct({
   type: S.Literal("streamResumed")
 })
 
+/**
+ * The room's audio producer was REPLACED (DJ re-ran the publish flow, e.g.
+ * page reload or reconnect-then-Go-Live). The old producer was dropped/closed,
+ * which killed this listener's consumer server-side with no other signal — the
+ * transport stays ICE/DTLS-connected, so recovery would otherwise never fire.
+ * The listener MUST force a full re-join against the new producerId.
+ * Matches backend ListenerEvent::ProducerChanged.
+ */
+export const ListenerProducerChangedEventSchema = S.Struct({
+  roomId: S.String,
+  producerId: S.String,
+  type: S.Literal("producerChanged")
+})
+
 export const ListenerRoomClosedEventSchema = S.Struct({
   roomId: S.String,
   reason: S.String,
@@ -595,6 +611,7 @@ export type RouterCapabilitiesEvent = S.Schema.Type<typeof RouterCapabilitiesEve
 export type ListenerCountUpdatedEvent = S.Schema.Type<typeof ListenerCountUpdatedEventSchema>
 export type ListenerStreamPausedEvent = S.Schema.Type<typeof ListenerStreamPausedEventSchema>
 export type ListenerStreamResumedEvent = S.Schema.Type<typeof ListenerStreamResumedEventSchema>
+export type ListenerProducerChangedEvent = S.Schema.Type<typeof ListenerProducerChangedEventSchema>
 export type ListenerRoomClosedEvent = S.Schema.Type<typeof ListenerRoomClosedEventSchema>
 export type ListenerCommandFailedEvent = S.Schema.Type<typeof ListenerCommandFailedEventSchema>
 export type ListenerRoomNotFoundEvent = S.Schema.Type<typeof ListenerRoomNotFoundEventSchema>
@@ -613,6 +630,7 @@ export const ListenerEventSchema = S.Union(
   ListenerCountUpdatedEventSchema,
   ListenerStreamPausedEventSchema,
   ListenerStreamResumedEventSchema,
+  ListenerProducerChangedEventSchema,
   ListenerRoomClosedEventSchema,
   ListenerCommandFailedEventSchema,
   ListenerRoomNotFoundEventSchema,

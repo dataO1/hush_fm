@@ -354,13 +354,42 @@ impl Room {
     }
 
     /// Abstract coordination: Create DJ producer (Step 15)
+    ///
+    /// Re-publish detection: when the DJ re-runs the publish flow (page
+    /// reload, reconnect-then-Go-Live), the new producer REPLACES the old one
+    /// — dropping the old `Arc<Producer>` closes it in mediasoup, which kills
+    /// every existing listener's consumer server-side WITHOUT any client
+    /// signal (their transports stay ICE/DTLS-connected, so client-side
+    /// recovery sees "healthy" and never re-joins → permanent silence).
+    /// Broadcast `ProducerChanged` to all listeners so they force a full
+    /// re-join against the new producer. Uses the same per-listener event
+    /// channel fan-out as StreamPaused/RoomClosed (socket tasks own the
+    /// actual WS sends, including backpressure handling).
     pub async fn create_producer(&mut self, rtp_parameters: RtpParameters) -> Result<String> {
         if let Some(ref mut dj) = self.dj {
+            // Detect replacement on the raw producer slot (NOT has_producer(),
+            // which also requires is_streaming — the slot alone decides whether
+            // an old producer is about to be dropped/closed).
+            let replacing_existing_producer = dj.producer.is_some();
+
             let producer_id = dj.create_producer(rtp_parameters).await?;
-            
+
             // Step 16: Mark room as public after producer is ready
             self.on_producer_ready();
-            
+
+            if replacing_existing_producer {
+                tracing::info!(
+                    room_id = %self.id,
+                    new_producer_id = %producer_id,
+                    listener_count = self.listener_count,
+                    "Producer REPLACED on DJ re-publish - broadcasting ProducerChanged so listeners re-join"
+                );
+                self.broadcast_to_listeners(crate::lib::models::ListenerEvent::ProducerChanged {
+                    room_id: self.id.to_string(),
+                    producer_id: producer_id.clone(),
+                });
+            }
+
             Ok(producer_id)
         } else {
             Err(anyhow::anyhow!("No DJ available for producer creation"))
