@@ -312,6 +312,13 @@
             HUSHFM_WORKER_PORT_MAX = toString portRange.max;
             HUSHFM_HOST_NAME = cfg.hostName;  # Configurable hostname for nginx reverse proxy
 
+            # TLS cert path for the /health certDaysRemaining + certIsRealLE fields
+            # (cert-expiry warning banner). Pinned to the configured hostName so it
+            # can never drift from the ACME cert location. The backend reads this
+            # file (group nginx, see SupplementaryGroups on the service) to report
+            # cert status; returns null + logs a warning if unreadable.
+            HUSHFM_TLS_CERT_PATH = "/var/lib/acme/${cfg.hostName}/cert.pem";
+
             # MediaSoup configuration
             HUSHFM_MEDIASOUP_LISTEN_IP = cfg.mediasoup.listenIp;
             HUSHFM_MEDIASOUP_ANNOUNCED_IP = cfg.mediasoup.announcedIp;
@@ -588,6 +595,12 @@
                 Type = "simple";
                 User = "hushfm";
                 Group = "hushfm";
+                # Read the ACME cert (group nginx, mode 0640) for the /health
+                # cert-status fields → the cert-expiry warning banner. Without this
+                # the backend can't read the cert → certDaysRemaining is always null
+                # → the banner is stuck showing the "couldn't verify" warning.
+                # (ProtectSystem=strict still permits reading /var/lib/acme.)
+                SupplementaryGroups = [ "nginx" ];
                 ExecStart = cfg.backend.binaryPath;
                 Restart = "always";
                 RestartSec = 5;
