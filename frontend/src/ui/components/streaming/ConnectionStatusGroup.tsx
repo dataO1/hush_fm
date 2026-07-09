@@ -27,25 +27,30 @@ export function ConnectionStatusGroup(props: ConnectionStatusGroupProps): JSX.El
   const dotSize = () => props.dotSize || 'md'
   const layout = () => props.layout || 'horizontal'
   
-  // Get status text using the same logic as ConnectionStatusDot
+  // L10 — Human-facing label map. Never surfaces raw ALL-CAPS enum tokens to
+  // anyone (DJ or guest); these words read fine for both audiences. B4 — a
+  // paused broadcast is uniformly "Paused" (not "MUTED"/"PAUSED"), matching the
+  // listener dot and the oscilloscope caption.
+  const stateLabels: Record<WebrtcConnectionState, string> = {
+    [WebrtcConnectionState.CONNECTING]: 'Connecting',
+    [WebrtcConnectionState.CONNECTED]: 'Connecting',
+    [WebrtcConnectionState.STREAMING]: 'Live',
+    [WebrtcConnectionState.PAUSED]: 'Paused',
+    [WebrtcConnectionState.DISCONNECTING]: 'Reconnecting…',
+    [WebrtcConnectionState.DISCONNECTED]: 'Reconnecting…',
+    [WebrtcConnectionState.ERROR]: 'Connection lost',
+  }
+
   const statusText = () => {
     const webrtcState = props.webrtcState()
     const paused = props.isPaused?.() ?? false
-    
+
+    // B4 — a broadcast paused mid-stream is a "Paused" broadcast, not a mute.
     if (webrtcState === WebrtcConnectionState.STREAMING && paused) {
-      return 'MUTED'
+      return 'Paused'
     }
-    if (webrtcState === WebrtcConnectionState.STREAMING) {
-      return 'STREAMING'
-    }
-    if (webrtcState === WebrtcConnectionState.PAUSED) {
-      return 'PAUSED'
-    }
-    if (webrtcState === WebrtcConnectionState.CONNECTED || webrtcState === WebrtcConnectionState.CONNECTING) {
-      return 'SETUP'
-    }
-    
-    return webrtcState || 'DISCONNECTED'
+
+    return stateLabels[webrtcState] ?? 'Reconnecting…'
   }
   
   const containerClass = () => {

@@ -81,8 +81,10 @@ export function Oscilloscope(props: OscilloscopeProps) {
   const draw = (currentTime?: number) => {
     if (!canvasRef || !analyser || !dataArray) return
 
-    // Frame rate limiting - cap at 30fps (33ms per frame) for smooth visualization
-    if (currentTime && currentTime - lastFrameTime < 33) {
+    // Perf: throttle the draw loop to ~15fps (66ms/frame). The rAF keeps firing
+    // at display refresh but we skip painting until the budget elapses, which
+    // slashes CPU/GPU work for what is a low-information visualization.
+    if (currentTime && currentTime - lastFrameTime < 66) {
       animationId = requestAnimationFrame(draw)
       return
     }
@@ -119,14 +121,17 @@ export function Oscilloscope(props: OscilloscopeProps) {
     let x = 0
 
     for (let i = 0; i < dataArray.length; i++) {
-      // Convert byte data (0-255) to normalized range
+      // Convert byte data (0-255) to normalized amplitude in [-1, 1], where
+      // ±1.0 == full-scale == 0 dBFS (i.e. genuine clipping).
       const normalized = (dataArray[i] - 128) / 128.0
 
-      // Further reduced amplification from 5x to 2.5x for calmer visualization
-      const amplified = normalized * 2.5
-
-      // Scale to canvas and clamp to bounds
-      let y = (canvas.height / 2) - (amplified * canvas.height * 0.4)
+      // Map the canvas edge to TRUE full-scale: the top/bottom of the canvas
+      // corresponds to 0 dBFS. No amplification, no 0.4 fudge factor — so the
+      // waveform touches the edge ONLY when the audio actually clips. Quiet
+      // music honestly looks smaller; that's correct and prevents the DJ from
+      // misreading normal levels as clipping.
+      let y = (canvas.height / 2) - (normalized * (canvas.height / 2))
+      // Clamp only engages at real 0 dBFS (normalized = ±1.0) == real clipping.
       y = Math.max(0, Math.min(canvas.height, y))
 
       if (i === 0) {

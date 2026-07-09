@@ -59,14 +59,17 @@ export default function ConnectionStatusDot(props: ConnectionStatusDotProps) {
     const webrtcState = props.webrtcState()
     const paused = props.isPaused?.() ?? false
 
+    // B4 — a paused broadcast reads uniformly as "Paused" (title-case) across
+    // the DJ label, this dot, and the oscilloscope caption. Not "MUTED"
+    // (it's a broadcast pause, not a local mute) nor all-caps "PAUSED".
     if (webrtcState === WebrtcConnectionState.STREAMING && paused) {
-      return 'MUTED'
+      return 'Paused'
     }
     if (webrtcState === WebrtcConnectionState.STREAMING) {
       return 'STREAMING'
     }
     if (webrtcState === WebrtcConnectionState.PAUSED) {
-      return 'PAUSED'
+      return 'Paused'
     }
     if (webrtcState === WebrtcConnectionState.CONNECTED || webrtcState === WebrtcConnectionState.CONNECTING) {
       return 'SETUP'
