@@ -84,9 +84,11 @@
   fields null + /health stays infallible on the group-nginx read gotcha). Shared
   `CertStatusBanner` on BOTH Landing + DJRoom: tiered hidden(>30d)/info(14-30)/warning(0-14)/
   critical(expired OR self-signed), UNKNOWN→warning, no shell command in copy, non-dismissable,
-  fetched once. → STILL TODO (small): router-party-test.sh surfacing cert expiry as PASS/WARN
-  offline; and the rpi4-nixos NixOS side — add the backend user to the acme/nginx group so it
-  can actually READ the cert (else certDaysRemaining is always null → perpetual UNKNOWN warning).
+  fetched once. CERT-READ wired DECLARATIVELY 2026-07-09 (854a6406): the hushfm NixOS module
+  gives the backend service SupplementaryGroups=[nginx] (reads the group-nginx cert) + pins
+  HUSHFM_TLS_CERT_PATH to /var/lib/acme/<hostName>/cert.pem; reaches the Pi via the normal
+  rpi4-nixos flake.lock bump. → STILL TODO (small): router-party-test.sh surfacing cert expiry
+  as PASS/WARN offline.
 
 # Client-Side Bug Audit (2026-07-06)
 > Full detail + per-bug validation tracking: **[docs/bug-audit-2026-07-06.md](docs/bug-audit-2026-07-06.md)**
