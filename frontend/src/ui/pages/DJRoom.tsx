@@ -270,13 +270,15 @@ function DJRoomContent() {
                 )}
               </Show>
               
-              {/* Show Go Live button when not connected, not connecting, and device is selected */}
-              <Show when={!connectionAdapter.isConnected() && !isConnecting() && selectedDeviceId()}>
+              {/* D4: ALWAYS render "Go Live" while not connected — disabled with a
+                  helper hint until an audio source is chosen, so a DJ with no
+                  device selected sees a clear next step instead of a dead end. */}
+              <Show when={!connectionAdapter.isConnected() && !isConnecting()}>
                 <div class="text-center mt-4 sm:mt-6">
                   <button
-                    class="btn btn-md sm:btn-lg w-full sm:w-auto px-8 btn-primary hover:btn-primary-focus"
+                    class="btn btn-md sm:btn-lg w-full sm:w-auto px-8 btn-primary hover:btn-primary-focus disabled:opacity-50"
                     onClick={startStreaming}
-                    disabled={isConnecting() || streamingOperation.loading}
+                    disabled={!selectedDeviceId() || isConnecting() || streamingOperation.loading}
                   >
                     {(isConnecting() || streamingOperation.loading) ? (
                       <>
@@ -287,12 +289,25 @@ function DJRoomContent() {
                       'Go Live'
                     )}
                   </button>
-                  
-                  {/* Show streaming operation errors */}
-                  <Show when={streamingOperation.error}>
-                    <div class="text-red-400 text-sm mt-2">
-                      Failed to start streaming: {streamingOperation.error.message}
+
+                  {/* D4: instruction shown while the button is disabled for lack of a source */}
+                  <Show when={!selectedDeviceId()}>
+                    <div class="text-gruvbox-fg-3 text-sm mt-2">
+                      Select an audio source above
                     </div>
+                  </Show>
+
+                  {/* B3: never surface raw exception / WebRTC text to the DJ.
+                      Friendly copy here; the raw error is logged for debugging. */}
+                  <Show when={streamingOperation.error}>
+                    {(error) => {
+                      console.error('❌ DJRoom: Failed to start streaming:', error())
+                      return (
+                        <div class="text-gruvbox-red-bright text-sm mt-2">
+                          Couldn't start streaming — please try again
+                        </div>
+                      )
+                    }}
                   </Show>
                 </div>
               </Show>

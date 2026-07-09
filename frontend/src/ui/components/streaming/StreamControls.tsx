@@ -1,11 +1,21 @@
 /**
  * StreamControls Component
- * 
+ *
  * Stateless component for DJ streaming controls when WebRTC is connected.
  * Provides mute/unmute and end stream functionality.
+ *
+ * D2: "Stop" is destructive and irreversible for every listener, so it is
+ * gated behind a client-side confirmation modal (mirrors the createRoomModal
+ * <dialog class="modal"> pattern in Landing.tsx). endStream() is only invoked
+ * on an explicit "End" confirmation — never on the first tap. The confirm
+ * dialog lives in local UI signal state; no backend/protocol change.
+ *
+ * D3: Mute is state-coloured (green = live / tap-to-mute, yellow = currently
+ * muted) and Stop is a distinct solid-red destructive style, with extra gap so
+ * a drunk thumb in the dark can't confuse the two.
  */
 
-import { Show } from 'solid-js'
+import { Show, createSignal } from 'solid-js'
 import type { JSX } from 'solid-js'
 
 interface StreamControlsProps {
@@ -20,20 +30,46 @@ interface StreamControlsProps {
 }
 
 export function StreamControls(props: StreamControlsProps): JSX.Element {
+  // D2: client-side confirmation state for the destructive end-room action.
+  const [showEndConfirm, setShowEndConfirm] = createSignal(false)
+  const [isEnding, setIsEnding] = createSignal(false)
+
+  const openEndConfirm = () => setShowEndConfirm(true)
+  const cancelEndConfirm = () => setShowEndConfirm(false)
+
+  const confirmEnd = async () => {
+    setIsEnding(true)
+    try {
+      await props.endStream()
+    } finally {
+      // Component typically unmounts (navigate to '/') after a successful end,
+      // but reset defensively in case it doesn't.
+      setIsEnding(false)
+      setShowEndConfirm(false)
+    }
+  }
+
+  // Close the dialog when the backdrop itself is tapped (mobile-friendly),
+  // matching Landing.tsx handleModalClick.
+  const handleModalClick = (e: Event) => {
+    if (e.target && (e.target as HTMLElement).tagName === 'DIALOG') {
+      cancelEndConfirm()
+    }
+  }
 
   return (
-    <div class={`flex flex-col sm:flex-row gap-3 justify-center items-center mt-6 ${props.class || ''}`}>
-      
-      {/* Mute/Unmute Button */}
+    <div class={`flex flex-col sm:flex-row gap-6 justify-center items-center mt-6 ${props.class || ''}`}>
+
+      {/* Mute/Unmute Button — D3: state-coloured solid fill */}
       <button
-        class={`btn btn-md sm:btn-lg gap-2 w-36 sm:w-40 shadow-none ${
-          props.isPaused() 
-            ? 'bg-gruvbox-bg-3 hover:bg-gruvbox-bg-4 border-0 text-gruvbox-red-bright' 
-            : 'bg-gruvbox-bg-3 hover:bg-gruvbox-bg-4 border-0 text-gruvbox-green-bright'
+        class={`btn btn-md sm:btn-lg gap-2 w-36 sm:w-40 border-0 shadow-none ${
+          props.isPaused()
+            ? 'bg-gruvbox-yellow-bright hover:bg-gruvbox-yellow text-gruvbox-bg-0'
+            : 'bg-gruvbox-green-bright hover:bg-gruvbox-green text-gruvbox-bg-0'
         }`}
         onClick={() => props.toggleMute()}
       >
-        <Show 
+        <Show
           when={props.isPaused()}
           fallback={
             <>
@@ -52,17 +88,60 @@ export function StreamControls(props: StreamControlsProps): JSX.Element {
         </Show>
       </button>
 
-      {/* End Stream Button */}
-      <button 
-        class="bg-gruvbox-bg-3 hover:bg-gruvbox-bg-4 border-0 text-gruvbox-red-bright shadow-none btn btn-md sm:btn-lg gap-2 w-36 sm:w-40" 
-        onClick={() => props.endStream()}
+      {/* End Stream Button — D3: distinct solid-red destructive style.
+          D2: opens the confirmation dialog instead of ending immediately. */}
+      <button
+        class="btn btn-md sm:btn-lg gap-2 w-36 sm:w-40 border-0 shadow-none bg-gruvbox-red-bright hover:bg-gruvbox-red text-gruvbox-bg-0"
+        onClick={openEndConfirm}
       >
         <svg class="w-4 h-4 sm:w-5 sm:h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path stroke-linecap="round" stroke-linejoin="round" stroke-width={2} d="M6 18L18 6M6 6l12 12" />
         </svg>
         <span class="text-sm sm:text-base">Stop</span>
       </button>
-      
+
+      {/* D2: End-room confirmation modal (mirrors createRoomModal in Landing.tsx). */}
+      <Show when={showEndConfirm()}>
+        <dialog class="modal modal-open" onClick={handleModalClick}>
+          <div
+            class="modal-box max-w-sm modal-glass text-gruvbox-fg p-6 sm:p-8"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h3 class="font-bold text-xl sm:text-2xl mb-3 text-center text-gruvbox-red-bright">
+              End the room for everyone?
+            </h3>
+            <p class="text-sm sm:text-base text-gruvbox-fg-3 text-center mb-8">
+              This stops the stream for all listeners and can't be undone.
+            </p>
+
+            <div class="flex flex-col sm:flex-row gap-3 justify-center">
+              <button
+                type="button"
+                class="btn btn-md sm:btn-lg w-full sm:w-40 border-0 shadow-none bg-gruvbox-bg-3 hover:bg-gruvbox-bg-4 text-gruvbox-fg"
+                onClick={cancelEndConfirm}
+                disabled={isEnding()}
+              >
+                <span class="text-sm sm:text-base">Cancel</span>
+              </button>
+
+              <button
+                type="button"
+                class="btn btn-md sm:btn-lg w-full sm:w-40 border-0 shadow-none bg-gruvbox-red-bright hover:bg-gruvbox-red text-gruvbox-bg-0 disabled:opacity-50"
+                onClick={confirmEnd}
+                disabled={isEnding()}
+              >
+                <Show when={isEnding()} fallback={<span class="text-sm sm:text-base">End</span>}>
+                  <>
+                    <span class="loading loading-spinner loading-sm"></span>
+                    <span class="ml-2 text-sm sm:text-base">Ending…</span>
+                  </>
+                </Show>
+              </button>
+            </div>
+          </div>
+        </dialog>
+      </Show>
+
     </div>
   )
 }
