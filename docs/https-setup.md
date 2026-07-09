@@ -209,3 +209,25 @@ use the router's local override, not public DNS.
 | Cert obtained but nginx returns self-signed | Cert group mismatch | Verify `/var/lib/acme/hushfm.dedyn.io/` is group-readable by `nginx` |
 | Guests see "not secure" warning | DNS override not active | Run `nslookup hushfm.dedyn.io` on a guest device; should return Pi's LAN IP |
 | DNS override returns Pi IP but TLS error | Cert expired or wrong CN | Re-run pre-party checklist step 3b–3c |
+
+---
+
+## 6. Cert-expiry warning (decision 2026-07-09)
+
+The renewal is automatic ONLY if the Pi gets internet at home within the 30-day
+window before an event. Miss that and the cert silently ages out → padlock
+warning at the door with no prior signal. Safety net (being built):
+
+- **Backend:** `/health` gains a `certDaysRemaining` field — the backend reads
+  the LE cert's `notAfter` from `/var/lib/acme/hushfm.dedyn.io/cert.pem` and
+  computes days-to-expiry. **Implementation gotcha:** that path is
+  group-`nginx` readable; the backend process user needs read access (add it to
+  the `nginx`/`acme` group, or point at a group-readable copy, or parse
+  `fullchain.pem`). If the cert is unreadable, return `null` (don't fail /health).
+- **Frontend (DJ page):** when `certDaysRemaining` is below a threshold
+  (e.g. ≤ 14), show a warning banner on the DJ page ("TLS cert expires in N days —
+  renew at home before the next event: `sudo systemctl start
+  acme-hushfm.dedyn.io.service` with internet"). DJ-only (guests shouldn't see
+  ops warnings); the DJ is the operator.
+- **Router test script:** `router-party-test.sh` should also surface the cert
+  expiry as a PASS/WARN so the pre-party check catches it offline.

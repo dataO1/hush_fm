@@ -70,6 +70,18 @@
   its listeners.
 - [ ] **N1 audio-bot device unplug**: unplug the line-in mid-stream → listeners see PAUSED (not
   silent-but-live); replug → audio + UI auto-recover. No room close during the gap.
+- [ ] **Android offline-WiFi FIELD test (HARD GATE — decision 2026-07-09)**: on ≥2 real Android
+  models on the offline `hushfm` net — (a) join → the "no internet / stay connected?" prompt
+  appears at most ONCE, tap yes → goes quiet; (b) lock/unlock the phone → NO re-prompt;
+  (c) walk out of WiFi range and back (reassociate) → NO re-prompt, app still loads. This is the
+  ONE unverified link in the offline-router chain (router side is lab-verified; the "sticky
+  one-tap then quiet" Android behavior post-fix has never been confirmed on real hardware).
+  Also confirm iOS stays fully silent. See docs/offline-router-connectivity.md §Decisions.
+- [ ] **Cert-expiry warning on the DJ page (build — decision 2026-07-09)**: `/health` gains
+  `certDaysRemaining` (backend reads notAfter from the LE cert — mind the group-nginx read
+  permission, return null if unreadable); DJ page shows a warning banner when ≤14 days so a
+  cert that aged out (no home-internet in the 30-day renewal window) can't ambush the door.
+  router-party-test.sh surfaces it as PASS/WARN too. See docs/https-setup.md §6. [effort: S]
 
 # Client-Side Bug Audit (2026-07-06)
 > Full detail + per-bug validation tracking: **[docs/bug-audit-2026-07-06.md](docs/bug-audit-2026-07-06.md)**

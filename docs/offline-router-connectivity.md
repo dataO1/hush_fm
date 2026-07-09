@@ -15,7 +15,36 @@ Setup prerequisites (one-time after a factory reset): set the admin
 password in the GL wizard, `ssh-copy-id root@192.168.8.1`, and give the
 router internet **once** so the fakeinternet package can install.
 
-Verified live end-to-end on 2026-07-05.
+Verified live end-to-end on 2026-07-05 (router side, via the test script).
+
+---
+
+## Decisions (2026-07-09 grill) — what's settled
+
+The connectivity + HTTPS work is **substantially done**; these are the residual
+calls made after reviewing the state:
+
+1. **Router stays IMPERATIVE (scripts, not Nix) — accepted.** The Flint 2 runs
+   OpenWrt, not NixOS; a declarative router would be a large rewrite of a rarely
+   re-flashed party appliance. `router-party-setup.sh` is idempotent + verified.
+   This is the one deliberate non-Nix exception in the project.
+2. **Modern Android = "one tap, then quiet" — accepted; Tier 1 NOT built.** A
+   truly zero-touch door would need a minimal real WAN uplink (spare-phone USB
+   tether + firewall allowlist to only the OS probe hosts). Deemed not worth the
+   extra venue hardware/config; one sticky tap + signage is good enough.
+3. **Real-phone Android FIELD test is a hard pre-party gate** (see TODO "TO TEST
+   AT HOME"). The router side is lab-verified; the "sticky one-tap then quiet"
+   Android behavior post-fix has only been reasoned through, never confirmed on
+   actual guest hardware. Must validate on ≥2 Android models before the party.
+4. **Cert-expiry safety net (being built):** the DJ page will show a warning when
+   the TLS cert is near expiry, fed by a `certDaysRemaining` field on `/health`
+   (backend reads the LE cert's notAfter). So a cert that quietly aged out (Pi
+   didn't get home-internet inside the 30-day renewal window) can't ambush you at
+   the door. See https-setup.md §6 + TODO.
+5. **Single AP — no second AP.** The doc's ">40-50 guests wants a second AP" note
+   stands as a KNOWN CEILING, not a plan: with one Flint 2, coverage past ~40-50
+   phones through a crowd will degrade and there is no software fix. Keep guest
+   count in mind; AP height/placement (§ radio) is the only lever we have.
 
 ---
 
