@@ -651,6 +651,100 @@ impl Room {
         Ok(was_streaming)
     }
 
+    /// N1: Handle the audio-bot line-in device being LOST (unplugged mid-set).
+    ///
+    /// The audio bot has no DJ WebSocket, so it never travels the
+    /// `handle_dj_disconnect` path. When the device-state-machine enters
+    /// `WaitingForDevice`/`DeviceError` the encoder task dies and no frames
+    /// reach the DirectProducer — but the room would otherwise stay Live with
+    /// an unpaused producer, so every listener hears dead silence with no UI
+    /// signal. This mirrors `handle_dj_disconnect`'s pause+broadcast (minus the
+    /// grace/close timer — decision 1a: a line-in rig between sets keeps its
+    /// room indefinitely).
+    ///
+    /// Transition-guarded on `Live -> Paused`: flapping (repeatedly entering
+    /// `WaitingForDevice`) is a no-op after the first pause, so `StreamPaused`
+    /// is never spammed and the producer is never double-paused.
+    ///
+    /// Returns Ok(true) if this call performed the Live->Paused pause (caller
+    /// should broadcast the room update to the lobby).
+    pub async fn handle_audio_bot_device_loss(&mut self) -> Result<bool> {
+        let room_id = self.id;
+
+        // Guard: only act on the Live -> Paused transition. If already Paused
+        // (device still gone / flapping) or not yet Live, do nothing.
+        if !matches!(self.status, RoomStatus::Live) {
+            return Ok(false);
+        }
+
+        {
+            let Some(dj) = self.dj.as_mut() else {
+                return Ok(false); // no producer to pause
+            };
+            if !(dj.has_producer() && !dj.is_producer_paused()) {
+                return Ok(false);
+            }
+            dj.pause().await?; // mediasoup producer.pause()
+        }
+
+        self.pause(); // Live -> Paused (room stays public/listed as paused)
+        self.sync_streaming_state();
+        self.broadcast_to_listeners(crate::lib::models::ListenerEvent::StreamPaused {
+            room_id: room_id.to_string(),
+        });
+        tracing::info!(
+            room_id = %room_id,
+            listener_count = self.listener_count,
+            "🔌 Audio-bot device lost - producer paused, listeners notified (StreamPaused)"
+        );
+
+        self.update_activity();
+        Ok(true)
+    }
+
+    /// N1: Handle the audio-bot line-in device RETURNING (re-plugged, capture
+    /// resumed). Resumes the DirectProducer, flips the room back to Live and
+    /// notifies listeners (StreamResumed) so audio + UI recover automatically.
+    ///
+    /// Transition-guarded on `Paused -> Live`: only acts when the room was
+    /// paused (by a prior device loss) and a producer exists, so a resume is
+    /// never emitted for a room that is already Live.
+    ///
+    /// Returns Ok(true) if this call performed the Paused->Live resume (caller
+    /// should broadcast the room update to the lobby).
+    pub async fn handle_audio_bot_device_return(&mut self) -> Result<bool> {
+        let room_id = self.id;
+
+        // Guard: only act on the Paused -> Live transition.
+        if !matches!(self.status, RoomStatus::Paused) {
+            return Ok(false);
+        }
+
+        {
+            let Some(dj) = self.dj.as_mut() else {
+                return Ok(false);
+            };
+            if !dj.has_producer() {
+                return Ok(false);
+            }
+            dj.resume().await?; // mediasoup producer.resume()
+        }
+
+        self.resume(); // Paused -> Live
+        self.sync_streaming_state();
+        self.broadcast_to_listeners(crate::lib::models::ListenerEvent::StreamResumed {
+            room_id: room_id.to_string(),
+        });
+        tracing::info!(
+            room_id = %room_id,
+            listener_count = self.listener_count,
+            "🔌 Audio-bot device returned - producer resumed, listeners notified (StreamResumed)"
+        );
+
+        self.update_activity();
+        Ok(true)
+    }
+
     /// Comprehensive room closure with graceful listener cleanup
     /// Handles DJ stopping stream, ejecting all listeners, and cleaning up resources
     pub async fn close_room(&mut self) -> Result<()> {

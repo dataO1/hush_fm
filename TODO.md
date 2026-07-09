@@ -68,6 +68,8 @@
   create a NEW room with a DIFFERENT name → you stream under the NEW name (old half-setup room
   is scrapped), no stale name. And: a live/paused room + reconnect keeps its original name and
   its listeners.
+- [ ] **N1 audio-bot device unplug**: unplug the line-in mid-stream → listeners see PAUSED (not
+  silent-but-live); replug → audio + UI auto-recover. No room close during the gap.
 
 # Client-Side Bug Audit (2026-07-06)
 > Full detail + per-bug validation tracking: **[docs/bug-audit-2026-07-06.md](docs/bug-audit-2026-07-06.md)**
@@ -300,18 +302,37 @@
   ~:293 navigate('/'); depends on the connection error surviving the route change). → verify
   the banner renders post-nav; if not, show a brief in-room "The DJ ended the stream" card
   with a "Back to rooms" button before navigating. [impact: high, effort: S-M]
-- [ ] **B3 — raw WebRTC/exception text leaks to guests** (WebRTCErrorHandler.tsx:72-77 monospace
+- [~] **B3 — raw WebRTC/exception text leaks to guests** (WebRTCErrorHandler.tsx:72-77 monospace
   `error.message`; ListenerRoom.tsx:351; DJRoom.tsx:294; Landing.tsx:383). Tags like
   `TransportError` shown to users. → suppress the raw monospace block for guests (friendly
   title+description only; gate detail behind a dev flag). [impact: high, effort: S]
-- [ ] **B4 — one concept, three words: DJ "MUTED" / listener "{djName} paused" / dot "PAUSED"**
+  FIXED (DJRoom portion, party-fixes 2026-07-09): DJRoom.tsx:294 no longer renders
+  `streamingOperation.error.message`; shows friendly "Couldn't start streaming — please try again"
+  and logs the raw error via console.error for debugging. WebRTCErrorHandler / ListenerRoom /
+  Landing portions remain for their own batches.
+- [x] **B4 — one concept, three words: DJ "MUTED" / listener "{djName} paused" / dot "PAUSED"**
   (ConnectionStatusGroup.tsx:35-43; Oscilloscope.tsx:207-209; ConnectionStatusDot). → unify on
   "Paused" everywhere the broadcast is paused (reserve "Muted" only for a true local mute).
   [impact: med, effort: S]
-- [ ] **D2 — "Stop"/end-room has NO confirmation; sits next to "Mute", near-identical style**
+  DONE (party-fixes): DJ label MUTED→"Paused", dot MUTED/PAUSED→title-case "Paused"; oscilloscope
+  "{djName} paused" caption kept (already attributed). Consistent title-case across all three.
+- [x] **Oscilloscope false-clip — canvas edge now == true 0 dBFS, dropped 2.5×/0.4 gain; only
+  touches edge on real clipping; throttled to 15fps** (Oscilloscope.tsx). New mapping:
+  `y = height/2 - normalized*(height/2)` where `normalized=(dataArray[i]-128)/128` (±1.0 == 0 dBFS).
+  Removed the 2.5× amplification and 0.4 factor so quiet music honestly looks smaller and the
+  waveform reaches the edge ONLY on genuine clipping; the DJ no longer misreads normal levels as
+  clipping. Draw loop throttled from ~60fps to ~15fps (66ms budget). AnalyserNode/AudioContext are
+  created in-component and already torn down via onCleanup; reusing AudioClient's context is a
+  follow-up (would need a cross-file edit, not owned here). [impact: high, effort: S]
+- [x] **D2 — "Stop"/end-room has NO confirmation; sits next to "Mute", near-identical style**
   (StreamControls.tsx:56-64 → DJRoom.tsx:316 immediate closeDJRoom+navigate). One drunk tap
   kills the room for everyone. → client-side confirm ("End the room for everyone?") or
   hold-to-confirm; make Stop a distinct solid-red destructive style. [impact: high, effort: S]
+  FIXED (party-fixes 2026-07-09): Stop now opens a client-side confirmation modal
+  ("End the room for everyone?" → Cancel / End [destructive red]); endStream()/closeDJRoom() only
+  fires on confirmed "End". Modal mirrors Landing.tsx createRoomModal (<dialog class="modal">,
+  modal-box modal-glass, backdrop-tap to cancel) driven by a local SolidJS signal in
+  StreamControls; no backend change. Stop restyled to distinct solid-red (see D3).
 
 ## UX/UI — flow improvements (frontend-only; curated relevant set)
 - [ ] **L1 — stuck "Connecting to lobby…" is a dead end** (Landing.tsx:426-431 infinite spinner,
@@ -331,19 +352,30 @@
 - [ ] **L9 — no plain "you're listening" confirmation** (ListenerRoom.tsx:382-415 only a
   waveform + "STREAMING" dot). → status line: "🎧 Listening live" / "⏸ {djName} paused" /
   "Connecting…" mapped from getWebrtcState(). [impact: high, effort: S]
-- [ ] **L10 — raw enum tokens shown to listeners** (ConnectionStatusGroup.tsx:44-48 "SETUP",
+- [x] **L10 — raw enum tokens shown to listeners** (ConnectionStatusGroup.tsx:44-48 "SETUP",
   falls through to enum string / "DISCONNECTED"). → listener-facing label map: SETUP→Connecting,
   STREAMING→Live, PAUSED→Paused, DISCONNECTED→Reconnecting…, ERROR→Connection lost.
   [impact: med, effort: S]
+  DONE (party-fixes): ConnectionStatusGroup now maps every WebrtcConnectionState via a label map
+  (CONNECTING/CONNECTED→Connecting, STREAMING→Live, PAUSED→Paused, DISCONNECTING/DISCONNECTED→
+  "Reconnecting…", ERROR→"Connection lost"); no raw ALL-CAPS enum token can reach the UI. Labels
+  read fine for the DJ too, so the shared component stays single-audience-safe.
 - [ ] **L11 — "Connecting…" identical for first-connect vs the #11 15s silent retry**
   (ListenerRoom.tsx:375-380). → after ~5s swap copy to "Still connecting — hang tight…" (client
   timer). [impact: med, effort: S]
-- [ ] **D3 — Mute and Stop look nearly identical** (StreamControls.tsx:29-33,57 both gray+red
+- [x] **D3 — Mute and Stop look nearly identical** (StreamControls.tsx:29-33,57 both gray+red
   text). → Mute state-colored (green live / yellow muted), Stop distinct solid-red; more gap.
   [impact: med, effort: S]
-- [ ] **D4 — "Go Live" hidden until a device is selected, no prompt** (DJRoom.tsx:274 Show gated
+  FIXED (party-fixes 2026-07-09): Mute is now solid-fill state-coloured — green (bg-gruvbox-green-
+  bright, live/tap-to-mute) vs yellow (bg-gruvbox-yellow-bright, currently muted); Stop is solid-
+  red (bg-gruvbox-red-bright) destructive fill. Row gap widened gap-3→gap-6 so a drunk thumb in
+  the dark can't confuse the two.
+- [x] **D4 — "Go Live" hidden until a device is selected, no prompt** (DJRoom.tsx:274 Show gated
   on selectedDeviceId). → always render Go Live, disabled, with "Select an audio source above".
   [impact: med, effort: S]
+  FIXED (party-fixes 2026-07-09): Go-Live <Show> gate no longer requires selectedDeviceId(); the
+  button always renders while not connected/connecting and is DISABLED (with helper text "Select an
+  audio source above") until a source is chosen. Label already "Go Live".
 - [ ] **X2 — sub-44px tap targets** (Landing.tsx:411 create "+" at btn-sm; ✕ dismiss glyphs
   Landing.tsx:353 / ListenerRoom.tsx:352). → enforce 44×44 hit area on icon-only buttons.
   [impact: med, effort: S]
@@ -361,7 +393,7 @@
 
 # Bugs
 ## Critical
-- [ ] **N1 — audio-bot line-in device unplug → whole floor silently dead, no signal, forever**
+- [x] ✔️FIXED **N1 — audio-bot line-in device unplug → whole floor silently dead, no signal, forever**
   (backend/src/lib/audio/audio_lifecycle.rs:455-468 `cleanup_audio_capture` + audio_room.rs:99-108;
   found by the 2026-07-09 backend validation scan). If the DJ's line-in is unplugged mid-set the
   encoder task dies → NO frames (not even silence) reach the DirectProducer, but `dj.is_paused`
@@ -369,9 +401,18 @@
   keeps an unpaused consumer hearing dead silence, NO `StreamPaused` fires, no UI signal. And the
   bot room has no WS → no grace timer → it's never closed/reaped → the silent room persists until
   server restart. This is the PRIMARY physical failure mode of a silent-disco line-in rig.
-  → On entering `WaitingForDevice`/`DeviceError`: `producer.pause()` on the DirectProducer +
-  broadcast `StreamPaused` to the bot room's listeners; `resume()` + resume-broadcast when a
-  device returns. [impact: HIGH (party UX show-stopper), effort: M] — fix before the next party.
+  FIX (2026-07-09, decision 1a): `AudioLifecycleManager` now holds a `Lobby` handle; on entering
+  `WaitingForDevice`/`DeviceError` (device lost — incl. the encoder-death path) it reaches the
+  bot's room and pauses the DirectProducer + broadcasts `StreamPaused` + flips the room to Paused
+  (new `Room::handle_audio_bot_device_loss`, mirrors `handle_dj_disconnect`); on device RETURN
+  (capture resumes → `Running`) it resumes the producer + broadcasts `StreamResumed` + flips the
+  room back to Live (`Room::handle_audio_bot_device_return`). Listeners see PAUSED (the #9/#12
+  frontend already handles `StreamPaused`→PAUSED) instead of dead-silent-Live. Stays Paused
+  INDEFINITELY if the device never returns (no grace-timer/close for the bot — a line-in rig
+  between sets keeps its room; decision 1a). Transition-guarded (Live→Paused pauses once,
+  Paused→Live resumes once) so flapping never spams `StreamPaused` or double-pauses. Lock
+  discipline (M2): the room write guard is dropped before the lobby broadcast — no guard held
+  across the `producer.pause()/resume().await` mediasoup call's lobby update. [impact: HIGH, effort: M]
 - [ ] **Offline router: phones warn "network has no internet" and DROP the
   WiFi after a while (Android especially — falls back to mobile data / kicks
   the connection).** Party field data: "stay connected" did NOT stick —

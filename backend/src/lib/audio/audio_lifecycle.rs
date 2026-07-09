@@ -16,6 +16,7 @@ use crate::lib::audio::{
     audio_capture::AudioCapture,
     encoder::AudioEncoder,
 };
+use crate::lib::domain::Lobby;
 
 /// Audio bot operational state
 #[derive(Debug, Clone, PartialEq)]
@@ -101,6 +102,11 @@ pub struct AudioLifecycleManager {
     pub direct_producer: Arc<Producer>,
     /// Room ID (persistent)
     pub room_id: Uuid,
+    /// Lobby handle (cheap Arc clone) used to reach the bot's room so we can
+    /// pause/resume the producer + broadcast StreamPaused/StreamResumed on
+    /// device loss/return (N1). The bot has no DJ WebSocket, so this is the
+    /// only path from the device-state-machine to the room.
+    lobby: Lobby,
     /// Retry delay for error recovery
     retry_delay: std::time::Duration,
     /// Device rescan trigger (to force immediate device check on encoder failure)
@@ -120,10 +126,11 @@ impl AudioLifecycleManager {
     /// # Arguments
     /// * `room_id` - ID of the persistent audio bot room
     /// * `direct_producer` - MediaSoup DirectProducer for audio injection
-    pub fn new(room_id: Uuid, direct_producer: Arc<Producer>) -> Self {
+    /// * `lobby` - Lobby handle for reaching the bot's room (pause/broadcast)
+    pub fn new(room_id: Uuid, direct_producer: Arc<Producer>, lobby: Lobby) -> Self {
         let (rescan_trigger, rescan_receiver) = tokio::sync::mpsc::unbounded_channel();
         let (stream_error_tx, stream_error_rx) = tokio::sync::mpsc::unbounded_channel();
-        
+
         Self {
             state: AudioBotState::WaitingForDevice,
             device_monitor: AudioDeviceMonitor::with_default_interval(),
@@ -131,6 +138,7 @@ impl AudioLifecycleManager {
             encoder_components: None,
             direct_producer,
             room_id,
+            lobby,
             retry_delay: std::time::Duration::from_secs(5), // Wait 5s before retry after error
             rescan_trigger,
             rescan_receiver,
@@ -275,6 +283,8 @@ impl AudioLifecycleManager {
                         );
                         self.cleanup_audio_capture().await?;
                         self.state = AudioBotState::WaitingForDevice;
+                        // N1: device lost -> pause producer + StreamPaused + room Paused
+                        self.notify_room_device_lost().await;
                     } else {
                         tracing::debug!(
                             room_id = %self.room_id,
@@ -300,6 +310,8 @@ impl AudioLifecycleManager {
                 if !matches!(self.state, AudioBotState::WaitingForDevice) {
                     self.cleanup_audio_capture().await?;
                     self.state = AudioBotState::WaitingForDevice;
+                    // N1: device lost -> pause producer + StreamPaused + room Paused
+                    self.notify_room_device_lost().await;
                 }
             }
         }
@@ -335,6 +347,10 @@ impl AudioLifecycleManager {
                     device_name,
                     started_at: Instant::now(),
                 };
+
+                // N1: device returned / capture resumed -> resume producer +
+                // StreamResumed + room Live (no-op if the room was never paused).
+                self.notify_room_device_returned().await;
             },
 
             Ok(None) => {
@@ -343,6 +359,8 @@ impl AudioLifecycleManager {
                     "🔍 No USB audio device found during initialization"
                 );
                 self.state = AudioBotState::WaitingForDevice;
+                // N1: device lost -> pause producer + StreamPaused + room Paused
+                self.notify_room_device_lost().await;
             },
 
             Err(e) => {
@@ -358,6 +376,8 @@ impl AudioLifecycleManager {
                     error: e.to_string(),
                     retry_at: Instant::now() + self.retry_delay,
                 };
+                // N1: device error (lost) -> pause producer + StreamPaused + room Paused
+                self.notify_room_device_lost().await;
             }
         }
 
@@ -467,6 +487,101 @@ impl AudioLifecycleManager {
         Ok(())
     }
 
+    /// N1: Notify the bot's room that the line-in device was LOST — pause the
+    /// DirectProducer + broadcast StreamPaused + flip the room to Paused so
+    /// listeners see PAUSED instead of a silent-but-Live room.
+    ///
+    /// Lock discipline (M2): acquire the room write guard, run the
+    /// transition-guarded pause (which does the `producer.pause().await`
+    /// mediasoup call), then DROP the guard before broadcasting the lobby
+    /// update — never hold the guard across the subsequent lobby await. The
+    /// Live->Paused guard inside `handle_audio_bot_device_loss` makes flapping
+    /// (repeated WaitingForDevice/DeviceError) a no-op after the first pause.
+    async fn notify_room_device_lost(&self) {
+        let Some(room_state) = self.lobby.get_room(&self.room_id) else {
+            tracing::warn!(
+                room_id = %self.room_id,
+                "Audio-bot room not found in lobby - cannot pause on device loss"
+            );
+            return;
+        };
+
+        let paused = {
+            let mut room_guard = room_state.write().await;
+            let result = room_guard.handle_audio_bot_device_loss().await;
+            // write guard dropped here, before the lobby broadcast below
+            result
+        };
+
+        match paused {
+            Ok(true) => {
+                // Stream flipped Live->Paused: broadcast so lobby clients see it.
+                self.lobby.update_room(&self.room_id).await;
+                tracing::info!(
+                    room_id = %self.room_id,
+                    "Audio-bot device loss handled - room paused (stays Paused indefinitely per decision 1a)"
+                );
+            }
+            Ok(false) => {
+                tracing::debug!(
+                    room_id = %self.room_id,
+                    "Audio-bot device loss: no pause needed (already paused / not live / no producer)"
+                );
+            }
+            Err(e) => {
+                tracing::error!(
+                    room_id = %self.room_id,
+                    error = %e,
+                    "Failed to pause audio-bot producer on device loss"
+                );
+            }
+        }
+    }
+
+    /// N1: Notify the bot's room that the line-in device RETURNED — resume the
+    /// DirectProducer + broadcast StreamResumed + flip the room back to Live so
+    /// audio + UI recover automatically. Same lock discipline as the loss path;
+    /// the Paused->Live guard makes this idempotent.
+    async fn notify_room_device_returned(&self) {
+        let Some(room_state) = self.lobby.get_room(&self.room_id) else {
+            tracing::warn!(
+                room_id = %self.room_id,
+                "Audio-bot room not found in lobby - cannot resume on device return"
+            );
+            return;
+        };
+
+        let resumed = {
+            let mut room_guard = room_state.write().await;
+            let result = room_guard.handle_audio_bot_device_return().await;
+            // write guard dropped here, before the lobby broadcast below
+            result
+        };
+
+        match resumed {
+            Ok(true) => {
+                self.lobby.update_room(&self.room_id).await;
+                tracing::info!(
+                    room_id = %self.room_id,
+                    "Audio-bot device return handled - room resumed to Live"
+                );
+            }
+            Ok(false) => {
+                tracing::debug!(
+                    room_id = %self.room_id,
+                    "Audio-bot device return: no resume needed (already live / no producer)"
+                );
+            }
+            Err(e) => {
+                tracing::error!(
+                    room_id = %self.room_id,
+                    error = %e,
+                    "Failed to resume audio-bot producer on device return"
+                );
+            }
+        }
+    }
+
     /// Check encoder status for errors
     async fn check_encoder_status(&mut self) {
         if let Some(ref mut encoder_components) = self.encoder_components {
@@ -513,6 +628,12 @@ impl AudioLifecycleManager {
                 error: "Encoder task failed".to_string(),
                 retry_at: Instant::now() + self.retry_delay,
             };
+
+            // N1 (primary failure): the encoder task died (line-in unplugged
+            // mid-set) so no frames reach the DirectProducer. Pause the
+            // producer + broadcast StreamPaused + flip the room to Paused so
+            // listeners see PAUSED instead of dead-silent-but-Live.
+            self.notify_room_device_lost().await;
 
             // Trigger immediate device rescan to check if device is still functional
             tracing::info!(

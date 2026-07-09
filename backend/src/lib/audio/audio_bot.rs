@@ -57,8 +57,11 @@ impl AudioBot {
             "✅ Audio bot room created - starting lifecycle management"
         );
 
-        // Step 2: Create lifecycle manager
-        let lifecycle_manager = AudioLifecycleManager::new(room_id, direct_producer);
+        // Step 2: Create lifecycle manager (clone the Lobby handle so the
+        // device-state-machine can reach the bot's room to pause/resume the
+        // producer + broadcast StreamPaused/StreamResumed on device loss/return
+        // — N1; the bot has no DJ WebSocket, so this is the only path).
+        let lifecycle_manager = AudioLifecycleManager::new(room_id, direct_producer, lobby.clone());
 
         // Step 3: Start lifecycle management task
         let (shutdown_tx, mut shutdown_rx) = tokio::sync::mpsc::channel(1);
