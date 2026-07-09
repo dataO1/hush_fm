@@ -277,6 +277,15 @@
   shows an empty list until manual reload. → Trigger `getRoomList()` from an on-reconnect
   hook (pairs with X4's proposed onReconnected callback). [impact: med, effort: S]
 
+## Follow-ups from Wave 2a verifiers (low, 2026-07-09)
+- [ ] **client-log: no global disk/size cap** (client_log.rs): per-device rate-limit guards a
+  single spamming client, but a flood of DISTINCT device-ids could still grow the log dir +
+  the limiter HashMap unbounded. Accepted for a local single-party Pi; add a global dir-size
+  cap / oldest-file eviction + limiter TTL cleanup if it ever runs long-lived. [low]
+- [ ] **`AUDIO_BOT_SESSION_ID` duplicated** (lobby.rs sweeper mirrors the const from
+  audio_room.rs:21 — values currently match "audio-bot-session"): latent drift risk. → move to
+  one shared const. [low]
+
 ## Observability
 - [x] **No health endpoint** ✔️FIXED 2026-07-09 (party-fixes): added `GET /health` → 200 JSON
   with version (CARGO_PKG_VERSION) + worker count + room count, no auth, from AppState.
