@@ -175,11 +175,19 @@ async fn main() -> anyhow::Result<()> {
 /// phone on the headless offline Pi. No auth. Returns 200 with a small JSON
 /// body: app version, MediaSoup worker count, and current room count.
 async fn health(State(lobby): State<Lobby>) -> Json<serde_json::Value> {
+    // Surface the served TLS cert's expiry + trust so the DJ catches a stale or
+    // self-signed cert at the at-home test (docs/https-setup.md §6). Infallible:
+    // an unreadable/unparseable cert yields BOTH fields `null` — never fails or
+    // blocks /health.
+    let cert = lib::cert_status::read_cert_status();
+
     Json(serde_json::json!({
         "status": "ok",
         "version": env!("CARGO_PKG_VERSION"),
         "workers": lobby.worker_count(),
         "rooms": lobby.room_count(),
+        "certDaysRemaining": cert.days_remaining,
+        "certIsRealLE": cert.is_real_le,
     }))
 }
 

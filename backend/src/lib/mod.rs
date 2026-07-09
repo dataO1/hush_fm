@@ -1,3 +1,4 @@
+pub mod cert_status;
 pub mod config;
 pub mod domain;
 pub mod utils;

@@ -12,6 +12,7 @@ import { WebrtcConnectionState, WsConnectionState } from '../../domain/schemas/c
 import { Oscilloscope } from '../components/shared/Oscilloscope'
 import { WebRTCErrorHandler } from '../components/WebRTCErrorHandler'
 import { RoomHeader } from '../components/room/RoomHeader'
+import CertStatusBanner from '../components/CertStatusBanner'
 import { ConnectionStatusGroup } from '../components/streaming/ConnectionStatusGroup'
 import { StreamControls } from '../components/streaming/StreamControls'
 
@@ -202,7 +203,9 @@ function DJRoomContent() {
 
   return (
     <div class="min-h-screen bg-hush-main text-gruvbox-fg p-4 sm:p-6">
-      
+      {/* Persistent, non-dismissable TLS cert-expiry warning (docs/https-setup.md §6). */}
+      <CertStatusBanner />
+
       <div class="max-w-sm sm:max-w-md lg:max-w-lg mx-auto">
         <Show when={isRedirecting()}>
           <div class="card card-glass">

@@ -5,6 +5,7 @@ import { useConnectionAdapter, useLobbyAdapter, useUserAdapter } from '../../App
 import { LobbyService, LobbyServiceLive } from '../../services/application/LobbyService'
 import { LobbyAdapter, ConnectionAdapter } from '../../stores'
 import ConnectionStatusDot from '../components/ConnectionStatusDot'
+import CertStatusBanner from '../components/CertStatusBanner'
 import { RoomCard } from '../components/room/RoomCard'
 import type { LobbyRoomInfoType } from '../../domain/schemas/lobby.schema'
 import { WebrtcConnectionState } from '../../domain/schemas/connection.schema'
@@ -417,6 +418,8 @@ function LandingContent() {
 
   return (
     <div class="min-h-screen bg-hush-main text-gruvbox-fg">
+      {/* Persistent, non-dismissable TLS cert-expiry warning (docs/https-setup.md §6). */}
+      <CertStatusBanner />
       <div class="container mx-auto px-4 sm:px-6 lg:px-8 py-4 sm:py-6 lg:py-8">
         {/* Header */}
         <div class="text-center mb-6 sm:mb-8">
