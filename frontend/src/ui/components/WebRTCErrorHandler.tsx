@@ -1,4 +1,4 @@
-import { Show } from 'solid-js'
+import { Show, createEffect } from 'solid-js'
 import type { ConnectionError } from '../../domain/schemas/connection.schema'
 
 interface WebRTCErrorHandlerProps {
@@ -9,6 +9,16 @@ interface WebRTCErrorHandlerProps {
 }
 
 export function WebRTCErrorHandler(props: WebRTCErrorHandlerProps) {
+
+  // B3 — Never render raw WebRTC/exception text to listeners; it reads as a scary
+  // crash dump. The friendly title + description below is all the user sees. The
+  // raw detail is still emitted to the console for debugging. Direct prop access
+  // (never destructure) so reactivity survives.
+  createEffect(() => {
+    if (props.error && (props.show !== false)) {
+      console.error('WebRTCErrorHandler: connection error detail:', props.error.message, props.error)
+    }
+  })
 
   const getErrorTitle = (error: ConnectionError) => {
     switch (error._tag) {
@@ -68,15 +78,10 @@ export function WebRTCErrorHandler(props: WebRTCErrorHandlerProps) {
               {props.error ? getErrorDescription(props.error) : 'Unknown error'}
             </p>
 
-            {/* Error Details */}
-            <Show when={props.error?.message}>
-              <div class="bg-gruvbox-bg-1/50 rounded-lg p-3 mb-4 border border-gruvbox-bg-3/30">
-                <p class="text-xs sm:text-sm font-mono text-gruvbox-fg-4 break-words">
-                  {props.error?.message}
-                </p>
-              </div>
-            </Show>
-            
+            {/* B3 — Raw error.message intentionally removed from the UI. It is
+                logged to the console (see createEffect above) for debugging, but
+                the listener only sees the friendly title + description. */}
+
             {/* Action Buttons */}
             <div class="flex flex-col sm:flex-row gap-2 justify-center">
               <Show when={props.onCancel}>

@@ -67,7 +67,7 @@ import {
   type UserRoleType,
   type DJPublishResultType
 } from '../../domain/schemas/user.schema'
-import { WebrtcConnectionState, WsConnectionState, WebSocketError, WebSocketOperation, ConnectionDroppedError } from '../../domain/schemas/connection.schema'
+import { WebrtcConnectionState, WsConnectionState, ConnectionDroppedError } from '../../domain/schemas/connection.schema'
 
 /**
  * User Service Context Tag
@@ -98,7 +98,12 @@ export class UserService extends Context.Tag("@app/services/UserService")<
       roomId: string
       sessionId: string
       meta?: { roomName?: string; djName?: string }
-      onTerminal: () => void
+      // B1+B2 — onTerminal now carries WHY the session ended so ListenerRoom can
+      // render a calm in-room card instead of a red lobby error. kind:
+      //   'roomClosed' → neutral "The set has ended" card (DJ closed the room)
+      //   'error'      → session-expired / listenerNotFound (still calm, but a
+      //                  different message). message is listener-friendly copy.
+      onTerminal: (info: { kind: 'roomClosed' | 'error'; message: string }) => void
       canRecover?: () => boolean
     }) => Effect.Effect<() => void, never, never>
 
@@ -828,7 +833,15 @@ const createUserServiceImpl = () => {
 
         yield* wsClient.subscribe('streamResumed', (event: StreamResumedEvent | ListenerStreamResumedEvent) => {
           console.info('▶️ UserService: Stream resumed event received (server confirmation):', event.roomId)
-          connectionAdapter.setWebRTCState(WebrtcConnectionState.STREAMING)
+          // #12 — Same guard as streamPaused: only act if we have an active role
+          // AND are actually connected. Without this, a stray streamResumed frame
+          // arriving after teardown re-poisons webrtcConnectionState → STREAMING
+          // (the stale-flag class X3 fixed). Only flip to STREAMING for a live session.
+          if (O.isSome(activeRole) && connectionAdapter.isConnected()) {
+            connectionAdapter.setWebRTCState(WebrtcConnectionState.STREAMING)
+          } else {
+            console.info('ℹ️ UserService: Ignoring streamResumed event - no active role or not connected')
+          }
         }).pipe(
           Effect.mapError((error) => new UserServiceError({
             cause: `Failed to subscribe to streamResumed events: ${error}`,
@@ -1055,7 +1068,11 @@ export const UserFeatureLayer = Layer.scoped(
           // MUST tear down the audio machinery: on Android the anchor noise bed
           // and the WebAudio pipeline keep playing (holding audio focus) unless
           // stopStream() runs — the room being gone doesn't silence them.
-          const enterTerminal = (reason: string, userMessage: string) => {
+          const enterTerminal = (
+            reason: string,
+            userMessage: string,
+            kind: 'roomClosed' | 'error'
+          ) => {
             console.info(`Recovery: ${reason} — entering terminal state`)
             terminal = true
             clearDebounceTimer()
@@ -1065,22 +1082,20 @@ export const UserFeatureLayer = Layer.scoped(
             ).catch(() => {})
             // Stop WS reconnection permanently (deliberate-leave semantics)
             Effect.runPromise(userWebSocket.disconnect()).catch(() => {})
-            // Surface a user-facing error before navigating
-            connectionAdapter.setConnectionError(
-              new WebSocketError({
-                cause: userMessage,
-                operation: WebSocketOperation.RECEIVE,
-                timestamp: new Date()
-              })
-            )
-            config.onTerminal()
+            // B1+B2 — Do NOT push a red WebSocketError into the connection store for
+            // the calm terminal cases. ListenerRoom now renders an in-room terminal
+            // card driven purely by onTerminal(info); a lingering connection error
+            // would double-surface as the scary red WebRTCErrorHandler overlay.
+            // The card copy comes from onTerminal's message; audio teardown above is
+            // unchanged (still tears down the Android anchor bed / WebAudio pipeline).
+            config.onTerminal({ kind, message: userMessage })
           }
 
           // ── listenerNotFound → terminal ────────────────────────────────────
           // Subscribe before registering DOM listeners so we never miss the event.
           const unsubListenerNotFound = yield* userWebSocket.subscribe<ListenerNotFoundEvent>(
             'listenerNotFound',
-            (_event) => enterTerminal('listenerNotFound received', 'Session expired — rejoin from the lobby')
+            (_event) => enterTerminal('listenerNotFound received', 'Your session expired — rejoin from the rooms list', 'error')
           )
 
           // ── roomClosed → terminal ──────────────────────────────────────────
@@ -1089,7 +1104,7 @@ export const UserFeatureLayer = Layer.scoped(
           // the subsequent transport death and shows a raw WebRTC error.
           const unsubRoomClosed = yield* userWebSocket.subscribe<ListenerRoomClosedEvent>(
             'roomClosed',
-            (_event) => enterTerminal('roomClosed received', 'The DJ closed the room')
+            (_event) => enterTerminal('roomClosed received', 'The set has ended', 'roomClosed')
           )
 
           // ── Full re-join (single-flight, ≥10 s spacing) ───────────────────
@@ -1161,6 +1176,19 @@ export const UserFeatureLayer = Layer.scoped(
             (event) => {
               if (event.command !== 'resumeConsumer') return
               if (terminal) return
+              // F2 — When the local webrtc state is already PAUSED, the producer
+              // is legitimately paused (manual pause OR the disconnect grace), so
+              // a failing ResumeConsumer is EXPECTED, not a broken consumer. Churning
+              // a background full re-join every ~10 s here does nothing useful and
+              // burns the WS/MediaSoup handshake on every retry. Skip the re-join for
+              // the paused case; the streamResumed broadcast will flip us back to
+              // STREAMING and media auto-flows. Keep the re-join for the genuine
+              // non-paused failure (a consumer actually stuck in a bad state).
+              const webrtcState = connectionAdapter.getConnectionState().webrtcConnectionState
+              if (webrtcState === WebrtcConnectionState.PAUSED) {
+                console.info('Recovery: resumeConsumer failed but producer is PAUSED — expected, skipping re-join')
+                return
+              }
               console.info('Recovery: resumeConsumer failed server-side — forcing full re-join', event.error)
               void performFullRejoin().catch(e =>
                 console.error('Recovery: resumeConsumer re-join error:', e))

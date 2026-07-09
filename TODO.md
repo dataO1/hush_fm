@@ -158,10 +158,13 @@
   Oscilloscope shows a centered ⏸ glyph + "{djName} paused" caption instead of a fake live
   waveform. DJ-resume recovery already works (step 8 audio unlock + step 9 unconditional
   ResumeConsumer untouched; the `streamResumed` broadcast flips the UI back to STREAMING).
-- [ ] **`streamResumed` handler lacks the guard `streamPaused` has** (UserService.ts
+- [x] **`streamResumed` handler lacks the guard `streamPaused` has** (UserService.ts
   ~:771-791): sets STREAMING unconditionally — a stray frame after teardown re-poisons
   `webrtcConnectionState` (the stale-flag class X3 fixed). → Same activeRole+isConnected
   guard. [impact: low, effort: S]
+  FIXED (party-fixes 2026-07-09): streamResumed subscriber now only flips to STREAMING when
+  `O.isSome(activeRole) && connectionAdapter.isConnected()` — same guard as streamPaused; a
+  post-teardown stray frame is logged + ignored.
 - [x] **In-flight commands not failed on socket drop → 30s frozen spinner on a
   mid-handshake WiFi blip** (#11) ✔️FIXED 2026-07-08: `onclose` now flushes every pending
   deferred with a new retriable `ConnectionDroppedError` on NON-deliberate closes (gated on
@@ -243,6 +246,13 @@
   and their UI ignores it): the DJ can't tell if 5 or 50 people hear them. → New
   `DjEvent::ListenerCountUpdated` on the DJ socket + render count on both pages.
   [impact: med, effort: M]
+  LISTENER-RENDER SKIPPED (party-fixes 2026-07-09, no-backend-change batch): the listener WS
+  DOES deliver `listenerCountUpdated`, but there is NO client-side store/subscription that
+  captures it in the listener-room path — the only `listenerCount` state lives in the lobby
+  store (fed from REST/lobby WS, not the room WS). Rendering it would require adding a
+  subscription + a store to hold the count, which is outside the 4 owned files and the
+  no-backend/no-new-store scope. The DJ-side count is the separate `DjEvent::ListenerCountUpdated`
+  batch above.
 - [x] **Create-room button silently vanishes at >8 lobby rooms** (Landing.tsx:408):
   no message, no disabled state. → Disabled state + "room limit reached" copy, or lift the
   arbitrary limit. [impact: low, effort: S]
@@ -292,28 +302,43 @@
 - Low, leave-as-is: F1 = double-DJ-reload-in-10s → ~10s stale (== the ProducerChanged
   double-republish follow-up already listed under Full-Flow Architecture). F2 (below). N2/N3/N4
   backend (latent/narrow, overlap existing lock-across-await + RoomAdded/Updated items).
-- [ ] **F2 (low) — #12 rejoin churn on a genuinely-paused room**: if a room's producer is
+- [x] **F2 (low) — #12 rejoin churn on a genuinely-paused room**: if a room's producer is
   paused, ResumeConsumer legitimately fails → #12 re-joins → resume fails again → one
   background re-join / 10s while the UI correctly shows PAUSED. Self-limited, no user-visible
   breakage. → Optional: gate the #12 `performFullRejoin` when local state is already PAUSED.
   [impact: low, effort: S]
+  FIXED (party-fixes 2026-07-09): the resumeConsumer `commandFailed` handler now reads
+  `connectionAdapter.getConnectionState().webrtcConnectionState` and returns early (skips
+  performFullRejoin) when it is PAUSED — a failing ResumeConsumer is expected while paused.
+  The genuine non-paused failure still forces a full re-join.
 
 ## UX/UI — usability bugs (frontend-only, no backend changes; fix-first)
-- [ ] **B1 — "DJ closed the room" shows as a scary RED error on the lobby** (UserService.ts
+- [x] **B1 — "DJ closed the room" shows as a scary RED error on the lobby** (UserService.ts
   ~:1058-1076 sets WebSocketError → Landing.tsx:348-362 red error-panel). Normal end-of-set
   reads as a failure. → route terminal `roomClosed` to a neutral/info banner variant + softer
   copy ("The set has ended — pick another room"). [impact: high, effort: S]
-- [ ] **B2 — terminal→lobby nav can land the guest with NO explanation** (ListenerRoom.tsx
+  FIXED (party-fixes 2026-07-09, decision 3a): enterTerminal no longer pushes a red
+  WebSocketError into the connection store. onTerminal now carries `{kind, message}`;
+  ListenerRoom renders a CALM in-room terminal card (neutral, not red) titled "The set has
+  ended" with the DJ · room name and a single "Back to rooms" button.
+- [x] **B2 — terminal→lobby nav can land the guest with NO explanation** (ListenerRoom.tsx
   ~:293 navigate('/'); depends on the connection error surviving the route change). → verify
   the banner renders post-nav; if not, show a brief in-room "The DJ ended the stream" card
   with a "Back to rooms" button before navigating. [impact: high, effort: S-M]
-- [~] **B3 — raw WebRTC/exception text leaks to guests** (WebRTCErrorHandler.tsx:72-77 monospace
+  FIXED (party-fixes 2026-07-09): terminal state is surfaced as an in-room card BEFORE any
+  navigation (via a `terminalState` signal set by onTerminal). The guest always sees the
+  explanation; the card's "Back to rooms" button is the only navigate('/'). listenerNotFound
+  reuses the same card with "Your session expired" copy (kind:'error').
+- [x] **B3 — raw WebRTC/exception text leaks to guests** (WebRTCErrorHandler.tsx:72-77 monospace
   `error.message`; ListenerRoom.tsx:351; DJRoom.tsx:294; Landing.tsx:383). Tags like
   `TransportError` shown to users. → suppress the raw monospace block for guests (friendly
   title+description only; gate detail behind a dev flag). [impact: high, effort: S]
   FIXED (DJRoom portion, party-fixes 2026-07-09): DJRoom.tsx:294 no longer renders
   `streamingOperation.error.message`; shows friendly "Couldn't start streaming — please try again"
   and logs the raw error via console.error for debugging.
+  FIXED (listener portion, party-fixes 2026-07-09): WebRTCErrorHandler.tsx dropped the monospace
+  `error.message` block (now console.error only); ListenerRoom.tsx join-error shows "Couldn't
+  join — please try again" with the raw error logged to console.
   FIXED (Landing portion, party-fixes 2026-07-09): both `roomCreation.error` render sites in
   Landing.tsx (top banner + create modal) no longer print `roomCreation.error?.message`; they show
   "Couldn't create the room — please try again". No raw exception / WebRTC / tagged-error text
@@ -366,13 +391,19 @@
   `listenerCount > 0` gate) so an empty-but-live room stays discoverable; the dot uses STREAMING
   vs PAUSED state, and a yellow "Paused" TEXT badge is shown next to the room name whenever a
   public room has `isStreaming === false`.
-- [ ] **L8 — "Enable Audio" modal is browser-policy jargon + blocks the content**
+- [x] **L8 — "Enable Audio" modal is browser-policy jargon + blocks the content**
   (UserInteractionModal.tsx:66-73). → reframe to benefit: "Tap to hear the music" / "{djName}
   is live in {roomName}" / big "Start Listening" button; drop the browser-policy sentence.
   [impact: high, effort: S]
-- [ ] **L9 — no plain "you're listening" confirmation** (ListenerRoom.tsx:382-415 only a
+  FIXED (party-fixes 2026-07-09): title now "Tap to hear the music"; subtext "{djName} is live
+  in {roomName}" (new `djName` prop, passed from ListenerRoom's navigationState.roomInfo); the
+  browser-policy sentence is gone; button already reads "Start Listening".
+- [x] **L9 — no plain "you're listening" confirmation** (ListenerRoom.tsx:382-415 only a
   waveform + "STREAMING" dot). → status line: "🎧 Listening live" / "⏸ {djName} paused" /
   "Connecting…" mapped from getWebrtcState(). [impact: high, effort: S]
+  FIXED (party-fixes 2026-07-09): a plain listening-status line renders under the status dot,
+  mapped from getWebrtcState(): STREAMING→"🎧 Listening live", PAUSED→"⏸ {djName} paused",
+  else "… Connecting…".
 - [x] **L10 — raw enum tokens shown to listeners** (ConnectionStatusGroup.tsx:44-48 "SETUP",
   falls through to enum string / "DISCONNECTED"). → listener-facing label map: SETUP→Connecting,
   STREAMING→Live, PAUSED→Paused, DISCONNECTED→Reconnecting…, ERROR→Connection lost.
@@ -381,9 +412,12 @@
   (CONNECTING/CONNECTED→Connecting, STREAMING→Live, PAUSED→Paused, DISCONNECTING/DISCONNECTED→
   "Reconnecting…", ERROR→"Connection lost"); no raw ALL-CAPS enum token can reach the UI. Labels
   read fine for the DJ too, so the shared component stays single-audience-safe.
-- [ ] **L11 — "Connecting…" identical for first-connect vs the #11 15s silent retry**
+- [x] **L11 — "Connecting…" identical for first-connect vs the #11 15s silent retry**
   (ListenerRoom.tsx:375-380). → after ~5s swap copy to "Still connecting — hang tight…" (client
   timer). [impact: med, effort: S]
+  FIXED (party-fixes 2026-07-09): a tracked createEffect arms a 5s timer whenever the connecting
+  state is entered (and clears/resets it on exit + onCleanup); after 5s the spinner copy swaps to
+  "Still connecting — hang tight…" so a slow first-connect / #11 retry doesn't read as frozen.
 - [x] **D3 — Mute and Stop look nearly identical** (StreamControls.tsx:29-33,57 both gray+red
   text). → Mute state-colored (green live / yellow muted), Stop distinct solid-red; more gap.
   [impact: med, effort: S]

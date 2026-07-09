@@ -5,7 +5,7 @@
  * Shows when listener joins a room and browser blocks autoplay.
  */
 
-import { createEffect } from 'solid-js'
+import { createEffect, Show } from 'solid-js'
 import type { JSX } from 'solid-js'
 
 interface UserInteractionModalProps {
@@ -17,6 +17,8 @@ interface UserInteractionModalProps {
   onCancel?: () => void
   /** Room name to show in modal */
   roomName?: string
+  /** DJ name to show in the "who is live" subtext */
+  djName?: string
 }
 
 export function UserInteractionModal(props: UserInteractionModalProps): JSX.Element {
@@ -63,15 +65,25 @@ export function UserInteractionModal(props: UserInteractionModalProps): JSX.Elem
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width={2} d="M15.536 8.464a5 5 0 010 7.072m2.828-9.9a9 9 0 010 14.142M8.464 8.464a5 5 0 000 7.072m-2.828-9.9a9 9 0 000 14.142" />
             </svg>
           </div>
-          <h3 class="text-xl font-bold mb-2">Enable Audio Playback</h3>
-          <p class="text-sm text-gruvbox-fg-3 leading-relaxed">
-            Your browser requires user interaction to play audio.
-            {props.roomName && (
-              <span class="block mt-1 font-medium">
-                Ready to join "{props.roomName}"?
-              </span>
-            )}
-          </p>
+          {/* L8 — Reframe from browser-policy jargon to the benefit. Title is the
+              action ("Tap to hear the music"); subtext names who is live and where,
+              so a guest with earbuds knows exactly what they're about to hear.
+              Direct prop access — never destructure (repo #1 rule). */}
+          <h3 class="text-xl font-bold mb-2">Tap to hear the music</h3>
+          <Show
+            when={props.djName && props.roomName}
+            fallback={
+              <Show when={props.roomName} fallback={null}>
+                <p class="text-sm text-gruvbox-fg-3 leading-relaxed font-medium">
+                  Live in "{props.roomName}"
+                </p>
+              </Show>
+            }
+          >
+            <p class="text-sm text-gruvbox-fg-3 leading-relaxed font-medium">
+              {props.djName} is live in "{props.roomName}"
+            </p>
+          </Show>
         </div>
 
         {/* Single Button */}

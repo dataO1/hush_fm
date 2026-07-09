@@ -123,6 +123,36 @@ function ListenerRoomContent() {
   // Get WebRTC state getter for connection dot
   const getWebrtcState = () => connectionState()?.webrtcConnectionState || WebrtcConnectionState.DISCONNECTED
 
+  // L9 — Plain-language listening status mapped from the same webrtc state the
+  // connection dot reads, so a guest with earbuds knows audio is actually flowing
+  // (today it's only a tiny waveform + a dot). Direct call — never cache/destructure.
+  const listeningStatus = (): { icon: string; text: string } => {
+    switch (getWebrtcState()) {
+      case WebrtcConnectionState.STREAMING:
+        return { icon: '🎧', text: 'Listening live' }
+      case WebrtcConnectionState.PAUSED:
+        return { icon: '⏸', text: `${navigationState.roomInfo?.djName ?? 'The DJ'} paused` }
+      default:
+        return { icon: '…', text: 'Connecting…' }
+    }
+  }
+
+  // B1+B2 — In-room terminal card state. When the DJ closes the room (roomClosed)
+  // or the session expires (listenerNotFound), the recovery coordinator's
+  // onTerminal fires with a kind + message. We render a CALM in-room card here
+  // (neutral for roomClosed, still-not-red for the error case) with a single
+  // "Back to rooms" action — instead of silently navigating to '/' and relying on
+  // a red lobby banner that may not survive the route change. Audio teardown is
+  // already done inside enterTerminal before this fires.
+  const [terminalState, setTerminalState] = createSignal<
+    { kind: 'roomClosed' | 'error'; message: string } | null
+  >(null)
+
+  // L11 — Differentiate first-connect from the #11 silent mid-join retry. Both
+  // show "Connecting…"; after ~5 s still connecting we swap copy to reassure the
+  // guest it isn't frozen. Timer is (re)armed by the createEffect below.
+  const [connectingSlow, setConnectingSlow] = createSignal(false)
+
   // Audio stream is accessed directly via signal in template
 
   // SolidJS 2025: Use createResource for room joining with connection setup
@@ -290,9 +320,12 @@ function ListenerRoomContent() {
           // canRecover: initial join is complete by the time this runs,
           // so no additional guard is needed here.
           canRecover: () => !joinRoomOperation.loading && !!joinRoomOperation(),
-          onTerminal: () => {
-            console.info('ListenerRoom: Session expired (listenerNotFound) — navigating to lobby')
-            navigate('/')
+          onTerminal: (info) => {
+            // B1+B2 — Surface a calm in-room terminal card instead of navigating
+            // away and hoping a red lobby banner survives the route change. The
+            // card's "Back to rooms" button does the navigate('/') explicitly.
+            console.info('ListenerRoom: Session terminal —', info.kind, info.message)
+            setTerminalState(info)
           }
         })
       ).then(cleanup => {
@@ -300,6 +333,35 @@ function ListenerRoomContent() {
       }).catch(error => {
         console.error('ListenerRoom: Failed to start recovery coordinator:', error)
       })
+    }
+  })
+
+  // L11 — Arm a 5 s "still connecting" timer whenever we enter the connecting
+  // state; clear it (and reset the flag) the moment we leave it. Using a tracked
+  // createEffect so it re-arms on every transition into connecting (e.g. the #11
+  // mid-join retry re-entering the spinner). Timer is cleared on cleanup.
+  let slowConnectTimer: ReturnType<typeof setTimeout> | null = null
+  createEffect(() => {
+    const connecting = isConnecting() || joinRoomOperation.loading
+    if (connecting) {
+      if (slowConnectTimer === null) {
+        slowConnectTimer = setTimeout(() => {
+          setConnectingSlow(true)
+          slowConnectTimer = null
+        }, 5000)
+      }
+    } else {
+      if (slowConnectTimer !== null) {
+        clearTimeout(slowConnectTimer)
+        slowConnectTimer = null
+      }
+      setConnectingSlow(false)
+    }
+  })
+  onCleanup(() => {
+    if (slowConnectTimer !== null) {
+      clearTimeout(slowConnectTimer)
+      slowConnectTimer = null
     }
   })
 
@@ -343,13 +405,17 @@ function ListenerRoomContent() {
       <div class="card card-glass shadow-xl max-w-sm sm:max-w-md w-full mx-4">
         <div class="card-body flex flex-col items-center gap-6 sm:gap-8 p-4 sm:p-6">
 
-          {/* Join operation errors */}
+          {/* Join operation errors — B3: friendly copy only, raw error to console.
+              The exact exception text used to leak here; now it's suppressed. */}
           <Show when={joinRoomOperation.error}>
+            {(_err) => {
+              console.error('ListenerRoom: join failed:', joinRoomOperation.error)
+              return (
             <div class="w-full space-y-4">
               <div class="error-panel px-4 py-3 rounded-lg w-full">
                 <div class="flex justify-between items-center">
-                  <span class="text-sm">Failed to join room: {joinRoomOperation.error.message}</span>
-                  <button 
+                  <span class="text-sm">Couldn't join — please try again</span>
+                  <button
                     class="text-gruvbox-red-bright hover:text-gruvbox-fg ml-4"
                     onClick={() => navigate('/')}
                   >
@@ -370,16 +436,56 @@ function ListenerRoomContent() {
                 </button>
               </div>
             </div>
+              )
+            }}
           </Show>
 
-          <Show when={isConnecting() || joinRoomOperation.loading}>
+          {/* B1+B2 — Terminal in-room card (DJ closed the room / session expired).
+              Calm, not red: a neutral card explaining the set has ended, with the
+              room/DJ name when available and a single "Back to rooms" primary
+              action. Takes over the whole card body when present. */}
+          <Show when={terminalState()}>
+            {(term) => (
+              <div class="w-full text-center space-y-5 py-4">
+                <div class="w-16 h-16 mx-auto bg-gruvbox-bg-2 rounded-full flex items-center justify-center">
+                  <svg class="w-8 h-8 text-gruvbox-fg-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width={2} d="M9 19V6l12-3v13M9 19c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zm12-3c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2z" />
+                  </svg>
+                </div>
+                <div>
+                  <h3 class="text-xl sm:text-2xl font-bold text-gruvbox-fg mb-1">
+                    {term().message}
+                  </h3>
+                  <Show when={navigationState.roomInfo?.djName || navigationState.roomInfo?.name}>
+                    <p class="text-sm text-gruvbox-fg-3">
+                      {navigationState.roomInfo?.djName
+                        ? `${navigationState.roomInfo?.djName} · ${roomName()}`
+                        : roomName()}
+                    </p>
+                  </Show>
+                </div>
+                <button
+                  onClick={() => navigate('/')}
+                  class="btn btn-hush w-full sm:w-auto sm:px-8 py-3"
+                >
+                  Back to rooms
+                </button>
+              </div>
+            )}
+          </Show>
+
+          <Show when={!terminalState() && (isConnecting() || joinRoomOperation.loading)}>
             <div class="text-center py-8">
               <div class="loading loading-spinner loading-lg mx-auto mb-4"></div>
-              <div class="text-lg sm:text-xl font-bold">Connecting...</div>
+              {/* L11 — swap copy after ~5 s so a slow first-connect / #11 retry
+                  doesn't read as frozen. */}
+              <div class="text-lg sm:text-xl font-bold">
+                {connectingSlow() ? 'Still connecting — hang tight…' : 'Connecting…'}
+              </div>
             </div>
           </Show>
 
-          <Show when={!isConnecting() && !joinRoomOperation.loading && !joinRoomOperation.error}>
+          <Show when={!terminalState() && !isConnecting() && !joinRoomOperation.loading && !joinRoomOperation.error}>
             
             {/* Room Header */}
             <RoomHeader 
@@ -388,11 +494,19 @@ function ListenerRoomContent() {
             />
 
             {/* Status Indicator - single source of truth from connection state */}
-            <ConnectionStatusGroup 
+            <ConnectionStatusGroup
               webrtcState={getWebrtcState}
               dotSize="lg"
               layout="vertical"
             />
+
+            {/* L9 — Plain listening-status line in friendly listener copy so a
+                guest with earbuds knows audio is flowing (not just the tiny
+                waveform + dot). Direct call to listeningStatus() — reactive. */}
+            <div class="flex items-center justify-center gap-2 text-sm sm:text-base text-gruvbox-fg-2">
+              <span aria-hidden="true">{listeningStatus().icon}</span>
+              <span>{listeningStatus().text}</span>
+            </div>
 
             {/* Audio Oscilloscope - only show when stream exists AND user interaction is available */}
             <Show when={!audioAdapter.requiresUserGesture() && Option.getOrNull(audioClient.currentStream())} fallback={null}>
@@ -418,6 +532,7 @@ function ListenerRoomContent() {
             <UserInteractionModal
               requiresUserInteraction={audioAdapter.requiresUserGesture()}
               roomName={roomName()}
+              djName={navigationState.roomInfo?.djName}
               onEnableAudio={async () => {
                 try {
                   // Resume the ALREADY-connected stream inside this user gesture.
