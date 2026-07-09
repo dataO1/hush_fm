@@ -77,11 +77,16 @@
   ONE unverified link in the offline-router chain (router side is lab-verified; the "sticky
   one-tap then quiet" Android behavior post-fix has never been confirmed on real hardware).
   Also confirm iOS stays fully silent. See docs/offline-router-connectivity.md §Decisions.
-- [ ] **Cert-expiry warning on the DJ page (build — decision 2026-07-09)**: `/health` gains
-  `certDaysRemaining` (backend reads notAfter from the LE cert — mind the group-nginx read
-  permission, return null if unreadable); DJ page shows a warning banner when ≤14 days so a
-  cert that aged out (no home-internet in the 30-day renewal window) can't ambush the door.
-  router-party-test.sh surfaces it as PASS/WARN too. See docs/https-setup.md §6. [effort: S]
+- [x] **Cert-expiry warning on the DJ page (build)** ✔️FIXED 2026-07-09 (party-fixes ea6180d3):
+  `/health` gains `certDaysRemaining` (signed, negative when expired) + `certIsRealLE`
+  (self-signed detection — days alone is misleading on the bootstrap cert), via a tested
+  `lib::cert_status` (x509-parser, path from HUSHFM_TLS_CERT_PATH + fullchain fallback, both
+  fields null + /health stays infallible on the group-nginx read gotcha). Shared
+  `CertStatusBanner` on BOTH Landing + DJRoom: tiered hidden(>30d)/info(14-30)/warning(0-14)/
+  critical(expired OR self-signed), UNKNOWN→warning, no shell command in copy, non-dismissable,
+  fetched once. → STILL TODO (small): router-party-test.sh surfacing cert expiry as PASS/WARN
+  offline; and the rpi4-nixos NixOS side — add the backend user to the acme/nginx group so it
+  can actually READ the cert (else certDaysRemaining is always null → perpetual UNKNOWN warning).
 
 # Client-Side Bug Audit (2026-07-06)
 > Full detail + per-bug validation tracking: **[docs/bug-audit-2026-07-06.md](docs/bug-audit-2026-07-06.md)**
