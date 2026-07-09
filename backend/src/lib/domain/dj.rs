@@ -13,7 +13,7 @@ use serde_json::Value;
 use uuid::Uuid;
 use std::num::NonZero;
 use tokio::sync::mpsc;
-use crate::lib::models::ListenerEvent;
+use crate::lib::models::DjEvent;
 use crate::lib::models::schemas::TransportOptions;
 use crate::lib::config::Config;
 
@@ -55,8 +55,12 @@ pub struct DJ {
     /// reconnection). Arc-shared so Room/DJ clones (used for API snapshots)
     /// reference the same timer instead of duplicating it.
     pub disconnect_timer: Arc<std::sync::Mutex<Option<tokio::task::JoinHandle<()>>>>,
-    /// Event channel for sending WebSocket events to DJ
-    pub event_tx: Option<mpsc::UnboundedSender<ListenerEvent>>,
+    /// Event channel for pushing server-originated events to the DJ's room
+    /// WebSocket (drained by the DJ socket's select loop, mirroring the
+    /// per-listener event channel). `None` until a live DJ room socket binds it
+    /// on (re)connection; rebound on every reconnect so a stale socket's sender
+    /// never delivers to a newer connection.
+    pub event_tx: Option<mpsc::UnboundedSender<DjEvent>>,
 }
 
 impl DJ {
@@ -65,7 +69,7 @@ impl DJ {
         dj_id: String,
         display_name: String,
         room_id: Uuid,
-        event_tx: Option<mpsc::UnboundedSender<ListenerEvent>>,
+        event_tx: Option<mpsc::UnboundedSender<DjEvent>>,
     ) -> Self {
         Self {
             dj_id,

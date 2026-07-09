@@ -113,16 +113,28 @@ pub enum DjEvent {
     },
 
     /// Room has been closed by DJ
-    RoomClosed { 
+    RoomClosed {
         /// ID of the closed room
         #[serde(rename = "roomId")]
         room_id: String,
         /// Reason for closing
         reason: String,
     },
-    
+
+    /// Listener count has been updated - delivered to the DJ so they can see
+    /// how many people are currently hearing them. Mirrors the listener-side
+    /// ListenerEvent::ListenerCountUpdated shape; emitted at the same
+    /// count-change points (join/leave/reap).
+    ListenerCountUpdated {
+        /// ID of the room
+        #[serde(rename = "roomId")]
+        room_id: String,
+        /// New listener count
+        count: u32,
+    },
+
     /// A command failed to execute
-    CommandFailed { 
+    CommandFailed {
         /// The command that failed
         command: String,
         /// Error description
@@ -321,6 +333,7 @@ impl DjEvent {
             Self::StreamPaused { .. } => "streamPaused",
             Self::StreamResumed { .. } => "streamResumed",
             Self::RoomClosed { .. } => "roomClosed",
+            Self::ListenerCountUpdated { .. } => "listenerCountUpdated",
             Self::CommandFailed { .. } => "commandFailed",
             Self::RoomNotFound { .. } => "roomNotFound",
         }
@@ -398,6 +411,30 @@ mod tests {
         // Must NOT contain snake_case keys (frontend schema decodes camelCase)
         assert!(!json.contains("room_id"), "JSON should not contain room_id (snake_case)");
         assert!(!json.contains("producer_id"), "JSON should not contain producer_id (snake_case)");
+    }
+
+    #[test]
+    fn test_dj_listener_count_updated_serializes_camel_case() {
+        let event = DjEvent::ListenerCountUpdated {
+            room_id: "room-abc".to_string(),
+            count: 7,
+        };
+        let json = serde_json::to_string(&event).expect("Should serialize ListenerCountUpdated");
+        let value: serde_json::Value = serde_json::from_str(&json).unwrap();
+        assert_eq!(value["type"], "listenerCountUpdated");
+        assert_eq!(value["roomId"], "room-abc");
+        assert_eq!(value["count"], 7);
+        // Must NOT contain snake_case keys (frontend schema decodes camelCase)
+        assert!(!json.contains("room_id"), "JSON should not contain room_id (snake_case)");
+    }
+
+    #[test]
+    fn test_dj_listener_count_updated_event_type() {
+        let event = DjEvent::ListenerCountUpdated {
+            room_id: "room-abc".to_string(),
+            count: 1,
+        };
+        assert_eq!(event.event_type(), "listenerCountUpdated");
     }
 
     #[test]

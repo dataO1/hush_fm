@@ -62,6 +62,7 @@ export const WEBSOCKET_DJ_EVENT_TYPES = {
   STREAM_PAUSED: 'streamPaused',
   STREAM_RESUMED: 'streamResumed',
   ROOM_CLOSED: 'roomClosed',
+  LISTENER_COUNT_UPDATED: 'listenerCountUpdated',
   DJ_COMMAND_FAILED: 'djCommandFailed',
   ROOM_NOT_FOUND: 'roomNotFound'
 } as const
@@ -304,6 +305,7 @@ export type DJEventType =
   | S.Schema.Type<typeof StreamPausedEventSchema>
   | S.Schema.Type<typeof StreamResumedEventSchema>
   | S.Schema.Type<typeof RoomClosedEventSchema>
+  | S.Schema.Type<typeof DJListenerCountUpdatedEventSchema>
   | S.Schema.Type<typeof DJCommandFailedEventSchema>
   | S.Schema.Type<typeof RoomNotFoundEventSchema>
 
@@ -346,6 +348,18 @@ export const RoomClosedEventSchema = S.Struct({
   type: S.Literal("roomClosed")
 })
 
+/**
+ * Listener count changed, delivered to the DJ so they can see how many people
+ * are currently hearing them. Matches backend DjEvent::ListenerCountUpdated
+ * (same wire shape as the listener-side ListenerCountUpdatedEventSchema, but a
+ * distinct schema so it belongs to the DJ event union).
+ */
+export const DJListenerCountUpdatedEventSchema = S.Struct({
+  roomId: S.String,
+  count: S.Number,
+  type: S.Literal("listenerCountUpdated")
+})
+
 export const DJCommandFailedEventSchema = S.Struct({
   command: S.String,
   error: S.String,
@@ -365,6 +379,7 @@ export type ProducerCreatedEvent = S.Schema.Type<typeof ProducerCreatedEventSche
 export type StreamPausedEvent = S.Schema.Type<typeof StreamPausedEventSchema>
 export type StreamResumedEvent = S.Schema.Type<typeof StreamResumedEventSchema>
 export type RoomClosedEvent = S.Schema.Type<typeof RoomClosedEventSchema>
+export type DJListenerCountUpdatedEvent = S.Schema.Type<typeof DJListenerCountUpdatedEventSchema>
 export type DJCommandFailedEvent = S.Schema.Type<typeof DJCommandFailedEventSchema>
 export type RoomNotFoundEvent = S.Schema.Type<typeof RoomNotFoundEventSchema>
 
@@ -379,6 +394,7 @@ export const DJEventSchema = S.Union(
   StreamPausedEventSchema,
   StreamResumedEventSchema,
   RoomClosedEventSchema,
+  DJListenerCountUpdatedEventSchema,
   DJCommandFailedEventSchema,
   RoomNotFoundEventSchema
 )

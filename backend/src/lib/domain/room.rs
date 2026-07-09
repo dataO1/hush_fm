@@ -125,6 +125,12 @@ impl Room {
             count: self.listener_count,
         };
         self.broadcast_to_listeners(listener_update);
+
+        // Also notify the DJ so they can see the live count of who hears them.
+        self.send_to_dj(crate::lib::models::DjEvent::ListenerCountUpdated {
+            room_id: self.id.to_string(),
+            count: self.listener_count,
+        });
     }
 
     /// Get listener state
@@ -199,6 +205,41 @@ impl Room {
         );
     }
 
+    /// Push a server-originated event to the DJ's room WebSocket via the DJ's
+    /// event channel (drained by the DJ socket's select loop). No-op when no
+    /// live DJ socket has bound a sender (event_tx is None) or the DJ is gone.
+    /// Non-blocking: the unbounded send never awaits, and the socket task owns
+    /// the actual WS write (including backpressure), so this holds no lock
+    /// across an await.
+    pub fn send_to_dj(&self, event: crate::lib::models::DjEvent) {
+        let Some(dj) = self.dj.as_ref() else {
+            return;
+        };
+        let Some(event_tx) = dj.event_tx.as_ref() else {
+            // No live DJ room socket bound yet (or DJ never connected): dropping
+            // the event is correct — a DJ that connects later gets a fresh count
+            // on the next change, and the frontend can request/derive state.
+            return;
+        };
+        let event_type = event.event_type();
+        match event_tx.send(event) {
+            Ok(()) => {
+                tracing::debug!(
+                    room_id = %self.id,
+                    event_type = event_type,
+                    "Sent event to DJ via event channel"
+                );
+            }
+            Err(_) => {
+                tracing::debug!(
+                    room_id = %self.id,
+                    event_type = event_type,
+                    "Failed to send event to DJ, channel closed (socket gone)"
+                );
+            }
+        }
+    }
+
     /// Remove a specific listener from the room with proper MediaSoup cleanup
     #[tracing::instrument(skip(self), fields(room_id = %self.id, listener_id = %listener_id))]
     pub async fn remove_listener(&mut self, listener_id: &str) -> anyhow::Result<()> {
@@ -237,6 +278,13 @@ impl Room {
                 count: self.listener_count,
             };
             self.broadcast_to_listeners(listener_update);
+
+            // Also notify the DJ (covers explicit leave AND the reap path, which
+            // funnels through remove_listener) so their count stays live.
+            self.send_to_dj(crate::lib::models::DjEvent::ListenerCountUpdated {
+                room_id: self.id.to_string(),
+                count: self.listener_count,
+            });
 
             Ok(())
         } else {
@@ -537,16 +585,24 @@ impl Room {
 
     /// Handle a DJ room-socket (re)connection. Mirrors handle_listener_connection:
     /// bumps the DJ connection epoch (invalidating any disconnect-grace timer
-    /// armed by an older socket), cancels a pending timer, and reports whether
-    /// the stream was paused by a previous disconnect so the caller can resume
-    /// it. Returns (epoch assigned to this connection, should_resume), or None
-    /// if the room has no DJ.
-    pub fn handle_dj_connection(&mut self) -> Option<(u64, bool)> {
+    /// armed by an older socket), cancels a pending timer, rebinds the DJ event
+    /// channel to THIS socket (so server-originated events like
+    /// ListenerCountUpdated reach the live connection, and a stale socket's
+    /// sender is dropped), and reports whether the stream was paused by a
+    /// previous disconnect so the caller can resume it. Returns (epoch assigned
+    /// to this connection, should_resume), or None if the room has no DJ.
+    pub fn handle_dj_connection(
+        &mut self,
+        event_tx: tokio::sync::mpsc::UnboundedSender<crate::lib::models::DjEvent>,
+    ) -> Option<(u64, bool)> {
         let dj = self.dj.as_mut()?;
         dj.connection_epoch = dj.connection_epoch.wrapping_add(1);
         let epoch = dj.connection_epoch;
         let should_resume = dj.paused_by_disconnect;
         dj.paused_by_disconnect = false;
+        // Rebind the event channel to this connection. Any previous sender is
+        // dropped, so an old socket's drain loop sees its receiver close and exits.
+        dj.event_tx = Some(event_tx);
         dj.cancel_disconnect_close_timer();
 
         tracing::info!(

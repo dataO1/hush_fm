@@ -102,15 +102,24 @@ fn ws_trace_enabled() -> bool {
 async fn handle_room_socket(socket: WebSocket, room_id: Uuid, lobby: Lobby) {
     let (mut sender, mut receiver) = socket.split();
 
+    // Server-originated events destined for THIS DJ socket (e.g.
+    // ListenerCountUpdated on join/leave/reap) are pushed through this channel
+    // and drained by the event_rx arm of the select loop below — mirroring the
+    // per-listener event channel. The sender is bound into the DJ struct on
+    // connection (rebound on every reconnect), so a stale socket never receives
+    // events meant for a newer connection.
+    let (event_tx, mut event_rx) = tokio::sync::mpsc::unbounded_channel::<DjEvent>();
+
     // Register this socket as the DJ's live control connection: bump the DJ
     // connection epoch (invalidates any disconnect-grace timer / stale exit
-    // path from an older socket) and learn whether a previous disconnect
-    // paused the stream so we can resume it now. Owned Arc from get_room; the
-    // room write guard is dropped before any further awaits.
+    // path from an older socket), bind the event channel above, and learn
+    // whether a previous disconnect paused the stream so we can resume it now.
+    // Owned Arc from get_room; the room write guard is dropped before any
+    // further awaits.
     let (connection_epoch, resume_after_reconnect) = match lobby.get_room(&room_id) {
         Some(room_state) => {
             let mut room_guard = room_state.write().await;
-            room_guard.handle_dj_connection().unwrap_or((0, false))
+            room_guard.handle_dj_connection(event_tx).unwrap_or((0, false))
         }
         // Room unknown (e.g. bad URL): keep legacy behavior — the command
         // handlers below answer RoomNotFound; nothing to clean up on exit.
@@ -214,9 +223,34 @@ async fn handle_room_socket(socket: WebSocket, room_id: Uuid, lobby: Lobby) {
                     }
                 }
             }
+
+            // Drain server-originated events destined for this DJ socket and
+            // forward them to the DJ's WebSocket. Mirrors the listener socket's
+            // event_rx arm: bounded send so a DJ that stopped reading can't wedge
+            // the task, and a send failure breaks the loop (running the
+            // disconnect path). The channel closing (sender dropped on a newer
+            // reconnect / room teardown) also breaks the loop.
+            event = event_rx.recv() => {
+                match event {
+                    Some(event) => {
+                        if let Ok(msg) = serde_json::to_string(&event) {
+                            if !send_ws(&mut sender, Message::Text(msg)).await {
+                                tracing::debug!(room_id = %room_id, "Failed to forward event to DJ, connection dropped");
+                                break;
+                            }
+                        }
+                    }
+                    None => {
+                        // Event channel closed (sender dropped — e.g. a newer DJ
+                        // socket rebound the channel, or the room was torn down).
+                        tracing::debug!(room_id = %room_id, "DJ event channel closed, ending event drain");
+                        break;
+                    }
+                }
+            }
         }
     }
-    
+
     tracing::debug!(room_id = %room_id, "DJ WebSocket handler exiting");
 
     // X7 (pause-then-close): the loop broke. If the room still exists this was
