@@ -127,24 +127,25 @@
   reuse branch — a no-producer (Setup) room is scrapped (`lobby.close_room`) and recreated
   fresh with the new name/description/tags; a live/paused room is reused unchanged (never
   renamed under a live audience). [impact: med, effort: S]
-- [ ] **Setup-state rooms can leak forever; no idle sweeper; AbortRoom never implemented**
-  (room.rs:167 `idle_duration` has zero callers): grace timer only arms on WS *close* — a DJ
-  that announces but never opens the room WS leaks a room+router permanently. → Periodic
-  lobby sweep closing Setup rooms idle > N min via the existing `idle_duration()`.
-  [impact: med, effort: S]
+- [x] **Setup-state rooms can leak forever; no idle sweeper** (#) ✔️FIXED 2026-07-09
+  (party-fixes): added a periodic tokio sweeper (`HUSHFM_SWEEP_INTERVAL_SECS` def 60s) that
+  closes non-public (Setup) rooms idle > `HUSHFM_SETUP_ROOM_IDLE_SECS` (def 10min) via the
+  now-called `idle_duration()` + `close_room()`; EXPLICITLY skips public rooms AND the
+  audio-bot room (dj_id == AUDIO_BOT_SESSION_ID) so a bot room sitting in Setup/Paused between
+  sets is never swept.
 - [ ] **WS `subscribe()` is last-writer-wins per event type** (WebSocketClient.ts:642-669):
   one handler per event type in a HashMap — a second subscriber to e.g. `roomClosed`
   silently replaces the first; works today only because subscriber sets are disjoint.
   → Store a Set of handlers per type; unsubscribe removes only its own. [impact: med, effort: S]
-- [ ] **RoomAdded vs RoomUpdated decided by 30s wall-clock heuristic; client drops updates
-  for unknown rooms** (lobby.rs:270-287; lobby.store.ts:75-81): a DJ taking >30s between
-  announce and produce (slow mic prompt) publishes as `RoomUpdated` → connected lobbies
-  never show the room. → Backend: track `was_public`, send `RoomAdded` exactly on the
-  false→true transition; frontend: make `updateRoom` an upsert. [impact: med, effort: S]
-- [ ] **Graceful shutdown is dead code** (main.rs:113 no `.with_graceful_shutdown`;
-  `shutdown_signal` defined at 120-144, never referenced): SIGTERM (deploy/restart on the
-  Pi) abruptly kills all sockets → reconnect churn against a booting server. → Wire it +
-  broadcast "server restarting" to all rooms before exit. [impact: med, effort: S]
+- [x] **RoomAdded vs RoomUpdated decided by 30s wall-clock heuristic** ✔️FIXED 2026-07-09
+  (party-fixes, BACKEND part): the wall-clock `is_fresh_room` heuristic is replaced by a
+  Lobby-tracked `was_public` state → `RoomAdded` fires EXACTLY on the false→true (became-public)
+  transition, `RoomUpdated` otherwise; a DJ taking >30s to produce now correctly emits RoomAdded.
+  (Frontend `updateRoom`-as-upsert half = X10, still open, lower priority now that the backend
+  emits the correct event.)
+- [x] **Graceful shutdown is dead code** ✔️FIXED 2026-07-09 (party-fixes): wired the existing
+  `shutdown_signal()` into `axum::serve(...).with_graceful_shutdown(...)` so SIGTERM (Pi
+  deploy/restart) drains cleanly instead of abruptly killing all sockets.
 - [x] **Dead-code cluster in WS/domain layer** (#6) ✔️FIXED 2026-07-09 (party-fixes):
   deleted the confirmed-zero-caller wrappers — ws/mod.rs `handle_request_join` (grep: only
   its own definition; the LIVE listener-join path is `LobbyCommand::RequestJoin`) and
@@ -277,9 +278,8 @@
   hook (pairs with X4's proposed onReconnected callback). [impact: med, effort: S]
 
 ## Observability
-- [ ] **No health endpoint** (main.rs:91-99): no cheap way for nginx/deploy scripts/a phone
-  to confirm the backend is up on the headless Pi. → `GET /health` with version + worker +
-  room count. [impact: med, effort: S]
+- [x] **No health endpoint** ✔️FIXED 2026-07-09 (party-fixes): added `GET /health` → 200 JSON
+  with version (CARGO_PKG_VERSION) + worker count + room count, no auth, from AppState.
 - [ ] **Rich mediasoup stats implemented but unreachable** (dj.rs:492-499
   `get_producer_stats`, listener.rs:409-416 `get_consumer_stats` — dead code): mid-party
   "is RTP flowing to that phone?" requires log archaeology. → `GET /api/debug/rooms`
@@ -292,12 +292,16 @@
   receive loops) are now `tracing::trace!` AND gated behind a new `HUSHFM_WS_TRACE` env flag
   (read once via `OnceLock` in ws/mod.rs, independent of the EnvFilter so it can be flipped
   without touching main.rs; accepts 1/true/yes/on). Meaningful lifecycle logs stay at info.
-  → REMAINING (not this batch's file scope): main.rs default EnvFilter info/warn — owned by
-  the main.rs agent.
-- [ ] **Phone-side failures unobservable after the fact** (no client log capture anywhere):
-  every party post-mortem so far has been guesswork. → Small in-memory ring buffer of
-  warn/error lines, POSTed to `POST /api/client-log` on pagehide/terminal errors, tagged
-  with the device id — next post-mortem becomes data. [impact: med, effort: M]
+  ✔️MAIN.RS PORTION ALSO FIXED 2026-07-09 (party-fixes): tracing EnvFilter default info/warn,
+  RUST_LOG-overridable (replaces the plain fmt::init). #11 fully done.
+- [~] **Phone-side failures unobservable after the fact** — BACKEND HALF ✔️FIXED 2026-07-09
+  (party-fixes): `POST /api/client-log` endpoint added — writes one path-safe `<device-id>.jsonl`
+  per entity (separate from the server log), per-device rolling-60s rate-limit
+  (`HUSHFM_CLIENT_LOG_MAX_PER_MIN` def 30, over-cap dropped but still 204 so no client
+  retry-storm), device-id sanitized against path traversal, best-effort via spawn_blocking.
+  → REMAINING (Wave 2b, frontend): the CLIENT beacon — capture warn/error + uncaught +
+  unhandledrejection, sendBeacon on pagehide/terminal (decisions 7.1-7.6 locked), tagged with
+  the device id. [client half: effort M]
 
 # Validation + UX Scan (2026-07-09)
 > Three read-only scans at the final state (party-fixes @4356d330): frontend recovery-machinery
