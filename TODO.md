@@ -217,11 +217,11 @@
   guard (listener GetRouterCapabilities, InitListener) now drop the guard before the bounded
   send so send_ws never holds a room lock. Handshake framing (initial room-list, Close frames,
   the pre-loop ListenerNotFound teardown) intentionally unchanged.
-- [ ] **Per-message console logging at party scale** (WebSocketClient.ts:210-297 ~8
-  console.info per inbound frame incl. every pong; similar density in UserService/
-  MediaSoupClient): 80 phones × every frame × 3h = real CPU/battery + signal swamped.
-  → Gate behind debug flag / strip console.info in prod Vite build (esbuild drop / leveled
-  logger). [impact: med, effort: S]
+- [x] **Per-message console logging at party scale** ✔️FIXED 2026-07-09 (party-fixes):
+  vite.config.ts now drops console.* + debugger in PRODUCTION builds only (esbuild.drop +
+  terser drop_console gated on mode==='production'); dev logging intact. Bundle spot-check:
+  our console strings gone from dist, sendBeacon/client-log survive. (Only vendor-mediasoup's
+  own 3 debug-runtime console calls remain.)
 
 ## Battery
 - [~] **Double heartbeat stack wakes each phone's radio every ~7s** — DROPPED as NON-ISSUE
@@ -252,18 +252,15 @@
   and/or tap-to-enable. [impact: low, effort: S]
 
 ## UX
-- [ ] **DJ (and listeners) have zero visibility of listener count/health** (DJRoom has no
-  count anywhere; `DJ.event_tx` never written; ListenerCountUpdated goes to listeners only
-  and their UI ignores it): the DJ can't tell if 5 or 50 people hear them. → New
-  `DjEvent::ListenerCountUpdated` on the DJ socket + render count on both pages.
-  [impact: med, effort: M]
-  LISTENER-RENDER SKIPPED (party-fixes 2026-07-09, no-backend-change batch): the listener WS
-  DOES deliver `listenerCountUpdated`, but there is NO client-side store/subscription that
-  captures it in the listener-room path — the only `listenerCount` state lives in the lobby
-  store (fed from REST/lobby WS, not the room WS). Rendering it would require adding a
-  subscription + a store to hold the count, which is outside the 4 owned files and the
-  no-backend/no-new-store scope. The DJ-side count is the separate `DjEvent::ListenerCountUpdated`
-  batch above.
+- [x] **DJ (and listeners) have zero visibility of listener count** ✔️FIXED 2026-07-09
+  (party-fixes, vertical slice 188077c4 + 9a4bf00c): found the DJ's `event_tx` was always
+  None AND never drained — retyped it to `DjEvent`, created the DJ event channel in
+  handle_room_socket, bound it per-(re)connect via handle_dj_connection, and added a
+  drain arm forwarding through send_ws. New `DjEvent::ListenerCountUpdated {roomId,count}`
+  emitted at add_listener + remove_listener (join/leave/reap); listeners still get the
+  ListenerEvent. Frontend: `listenerCount` on the connection store/adapter (reset in
+  resetRoom), a UserService.connect() subscription writing the count, and "🎧 N listening"
+  rendered on BOTH DJRoom and ListenerRoom.
 - [x] **Create-room button silently vanishes at >8 lobby rooms** (Landing.tsx:408):
   no message, no disabled state. → Disabled state + "room limit reached" copy, or lift the
   arbitrary limit. [impact: low, effort: S]
@@ -272,10 +269,10 @@
   aria-disabled, title "Lobby full — too many live rooms") and tapping it surfaces a visible
   yellow banner ("Lobby full — too many live rooms") instead of silently doing nothing; the
   same banner covers the already-engaged case. Primary action never disappears.
-- [ ] **Lobby list not refetched after a lobby WS flap** (WebSocketClient.ts:419-422 clears
-  the store on disconnect; REST refetch only on mount): after any blip the Landing page
-  shows an empty list until manual reload. → Trigger `getRoomList()` from an on-reconnect
-  hook (pairs with X4's proposed onReconnected callback). [impact: med, effort: S]
+- [x] **Lobby list not refetched after a lobby WS flap** (L3) ✔️FIXED 2026-07-09
+  (party-fixes): Landing.tsx now runs a createEffect on `connectionAdapter.isLobbyConnected()`
+  that refetches `getRoomList()` on every reconnect transition, guarded so the initial mount
+  doesn't double-fetch. (Done Landing-only; WebSocketClient.ts unchanged.)
 
 ## Follow-ups from Wave 2a verifiers (low, 2026-07-09)
 - [ ] **client-log: no global disk/size cap** (client_log.rs): per-device rate-limit guards a
@@ -308,9 +305,12 @@
   per entity (separate from the server log), per-device rolling-60s rate-limit
   (`HUSHFM_CLIENT_LOG_MAX_PER_MIN` def 30, over-cap dropped but still 204 so no client
   retry-storm), device-id sanitized against path traversal, best-effort via spawn_blocking.
-  → REMAINING (Wave 2b, frontend): the CLIENT beacon — capture warn/error + uncaught +
-  unhandledrejection, sendBeacon on pagehide/terminal (decisions 7.1-7.6 locked), tagged with
-  the device id. [client half: effort M]
+  ✔️CLIENT HALF ALSO FIXED 2026-07-09 (party-fixes, d1af7d6e): new clientLog.ts hooks window
+  'error' + 'unhandledrejection' (NOT a ring buffer — per-bad-event), sends via
+  navigator.sendBeacon (fetch keepalive fallback), flushes on 'pagehide'; tagged with the X5
+  device-id + route-derived role/roomId + UA; strictly best-effort (all try/caught, no retry,
+  fails silent offline); wired once at bootstrap in App.tsx. #client-log FULLY DONE.
+  (Follow-up: no global disk cap — see "Follow-ups from Wave 2a verifiers" above.)
 
 # Validation + UX Scan (2026-07-09)
 > Three read-only scans at the final state (party-fixes @4356d330): frontend recovery-machinery
