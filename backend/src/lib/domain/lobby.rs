@@ -12,6 +12,15 @@ use anyhow::Result;
 use crate::lib::models::{Room, LobbyEvent};
 use crate::lib::config::Config;
 
+/// Fixed session id of the local audio-bot DJ.
+///
+/// MUST stay in sync with the private `AUDIO_BOT_SESSION_ID` in
+/// `crate::lib::audio::audio_room` (that module is owned by another agent, so
+/// we mirror the value here rather than reach into it). The setup-room sweeper
+/// uses this to NEVER close the audio-bot room, which may legitimately sit in
+/// Setup/Paused between sets.
+pub const AUDIO_BOT_SESSION_ID: &str = "audio-bot-session";
+
 /// Main application state - manages rooms and MediaSoup workers
 #[derive(Clone)]
 pub struct Lobby {
@@ -26,6 +35,12 @@ pub struct Lobby {
 
     /// Lobby events broadcast channel (room list updates)
     broadcast_tx: broadcast::Sender<LobbyEvent>,
+
+    /// Last-known public state per room, used by `update_room` to emit
+    /// `RoomAdded` exactly on the false→true (became-public) transition and
+    /// `RoomUpdated` otherwise. Replaces the old 30s wall-clock heuristic that
+    /// mis-classified a slow DJ (>30s announce→produce) as an update.
+    public_state: Arc<DashMap<Uuid, bool>>,
 }
 
 impl Lobby {
@@ -99,6 +114,7 @@ impl Lobby {
             workers: Arc::new(workers),
             worker_index: Arc::new(AtomicUsize::new(0)),
             broadcast_tx,
+            public_state: Arc::new(DashMap::new()),
         })
     }
 
@@ -106,6 +122,17 @@ impl Lobby {
     fn get_next_worker(&self) -> Arc<Worker> {
         let index = self.worker_index.fetch_add(1, Ordering::SeqCst) % self.workers.len();
         self.workers[index].clone()
+    }
+
+    /// Number of pre-allocated MediaSoup workers (for /health).
+    pub fn worker_count(&self) -> usize {
+        self.workers.len()
+    }
+
+    /// Total number of rooms currently tracked in the lobby (for /health).
+    /// Includes non-public (Setup) rooms; not just publicly listed ones.
+    pub fn room_count(&self) -> usize {
+        self.rooms.len()
     }
 
 
@@ -223,6 +250,7 @@ impl Lobby {
                 tracing::info!("Room {} removed from lobby after cleanup", room_id);
                 drop(removed_room_arc); // Explicitly drop the room reference
             }
+            self.public_state.remove(room_id); // Drop last-known public state
 
             tracing::info!("Room {} closed and removed from lobby successfully", room_id);
             Ok(())
@@ -233,6 +261,7 @@ impl Lobby {
 
     /// Remove room from lobby
     pub async fn remove_room(&self, room_id: &Uuid) -> Option<Arc<RwLock<Room>>> {
+        self.public_state.remove(room_id); // Drop last-known public state
         if let Some((_, room_arc)) = self.rooms.remove(room_id) {
             // Only broadcast room removal if the room was public (visible to lobby clients)
             // This prevents broadcasts for unfinished rooms that failed during setup
@@ -263,33 +292,37 @@ impl Lobby {
 
             // Check if room is now public (Step 16 atomic publication)
             if room.is_public() {
-                // Determine event type based on context:
-                // - RoomAdded: Only when room first becomes public (first time DJ goes live)
-                // - RoomUpdated: All subsequent changes (listener joins/leaves, pause/resume, etc.)
-                
-                // Use activity timestamp to determine if room was recently created vs existing
-                // A room that was created within the last 30 seconds and has 0 listeners is likely 
-                // a new room (DJ just went live), otherwise it's an existing room update
-                let now = chrono::Utc::now();
-                let room_age_seconds = (now - room.last_activity).num_seconds() as u64;
-                let is_fresh_room = room_age_seconds <= 30 && room.listener_count == 0;
-                
-                let event = if is_fresh_room && matches!(room.status, crate::lib::models::schemas::RoomStatus::Live) {
-                    // Room just became Live for first time (producer created, no listeners yet)
+                // Determine event type from the REAL public-state transition
+                // (fix #5): emit RoomAdded EXACTLY on the false→true (became-
+                // public) edge, RoomUpdated for every subsequent change. This
+                // replaces the old 30s wall-clock heuristic which mis-labelled a
+                // slow DJ (>30s announce→produce) as RoomUpdated, so
+                // already-connected lobby clients never saw the room appear.
+                let was_public = self
+                    .public_state
+                    .get(room_id)
+                    .map(|entry| *entry.value())
+                    .unwrap_or(false);
+
+                // Record the new public state for the next transition check.
+                self.public_state.insert(*room_id, true);
+
+                let became_public = !was_public; // false → true edge
+
+                let event = if became_public {
                     LobbyEvent::RoomAdded {
                         room: room.clone().into(),
                     }
                 } else {
-                    // Subsequent updates (listener count changes, paused/resumed, etc.)
                     LobbyEvent::RoomUpdated {
                         room: room.clone().into(),
                     }
                 };
 
-                let event_type_str = match &event { 
-                    LobbyEvent::RoomAdded { .. } => "RoomAdded", 
-                    LobbyEvent::RoomUpdated { .. } => "RoomUpdated", 
-                    _ => "Other" 
+                let event_type_str = match &event {
+                    LobbyEvent::RoomAdded { .. } => "RoomAdded",
+                    LobbyEvent::RoomUpdated { .. } => "RoomUpdated",
+                    _ => "Other",
                 };
                 let _ = self.broadcast_tx.send(event);
                 tracing::info!(
@@ -297,10 +330,74 @@ impl Lobby {
                     room_status = ?room.status,
                     listener_count = room.listener_count,
                     is_public = room.is_public(),
-                    room_age_seconds = room_age_seconds,
-                    is_fresh_room = is_fresh_room,
+                    was_public = was_public,
+                    became_public = became_public,
                     event_type = event_type_str,
                     "Room state broadcasted to lobby subscribers"
+                );
+            } else {
+                // Room is not (yet / no longer) public: remember false so the
+                // next time it becomes public we correctly emit RoomAdded.
+                self.public_state.insert(*room_id, false);
+            }
+        }
+    }
+
+    /// Periodic sweep: close leaked Setup-state rooms.
+    ///
+    /// A DJ that announces (creating a Setup room + router) but never opens the
+    /// room WS leaks the room forever, because the disconnect-grace timer only
+    /// arms on WS *close*. This closes rooms that are NOT public
+    /// (`is_public() == false` → Setup) and have been idle longer than
+    /// `idle_threshold` (via `Room::idle_duration()`).
+    ///
+    /// CRITICAL: the audio-bot room is NEVER swept — it may legitimately sit in
+    /// Setup/Paused between sets. It is identified by its DJ session id matching
+    /// [`AUDIO_BOT_SESSION_ID`]. (Paused rooms are already public so they'd be
+    /// skipped anyway, but the explicit session-id check also protects a bot
+    /// room that is still in Setup, e.g. before its first device connects.)
+    pub async fn sweep_setup_rooms(&self, idle_threshold: std::time::Duration) {
+        // Snapshot candidate ids first to avoid holding DashMap refs across the
+        // await in close_room().
+        let mut to_close: Vec<Uuid> = Vec::new();
+
+        for entry in self.rooms.iter() {
+            let room_id = *entry.key();
+            let room_arc = entry.value().clone();
+            let room = room_arc.read().await;
+
+            // Skip anything already public (Live/Paused) — those are handled by
+            // the DJ-disconnect grace timer / normal close flow.
+            if room.is_public() {
+                continue;
+            }
+
+            // NEVER sweep the audio-bot room.
+            let is_audio_bot = room
+                .dj
+                .as_ref()
+                .map_or(false, |dj| dj.dj_id == AUDIO_BOT_SESSION_ID);
+            if is_audio_bot {
+                continue;
+            }
+
+            let idle = room.idle_duration();
+            if idle.to_std().map_or(false, |d| d >= idle_threshold) {
+                tracing::info!(
+                    room_id = %room_id,
+                    idle_seconds = idle.num_seconds(),
+                    "Setup-room sweeper: closing leaked non-public room idle past threshold"
+                );
+                to_close.push(room_id);
+            }
+        }
+
+        for room_id in to_close {
+            if let Err(e) = self.close_room(&room_id).await {
+                tracing::warn!(
+                    room_id = %room_id,
+                    error = %e,
+                    "Setup-room sweeper: failed to close leaked room"
                 );
             }
         }

@@ -1,9 +1,10 @@
 use axum::{
-    extract::DefaultBodyLimit,
+    extract::{DefaultBodyLimit, State},
     http::{
         header::{ACCEPT, AUTHORIZATION, CONTENT_TYPE},
         HeaderValue, Method,
     },
+    response::Json,
     routing::get,
     Router,
 };
@@ -19,6 +20,7 @@ mod api;
 mod lib;
 
 use api::api::rooms::rooms_router;
+use api::api::client_log::client_log_router;
 use api::api::openapi::ApiDoc;
 use lib::domain::Lobby;
 use lib::config::Config;
@@ -36,8 +38,16 @@ async fn main() -> anyhow::Result<()> {
         return Ok(());
     }
 
-    // Initialize simple console logging
-    tracing_subscriber::fmt::init();
+    // Initialize console logging with an EnvFilter so we don't flood the Pi's
+    // SD card / drown out signal on a long party. Default: `info` for the app,
+    // `warn` for noisy deps. Fully overridable via `RUST_LOG`.
+    let env_filter = tracing_subscriber::EnvFilter::try_from_default_env()
+        .unwrap_or_else(|_| {
+            tracing_subscriber::EnvFilter::new(
+                "info,mediasoup=warn,tower_http=warn,hyper=warn,axum=warn",
+            )
+        });
+    tracing_subscriber::fmt().with_env_filter(env_filter).init();
 
     // Initialize configuration singleton
     let config = Config::init()?;
@@ -56,6 +66,44 @@ async fn main() -> anyhow::Result<()> {
             None  // Server continues without audio bot
         }
     };
+
+    // Spawn the setup-room sweeper: periodically close leaked non-public
+    // (Setup-state) rooms whose DJ announced but never opened the room WS, so
+    // the disconnect-grace timer never armed. The audio-bot room is never
+    // swept (see Lobby::sweep_setup_rooms). Interval + idle threshold are
+    // env-overridable with sane defaults.
+    {
+        let sweeper_lobby = lobby.clone();
+        let sweep_interval_secs = std::env::var("HUSHFM_SWEEP_INTERVAL_SECS")
+            .ok()
+            .and_then(|s| s.trim().parse::<u64>().ok())
+            .filter(|&n| n > 0)
+            .unwrap_or(60);
+        let idle_threshold_secs = std::env::var("HUSHFM_SETUP_ROOM_IDLE_SECS")
+            .ok()
+            .and_then(|s| s.trim().parse::<u64>().ok())
+            .filter(|&n| n > 0)
+            .unwrap_or(10 * 60); // 10 minutes
+        let idle_threshold = std::time::Duration::from_secs(idle_threshold_secs);
+
+        tracing::info!(
+            interval_secs = sweep_interval_secs,
+            idle_threshold_secs = idle_threshold_secs,
+            "🧹 Setup-room sweeper started"
+        );
+
+        tokio::spawn(async move {
+            let mut ticker =
+                tokio::time::interval(std::time::Duration::from_secs(sweep_interval_secs));
+            // Skip the immediate first tick; wait a full interval before the
+            // first sweep so freshly-announced rooms get a chance to go live.
+            ticker.tick().await;
+            loop {
+                ticker.tick().await;
+                sweeper_lobby.sweep_setup_rooms(idle_threshold).await;
+            }
+        });
+    }
 
     // Setup CORS based on configuration
     let is_local_dev = config.host_name() == "localhost" || config.host_name() == "127.0.0.1";
@@ -95,8 +143,9 @@ async fn main() -> anyhow::Result<()> {
         .route("/ws/room/:room_id", get(ws_handler))
         .route("/ws/listener/:room_id/:session_id", get(listener_handler))
         .route("/ws/lobby", get(lobby_handler))
-        .nest("/api", rooms_router())
-        .with_state(lobby);
+        .route("/health", get(health))
+        .nest("/api", rooms_router().merge(client_log_router()))
+        .with_state(lobby.clone());
 
     let app = stateless_routes.merge(stateful_routes)
         .layer(
@@ -110,11 +159,28 @@ async fn main() -> anyhow::Result<()> {
     
     tracing::info!("🌐 HushFM Backend starting on http://{} (hostname: {})", addr, config.host_name());
     let listener = tokio::net::TcpListener::bind(addr).await?;
-    axum::serve(listener, app).await?;
+    // Wire the previously-dead `shutdown_signal` so SIGTERM (Pi deploy/restart)
+    // drains in-flight connections cleanly instead of abruptly killing every
+    // socket (which caused reconnect churn against a booting server).
+    axum::serve(listener, app)
+        .with_graceful_shutdown(shutdown_signal())
+        .await?;
 
     tracing::info!("🎵 HushFM Backend shutdown complete");
 
     Ok(())
+}
+
+/// GET /health — cheap liveness/readiness probe for nginx / deploy scripts / a
+/// phone on the headless offline Pi. No auth. Returns 200 with a small JSON
+/// body: app version, MediaSoup worker count, and current room count.
+async fn health(State(lobby): State<Lobby>) -> Json<serde_json::Value> {
+    Json(serde_json::json!({
+        "status": "ok",
+        "version": env!("CARGO_PKG_VERSION"),
+        "workers": lobby.worker_count(),
+        "rooms": lobby.room_count(),
+    }))
 }
 
 async fn shutdown_signal() {
