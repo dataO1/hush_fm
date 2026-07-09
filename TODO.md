@@ -145,11 +145,15 @@
   `shutdown_signal` defined at 120-144, never referenced): SIGTERM (deploy/restart on the
   Pi) abruptly kills all sockets → reconnect churn against a booting server. → Wire it +
   broadcast "server restarting" to all rooms before exit. [impact: med, effort: S]
-- [ ] **Dead-code cluster in WS/domain layer** (ws/mod.rs:2067-2137 `handle_request_join`
-  uncalled; room.rs `connect_dj`/`pause_streaming`/`resume_streaming`/`stop_streaming`
-  bypassed by inline handlers; listener.rs `pause`/`resume` unwired): inline WS handlers
-  reimplement transport connect, losing the domain's 10s connect timeout. → Delete or route
-  through domain methods so timeouts/DTLS-role logic live in one place. [impact: low, effort: S]
+- [x] **Dead-code cluster in WS/domain layer** (#6) ✔️FIXED 2026-07-09 (party-fixes):
+  deleted the confirmed-zero-caller wrappers — ws/mod.rs `handle_request_join` (grep: only
+  its own definition; the LIVE listener-join path is `LobbyCommand::RequestJoin`) and
+  room.rs `connect_dj`/`pause_streaming`/`resume_streaming` (grep: only their definitions;
+  inline WS handlers own these flows). No imports went unused (`DtlsParameters` still used by
+  `connect_listener`; `dj.pause`/`dj.resume` still called by the disconnect-grace paths).
+  Separately (#6B) the inline listener-transport connect now has its own 10s timeout — see
+  the connect-timeout fix below. Left in place (still referenced / out of this batch's scope):
+  room.rs `stop_streaming`, listener.rs `pause`/`resume`.
 
 ## Edge cases
 - [x] **Joining a paused room shows "live/playing" until next resume** (#9) ✔️FIXED 2026-07-08
@@ -201,11 +205,17 @@
   single-threaded mediasoup worker which SERIALIZES consumer creation regardless of arrival
   spread — jitter barely touches the real limiter. Party scale (60-80) is trivial for
   Axum/tokio. Not worth the change.
-- [ ] **Command responses bypass the `send_ws` backpressure bound** (ws/mod.rs — all
-  command replies use raw `sender.send(...)` e.g. :934,:1233,:1507,:1687,:1763, despite
-  send_ws's own doc): a client that stops reading mid-command can wedge that connection's
-  task, during which its heartbeat ticks can't fire. → Route every reply through `send_ws`,
-  break on false. [impact: med, effort: S]
+- [x] **Command responses bypass the `send_ws` backpressure bound** (#2) ✔️FIXED 2026-07-09
+  (party-fixes): every DJ/listener/lobby COMMAND reply now goes through `send_ws` (the 10s
+  `tokio::time::timeout` wrapper) instead of raw `sender.send(...)`. The three command
+  handlers (`handle_dj_command`, `handle_listener_command`, `handle_lobby_command`) now return
+  a liveness bool (`false` = send timed out/errored → sink may be mid-frame); each socket loop
+  `break`s on `false`, arming the DJ-disconnect / listener-reap cleanup exactly like the
+  event-delivery loop. A client that stops reading mid-command can no longer wedge its task for
+  the TCP-retransmit tail. Two reply paths that built their message under a room read/write
+  guard (listener GetRouterCapabilities, InitListener) now drop the guard before the bounded
+  send so send_ws never holds a room lock. Handshake framing (initial room-list, Close frames,
+  the pre-loop ListenerNotFound teardown) intentionally unchanged.
 - [ ] **Per-message console logging at party scale** (WebSocketClient.ts:210-297 ~8
   console.info per inbound frame incl. every pong; similar density in UserService/
   MediaSoupClient): 80 phones × every frame × 3h = real CPU/battery + signal swamped.
@@ -275,11 +285,15 @@
   "is RTP flowing to that phone?" requires log archaeology. → `GET /api/debug/rooms`
   dumping per-room DJ/producer state + listener entries (epoch, disconnected_at, consumer
   paused) + optional per-consumer stats. [impact: med, effort: M]
-- [ ] **Info-level raw-frame logging churns the Pi's SD card for 3 hours**
+- [~] **Info-level raw-frame logging churns the Pi's SD card for 3 hours** (#11-ws)
   (ws/mod.rs:158-159,773-774 raw message content per frame; main.rs:40 plain fmt::init, no
   EnvFilter): 80 phones × heartbeats × join waves = flash writes all night + unreadable
-  logs. → Demote raw-content to `trace`, default EnvFilter info/warn, per-frame logs behind
-  `HUSHFM_WS_TRACE`. [impact: low, effort: S]
+  logs. ✔️WS PORTION FIXED 2026-07-09 (party-fixes): both raw-content log pairs (DJ + listener
+  receive loops) are now `tracing::trace!` AND gated behind a new `HUSHFM_WS_TRACE` env flag
+  (read once via `OnceLock` in ws/mod.rs, independent of the EnvFilter so it can be flipped
+  without touching main.rs; accepts 1/true/yes/on). Meaningful lifecycle logs stay at info.
+  → REMAINING (not this batch's file scope): main.rs default EnvFilter info/warn — owned by
+  the main.rs agent.
 - [ ] **Phone-side failures unobservable after the fact** (no client log capture anywhere):
   every party post-mortem so far has been guesswork. → Small in-memory ring buffer of
   warn/error lines, POSTed to `POST /api/client-log` on pagehide/terminal errors, tagged

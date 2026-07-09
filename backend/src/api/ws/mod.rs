@@ -83,6 +83,22 @@ async fn send_ws(
     }
 }
 
+/// Whether to log raw per-frame WS message CONTENT. Off by default: at party
+/// scale one info line per inbound frame (per DJ + every listener) is pure
+/// SD-card churn and drowns the meaningful lifecycle logs. Gated behind the
+/// `HUSHFM_WS_TRACE` env var (read once), independent of the global EnvFilter so
+/// it can be flipped without touching main.rs. Any truthy-ish value ("1",
+/// "true", "yes", "on") enables it.
+fn ws_trace_enabled() -> bool {
+    use std::sync::OnceLock;
+    static WS_TRACE: OnceLock<bool> = OnceLock::new();
+    *WS_TRACE.get_or_init(|| {
+        std::env::var("HUSHFM_WS_TRACE")
+            .map(|v| matches!(v.trim().to_ascii_lowercase().as_str(), "1" | "true" | "yes" | "on"))
+            .unwrap_or(false)
+    })
+}
+
 async fn handle_room_socket(socket: WebSocket, room_id: Uuid, lobby: Lobby) {
     let (mut sender, mut receiver) = socket.split();
 
@@ -155,13 +171,22 @@ async fn handle_room_socket(socket: WebSocket, room_id: Uuid, lobby: Lobby) {
                         );
                         let _enter = message_span.enter();
 
-                        tracing::debug!("Raw WebSocket message received");
-                        tracing::debug!("Raw message content: {}", &text);
+                        // Raw per-frame content is party-scale log churn: gate it
+                        // behind HUSHFM_WS_TRACE and keep it at trace! even then.
+                        if ws_trace_enabled() {
+                            tracing::trace!("Raw WebSocket message received");
+                            tracing::trace!("Raw message content: {}", &text);
+                        }
                         match serde_json::from_str::<DjCommand>(&text) {
                             Ok(dj_cmd) => {
                                 message_span.record("command_type", dj_cmd.command_type());
                                 tracing::info!("Successfully parsed DJ WebSocket command: {}", dj_cmd.command_type());
-                                handle_dj_command(dj_cmd, room_id, &lobby_clone, &mut sender).await;
+                                if !handle_dj_command(dj_cmd, room_id, &lobby_clone, &mut sender).await {
+                                    // A reply send timed out/errored: the sink may be
+                                    // mid-frame, so break and run the disconnect path.
+                                    tracing::debug!(room_id = %room_id, "DJ command reply send failed, connection dropped");
+                                    break;
+                                }
                             }
                             Err(e) => {
                                 tracing::error!(
@@ -290,8 +315,17 @@ async fn handle_lobby_socket(socket: WebSocket, lobby: Lobby) {
                         last_pong = std::time::Instant::now(); // any inbound frame proves liveness
                         if let Ok(lobby_cmd) = serde_json::from_str::<LobbyCommand>(&text) {
                             tracing::debug!("Received lobby command: {:?}", lobby_cmd.command_type());
-                            if let Err(e) = handle_lobby_command(lobby_cmd, &lobby_clone, &mut sender).await {
-                                tracing::error!("Failed to handle lobby command: {}", e);
+                            match handle_lobby_command(lobby_cmd, &lobby_clone, &mut sender).await {
+                                Ok(true) => {}
+                                Ok(false) => {
+                                    // A reply send timed out/errored: the sink may be
+                                    // mid-frame, so stop the loop and let cleanup run.
+                                    tracing::debug!("Lobby command reply send failed, connection dropped");
+                                    break;
+                                }
+                                Err(e) => {
+                                    tracing::error!("Failed to handle lobby command: {}", e);
+                                }
                             }
                         }
                     },
@@ -332,11 +366,14 @@ async fn handle_lobby_socket(socket: WebSocket, lobby: Lobby) {
     tracing::debug!("Lobby WebSocket handler exiting");
 }
 
+/// Handle one lobby command. Returns `Ok(false)` when a reply send indicated the
+/// connection is dead (send_ws timed out or errored) — the caller MUST break its
+/// loop and stop using the sink, exactly as the event-delivery loop does.
 async fn handle_lobby_command(
     cmd: LobbyCommand,
     lobby: &Lobby,
     sender: &mut futures_util::stream::SplitSink<WebSocket, Message>,
-) -> anyhow::Result<()> {
+) -> anyhow::Result<bool> {
     // Extract trace context from the message and set up parent span
 
     match cmd {
@@ -489,23 +526,20 @@ async fn handle_lobby_command(
 
             match serde_json::to_string(&room_announced_event) {
                 Ok(msg) => {
-                    match sender.send(Message::Text(msg)).await {
-                        Ok(_) => {
-                            dj_flow_span.record("flow.phase", "step1_completed");
-                            tracing::info!(
-                                room_id = %actual_room_id,
-                                ws_url = %ws_url,
-                                "Step 1: COMPLETED - RoomAnnounced event sent to frontend. Frontend should now connect to DJ WebSocket."
-                            );
-                        }
-                        Err(e) => {
-                            dj_flow_span.record("flow.phase", "failed");
-                            tracing::error!(
-                                room_id = %actual_room_id,
-                                error = %e,
-                                "Step 1: FAILED - Could not send RoomAnnounced event to frontend"
-                            );
-                        }
+                    if send_ws(sender, Message::Text(msg)).await {
+                        dj_flow_span.record("flow.phase", "step1_completed");
+                        tracing::info!(
+                            room_id = %actual_room_id,
+                            ws_url = %ws_url,
+                            "Step 1: COMPLETED - RoomAnnounced event sent to frontend. Frontend should now connect to DJ WebSocket."
+                        );
+                    } else {
+                        dj_flow_span.record("flow.phase", "failed");
+                        tracing::error!(
+                            room_id = %actual_room_id,
+                            "Step 1: FAILED - Could not send RoomAnnounced event to frontend (connection dead)"
+                        );
+                        return Ok(false);
                     }
                 }
                 Err(e) => {
@@ -564,9 +598,11 @@ async fn handle_lobby_command(
                         room: None,
                     };
                     if let Ok(msg) = serde_json::to_string(&response) {
-                        sender.send(Message::Text(msg)).await.ok();
+                        if !send_ws(sender, Message::Text(msg)).await {
+                            return Ok(false);
+                        }
                     }
-                    return Ok(());
+                    return Ok(true);
                 }
             };
 
@@ -594,9 +630,11 @@ async fn handle_lobby_command(
                             room: None,
                         };
                         if let Ok(msg) = serde_json::to_string(&response) {
-                            sender.send(Message::Text(msg)).await.ok();
+                            if !send_ws(sender, Message::Text(msg)).await {
+                                return Ok(false);
+                            }
                         }
-                        return Ok(());
+                        return Ok(true);
                     }
 
                     tracing::info!(
@@ -651,22 +689,19 @@ async fn handle_lobby_command(
                     };
 
                     if let Ok(msg) = serde_json::to_string(&response) {
-                        match sender.send(Message::Text(msg)).await {
-                            Ok(_) => {
-                                tracing::info!(
-                                    session_id = %session_id,
-                                    room_id = %room_id,
-                                    "Step 1: JoinRoomResponse sent successfully - frontend should now connect to unique listener WebSocket"
-                                );
-                            }
-                            Err(e) => {
-                                tracing::error!(
-                                    session_id = %session_id,
-                                    room_id = %room_id,
-                                    error = %e,
-                                    "Step 1: Failed to send JoinRoomResponse"
-                                );
-                            }
+                        if send_ws(sender, Message::Text(msg)).await {
+                            tracing::info!(
+                                session_id = %session_id,
+                                room_id = %room_id,
+                                "Step 1: JoinRoomResponse sent successfully - frontend should now connect to unique listener WebSocket"
+                            );
+                        } else {
+                            tracing::error!(
+                                session_id = %session_id,
+                                room_id = %room_id,
+                                "Step 1: Failed to send JoinRoomResponse (connection dead)"
+                            );
+                            return Ok(false);
                         }
                     }
                 }
@@ -686,14 +721,16 @@ async fn handle_lobby_command(
                         room: None,
                     };
                     if let Ok(msg) = serde_json::to_string(&response) {
-                        sender.send(Message::Text(msg)).await.ok();
+                        if !send_ws(sender, Message::Text(msg)).await {
+                            return Ok(false);
+                        }
                     }
                 }
             }
         }
     }
-    
-    Ok(())
+
+    Ok(true)
 }
 
 async fn handle_listener_socket(socket: WebSocket, room_id_str: String, session_id: String, lobby: Lobby) {
@@ -838,13 +875,26 @@ async fn handle_listener_socket(socket: WebSocket, room_id_str: String, session_
                         );
                         let _enter = message_span.enter();
 
-                        tracing::debug!("Raw listener WebSocket message received");
-                        tracing::debug!("Raw message content: {}", &text);
+                        // Raw per-frame content is party-scale log churn: gate it
+                        // behind HUSHFM_WS_TRACE and keep it at trace! even then.
+                        if ws_trace_enabled() {
+                            tracing::trace!("Raw listener WebSocket message received");
+                            tracing::trace!("Raw message content: {}", &text);
+                        }
                         match serde_json::from_str::<ListenerCommand>(&text) {
                             Ok(listener_cmd) => {
                                 message_span.record("command_type", listener_cmd.command_type());
                                 tracing::info!("Successfully parsed listener WebSocket command: {}", listener_cmd.command_type());
-                                handle_listener_command(listener_cmd, room_id, session_id.clone(), &lobby_clone, &mut sender).await;
+                                if !handle_listener_command(listener_cmd, room_id, session_id.clone(), &lobby_clone, &mut sender).await {
+                                    // A reply send timed out/errored: the sink may be
+                                    // mid-frame, so break and arm the reap timer.
+                                    tracing::debug!(
+                                        room_id = %room_id,
+                                        session_id = %session_id,
+                                        "Listener command reply send failed, connection dropped"
+                                    );
+                                    break;
+                                }
                             }
                             Err(e) => {
                                 tracing::error!(
@@ -959,13 +1009,16 @@ async fn handle_listener_socket(socket: WebSocket, room_id_str: String, session_
     }
 }
 
+/// Handle one DJ command. Returns `false` when a reply send indicated the
+/// connection is dead (send_ws timed out or errored) — the caller MUST break its
+/// loop and stop using the sink, matching the event-delivery loop's contract.
 #[tracing::instrument(skip(cmd, lobby, sender), fields(room_id = %room_id, command_type = cmd.command_type()))]
 async fn handle_dj_command(
     cmd: DjCommand,
     room_id: Uuid,
     lobby: &Lobby,
     sender: &mut futures_util::stream::SplitSink<WebSocket, Message>,
-) {
+) -> bool {
     // Extract trace context from the message and set up parent span
 
     match cmd {
@@ -999,9 +1052,11 @@ async fn handle_dj_command(
                     error: "Room ID mismatch".to_string(),
                 };
                 if let Ok(msg) = serde_json::to_string(&response) {
-                    sender.send(Message::Text(msg)).await.ok();
+                    if !send_ws(sender, Message::Text(msg)).await {
+                        return false;
+                    }
                 }
-                return;
+                return true;
             }
 
             tracing::info!(
@@ -1028,23 +1083,20 @@ async fn handle_dj_command(
                     
                     match serde_json::to_string(&response) {
                         Ok(msg) => {
-                            match sender.send(Message::Text(msg)).await {
-                                Ok(_) => {
-                                    step2_span.record("flow.phase", "completed");
-                                    tracing::info!(
-                                        room_id = %room_id,
-                                        router_id = %router.id(),
-                                        "Step 2: COMPLETED - RoomInitialized event sent with RTP capabilities. Frontend should now create device and call load()."
-                                    );
-                                }
-                                Err(e) => {
-                                    step2_span.record("flow.phase", "failed");
-                                    tracing::error!(
-                                        room_id = %room_id,
-                                        error = %e,
-                                        "Step 2: FAILED - Could not send RoomInitialized event"
-                                    );
-                                }
+                            if send_ws(sender, Message::Text(msg)).await {
+                                step2_span.record("flow.phase", "completed");
+                                tracing::info!(
+                                    room_id = %room_id,
+                                    router_id = %router.id(),
+                                    "Step 2: COMPLETED - RoomInitialized event sent with RTP capabilities. Frontend should now create device and call load()."
+                                );
+                            } else {
+                                step2_span.record("flow.phase", "failed");
+                                tracing::error!(
+                                    room_id = %room_id,
+                                    "Step 2: FAILED - Could not send RoomInitialized event (connection dead)"
+                                );
+                                return false;
                             }
                         }
                         Err(e) => {
@@ -1067,7 +1119,9 @@ async fn handle_dj_command(
                         error: "Room router not available".to_string(),
                     };
                     if let Ok(msg) = serde_json::to_string(&response) {
-                        sender.send(Message::Text(msg)).await.ok();
+                        if !send_ws(sender, Message::Text(msg)).await {
+                            return false;
+                        }
                     }
                 }
             } else {
@@ -1080,7 +1134,9 @@ async fn handle_dj_command(
                     room_id: room_id.to_string(),
                 };
                 if let Ok(msg) = serde_json::to_string(&response) {
-                    sender.send(Message::Text(msg)).await.ok();
+                    if !send_ws(sender, Message::Text(msg)).await {
+                        return false;
+                    }
                 }
             }
         }
@@ -1132,21 +1188,18 @@ async fn handle_dj_command(
                         
                         match serde_json::to_string(&response) {
                             Ok(msg) => {
-                                match sender.send(Message::Text(msg)).await {
-                                    Ok(_) => {
-                                        tracing::info!(
-                                            room_id = %room_id,
-                                            "Step 7: COMPLETED - DjTransportReady event sent with transport params. Frontend should now create send transport and call produce()."
-                                        );
-                                    }
-                                    Err(e) => {
-                                        step5_span.record("flow.phase", "failed");
-                                        tracing::error!(
-                                            room_id = %room_id,
-                                            error = %e,
-                                            "Step 7: FAILED - Could not send DjTransportReady event"
-                                        );
-                                    }
+                                if send_ws(sender, Message::Text(msg)).await {
+                                    tracing::info!(
+                                        room_id = %room_id,
+                                        "Step 7: COMPLETED - DjTransportReady event sent with transport params. Frontend should now create send transport and call produce()."
+                                    );
+                                } else {
+                                    step5_span.record("flow.phase", "failed");
+                                    tracing::error!(
+                                        room_id = %room_id,
+                                        "Step 7: FAILED - Could not send DjTransportReady event (connection dead)"
+                                    );
+                                    return false;
                                 }
                             }
                             Err(e) => {
@@ -1171,7 +1224,9 @@ async fn handle_dj_command(
                             error: format!("Failed to create transport: {}", e),
                         };
                         if let Ok(msg) = serde_json::to_string(&response) {
-                            sender.send(Message::Text(msg)).await.ok();
+                            if !send_ws(sender, Message::Text(msg)).await {
+                                return false;
+                            }
                         }
                     }
                 }
@@ -1181,7 +1236,9 @@ async fn handle_dj_command(
                     room_id: room_id.to_string(),
                 };
                 if let Ok(msg) = serde_json::to_string(&response) {
-                    sender.send(Message::Text(msg)).await.ok();
+                    if !send_ws(sender, Message::Text(msg)).await {
+                        return false;
+                    }
                 }
             }
         }
@@ -1232,7 +1289,7 @@ async fn handle_dj_command(
                         error = %e,
                         "Step 11: FAILED - Invalid DTLS parameters from frontend"
                     );
-                    return;
+                    return true;
                 }
             };
 
@@ -1259,21 +1316,18 @@ async fn handle_dj_command(
 
                     match serde_json::to_string(&response) {
                         Ok(msg) => {
-                            match sender.send(Message::Text(msg)).await {
-                                Ok(_) => {
-                                    tracing::info!(
-                                        room_id = %room_id,
-                                        transport_id = %transport_id,
-                                        "Step 12: COMPLETED - TransportConnected event sent. Frontend should now call produce() to create audio producer."
-                                    );
-                                }
-                                Err(e) => {
-                                    tracing::error!(
-                                        room_id = %room_id,
-                                        error = %e,
-                                        "Step 12: Transport connected but failed to send confirmation event"
-                                    );
-                                }
+                            if send_ws(sender, Message::Text(msg)).await {
+                                tracing::info!(
+                                    room_id = %room_id,
+                                    transport_id = %transport_id,
+                                    "Step 12: COMPLETED - TransportConnected event sent. Frontend should now call produce() to create audio producer."
+                                );
+                            } else {
+                                tracing::error!(
+                                    room_id = %room_id,
+                                    "Step 12: Transport connected but failed to send confirmation event (connection dead)"
+                                );
+                                return false;
                             }
                         }
                         Err(e) => {
@@ -1298,7 +1352,9 @@ async fn handle_dj_command(
                     };
 
                     if let Ok(msg) = serde_json::to_string(&response) {
-                        sender.send(Message::Text(msg)).await.ok();
+                        if !send_ws(sender, Message::Text(msg)).await {
+                            return false;
+                        }
                     }
                 }
             }
@@ -1343,22 +1399,19 @@ async fn handle_dj_command(
                     
                     match serde_json::to_string(&response) {
                         Ok(msg) => {
-                            match sender.send(Message::Text(msg)).await {
-                                Ok(_) => {
-                                    tracing::info!(
-                                        room_id = %room_id,
-                                        producer_id = %producer_id,
-                                        "Step 17: COMPLETED - ProducerCreated event sent. Room is now PUBLIC and streaming. Frontend can now call producer callback."
-                                    );
-                                }
-                                Err(e) => {
-                                    tracing::error!(
-                                        room_id = %room_id,
-                                        producer_id = %producer_id,
-                                        error = %e,
-                                        "Step 17: Producer created but failed to send ProducerCreated event"
-                                    );
-                                }
+                            if send_ws(sender, Message::Text(msg)).await {
+                                tracing::info!(
+                                    room_id = %room_id,
+                                    producer_id = %producer_id,
+                                    "Step 17: COMPLETED - ProducerCreated event sent. Room is now PUBLIC and streaming. Frontend can now call producer callback."
+                                );
+                            } else {
+                                tracing::error!(
+                                    room_id = %room_id,
+                                    producer_id = %producer_id,
+                                    "Step 17: Producer created but failed to send ProducerCreated event (connection dead)"
+                                );
+                                return false;
                             }
                         }
                         Err(e) => {
@@ -1383,7 +1436,9 @@ async fn handle_dj_command(
                         error: format!("Producer creation failed: {}", e),
                     };
                     if let Ok(msg) = serde_json::to_string(&response) {
-                        sender.send(Message::Text(msg)).await.ok();
+                        if !send_ws(sender, Message::Text(msg)).await {
+                            return false;
+                        }
                     }
                 }
             }
@@ -1398,7 +1453,9 @@ async fn handle_dj_command(
                         room_id: room_id.to_string(),
                     };
                     if let Ok(msg) = serde_json::to_string(&response) {
-                        sender.send(Message::Text(msg)).await.ok();
+                        if !send_ws(sender, Message::Text(msg)).await {
+                            return false;
+                        }
                     }
                 }
                 Err(e) => {
@@ -1408,7 +1465,9 @@ async fn handle_dj_command(
                         error: format!("Stream pause failed: {}", e),
                     };
                     if let Ok(msg) = serde_json::to_string(&response) {
-                        sender.send(Message::Text(msg)).await.ok();
+                        if !send_ws(sender, Message::Text(msg)).await {
+                            return false;
+                        }
                     }
                 }
             }
@@ -1421,7 +1480,9 @@ async fn handle_dj_command(
                         room_id: room_id.to_string(),
                     };
                     if let Ok(msg) = serde_json::to_string(&response) {
-                        sender.send(Message::Text(msg)).await.ok();
+                        if !send_ws(sender, Message::Text(msg)).await {
+                            return false;
+                        }
                     }
                 }
                 Err(e) => {
@@ -1431,7 +1492,9 @@ async fn handle_dj_command(
                         error: format!("Stream resume failed: {}", e),
                     };
                     if let Ok(msg) = serde_json::to_string(&response) {
-                        sender.send(Message::Text(msg)).await.ok();
+                        if !send_ws(sender, Message::Text(msg)).await {
+                            return false;
+                        }
                     }
                 }
             }
@@ -1445,7 +1508,9 @@ async fn handle_dj_command(
                         reason: "Closed by DJ".to_string(),
                     };
                     if let Ok(msg) = serde_json::to_string(&response) {
-                        sender.send(Message::Text(msg)).await.ok();
+                        if !send_ws(sender, Message::Text(msg)).await {
+                            return false;
+                        }
                     }
                 }
                 Err(e) => {
@@ -1455,14 +1520,21 @@ async fn handle_dj_command(
                         error: format!("Room closure failed: {}", e),
                     };
                     if let Ok(msg) = serde_json::to_string(&response) {
-                        sender.send(Message::Text(msg)).await.ok();
+                        if !send_ws(sender, Message::Text(msg)).await {
+                            return false;
+                        }
                     }
                 }
             }
         }
     }
+
+    true
 }
 
+/// Handle one listener command. Returns `false` when a reply send indicated the
+/// connection is dead (send_ws timed out or errored) — the caller MUST break its
+/// loop and stop using the sink, matching the event-delivery loop's contract.
 #[tracing::instrument(skip(cmd, lobby, sender), fields(room_id = %room_id, session_id = %session_id, command_type = cmd.command_type()))]
 async fn handle_listener_command(
     cmd: ListenerCommand,
@@ -1470,7 +1542,7 @@ async fn handle_listener_command(
     session_id: String,
     lobby: &Lobby,
     sender: &mut futures_util::stream::SplitSink<WebSocket, Message>,
-) {
+) -> bool {
     // Extract trace context from the message and set up parent span
 
     match cmd {
@@ -1483,12 +1555,15 @@ async fn handle_listener_command(
                 "Step 2: Listener requesting router RTP capabilities"
             );
 
-            // Get the room and extract router RTP capabilities using domain method
-            if let Some(room_state) = lobby.get_room(&room_id) {
+            // Get the room and extract router RTP capabilities using domain method.
+            // Build the response UNDER the read guard, then DROP the guard before
+            // the (potentially blocking) send_ws — a bounded send must never hold a
+            // room guard.
+            let response = if let Some(room_state) = lobby.get_room(&room_id) {
                 let room_guard = room_state.read().await;
-                
+
                 // Use domain method to get native MediaSoup RTP capabilities
-                match room_guard.get_router_rtp_capabilities() {
+                let response = match room_guard.get_router_rtp_capabilities() {
                     Ok(router_rtp_capabilities) => {
                         tracing::info!(
                             session_id = %session_id,
@@ -1498,20 +1573,9 @@ async fn handle_listener_command(
                         );
 
                         // Convert native MediaSoup type to API wrapper type in WebSocket layer
-                        let response = ListenerEvent::RouterCapabilities {
+                        ListenerEvent::RouterCapabilities {
                             room_id: room_id.to_string(),
                             rtp_capabilities: router_rtp_capabilities.into(), // Convert to RtpCapabilitiesWrapper
-                        };
-
-                        if let Ok(msg) = serde_json::to_string(&response) {
-                            if let Err(e) = sender.send(Message::Text(msg)).await {
-                                tracing::error!(
-                                    session_id = %session_id,
-                                    room_id = %room_id,
-                                    error = %e,
-                                    "Step 2: Failed to send RouterCapabilities event"
-                                );
-                            }
                         }
                     }
                     Err(e) => {
@@ -1521,28 +1585,30 @@ async fn handle_listener_command(
                             error = %e,
                             "Step 2: FAILED - Could not get router RTP capabilities from domain"
                         );
-                        
-                        let response = ListenerEvent::CommandFailed {
+
+                        ListenerEvent::CommandFailed {
                             command: "getRouterCapabilities".to_string(),
                             error: format!("Router capabilities not available: {}", e),
-                        };
-                        if let Ok(msg) = serde_json::to_string(&response) {
-                            sender.send(Message::Text(msg)).await.ok();
                         }
                     }
-                }
+                };
+                drop(room_guard); // release read guard before the bounded send
+                response
             } else {
                 tracing::error!(
                     session_id = %session_id,
                     room_id = %room_id,
                     "Step 2: FAILED - Room not found"
                 );
-                
-                let response = ListenerEvent::RoomNotFound {
+
+                ListenerEvent::RoomNotFound {
                     room_id: room_id.to_string(),
-                };
-                if let Ok(msg) = serde_json::to_string(&response) {
-                    sender.send(Message::Text(msg)).await.ok();
+                }
+            };
+
+            if let Ok(msg) = serde_json::to_string(&response) {
+                if !send_ws(sender, Message::Text(msg)).await {
+                    return false;
                 }
             }
         }
@@ -1555,10 +1621,11 @@ async fn handle_listener_command(
                 "Step 2: Listener requesting transport initialization"
             );
 
-            // Delegate to room domain logic
-            if let Some(room_state) = lobby.get_room(&room_id) {
+            // Delegate to room domain logic. Build the response UNDER the write
+            // guard, then DROP the guard before the bounded send_ws.
+            let response = if let Some(room_state) = lobby.get_room(&room_id) {
                 let mut room_guard = room_state.write().await;
-                match room_guard.init_listener_transport(&session_id).await {
+                let response = match room_guard.init_listener_transport(&session_id).await {
                     Ok(transport_options) => {
                         tracing::info!(
                             session_id = %session_id,
@@ -1567,19 +1634,8 @@ async fn handle_listener_command(
                             "Step 2: COMPLETED - Listener transport created successfully"
                         );
 
-                        let response = ListenerEvent::ListenerTransportReady {
+                        ListenerEvent::ListenerTransportReady {
                             transport_options,
-                        };
-
-                        if let Ok(msg) = serde_json::to_string(&response) {
-                            if let Err(e) = sender.send(Message::Text(msg)).await {
-                                tracing::error!(
-                                    session_id = %session_id,
-                                    room_id = %room_id,
-                                    error = %e,
-                                    "Step 2: Failed to send ListenerTransportReady event"
-                                );
-                            }
                         }
                     }
                     Err(e) => {
@@ -1589,27 +1645,29 @@ async fn handle_listener_command(
                             error = %e,
                             "Step 2: FAILED - Listener transport creation failed"
                         );
-                        let response = ListenerEvent::CommandFailed {
+                        ListenerEvent::CommandFailed {
                             command: "initListener".to_string(),
                             error: format!("Failed to create transport: {}", e),
-                        };
-                        if let Ok(msg) = serde_json::to_string(&response) {
-                            sender.send(Message::Text(msg)).await.ok();
                         }
                     }
-                }
+                };
+                drop(room_guard); // release write guard before the bounded send
+                response
             } else {
                 tracing::error!(
                     session_id = %session_id,
                     room_id = %room_id,
                     "Step 2: FAILED - Room not found"
                 );
-                let response = ListenerEvent::CommandFailed {
+                ListenerEvent::CommandFailed {
                     command: "initListener".to_string(),
                     error: "Room not found".to_string(),
-                };
-                if let Ok(msg) = serde_json::to_string(&response) {
-                    sender.send(Message::Text(msg)).await.ok();
+                }
+            };
+
+            if let Ok(msg) = serde_json::to_string(&response) {
+                if !send_ws(sender, Message::Text(msg)).await {
+                    return false;
                 }
             }
         }
@@ -1689,7 +1747,9 @@ async fn handle_listener_command(
                     error: format!("Failed to resume consumer {}: {}", consumer_id, error_msg),
                 };
                 if let Ok(msg) = serde_json::to_string(&response) {
-                    sender.send(Message::Text(msg)).await.ok();
+                    if !send_ws(sender, Message::Text(msg)).await {
+                        return false;
+                    }
                 }
             }
         }
@@ -1703,9 +1763,11 @@ async fn handle_listener_command(
                 };
 
                 if let Ok(msg) = serde_json::to_string(&response) {
-                    sender.send(Message::Text(msg)).await.ok();
+                    if !send_ws(sender, Message::Text(msg)).await {
+                        return false;
+                    }
                 }
-                return;
+                return true;
             }
 
             // Handle router capabilities request
@@ -1717,7 +1779,9 @@ async fn handle_listener_command(
                     };
 
                     if let Ok(msg) = serde_json::to_string(&response) {
-                        sender.send(Message::Text(msg)).await.ok();
+                        if !send_ws(sender, Message::Text(msg)).await {
+                            return false;
+                        }
                     }
                 }
                 Err(e) => {
@@ -1728,7 +1792,9 @@ async fn handle_listener_command(
                     };
 
                     if let Ok(msg) = serde_json::to_string(&response) {
-                        sender.send(Message::Text(msg)).await.ok();
+                        if !send_ws(sender, Message::Text(msg)).await {
+                            return false;
+                        }
                     }
                 }
             }
@@ -1748,7 +1814,7 @@ async fn handle_listener_command(
                 Ok(params) => params,
                 Err(e) => {
                     tracing::error!("Failed to convert DTLS parameters: {}", e);
-                    return;
+                    return true;
                 }
             };
 
@@ -1761,7 +1827,9 @@ async fn handle_listener_command(
                     };
 
                     if let Ok(msg) = serde_json::to_string(&response) {
-                        sender.send(Message::Text(msg)).await.ok();
+                        if !send_ws(sender, Message::Text(msg)).await {
+                            return false;
+                        }
                     }
 
                     // Consumer creation is handled separately via requestConsumer command
@@ -1774,14 +1842,18 @@ async fn handle_listener_command(
                     };
 
                     if let Ok(msg) = serde_json::to_string(&response) {
-                        sender.send(Message::Text(msg)).await.ok();
+                        if !send_ws(sender, Message::Text(msg)).await {
+                            return false;
+                        }
                     }
                 }
             }
         }
         ListenerCommand::LeaveRoom => {
-            // Use domain method for listener leaving
-            if let Some(room_state) = lobby.get_room(&room_id) {
+            // Use domain method for listener leaving. On the happy path there is
+            // no reply (the client closes the socket); only failures send a
+            // CommandFailed, and any room guard is dropped before that send.
+            let error_response = if let Some(room_state) = lobby.get_room(&room_id) {
                 let mut room_guard = room_state.write().await;
                 match room_guard.handle_listener_leave(&session_id).await {
                     Ok(_) => {
@@ -1790,12 +1862,13 @@ async fn handle_listener_command(
                             listener_id = %session_id,
                             "Listener left room successfully"
                         );
-                        
+
                         // Broadcast room update to lobby with new listener count
                         drop(room_guard); // Release write lock before lobby call
                         lobby.update_room(&room_id).await;
-                        
+
                         // Connection will be closed by the client
+                        None
                     }
                     Err(e) => {
                         tracing::error!(
@@ -1804,24 +1877,25 @@ async fn handle_listener_command(
                             error = %e,
                             "Failed to handle listener leave"
                         );
-                        let response = ListenerEvent::CommandFailed {
+                        drop(room_guard); // release write guard before the bounded send
+                        Some(ListenerEvent::CommandFailed {
                             command: "leaveRoom".to_string(),
                             error: format!("Leave room failed: {}", e),
-                        };
-
-                        if let Ok(msg) = serde_json::to_string(&response) {
-                            sender.send(Message::Text(msg)).await.ok();
-                        }
+                        })
                     }
                 }
             } else {
-                let response = ListenerEvent::CommandFailed {
+                Some(ListenerEvent::CommandFailed {
                     command: "leaveRoom".to_string(),
                     error: "Room not found".to_string(),
-                };
+                })
+            };
 
+            if let Some(response) = error_response {
                 if let Ok(msg) = serde_json::to_string(&response) {
-                    sender.send(Message::Text(msg)).await.ok();
+                    if !send_ws(sender, Message::Text(msg)).await {
+                        return false;
+                    }
                 }
             }
         }
@@ -1837,7 +1911,9 @@ async fn handle_listener_command(
                     };
 
                     if let Ok(msg) = serde_json::to_string(&response) {
-                        sender.send(Message::Text(msg)).await.ok();
+                        if !send_ws(sender, Message::Text(msg)).await {
+                            return false;
+                        }
                     }
                 }
                 Err(e) => {
@@ -1848,7 +1924,9 @@ async fn handle_listener_command(
                     };
 
                     if let Ok(msg) = serde_json::to_string(&response) {
-                        sender.send(Message::Text(msg)).await.ok();
+                        if !send_ws(sender, Message::Text(msg)).await {
+                            return false;
+                        }
                     }
                 }
             }
@@ -1862,10 +1940,14 @@ async fn handle_listener_command(
                 "Listener application-level ping received, sending pong"
             );
             if let Ok(msg) = serde_json::to_string(&ListenerEvent::Pong) {
-                sender.send(Message::Text(msg)).await.ok();
+                if !send_ws(sender, Message::Text(msg)).await {
+                    return false;
+                }
             }
         }
     }
+
+    true
 }
 
 /// Handle transport connection with DTLS parameters
@@ -2139,80 +2221,6 @@ async fn handle_get_router_capabilities(
     Ok(router_rtp_capabilities.into())
 }
 
-/// Handle join request with producer validation and Jaeger spans
-#[tracing::instrument(skip(lobby, device_rtp_capabilities, event_tx), fields(room_id = %room_id, producer_exists = tracing::field::Empty, listener_count = tracing::field::Empty))]
-async fn handle_request_join(
-    room_id: Uuid,
-    device_rtp_capabilities: serde_json::Value,
-    listener_id: String,
-    lobby: &Lobby,
-    event_tx: tokio::sync::mpsc::UnboundedSender<ListenerEvent>,
-) -> anyhow::Result<(crate::lib::models::events::RoomInfo, crate::lib::models::schemas::TransportOptions, String, crate::lib::models::schemas::RtpCapabilitiesWrapper)> {
-    let span = tracing::Span::current();
-
-    let room_state = lobby.get_room(&room_id)
-        .ok_or_else(|| anyhow::anyhow!("Room not found"))?;
-
-    let mut room_state_guard = room_state.write().await;
-    let room = room_state_guard.clone();
-
-    // We'll create the ListenerState after the transport is created (in the return section)
-    tracing::info!(
-        listener_id = %listener_id,
-        "Processing join request with device RTP capabilities"
-    );
-
-    // REQUIRED: Validate that producer exists (rooms without producers should not exist)
-    let producer_id = if let Some(dj) = &room_state_guard.dj {
-        if let Some(producer) = &dj.producer {
-            span.record("producer_exists", true);
-            producer.id().to_string()
-        } else {
-            span.record("producer_exists", false);
-            return Err(anyhow::anyhow!("No producer available in room - room without producer should not exist"));
-        }
-    } else {
-        span.record("producer_exists", false);
-        return Err(anyhow::anyhow!("No DJ available in room - room without DJ should not exist"));
-    };
-
-    // Use room's abstract coordination method for listener initialization (Step 2)
-    let (listener, transport_options) = room_state_guard.add_listener_to_room(
-        listener_id.clone(),
-        device_rtp_capabilities,
-        event_tx,
-    ).await?;
-    
-    // Add the listener to the room's listener collection  
-    room_state_guard.add_listener(listener);
-
-    // Get router RTP capabilities for device initialization
-    let router_rtp_capabilities = room_state_guard.router.as_ref()
-        .ok_or_else(|| anyhow::anyhow!("No router found for room"))?
-        .rtp_capabilities();
-
-    span.record("listener_count", room.listener_count);
-
-    tracing::info!(
-        room_id = %room_id,
-        producer_id = %producer_id,
-        listener_id = %listener_id,
-        listener_count = room.listener_count,
-        "Join request validated - ListenerState created and stored"
-    );
-
-    // Broadcast room update to lobby with new listener count
-    drop(room_state_guard); // Release write lock before lobby call
-    lobby.update_room(&room_id).await;
-
-    Ok((
-        room.into(), // Convert Room to RoomInfo
-        transport_options,
-        producer_id,
-        router_rtp_capabilities.into(), // Convert to RtpCapabilitiesWrapper
-    ))
-}
-
 /// Handle listener transport connection with DTLS parameters and consumer creation
 #[tracing::instrument(skip(lobby, dtls_parameters), fields(room_id = %room_id, listener_id = %listener_id, client_transport_id = tracing::field::Empty, actual_transport_id = tracing::field::Empty))]
 async fn handle_connect_listener_transport(
@@ -2233,52 +2241,78 @@ async fn handle_connect_listener_transport(
     let room_state = lobby.get_room(&room_id)
         .ok_or_else(|| anyhow::anyhow!("Room not found"))?;
 
-    let room_state_guard = room_state.read().await;
+    // Resolve the transport (and validate its id) UNDER the read guard, then
+    // clone the Arc<WebRtcTransport> out and DROP the guard before the connect
+    // await. The DTLS handshake must never run while a room guard is held (a
+    // wedged handshake would otherwise pin the room lock indefinitely), and it
+    // is wrapped in a 10s timeout so a stuck handshake fails instead of hanging
+    // forever — mirroring listener.rs::connect_transport.
+    let transport = {
+        let room_state_guard = room_state.read().await;
 
-    // Get existing ListenerState (created during requestJoin)
-    let listener_state = room_state_guard.get_listener(&listener_id)
-        .ok_or_else(|| anyhow::anyhow!("No ListenerState found for listener_id: {}", listener_id))?;
+        // Get existing ListenerState (created during requestJoin)
+        let listener_state = room_state_guard.get_listener(&listener_id)
+            .ok_or_else(|| anyhow::anyhow!("No ListenerState found for listener_id: {}", listener_id))?;
 
-    let actual_transport_id = listener_state.transport.as_ref()
-        .ok_or_else(|| anyhow::anyhow!("No transport found for listener"))?
-        .id().to_string();
-    span.record("actual_transport_id", &actual_transport_id);
+        let transport = listener_state.transport.as_ref()
+            .ok_or_else(|| anyhow::anyhow!("No transport found for listener"))?
+            .clone();
+        let actual_transport_id = transport.id().to_string();
+        span.record("actual_transport_id", &actual_transport_id);
 
-    // CRITICAL: Validate that client transport ID matches actual transport ID
-    if let Some(ref client_id) = client_transport_id {
-        if client_id != &actual_transport_id {
-            tracing::error!(
-                client_transport_id = %client_id,
+        // CRITICAL: Validate that client transport ID matches actual transport ID
+        if let Some(ref client_id) = client_transport_id {
+            if client_id != &actual_transport_id {
+                tracing::error!(
+                    client_transport_id = %client_id,
+                    actual_transport_id = %actual_transport_id,
+                    listener_id = %listener_id,
+                    "Listener transport ID mismatch! Client trying to connect wrong transport"
+                );
+                return Err(anyhow::anyhow!(
+                    "Listener transport ID mismatch: client sent '{}' but listener has '{}'",
+                    client_id, actual_transport_id
+                ));
+            } else {
+                tracing::info!(
+                    transport_id = %actual_transport_id,
+                    listener_id = %listener_id,
+                    "✅ Listener transport ID validation successful"
+                );
+            }
+        } else {
+            tracing::warn!(
                 actual_transport_id = %actual_transport_id,
                 listener_id = %listener_id,
-                "Listener transport ID mismatch! Client trying to connect wrong transport"
-            );
-            return Err(anyhow::anyhow!(
-                "Listener transport ID mismatch: client sent '{}' but listener has '{}'", 
-                client_id, actual_transport_id
-            ));
-        } else {
-            tracing::info!(
-                transport_id = %actual_transport_id,
-                listener_id = %listener_id,
-                "✅ Listener transport ID validation successful"
+                "Client did not provide listener transport ID - allowing connection but this should be fixed"
             );
         }
-    } else {
-        tracing::warn!(
-            actual_transport_id = %actual_transport_id,
-            listener_id = %listener_id,
-            "Client did not provide listener transport ID - allowing connection but this should be fixed"
-        );
-    }
 
-    // Connect the existing transport with provided DTLS parameters
-    if let Some(transport) = &listener_state.transport {
-        transport.connect(mediasoup::prelude::WebRtcTransportRemoteParameters {
-            dtls_parameters
-        }).await.map_err(|e| anyhow::anyhow!("Failed to connect listener transport: {}", e))?;
-    } else {
-        return Err(anyhow::anyhow!("No transport found for listener"));
+        transport
+        // room read guard dropped here, before the connect().await below
+    };
+
+    let actual_transport_id = transport.id().to_string();
+
+    // Connect the existing transport with provided DTLS parameters, bounded by a
+    // 10s timeout so a wedged DTLS handshake fails fast instead of pinning the
+    // listener task forever (no room guard is held across this await).
+    match tokio::time::timeout(
+        Duration::from_secs(10),
+        transport.connect(mediasoup::prelude::WebRtcTransportRemoteParameters { dtls_parameters }),
+    ).await {
+        Ok(Ok(())) => {}
+        Ok(Err(e)) => {
+            return Err(anyhow::anyhow!("Failed to connect listener transport: {}", e));
+        }
+        Err(_) => {
+            tracing::error!(
+                transport_id = %actual_transport_id,
+                listener_id = %listener_id,
+                "Listener transport connection timed out after 10 seconds"
+            );
+            return Err(anyhow::anyhow!("Listener transport connection timed out"));
+        }
     }
 
     tracing::info!(

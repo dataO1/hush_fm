@@ -344,15 +344,6 @@ impl Room {
         }
     }
 
-    /// Abstract coordination: Connect DJ transport (Step 12)
-    pub async fn connect_dj(&self, dtls_parameters: DtlsParameters) -> Result<String> {
-        if let Some(dj) = &self.dj {
-            dj.connect_transport(dtls_parameters).await
-        } else {
-            Err(anyhow::anyhow!("No DJ available for transport connection"))
-        }
-    }
-
     /// Abstract coordination: Create DJ producer (Step 15)
     ///
     /// Re-publish detection: when the DJ re-runs the publish flow (page
@@ -476,30 +467,6 @@ impl Room {
         
         tracing::info!("Consumer created for listener {} in room {}", listener_id, self.id);
         Ok(consumer_params)
-    }
-
-    /// Abstract coordination: Pause DJ streaming
-    pub async fn pause_streaming(&mut self) -> Result<()> {
-        if let Some(ref mut dj) = self.dj {
-            dj.pause().await?;
-            self.pause();
-            tracing::info!("DJ streaming paused for room {}", self.id);
-            Ok(())
-        } else {
-            Err(anyhow::anyhow!("No DJ available to pause"))
-        }
-    }
-
-    /// Abstract coordination: Resume DJ streaming  
-    pub async fn resume_streaming(&mut self) -> Result<()> {
-        if let Some(ref mut dj) = self.dj {
-            dj.resume().await?;
-            self.resume();
-            tracing::info!("DJ streaming resumed for room {}", self.id);
-            Ok(())
-        } else {
-            Err(anyhow::anyhow!("No DJ available to resume"))
-        }
     }
 
     /// Abstract coordination: Stop DJ streaming and close room
