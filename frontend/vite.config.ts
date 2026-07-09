@@ -5,7 +5,17 @@ import tailwindcss from 'tailwindcss'
 import autoprefixer from 'autoprefixer'
 import devtools from 'solid-devtools/vite'
 
-export default defineConfig({
+export default defineConfig(({ mode }) => {
+  // Decision 5a: strip console.* + debugger in PRODUCTION builds only. The
+  // ~8-console-logs-per-WS-frame must not run on party phones. Dev keeps all
+  // logging intact. Applied via BOTH the esbuild transform (`drop`) and the
+  // terser pass (`drop_console`) because this project minifies with terser —
+  // esbuild.drop alone would not touch the final terser output. The client-log
+  // beacon uses fetch/sendBeacon (never console), so stripping console is safe
+  // for it.
+  const isProd = mode === 'production'
+
+  return {
   plugins: [
     devtools({ autoname: true }),
     solid()
@@ -33,7 +43,9 @@ export default defineConfig({
   // Use esbuild for faster transpilation in development
   esbuild: {
     target: 'esnext',
-    logOverride: { 'this-is-undefined-in-esm': 'silent' }
+    logOverride: { 'this-is-undefined-in-esm': 'silent' },
+    // 5a: drop console + debugger in prod only (dev keeps logging intact).
+    ...(isProd ? { drop: ['console', 'debugger'] as ('console' | 'debugger')[] } : {})
   },
   server: {
     port: parseInt(process.env.HUSHFM_FRONTEND_PORT || '8080'),
@@ -70,9 +82,10 @@ export default defineConfig({
     minify: 'terser',
     terserOptions: {
       compress: {
-        // Keep console.* in production: they are the only on-device diagnostics
-        // for the Android lock-screen debugging (captured by eruda via ?debug=1).
-        drop_console: false,
+        // 5a: strip console.* + debugger in production. The per-WS-frame console
+        // spam must not run on party phones. On-device diagnostics now go through
+        // the client-log beacon (fetch/sendBeacon) instead of eruda console taps.
+        drop_console: isProd,
         drop_debugger: true,
         // Additional compression optimizations for Pi
         passes: 3, // Run compression 3 times for maximum size reduction
@@ -101,4 +114,5 @@ export default defineConfig({
       },
     }
   },
+  }
 })

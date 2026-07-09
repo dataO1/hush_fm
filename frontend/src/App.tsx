@@ -18,6 +18,7 @@ export { LobbyServiceLive } from './services/application/LobbyService'
 export { MediaSoupClientLive } from './services/infrastructure/MediaSoupClient'
 import { User } from './services/domain/User'
 import { AudioClient, AudioClientLive } from './services/infrastructure/AudioClient'
+import { initClientLog } from './services/infrastructure/clientLog'
 
 // Global Application Layer - Only true singletons (store adapters + audio client)
 const GlobalAppLayer = Layer.mergeAll(
@@ -105,11 +106,15 @@ function AppContent() {
   const runtime = useGlobalRuntime()
   const userAdapter = useUserAdapter()
 
+  // Wire the client-log beacon global hooks ONCE at bootstrap (decisions 7.1–7.6).
+  // Fully guarded and best-effort; must never affect app startup.
+  initClientLog()
+
   // Initialize session ID on app mount
   onMount(async () => {
     try {
       console.info('🚀 Initializing HushFM app with SolidJS 2025 + Effect-TS architecture...')
-      
+
       // Check if session already exists
       if (userAdapter.hasSession()) {
         console.info('ℹ️ Session already exists, skipping initialization')

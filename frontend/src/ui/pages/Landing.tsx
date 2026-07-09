@@ -1,4 +1,4 @@
-import { For, Show, createResource, createSignal, onCleanup, onMount, createContext, useContext, ParentComponent } from 'solid-js'
+import { For, Show, createResource, createSignal, createEffect, onCleanup, onMount, createContext, useContext, ParentComponent } from 'solid-js'
 import { useNavigate } from '@solidjs/router'
 import { Option as O, Effect, Context, ManagedRuntime, Layer } from 'effect'
 import { useConnectionAdapter, useLobbyAdapter, useUserAdapter } from '../../App'
@@ -110,6 +110,30 @@ function LandingContent() {
     } catch (error) {
       console.error('❌ Landing: Failed to load room list:', error)
     }
+  })
+
+  // L3: refetch the room list after a lobby WS flap. WebSocketClient clears the
+  // lobby store on disconnect (setupWebSocketHandlers onclose → lobbyAdapter.clear())
+  // and the REST refetch above only runs on mount — so after any lobby WS blip the
+  // list would stay empty until a manual reload. Observe the lobby WS transition
+  // back to connected and re-run getRoomList(). We gate on a "first connect seen"
+  // flag so the initial mount connect does NOT double-fetch (onMount already did).
+  let lobbyEverConnected = false
+  createEffect(() => {
+    const connected = connectionAdapter.isLobbyConnected()
+    if (!connected) return
+    if (!lobbyEverConnected) {
+      // First time we observe a connected lobby — the onMount fetch owns this one.
+      lobbyEverConnected = true
+      return
+    }
+    // A subsequent connected transition == a reconnect after a flap → refetch.
+    console.info('🔄 Landing: Lobby WS reconnected — refetching room list')
+    void lobbyService.getRoomList().pipe(
+      Effect.runPromise
+    ).catch((error) => {
+      console.error('❌ Landing: Room list refetch after reconnect failed:', error)
+    })
   })
 
   // L1: Guard against a stuck "Connecting to lobby…" dead end. If the lobby
