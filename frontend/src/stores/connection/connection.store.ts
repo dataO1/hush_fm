@@ -31,6 +31,9 @@ export interface ConnectionActions {
   setCurrentRoomId: (roomId: string) => void
   clearCurrentRoomId: () => void
 
+  // Live listener count for the CURRENT room
+  setListenerCount: (count: number) => void
+
   // Error management
   setConnectionError: (error: ConnectionError | null) => void
   clearError: () => void
@@ -68,6 +71,7 @@ export interface DualConnectionState {
   lobbyWsState: WsConnectionState              // Lobby WebSocket
   roomWsState: WsConnectionState               // Room WebSocket
   currentRoomId: Option.Option<string>         // Track active room ID for highlighting
+  listenerCount: number                        // Live listener count for the current room
   lastError: Option.Option<ConnectionError>
 }
 
@@ -79,6 +83,7 @@ const createInitialConnectionState = (): DualConnectionState => ({
   lobbyWsState: WsConnectionState.DISCONNECTED,
   roomWsState: WsConnectionState.DISCONNECTED,
   currentRoomId: Option.none(),
+  listenerCount: 0,
   lastError: Option.none()
 })
 
@@ -125,6 +130,10 @@ export const createConnectionStore = (): ConnectionStore => {
       setState('currentRoomId', Option.none())
     },
 
+    setListenerCount: (count: number) => {
+      setState('listenerCount', count)
+    },
+
     setConnectionError: (error: ConnectionError | null) => {
       setState('lastError', error ? Option.some(error) : Option.none())
       if (error) {
@@ -152,6 +161,7 @@ export const createConnectionStore = (): ConnectionStore => {
       setState('roomWsState', WsConnectionState.DISCONNECTED)
       setState('webrtcConnectionState', WebrtcConnectionState.DISCONNECTED)
       setState('currentRoomId', Option.none())
+      setState('listenerCount', 0)
       setState('lastError', Option.none())
     }
   }

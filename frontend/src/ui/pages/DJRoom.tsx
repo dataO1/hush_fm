@@ -142,6 +142,9 @@ function DJRoomContent() {
   // Computed values from domain adapters (SolidJS 2025 + Effect Option patterns)
   const connectionState = () => connectionAdapter.getConnectionState()
   const isConnecting = () => connectionAdapter.isConnecting()
+  // Live listener count for this room — reactive read straight off the adapter
+  // (UserService's listenerCountUpdated subscription writes it into the store).
+  const listenerCount = () => connectionAdapter.getListenerCount()
   const isPaused = () => !audioAdapter.isPlaying()
   const selectedDeviceId = () => audioAdapter.getCurrentDeviceId()
   
@@ -242,12 +245,21 @@ function DJRoomContent() {
               />
 
               {/* Status Indicator - single source of truth from connection state */}
-              <ConnectionStatusGroup 
+              <ConnectionStatusGroup
                 webrtcState={getWebrtcState}
                 isPaused={isPaused}
                 dotSize="lg"
                 layout="vertical"
               />
+
+              {/* Live listener count — only meaningful once the DJ is live.
+                  Reactive read of listenerCount(); pluralised subject. */}
+              <Show when={connectionAdapter.isConnected()}>
+                <div class="flex items-center justify-center gap-2 text-sm sm:text-base text-gruvbox-fg-2">
+                  <span aria-hidden="true">🎧</span>
+                  <span>{listenerCount()} {listenerCount() === 1 ? 'listener' : 'listeners'} listening</span>
+                </div>
+              </Show>
 
               {/* Show DeviceSelector only when WebRTC is not connected */}
               <Show when={!connectionAdapter.isConnected()}>

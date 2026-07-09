@@ -116,6 +116,10 @@ function ListenerRoomContent() {
   const connectionError = () => Option.getOrNull(connectionAdapter.getError())
   const hasConnectionError = () => connectionAdapter.hasError()
 
+  // Live listener count for this room — reactive read straight off the adapter
+  // (UserService's listenerCountUpdated subscription writes it into the store).
+  const listenerCount = () => connectionAdapter.getListenerCount()
+
   // Room information from params and navigation state
   const roomId = () => params.roomId
   const roomName = () => navigationState.roomInfo?.name || `Room ${roomId()}`
@@ -506,6 +510,12 @@ function ListenerRoomContent() {
             <div class="flex items-center justify-center gap-2 text-sm sm:text-base text-gruvbox-fg-2">
               <span aria-hidden="true">{listeningStatus().icon}</span>
               <span>{listeningStatus().text}</span>
+            </div>
+
+            {/* Live listener count — reactive read of listenerCount(); pluralised. */}
+            <div class="flex items-center justify-center gap-2 text-sm sm:text-base text-gruvbox-fg-2">
+              <span aria-hidden="true">🎧</span>
+              <span>{listenerCount()} {listenerCount() === 1 ? 'listener' : 'listeners'} listening</span>
             </div>
 
             {/* Audio Oscilloscope - only show when stream exists AND user interaction is available */}

@@ -50,6 +50,8 @@ import {
   type StreamPausedEvent,
   type StreamResumedEvent,
   type RoomClosedEvent,
+  type DJListenerCountUpdatedEvent,
+  type ListenerCountUpdatedEvent,
   type ListenerTransportReadyEvent,
   type RouterCapabilitiesEvent,
   type ConsumerCreatedEvent,
@@ -845,6 +847,30 @@ const createUserServiceImpl = () => {
         }).pipe(
           Effect.mapError((error) => new UserServiceError({
             cause: `Failed to subscribe to streamResumed events: ${error}`,
+            operation: 'connect',
+            role: O.getOrNull(activeRole) || 'unknown' as UserRoleType,
+            timestamp: new Date()
+          }))
+        )
+
+        // Live listener count — the backend broadcasts this to BOTH the DJ
+        // (DjEvent::ListenerCountUpdated) and each listener
+        // (ListenerEvent::ListenerCountUpdated). Both share the wire shape
+        // (roomId + count, type "listenerCountUpdated"), so a single
+        // subscription writes the count into the connection store for the
+        // current room; DJRoom + ListenerRoom read it back reactively.
+        yield* wsClient.subscribe('listenerCountUpdated', (event: DJListenerCountUpdatedEvent | ListenerCountUpdatedEvent) => {
+          // Same guard as streamPaused/streamResumed: only reflect the count
+          // while we have an active role and are actually connected, so a stray
+          // frame after teardown can't repaint a stale count on the next room.
+          if (O.isSome(activeRole) && connectionAdapter.isConnected()) {
+            connectionAdapter.setListenerCount(event.count)
+          } else {
+            console.info('ℹ️ UserService: Ignoring listenerCountUpdated event - no active role or not connected')
+          }
+        }).pipe(
+          Effect.mapError((error) => new UserServiceError({
+            cause: `Failed to subscribe to listenerCountUpdated events: ${error}`,
             operation: 'connect',
             role: O.getOrNull(activeRole) || 'unknown' as UserRoleType,
             timestamp: new Date()

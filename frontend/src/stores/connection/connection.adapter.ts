@@ -36,6 +36,10 @@ export class ConnectionAdapter extends Context.Tag("@app/adapters/ConnectionAdap
     setCurrentRoomId: (roomId: string) => void
     clearCurrentRoomId: () => void
 
+    // Live listener count for the current room
+    setListenerCount: (count: number) => void
+    getListenerCount: () => number
+
     // Connection status
     isLobbyConnected: () => boolean
     isRoomConnected: () => boolean
@@ -96,6 +100,16 @@ const createConnectionAdapterImpl = () => {
 
     clearCurrentRoomId: () => {
       connectionStore.actions.clearCurrentRoomId()
+    },
+
+    // Live listener count for the current room
+    setListenerCount: (count: number) => {
+      connectionStore.actions.setListenerCount(count)
+    },
+
+    // Reactive read: accesses the store field directly so SolidJS tracks it.
+    getListenerCount: () => {
+      return connectionStore.state.listenerCount
     },
 
     // Connection status
