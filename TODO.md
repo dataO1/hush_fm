@@ -268,8 +268,110 @@
   warn/error lines, POSTed to `POST /api/client-log` on pagehide/terminal errors, tagged
   with the device id — next post-mortem becomes data. [impact: med, effort: M]
 
+# Validation + UX Scan (2026-07-09)
+> Three read-only scans at the final state (party-fixes @4356d330): frontend recovery-machinery
+> interaction, backend lifecycle/edge-cases, and a frontend UX/UI design pass. Verdict below.
+
+## Validation verdict — SOUND except one show-stopper
+- **Recovery machinery composes SAFELY** (confirmed, not assumed): the 4 reconnect/re-join
+  triggers are temporally disjoint — #11's ListenerRoom retry owns the initial-join window,
+  the 3 `performFullRejoin` triggers (evaluate/producerChanged/resumeFailed) share ONE
+  single-flight+10s throttle and own the post-join window (coordinator starts only after the
+  join resolves). No concurrent double-join / duplicate consumer / racing cleanup.
+- **Backend: no crash-class defect introduced** by the 20 commits — no new lock-across-await,
+  no panic-on-None, no use-after-free, no worker-slot leak; `close_room` idempotent;
+  grace-timer × #3-scrap × reaper all mutually exclusive under the room write lock.
+- **The ONE real show-stopper = N1** (audio-bot silent-room on device unplug) — see Bugs/Critical.
+- Low, leave-as-is: F1 = double-DJ-reload-in-10s → ~10s stale (== the ProducerChanged
+  double-republish follow-up already listed under Full-Flow Architecture). F2 (below). N2/N3/N4
+  backend (latent/narrow, overlap existing lock-across-await + RoomAdded/Updated items).
+- [ ] **F2 (low) — #12 rejoin churn on a genuinely-paused room**: if a room's producer is
+  paused, ResumeConsumer legitimately fails → #12 re-joins → resume fails again → one
+  background re-join / 10s while the UI correctly shows PAUSED. Self-limited, no user-visible
+  breakage. → Optional: gate the #12 `performFullRejoin` when local state is already PAUSED.
+  [impact: low, effort: S]
+
+## UX/UI — usability bugs (frontend-only, no backend changes; fix-first)
+- [ ] **B1 — "DJ closed the room" shows as a scary RED error on the lobby** (UserService.ts
+  ~:1058-1076 sets WebSocketError → Landing.tsx:348-362 red error-panel). Normal end-of-set
+  reads as a failure. → route terminal `roomClosed` to a neutral/info banner variant + softer
+  copy ("The set has ended — pick another room"). [impact: high, effort: S]
+- [ ] **B2 — terminal→lobby nav can land the guest with NO explanation** (ListenerRoom.tsx
+  ~:293 navigate('/'); depends on the connection error surviving the route change). → verify
+  the banner renders post-nav; if not, show a brief in-room "The DJ ended the stream" card
+  with a "Back to rooms" button before navigating. [impact: high, effort: S-M]
+- [ ] **B3 — raw WebRTC/exception text leaks to guests** (WebRTCErrorHandler.tsx:72-77 monospace
+  `error.message`; ListenerRoom.tsx:351; DJRoom.tsx:294; Landing.tsx:383). Tags like
+  `TransportError` shown to users. → suppress the raw monospace block for guests (friendly
+  title+description only; gate detail behind a dev flag). [impact: high, effort: S]
+- [ ] **B4 — one concept, three words: DJ "MUTED" / listener "{djName} paused" / dot "PAUSED"**
+  (ConnectionStatusGroup.tsx:35-43; Oscilloscope.tsx:207-209; ConnectionStatusDot). → unify on
+  "Paused" everywhere the broadcast is paused (reserve "Muted" only for a true local mute).
+  [impact: med, effort: S]
+- [ ] **D2 — "Stop"/end-room has NO confirmation; sits next to "Mute", near-identical style**
+  (StreamControls.tsx:56-64 → DJRoom.tsx:316 immediate closeDJRoom+navigate). One drunk tap
+  kills the room for everyone. → client-side confirm ("End the room for everyone?") or
+  hold-to-confirm; make Stop a distinct solid-red destructive style. [impact: high, effort: S]
+
+## UX/UI — flow improvements (frontend-only; curated relevant set)
+- [ ] **L1 — stuck "Connecting to lobby…" is a dead end** (Landing.tsx:426-431 infinite spinner,
+  no timeout/retry). → 10s timeout → "Can't reach the lobby — tap to retry" + retry button.
+  [impact: high, effort: M]
+- [ ] **L4 — room cards give no "tap to join" affordance + own/active room only differ by a
+  subtle dark tint** (RoomCard.tsx:55-91). → explicit trailing affordance per state ("▶ Join" /
+  "You're DJ here — Resume" / "● Listening — Return") + text badge not just color. [impact: high, effort: S-M]
+- [ ] **L5 — live vs paused room indistinguishable in the lobby** (RoomCard.tsx:64-69 dot only
+  STREAMING vs CONNECTED; a paused room looks live → guests join to silence). → show a "Paused"
+  badge when `room.isStreaming===false` on a public room (data already client-side); show the
+  dot even at 0 listeners. [impact: med, effort: S]
+- [ ] **L8 — "Enable Audio" modal is browser-policy jargon + blocks the content**
+  (UserInteractionModal.tsx:66-73). → reframe to benefit: "Tap to hear the music" / "{djName}
+  is live in {roomName}" / big "Start Listening" button; drop the browser-policy sentence.
+  [impact: high, effort: S]
+- [ ] **L9 — no plain "you're listening" confirmation** (ListenerRoom.tsx:382-415 only a
+  waveform + "STREAMING" dot). → status line: "🎧 Listening live" / "⏸ {djName} paused" /
+  "Connecting…" mapped from getWebrtcState(). [impact: high, effort: S]
+- [ ] **L10 — raw enum tokens shown to listeners** (ConnectionStatusGroup.tsx:44-48 "SETUP",
+  falls through to enum string / "DISCONNECTED"). → listener-facing label map: SETUP→Connecting,
+  STREAMING→Live, PAUSED→Paused, DISCONNECTED→Reconnecting…, ERROR→Connection lost.
+  [impact: med, effort: S]
+- [ ] **L11 — "Connecting…" identical for first-connect vs the #11 15s silent retry**
+  (ListenerRoom.tsx:375-380). → after ~5s swap copy to "Still connecting — hang tight…" (client
+  timer). [impact: med, effort: S]
+- [ ] **D3 — Mute and Stop look nearly identical** (StreamControls.tsx:29-33,57 both gray+red
+  text). → Mute state-colored (green live / yellow muted), Stop distinct solid-red; more gap.
+  [impact: med, effort: S]
+- [ ] **D4 — "Go Live" hidden until a device is selected, no prompt** (DJRoom.tsx:274 Show gated
+  on selectedDeviceId). → always render Go Live, disabled, with "Select an audio source above".
+  [impact: med, effort: S]
+- [ ] **X2 — sub-44px tap targets** (Landing.tsx:411 create "+" at btn-sm; ✕ dismiss glyphs
+  Landing.tsx:353 / ListenerRoom.tsx:352). → enforce 44×44 hit area on icon-only buttons.
+  [impact: med, effort: S]
+- [ ] **X4 — join has no loading state on the tapped card** (Landing.tsx:443-461 /
+  handleRoomAction async, no visual change → double-tap risk). → track joining room id, spinner
+  overlay + disable the tapped card until navigate. [impact: med, effort: S]
+- [ ] **L6 — "1 listeners" grammar + count is the dimmest text** (RoomCard.tsx:86-88,
+  text-gruvbox-fg-4). → pluralize + bump contrast + headphone glyph. [impact: low, effort: S]
+- [ ] **Optional DJ-name field** (Landing.tsx:123 hardcodes djName="DJ" → every room's DJ shows
+  as "DJ"; `announceRoom` already propagates djName client-side, so frontend-only). → add an
+  optional "Your DJ name" field. [impact: med, effort: S]
+> NOTE — these three UX-scan items are ALREADY listed above under Full-Flow §UX (don't duplicate):
+> DJ listener-count visibility (=D1/#21), create-button-vanishes-at-8 (=L2), lobby-refetch-after-flap (=L3).
+> Quick-win batch (all small-effort/high-impact, pure copy/state): B1, B3, B4, L8, L9, D2.
+
 # Bugs
 ## Critical
+- [ ] **N1 — audio-bot line-in device unplug → whole floor silently dead, no signal, forever**
+  (backend/src/lib/audio/audio_lifecycle.rs:455-468 `cleanup_audio_capture` + audio_room.rs:99-108;
+  found by the 2026-07-09 backend validation scan). If the DJ's line-in is unplugged mid-set the
+  encoder task dies → NO frames (not even silence) reach the DirectProducer, but `dj.is_paused`
+  stays false and `producer.pause()` is never called → room stays Live/public, every listener
+  keeps an unpaused consumer hearing dead silence, NO `StreamPaused` fires, no UI signal. And the
+  bot room has no WS → no grace timer → it's never closed/reaped → the silent room persists until
+  server restart. This is the PRIMARY physical failure mode of a silent-disco line-in rig.
+  → On entering `WaitingForDevice`/`DeviceError`: `producer.pause()` on the DirectProducer +
+  broadcast `StreamPaused` to the bot room's listeners; `resume()` + resume-broadcast when a
+  device returns. [impact: HIGH (party UX show-stopper), effort: M] — fix before the next party.
 - [ ] **Offline router: phones warn "network has no internet" and DROP the
   WiFi after a while (Android especially — falls back to mobile data / kicks
   the connection).** Party field data: "stay connected" did NOT stick —
@@ -294,15 +396,20 @@
 - [ ] on mobile the stream is running perfectly in the background, also in
   locked screen etc, but make sure we show a mediaplayer status or something
   that indicates that we are playing music on the lockscreen !.
-- [ ] if the dj diconnects, the status need to be updated for listeners and also
-  if the dj reconnects this should trigger a renewal of transport and consumer
-  on the listener side (via event)
-- [ ] need to handle disconnection of the producer via mediasoup events. this
-  should be an extra event handler, the ui can subscribe to to set the state
-  accordingly (ie. producer disconnected -> connectionstate.djdisconnected ,
-  producer connected -> streaming)
-- [ ] also the play/pause subscriptions dont set the connectionstate to
-  paused/streaming
+- [x] ✔️FIXED (X7 + ProducerChanged, 2026-07-08) if the dj diconnects, the status is
+  updated for listeners (DJ WS close → producer pause + `StreamPaused` broadcast → listeners
+  show PAUSED); and DJ reconnect/re-publish renews the listener side via event: on producer
+  REPLACE the backend broadcasts `ProducerChanged{roomId,producerId}` → listeners force a
+  full re-join (new transport+consumer). Grace timer keeps the room alive during the gap.
+- [~] PARTIAL (2026-07-08) handle producer disconnection via events — listeners now react
+  via WS events (`StreamPaused` on DJ disconnect → PAUSED; `ProducerChanged` on re-publish →
+  re-consume; `RoomClosed` terminal). We deliberately consolidated "djDisconnected" INTO the
+  PAUSED state rather than adding a distinct connection-state + a client-side mediasoup
+  producer-close handler. If a distinct "DJ disconnected (reconnecting)" affordance is wanted
+  vs plain "Paused", that's a small remaining UX item (see UX scan B4/L10 vocabulary).
+- [x] ✔️FIXED (2026-07-08) play/pause now set connectionstate: `streamPaused`→PAUSED,
+  `streamResumed`→STREAMING subscribers, and #9 join-while-paused sets PAUSED on join.
+  (Residual low item tracked above: `streamResumed` handler lacks the activeRole guard.)
 ## Whatever
 - [ ] remote connection works for udp! but somehow my chromium browser on
   wayland linux fails to create matching local ice candidate for udp!
@@ -310,10 +417,14 @@
 
 # Architecture/Functionality
 ## Critical
-- [ ] How to properly handle dj disconnection while streaming. we need to be
-  able to keep the server room state and reconnect from the client using the
-  same sessionid and just reestablish a new producer, that is still connected to
-  the existing listeners/consumers/listen transports
+- [x] ✔️DONE (2026-07-08) How to properly handle dj disconnection while streaming — the
+  capability now exists: server keeps room state during the 15-min DJ-disconnect grace
+  (room Paused, epoch guard); the DJ reconnects with the SAME session_id (`handle_dj_connection`
+  cancels the timer + resumes); re-publishing a producer broadcasts `ProducerChanged` so every
+  listener renews. NOTE: listeners' consumers are REBUILT (forced re-join), not literally kept
+  attached to the new producer — the user-visible outcome (audio resumes for all after DJ
+  reconnect) is achieved; a true keep-consumers-attached-swap-producer is a possible future
+  optimization (relates to the deferred "surgical per-listener re-consume" follow-up).
 ## Cool to have
 - [ ] When the dj disconnects, instead of streaming silence stream waiting track
   from the server(research if this is a good idea even...)
