@@ -243,9 +243,14 @@
   and their UI ignores it): the DJ can't tell if 5 or 50 people hear them. → New
   `DjEvent::ListenerCountUpdated` on the DJ socket + render count on both pages.
   [impact: med, effort: M]
-- [ ] **Create-room button silently vanishes at >8 lobby rooms** (Landing.tsx:408):
+- [x] **Create-room button silently vanishes at >8 lobby rooms** (Landing.tsx:408):
   no message, no disabled state. → Disabled state + "room limit reached" copy, or lift the
   arbitrary limit. [impact: low, effort: S]
+  FIXED (L2, party-fixes 2026-07-09): dropped the `<Show when={length<=8}>` wrapper; the "+"
+  button is now ALWAYS rendered. Past MAX_LIVE_ROOMS (8) it renders disabled (btn-disabled +
+  aria-disabled, title "Lobby full — too many live rooms") and tapping it surfaces a visible
+  yellow banner ("Lobby full — too many live rooms") instead of silently doing nothing; the
+  same banner covers the already-engaged case. Primary action never disappears.
 - [ ] **Lobby list not refetched after a lobby WS flap** (WebSocketClient.ts:419-422 clears
   the store on disconnect; REST refetch only on mount): after any blip the Landing page
   shows an empty list until manual reload. → Trigger `getRoomList()` from an on-reconnect
@@ -308,8 +313,11 @@
   title+description only; gate detail behind a dev flag). [impact: high, effort: S]
   FIXED (DJRoom portion, party-fixes 2026-07-09): DJRoom.tsx:294 no longer renders
   `streamingOperation.error.message`; shows friendly "Couldn't start streaming — please try again"
-  and logs the raw error via console.error for debugging. WebRTCErrorHandler / ListenerRoom /
-  Landing portions remain for their own batches.
+  and logs the raw error via console.error for debugging.
+  FIXED (Landing portion, party-fixes 2026-07-09): both `roomCreation.error` render sites in
+  Landing.tsx (top banner + create modal) no longer print `roomCreation.error?.message`; they show
+  "Couldn't create the room — please try again". No raw exception / WebRTC / tagged-error text
+  reaches guests. WebRTCErrorHandler / ListenerRoom portions remain for their own batches.
 - [x] **B4 — one concept, three words: DJ "MUTED" / listener "{djName} paused" / dot "PAUSED"**
   (ConnectionStatusGroup.tsx:35-43; Oscilloscope.tsx:207-209; ConnectionStatusDot). → unify on
   "Paused" everywhere the broadcast is paused (reserve "Muted" only for a true local mute).
@@ -335,16 +343,29 @@
   StreamControls; no backend change. Stop restyled to distinct solid-red (see D3).
 
 ## UX/UI — flow improvements (frontend-only; curated relevant set)
-- [ ] **L1 — stuck "Connecting to lobby…" is a dead end** (Landing.tsx:426-431 infinite spinner,
+- [x] **L1 — stuck "Connecting to lobby…" is a dead end** (Landing.tsx:426-431 infinite spinner,
   no timeout/retry). → 10s timeout → "Can't reach the lobby — tap to retry" + retry button.
   [impact: high, effort: M]
-- [ ] **L4 — room cards give no "tap to join" affordance + own/active room only differ by a
+  FIXED (party-fixes 2026-07-09): client-side 10s timer (createSignal + setTimeout, armed onMount,
+  cleared onCleanup) — if `connectionAdapter.isLobbyConnected()` is still false the spinner is
+  swapped for "Can't reach the lobby — tap to retry" + a Retry button. Retry re-runs the same init
+  the resource/onMount perform (`lobbyService.connectToLobby()` then `getRoomList()`) and re-arms
+  the timer; no store changes.
+- [x] **L4 — room cards give no "tap to join" affordance + own/active room only differ by a
   subtle dark tint** (RoomCard.tsx:55-91). → explicit trailing affordance per state ("▶ Join" /
   "You're DJ here — Resume" / "● Listening — Return") + text badge not just color. [impact: high, effort: S-M]
-- [ ] **L5 — live vs paused room indistinguishable in the lobby** (RoomCard.tsx:64-69 dot only
+  FIXED (party-fixes 2026-07-09): each RoomCard now renders an explicit trailing TEXT affordance
+  per state — default "▶ Join", own-DJ-room "You're DJ here — Resume", active-listen-room
+  "● Listening — Return" — colour-coded (fg-2 / orange-bright / green-bright) but legible as text,
+  so it survives the dark and is colourblind-safe (not colour-only).
+- [x] **L5 — live vs paused room indistinguishable in the lobby** (RoomCard.tsx:64-69 dot only
   STREAMING vs CONNECTED; a paused room looks live → guests join to silence). → show a "Paused"
   badge when `room.isStreaming===false` on a public room (data already client-side); show the
   dot even at 0 listeners. [impact: med, effort: S]
+  FIXED (party-fixes 2026-07-09): the status dot now renders for ANY public room (dropped the
+  `listenerCount > 0` gate) so an empty-but-live room stays discoverable; the dot uses STREAMING
+  vs PAUSED state, and a yellow "Paused" TEXT badge is shown next to the room name whenever a
+  public room has `isStreaming === false`.
 - [ ] **L8 — "Enable Audio" modal is browser-policy jargon + blocks the content**
   (UserInteractionModal.tsx:66-73). → reframe to benefit: "Tap to hear the music" / "{djName}
   is live in {roomName}" / big "Start Listening" button; drop the browser-policy sentence.
@@ -376,17 +397,33 @@
   FIXED (party-fixes 2026-07-09): Go-Live <Show> gate no longer requires selectedDeviceId(); the
   button always renders while not connected/connecting and is DISABLED (with helper text "Select an
   audio source above") until a source is chosen. Label already "Go Live".
-- [ ] **X2 — sub-44px tap targets** (Landing.tsx:411 create "+" at btn-sm; ✕ dismiss glyphs
+- [x] **X2 — sub-44px tap targets** (Landing.tsx:411 create "+" at btn-sm; ✕ dismiss glyphs
   Landing.tsx:353 / ListenerRoom.tsx:352). → enforce 44×44 hit area on icon-only buttons.
   [impact: med, effort: S]
-- [ ] **X4 — join has no loading state on the tapped card** (Landing.tsx:443-461 /
+  FIXED (Landing portion, party-fixes 2026-07-09): create "+" button now carries
+  `min-h-[44px] min-w-[44px]`; all three ✕ dismiss glyphs in Landing.tsx (connection-error,
+  creation-error, room-creation-error banners) wrapped to a 44×44 flex hit area + aria-label
+  "Dismiss error". ListenerRoom portion remains for its own batch.
+- [x] **X4 — join has no loading state on the tapped card** (Landing.tsx:443-461 /
   handleRoomAction async, no visual change → double-tap risk). → track joining room id, spinner
   overlay + disable the tapped card until navigate. [impact: med, effort: S]
-- [ ] **L6 — "1 listeners" grammar + count is the dimmest text** (RoomCard.tsx:86-88,
+  FIXED (party-fixes 2026-07-09): new `joiningRoomId` signal set at the start of handleRoomAction
+  and cleared in a finally; passed to RoomCard as `isJoining` (=== room.id). While joining the
+  card shows a centred spinner overlay + dimmed/pointer-events-none, and handleRoomAction ignores
+  repeat taps while any join is in flight — a drunk guest can't double-tap. On success the page
+  navigates away (finally is a harmless post-unmount no-op); on failure the card re-enables.
+- [x] **L6 — "1 listeners" grammar + count is the dimmest text** (RoomCard.tsx:86-88,
   text-gruvbox-fg-4). → pluralize + bump contrast + headphone glyph. [impact: low, effort: S]
-- [ ] **Optional DJ-name field** (Landing.tsx:123 hardcodes djName="DJ" → every room's DJ shows
+  FIXED (party-fixes 2026-07-09): listener count now pluralises ("1 listener" / "N listeners"),
+  contrast bumped fg-4 → fg-2, and a 🎧 glyph prefixes the count.
+- [x] **Optional DJ-name field** (Landing.tsx:123 hardcodes djName="DJ" → every room's DJ shows
   as "DJ"; `announceRoom` already propagates djName client-side, so frontend-only). → add an
   optional "Your DJ name" field. [impact: med, effort: S]
+  FIXED (party-fixes 2026-07-09): create-room modal gains an optional "Your DJ name" input;
+  handleCreateRoom reads it into roomCreationData.djName and the roomCreation resource passes it
+  through the existing `announceRoom(name, djName, …)` call (also used for `${djName}'s room`
+  description). Empty → falls back to the "DJ" default. No backend change (djName already flows
+  client-side).
 > NOTE — these three UX-scan items are ALREADY listed above under Full-Flow §UX (don't duplicate):
 > DJ listener-count visibility (=D1/#21), create-button-vanishes-at-8 (=L2), lobby-refetch-after-flap (=L3).
 > Quick-win batch (all small-effort/high-impact, pure copy/state): B1, B3, B4, L8, L9, D2.

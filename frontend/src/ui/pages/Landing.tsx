@@ -112,22 +112,61 @@ function LandingContent() {
     }
   })
 
+  // L1: Guard against a stuck "Connecting to lobby…" dead end. If the lobby
+  // hasn't connected within the timeout, surface a retry affordance instead of
+  // an infinite spinner. No store changes — pure client-side timer.
+  const LOBBY_CONNECT_TIMEOUT_MS = 10_000
+  const [lobbyTimedOut, setLobbyTimedOut] = createSignal(false)
+  let lobbyTimeoutHandle: ReturnType<typeof setTimeout> | undefined
+
+  const armLobbyTimeout = () => {
+    if (lobbyTimeoutHandle) clearTimeout(lobbyTimeoutHandle)
+    lobbyTimeoutHandle = setTimeout(() => {
+      if (!connectionAdapter.isLobbyConnected()) {
+        console.warn('⏱️ Landing: Lobby connect timed out — surfacing retry')
+        setLobbyTimedOut(true)
+      }
+    }, LOBBY_CONNECT_TIMEOUT_MS)
+  }
+
+  // Re-run the same init the resource/onMount perform: connect to the lobby and
+  // refetch the room list. Used by both the initial arm and the retry button.
+  const retryLobbyConnection = async () => {
+    setLobbyTimedOut(false)
+    armLobbyTimeout()
+    try {
+      console.info('🔄 Landing: Retrying lobby connection...')
+      await lobbyService.connectToLobby().pipe(Effect.runPromise)
+      await lobbyService.getRoomList().pipe(Effect.runPromise)
+      console.info('✅ Landing: Lobby retry succeeded')
+    } catch (error) {
+      console.error('❌ Landing: Lobby retry failed:', error)
+      setLobbyTimedOut(true)
+    }
+  }
+
+  onMount(() => armLobbyTimeout())
+  onCleanup(() => {
+    if (lobbyTimeoutHandle) clearTimeout(lobbyTimeoutHandle)
+  })
+
   // SolidJS 2025: Use signals for form state and createResource for room creation
-  const [roomCreationData, setRoomCreationData] = createSignal<{name: string, tags: string[]} | null>(null)
-  
+  const [roomCreationData, setRoomCreationData] = createSignal<{name: string, djName: string, tags: string[]} | null>(null)
+
   const [roomCreation] = createResource(roomCreationData, async (data) => {
     if (!data) return null
-    
+
     console.info('🏠 Creating room via Lobby Application Service...')
-    
-    const defaultDJName = 'DJ'
-    
+
+    // DJ name is optional in the modal; fall back to the default when empty.
+    const djName = data.djName || 'DJ'
+
     // Use scoped lobby service to announce room creation
     const result = await lobbyService.announceRoom(
-      data.name, 
-      defaultDJName, 
+      data.name,
+      djName,
       O.getOrElse(userAdapter.getSessionId(), () => 'anonymous'),
-      `${defaultDJName}'s room`,
+      `${djName}'s room`,
       data.tags
     ).pipe(
       Effect.runPromise
@@ -153,24 +192,32 @@ function LandingContent() {
     const form = e.target as HTMLFormElement
     const formData = new FormData(form)
     const name = (formData.get('roomName') as string)?.trim()
+    const djName = (formData.get('djName') as string)?.trim() || ''
     const tagsInput = (formData.get('tags') as string)?.trim()
-    
+
     if (!name) {
       console.error('Please enter a room name')
       return
     }
-    
+
     // Parse tags from comma-separated input
     const tags = tagsInput
       ? tagsInput.split(',').map(tag => tag.trim()).filter(tag => tag.length > 0)
       : []
-    
+
     // Trigger the resource by setting the signal
-    setRoomCreationData({ name, tags })
+    setRoomCreationData({ name, djName, tags })
   }
+
+  // X4: Track the room whose join is in flight so the tapped card can show a
+  // spinner / disable itself and a possibly-drunk guest can't double-tap.
+  const [joiningRoomId, setJoiningRoomId] = createSignal<string | null>(null)
 
   // SolidJS 2025: Handle room interaction using Application Services
   const handleRoomAction = async (roomId: string, room: LobbyRoomInfoType, isDJRoom: boolean, isActiveListenerRoom: boolean) => {
+    // Ignore repeat taps while any join is already resolving.
+    if (joiningRoomId()) return
+    setJoiningRoomId(roomId)
     try {
       console.info('🏠 Processing room action via Application Services...', { roomId, isDJRoom, isActiveListenerRoom })
       
@@ -270,6 +317,11 @@ function LandingContent() {
       
     } catch (error) {
       console.error('❌ Failed to handle room action:', error)
+    } finally {
+      // Clear the loading state. On the success paths the component has already
+      // navigated away (this runs post-unmount and is a harmless no-op); on
+      // failure paths it re-enables the card so the guest can retry.
+      setJoiningRoomId(null)
     }
   }
 
@@ -300,6 +352,12 @@ function LandingContent() {
   // SolidJS 2025: Use computed for Option types that return null-safe values
   const connectionError = () => O.getOrNull(connectionAdapter.getError())
   const creationError = () => lobbyAdapter.getCreationError()
+
+  // L2: lobby capacity — keep the create button visible but disabled past this.
+  const MAX_LIVE_ROOMS = 8
+  const isLobbyFull = () => (sortedRooms()?.length ?? 0) > MAX_LIVE_ROOMS
+  // Reason shown when a guest taps the disabled create button.
+  const [createBlockedReason, setCreateBlockedReason] = createSignal<string | null>(null)
   
   // Optimized: Only re-sort when rooms actually change, not on connection status changes
   const [sortedRooms] = createResource(
@@ -350,9 +408,10 @@ function LandingContent() {
             <div class="error-panel px-4 py-3 rounded mb-6">
               <div class="flex justify-between items-center">
                 <span>{String(error())}</span>
-                <button 
+                <button
                   onClick={() => connectionAdapter.clearError()}
-                  class="text-gruvbox-red-bright hover:text-gruvbox-fg"
+                  class="text-gruvbox-red-bright hover:text-gruvbox-fg flex items-center justify-center min-h-[44px] min-w-[44px]"
+                  aria-label="Dismiss error"
                 >
                   ✕
                 </button>
@@ -360,15 +419,16 @@ function LandingContent() {
             </div>
           )}
         </Show>
-        
+
         <Show when={creationError()}>
           {(error) => (
             <div class="error-panel px-4 py-3 rounded mb-6">
               <div class="flex justify-between items-center">
                 <span>{String(error())}</span>
-                <button 
+                <button
                   onClick={() => connectionAdapter.clearError()}
-                  class="text-gruvbox-red-bright hover:text-gruvbox-fg"
+                  class="text-gruvbox-red-bright hover:text-gruvbox-fg flex items-center justify-center min-h-[44px] min-w-[44px]"
+                  aria-label="Dismiss error"
                 >
                   ✕
                 </button>
@@ -380,10 +440,12 @@ function LandingContent() {
         <Show when={roomCreation.error}>
           <div class="error-panel px-4 py-3 rounded mb-6">
             <div class="flex justify-between items-center">
-              <span>Failed to create room: {roomCreation.error?.message}</span>
-              <button 
+              {/* B3: never render raw exception / WebRTC text to guests */}
+              <span>Couldn't create the room — please try again</span>
+              <button
                 onClick={() => setRoomCreationData(null)}
-                class="text-gruvbox-red-bright hover:text-gruvbox-fg"
+                class="text-gruvbox-red-bright hover:text-gruvbox-fg flex items-center justify-center min-h-[44px] min-w-[44px]"
+                aria-label="Dismiss error"
               >
                 ✕
               </button>
@@ -405,28 +467,70 @@ function LandingContent() {
                 />
                 <h2 class="text-xl sm:text-2xl lg:text-3xl font-bold">Live Rooms</h2>
               </div>
-              <Show when={(sortedRooms()?.length ?? 0) <= 8}>
-                <button
-                  onClick={openModal}
-                  class={`btn btn-square btn-sm sm:btn-md lg:btn-lg ${
-                    isActivelyEngaged()
-                      ? 'btn-disabled opacity-50 cursor-not-allowed'
-                      : 'btn-primary'
-                  }`}
-                  title={isActivelyEngaged() ? "Leave current room to create a new one" : "Create New Room"}
-                  disabled={isActivelyEngaged()}
-                >
-                  <svg class="w-4 h-4 sm:w-6 sm:h-6 lg:w-8 lg:h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width={2} d="M12 4v16m8-8H4" />
-                  </svg>
-                </button>
-              </Show>
+              {/* L2: Never hide the primary action. When the lobby is full keep
+                  the "+" visible but disabled with a clear reason (title + on-tap
+                  banner). X2: min 44x44 hit area on this icon-only button. */}
+              <button
+                onClick={() => {
+                  if (isLobbyFull()) {
+                    setCreateBlockedReason('Lobby full — too many live rooms')
+                    return
+                  }
+                  if (isActivelyEngaged()) {
+                    setCreateBlockedReason('Leave your current room to create a new one')
+                    return
+                  }
+                  setCreateBlockedReason(null)
+                  openModal()
+                }}
+                class={`btn btn-square btn-sm sm:btn-md lg:btn-lg min-h-[44px] min-w-[44px] ${
+                  isActivelyEngaged() || isLobbyFull()
+                    ? 'btn-disabled opacity-50 cursor-not-allowed'
+                    : 'btn-primary'
+                }`}
+                title={
+                  isLobbyFull()
+                    ? 'Lobby full — too many live rooms'
+                    : isActivelyEngaged()
+                      ? 'Leave current room to create a new one'
+                      : 'Create New Room'
+                }
+                aria-disabled={isActivelyEngaged() || isLobbyFull()}
+              >
+                <svg class="w-4 h-4 sm:w-6 sm:h-6 lg:w-8 lg:h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width={2} d="M12 4v16m8-8H4" />
+                </svg>
+              </button>
             </div>
+
+            {/* L2: visible reason when the create button is disabled and tapped */}
+            <Show when={createBlockedReason()}>
+              {(reason) => (
+                <div class="text-sm text-gruvbox-yellow-bright bg-gruvbox-yellow/15 rounded-lg px-4 py-2 mb-4">
+                  {reason()}
+                </div>
+              )}
+            </Show>
 
             <Show when={connectionAdapter.isLobbyConnected()} fallback={
               <div class="text-center text-gruvbox-fg-3 py-8">
-                <div class="loading loading-spinner loading-lg mb-4"></div>
-                <p>Connecting to lobby...</p>
+                <Show
+                  when={lobbyTimedOut()}
+                  fallback={
+                    <>
+                      <div class="loading loading-spinner loading-lg mb-4"></div>
+                      <p>Connecting to lobby...</p>
+                    </>
+                  }
+                >
+                  <p class="mb-4 text-gruvbox-fg-2">Can't reach the lobby — tap to retry</p>
+                  <button
+                    onClick={retryLobbyConnection}
+                    class="btn btn-primary min-h-[44px] px-6"
+                  >
+                    Retry
+                  </button>
+                </Show>
               </div>
             }>
               <div class="space-y-2 sm:space-y-3">
@@ -446,7 +550,7 @@ function LandingContent() {
                       const currentRoomId = O.getOrNull(connectionAdapter.getCurrentRoomId())
                       
                       return (
-                        <RoomCard 
+                        <RoomCard
                           room={room}
                           onJoin={(roomId, roomInfo) => {
                             const isDJRoom = sessionId ? room.djId === sessionId : false
@@ -455,6 +559,7 @@ function LandingContent() {
                           }}
                           isDJRoom={sessionId ? room.djId === sessionId : false}
                           isActiveListenerRoom={currentRoomId ? room.id === currentRoomId : false}
+                          isJoining={joiningRoomId() === room.id}
                         />
                       )
                     }}
@@ -481,7 +586,8 @@ function LandingContent() {
             
             <Show when={roomCreation.error}>
               <div class="error-panel px-4 py-3 rounded-lg mb-6">
-                <span class="text-sm sm:text-base">Failed to create room: {roomCreation.error?.message}</span>
+                {/* B3: friendly copy — no raw exception / WebRTC text */}
+                <span class="text-sm sm:text-base">Couldn't create the room — please try again</span>
               </div>
             </Show>
             
@@ -497,6 +603,17 @@ function LandingContent() {
                 />
               </div>
               
+              <div>
+                <label class="block text-sm sm:text-base font-medium mb-3 text-gruvbox-fg-1">Your DJ name (optional)</label>
+                <input
+                  type="text"
+                  name="djName"
+                  placeholder="DJ"
+                  class="input w-full input-hush px-4 py-3 text-sm sm:text-base"
+                />
+                <p class="text-xs text-gruvbox-fg-3 mt-2">Shown to listeners. Defaults to "DJ" if left blank.</p>
+              </div>
+
               <div>
                 <label class="block text-sm sm:text-base font-medium mb-3 text-gruvbox-fg-1">Tags (optional)</label>
                 <input
