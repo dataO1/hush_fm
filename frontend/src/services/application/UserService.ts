@@ -378,8 +378,14 @@ const createUserServiceImpl = () => {
         const audioClient = yield* AudioClient
         const mediaSoupClient = yield* MediaSoupClient
 
-        // Send close command if connected
-        if (connectionAdapter.isRoomConnected()) {
+        // Send CloseRoom whenever the SOCKET is open — not gated on
+        // isRoomConnected() (roomWsState CONNECTED && webrtc CONNECTED/STREAMING).
+        // The Stop button renders on the looser isConnected() (also PAUSED,
+        // ignores roomWsState), so in a stuck/paused state the two disagreed and
+        // End silently skipped the CloseRoom → the server kept the room alive.
+        // If the socket is open the server accepts CloseRoom regardless of the
+        // local webrtc flag. (Same guard fix as X2's cleanupFailedDJConnection.)
+        if (wsClient.isSocketOpen()) {
           // Create command using logging wrapper
           const makeCloseRoomCommand = withSchemaLogging(CloseRoomCommandSchema, 'CloseRoomCommand')
           const closeRoomCommand = yield* makeCloseRoomCommand({}).pipe(
