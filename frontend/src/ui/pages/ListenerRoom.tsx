@@ -8,6 +8,7 @@ import { AudioAdapter } from '../../stores/audio'
 import { UserAdapter, ConnectionAdapter } from '../../stores'
 import { WebrtcConnectionState, ConnectionDroppedError } from '../../domain/schemas/connection.schema'
 import { Oscilloscope } from '../components/shared/Oscilloscope'
+import { ListenerCountBadge } from '../components/shared/ListenerCountBadge'
 import { WebRTCErrorHandler } from '../components/WebRTCErrorHandler'
 import { RoomHeader } from '../components/room/RoomHeader'
 import { ConnectionStatusGroup } from '../components/streaming/ConnectionStatusGroup'
@@ -126,20 +127,6 @@ function ListenerRoomContent() {
 
   // Get WebRTC state getter for connection dot
   const getWebrtcState = () => connectionState()?.webrtcConnectionState || WebrtcConnectionState.DISCONNECTED
-
-  // L9 — Plain-language listening status mapped from the same webrtc state the
-  // connection dot reads, so a guest with earbuds knows audio is actually flowing
-  // (today it's only a tiny waveform + a dot). Direct call — never cache/destructure.
-  const listeningStatus = (): { icon: string; text: string } => {
-    switch (getWebrtcState()) {
-      case WebrtcConnectionState.STREAMING:
-        return { icon: '🎧', text: 'Listening live' }
-      case WebrtcConnectionState.PAUSED:
-        return { icon: '⏸', text: `${navigationState.roomInfo?.djName ?? 'The DJ'} paused` }
-      default:
-        return { icon: '…', text: 'Connecting…' }
-    }
-  }
 
   // B1+B2 — In-room terminal card state. When the DJ closes the room (roomClosed)
   // or the session expires (listenerNotFound), the recovery coordinator's
@@ -406,7 +393,7 @@ function ListenerRoomContent() {
         onCancel={() => navigate('/')}
       />
 
-      <div class="card card-glass shadow-xl max-w-sm sm:max-w-md w-full mx-4">
+      <div class="card card-glass shadow-xl max-w-sm sm:max-w-md w-full mx-4 relative">
         <div class="card-body flex flex-col items-center gap-6 sm:gap-8 p-4 sm:p-6">
 
           {/* Join operation errors — B3: friendly copy only, raw error to console.
@@ -504,19 +491,10 @@ function ListenerRoomContent() {
               layout="vertical"
             />
 
-            {/* L9 — Plain listening-status line in friendly listener copy so a
-                guest with earbuds knows audio is flowing (not just the tiny
-                waveform + dot). Direct call to listeningStatus() — reactive. */}
-            <div class="flex items-center justify-center gap-2 text-sm sm:text-base text-gruvbox-fg-2">
-              <span aria-hidden="true">{listeningStatus().icon}</span>
-              <span>{listeningStatus().text}</span>
-            </div>
-
-            {/* Live listener count — reactive read of listenerCount(); pluralised. */}
-            <div class="flex items-center justify-center gap-2 text-sm sm:text-base text-gruvbox-fg-2">
-              <span aria-hidden="true">🎧</span>
-              <span>{listenerCount()} {listenerCount() === 1 ? 'listener' : 'listeners'} listening</span>
-            </div>
+            {/* Live listener count — minimal, unobtrusive, top-right corner of
+                the card. The status (Live/Paused/Connecting) is already shown by
+                the dot above, so there's no separate "Listening live" line. */}
+            <ListenerCountBadge count={listenerCount} />
 
             {/* Audio Oscilloscope - only show when stream exists AND user interaction is available */}
             <Show when={!audioAdapter.requiresUserGesture() && Option.getOrNull(audioClient.currentStream())} fallback={null}>

@@ -10,6 +10,7 @@ import { UserAdapter, ConnectionAdapter } from '../../stores'
 // WebSocketClient is now provided directly via UserService, not imported here
 import { WebrtcConnectionState, WsConnectionState } from '../../domain/schemas/connection.schema'
 import { Oscilloscope } from '../components/shared/Oscilloscope'
+import { ListenerCountBadge } from '../components/shared/ListenerCountBadge'
 import { WebRTCErrorHandler } from '../components/WebRTCErrorHandler'
 import { RoomHeader } from '../components/room/RoomHeader'
 import CertStatusBanner from '../components/CertStatusBanner'
@@ -237,9 +238,8 @@ function DJRoomContent() {
         />
 
         <Show when={!isRedirecting() && !isConnecting()}>
-          <div class="card card-glass">
+          <div class="card card-glass relative">
             <div class="card-body p-4 sm:p-6">
-              
 
               {/* Room Header */}
               <RoomHeader 
@@ -255,13 +255,10 @@ function DJRoomContent() {
                 layout="vertical"
               />
 
-              {/* Live listener count — only meaningful once the DJ is live.
-                  Reactive read of listenerCount(); pluralised subject. */}
+              {/* Live listener count — minimal, unobtrusive, top-right corner of
+                  the card. Only meaningful once the DJ is live. */}
               <Show when={connectionAdapter.isConnected()}>
-                <div class="flex items-center justify-center gap-2 text-sm sm:text-base text-gruvbox-fg-2">
-                  <span aria-hidden="true">🎧</span>
-                  <span>{listenerCount()} {listenerCount() === 1 ? 'listener' : 'listeners'} listening</span>
-                </div>
+                <ListenerCountBadge count={listenerCount} />
               </Show>
 
               {/* Show DeviceSelector only when WebRTC is not connected */}
