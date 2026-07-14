@@ -122,9 +122,12 @@ rewrites the uci files).
 ## Pi-side companions (in the Nix flake / rpi4-nixos)
 
 These are declarative (rpi4-nixos configuration.nix), not router config:
-- **Audio (party-tuned):** 40 ms Opus frames (25 pps/client — packet rate
-  is the ceiling), 160 kbps stereo (earbud-transparent; 256k was overkill),
-  **FEC on** (crowd body-shadow fades MAC retries can't always bridge),
+- **Audio (party-tuned):** 20 ms Opus frames (50 pps/client — low latency;
+  40 ms would halve the packet rate, the WiFi ceiling, and is worth switching
+  to only for big >50-guest crowds — below that 20 ms is fine), 160 kbps stereo
+  (earbud-transparent; 256k was overkill), **FEC on** (`opusEnableFec=true`,
+  overridden in rpi4-nixos — crowd body-shadow fades cause isolated loss MAC
+  retries can't always bridge; cheap at 160k, pairs with `opusPacketLossPerc=10`),
   **CBR** (`opusEnableVbr=false` — predictable airtime under load).
 - **DSCP 48 (CS6)** so downlink audio lands in the WiFi voice queue (AC_VO)
   that locked phones' U-APSD services — EF/46 maps to AC_VI (video) under

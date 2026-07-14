@@ -716,6 +716,19 @@
                     proxyPass = "http://127.0.0.1:${toString cfg.backend.port}";
                     proxyWebsockets = true;
                   };
+
+                  # Proxy the liveness / cert-status probe to the backend.
+                  # WITHOUT this, /health falls through to the SPA index.html
+                  # (tryFiles fallback) and the CertStatusBanner parses HTML as
+                  # JSON → perpetual "couldn't verify the TLS certificate"
+                  # UNKNOWN warning even with a perfectly valid cert. The
+                  # frontend fetches same-origin /health (config.api.baseUrl has
+                  # NO /api prefix in production), so an exact-match location is
+                  # all that's needed. proxyPass has no URI part → the /health
+                  # path is forwarded to the backend unchanged.
+                  "= /health" = {
+                    proxyPass = "http://127.0.0.1:${toString cfg.backend.port}";
+                  };
                 };
               };
             };
