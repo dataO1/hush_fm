@@ -10,6 +10,7 @@ import { Show } from 'solid-js'
 import type { JSX } from 'solid-js'
 import { WebrtcConnectionState } from '../../../domain/schemas/connection.schema'
 import ConnectionStatusDot from '../ConnectionStatusDot'
+import { ListenerCountBadge } from '../shared/ListenerCountBadge'
 import type { LobbyRoomInfoType } from '../../../domain/schemas/lobby.schema'
 
 interface RoomCardProps {
@@ -60,12 +61,14 @@ export function RoomCard(props: RoomCardProps): JSX.Element {
     return baseClasses
   }
 
-  // Explicit join affordance per room state (L4). Text-based so it stays
-  // legible on dark screens and is colorblind-safe (not color-only).
+  // State affordance for the DJ's own room / the room you're already listening
+  // in. The plain "Join" prompt was removed — tapping any card joins it, so
+  // spelling that out is redundant; only these two STATE cues remain (null for a
+  // normal room → no affordance row).
   const affordanceLabel = () => {
     if (props.isDJRoom) return "You're DJ here — Resume"
     if (props.isActiveListenerRoom) return '● Listening — Return'
-    return '▶ Join'
+    return null
   }
 
   const affordanceClasses = () => {
@@ -121,18 +124,20 @@ export function RoomCard(props: RoomCardProps): JSX.Element {
             </div>
           </Show>
         </div>
-        <div class="text-right ml-2 shrink-0">
-          {/* Pluralised, higher-contrast listener count with headphones glyph (L6) */}
-          <div class="text-xs sm:text-sm text-gruvbox-fg-2">
-            🎧 {props.room.listenerCount || 0} {(props.room.listenerCount || 0) === 1 ? 'listener' : 'listeners'}
-          </div>
+        {/* Listener count — same minimal people-glyph + number as the in-room
+            ListenerCountBadge, rendered inline in the card header for consistency. */}
+        <div class="ml-2 shrink-0">
+          <ListenerCountBadge count={() => props.room.listenerCount || 0} inline />
         </div>
       </div>
 
-      {/* Explicit trailing join affordance so tapping the card reads clearly (L4) */}
-      <div class={`text-sm font-semibold ${affordanceClasses()}`}>
-        {affordanceLabel()}
-      </div>
+      {/* State affordance (DJ's own room / currently listening). Omitted for a
+          normal room — tapping the card to join is self-explanatory. */}
+      <Show when={affordanceLabel()}>
+        <div class={`text-sm font-semibold ${affordanceClasses()}`}>
+          {affordanceLabel()}
+        </div>
+      </Show>
     </div>
   )
 }

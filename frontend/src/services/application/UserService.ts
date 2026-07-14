@@ -860,13 +860,19 @@ const createUserServiceImpl = () => {
         // subscription writes the count into the connection store for the
         // current room; DJRoom + ListenerRoom read it back reactively.
         yield* wsClient.subscribe('listenerCountUpdated', (event: DJListenerCountUpdatedEvent | ListenerCountUpdatedEvent) => {
-          // Same guard as streamPaused/streamResumed: only reflect the count
-          // while we have an active role and are actually connected, so a stray
-          // frame after teardown can't repaint a stale count on the next room.
-          if (O.isSome(activeRole) && connectionAdapter.isConnected()) {
+          // Gate on being IN A ROOM (active role + a current room id), NOT on
+          // isConnected() (WebRTC CONNECTED/STREAMING). The backend broadcasts
+          // the count=1 for a joining listener during add_listener — i.e. mid
+          // handshake, BEFORE the recv transport/consumer finish connecting — so
+          // an isConnected() guard drops a lone listener's own join count and
+          // they sit on 0 until someone else joins. currentRoomId is set at the
+          // top of joinRoomAsListener and cleared by resetRoom() on teardown, so
+          // it still blocks a stray post-teardown frame from repainting a stale
+          // count on the next room.
+          if (O.isSome(activeRole) && O.isSome(connectionAdapter.getCurrentRoomId())) {
             connectionAdapter.setListenerCount(event.count)
           } else {
-            console.info('ℹ️ UserService: Ignoring listenerCountUpdated event - no active role or not connected')
+            console.info('ℹ️ UserService: Ignoring listenerCountUpdated event - not in a room')
           }
         }).pipe(
           Effect.mapError((error) => new UserServiceError({
@@ -1106,6 +1112,15 @@ export const UserFeatureLayer = Layer.scoped(
             Effect.runPromise(
               audioClient.stopStream().pipe(Effect.provideService(AudioAdapter, audioAdapter))
             ).catch(() => {})
+            // Tear down the MediaSoup transport + consumer too. Without this the
+            // recv transport lingers after the room is gone; when the server then
+            // closes it, its connectionstatechange → failed fires a TransportError
+            // that surfaces as the scary red "Connection Failed" overlay ON TOP of
+            // the calm terminal card, seconds later. cleanup() also resetRoom()s
+            // the connection store (clears currentRoomId + lastError). Belt: also
+            // clearError() in case one was already latched before we got here.
+            Effect.runPromise(mediaSoupClient.cleanup()).catch(() => {})
+            connectionAdapter.clearError()
             // Stop WS reconnection permanently (deliberate-leave semantics)
             Effect.runPromise(userWebSocket.disconnect()).catch(() => {})
             // B1+B2 — Do NOT push a red WebSocketError into the connection store for

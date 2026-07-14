@@ -385,10 +385,14 @@ function ListenerRoomContent() {
   return (
     <div class="h-screen w-full bg-hush-main text-gruvbox-fg flex flex-col items-center justify-center p-4 sm:p-6">
 
-      {/* Connection Error Handler */}
-      <WebRTCErrorHandler 
+      {/* Connection Error Handler — suppressed once we're in a terminal state.
+          The DJ closing the room (or a session expiry) already shows the calm
+          in-room terminal card; a late TransportError from the tearing-down
+          transport must NOT pop the scary red "Connection Failed" overlay on top
+          of it (enterTerminal also cleans up the transport to prevent that). */}
+      <WebRTCErrorHandler
         error={connectionError()}
-        show={hasConnectionError()}
+        show={hasConnectionError() && !terminalState()}
         onDismiss={() => connectionAdapter.clearError()}
         onCancel={() => navigate('/')}
       />
@@ -459,7 +463,7 @@ function ListenerRoomContent() {
                   onClick={() => navigate('/')}
                   class="btn btn-hush w-full sm:w-auto sm:px-8 py-3"
                 >
-                  Back to rooms
+                  Back to Lobby
                 </button>
               </div>
             )}

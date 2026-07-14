@@ -3,24 +3,30 @@ import type { JSX } from 'solid-js'
 interface ListenerCountBadgeProps {
   /** Reactive getter for the live listener count. */
   count: () => number
+  /**
+   * Inline (in-flow) instead of pinned to the card's top-right corner. Used in
+   * the lobby room cards, where the count sits in the card header; the in-room
+   * views leave this off to anchor it absolute (their card is `relative`).
+   */
+  inline?: boolean
 }
 
 /**
- * Minimal, unobtrusive live-listener count.
- *
- * Renders in the TOP-RIGHT corner of a `relative` card as a small muted
- * people-glyph + the number — deliberately NOT a "N listeners listening"
- * sentence and NOT an emoji. It's absolutely positioned, so the enclosing card
- * must be `relative`; it stays out of the vertical flex flow and never competes
- * with the status dot (which already states Live/Paused/Connecting).
+ * Minimal, unobtrusive live-listener count — a small muted people-glyph + the
+ * number, deliberately NOT a "N listeners listening" sentence and NOT an emoji.
+ * Shared by the lobby card (inline) and the in-room DJ/listener views (absolute
+ * top-right of their `relative` card), so the count reads identically
+ * everywhere and never competes with the status dot.
  */
 export function ListenerCountBadge(props: ListenerCountBadgeProps): JSX.Element {
   // Direct calls (never destructure) so the count stays reactive.
   const label = () => `${props.count()} ${props.count() === 1 ? 'listener' : 'listeners'}`
+  const positionClass = () =>
+    props.inline ? '' : 'absolute top-3 right-3 pointer-events-none'
 
   return (
     <div
-      class="absolute top-3 right-3 flex items-center gap-1 text-gruvbox-fg-3 select-none pointer-events-none"
+      class={`${positionClass()} flex items-center gap-1 text-gruvbox-fg-3 select-none`}
       title={label()}
       aria-label={label()}
     >
