@@ -860,19 +860,21 @@ const createUserServiceImpl = () => {
         // subscription writes the count into the connection store for the
         // current room; DJRoom + ListenerRoom read it back reactively.
         yield* wsClient.subscribe('listenerCountUpdated', (event: DJListenerCountUpdatedEvent | ListenerCountUpdatedEvent) => {
-          // Gate on being IN A ROOM (active role + a current room id), NOT on
-          // isConnected() (WebRTC CONNECTED/STREAMING). The backend broadcasts
-          // the count=1 for a joining listener during add_listener — i.e. mid
-          // handshake, BEFORE the recv transport/consumer finish connecting — so
-          // an isConnected() guard drops a lone listener's own join count and
-          // they sit on 0 until someone else joins. currentRoomId is set at the
-          // top of joinRoomAsListener and cleared by resetRoom() on teardown, so
-          // it still blocks a stray post-teardown frame from repainting a stale
-          // count on the next room.
-          if (O.isSome(activeRole) && O.isSome(connectionAdapter.getCurrentRoomId())) {
+          // Gate on activeRole ALONE. The backend broadcasts count=1 for a
+          // joining listener during add_listener — mid handshake — so the frame
+          // arrives BEFORE isConnected() becomes true AND before setCurrentRoomId
+          // runs (line ~733, end of the handshake); the DJ path never sets
+          // currentRoomId at all. Both of those guards therefore drop the
+          // join-time count (lone listener stuck on 0; DJ stuck on 0 with the
+          // currentRoomId guard). activeRole is set SYNCHRONOUSLY at the very top
+          // of joinRoomAsListener / the DJ publish, before any frame can arrive,
+          // and is reset to none() on teardown/leave — so it's the correct gate:
+          // it lets the join-time count through and still blocks a stray
+          // post-teardown frame from repainting a stale count.
+          if (O.isSome(activeRole)) {
             connectionAdapter.setListenerCount(event.count)
           } else {
-            console.info('ℹ️ UserService: Ignoring listenerCountUpdated event - not in a room')
+            console.info('ℹ️ UserService: Ignoring listenerCountUpdated event - no active role')
           }
         }).pipe(
           Effect.mapError((error) => new UserServiceError({
