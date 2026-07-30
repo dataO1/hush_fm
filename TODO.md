@@ -508,6 +508,131 @@
 > DJ listener-count visibility (=D1/#21), create-button-vanishes-at-8 (=L2), lobby-refetch-after-flap (=L3).
 > Quick-win batch (all small-effort/high-impact, pure copy/state): B1, B3, B4, L8, L9, D2.
 
+# Deep Bug Scan (2026-07-30)
+> Full read of the backend WS/domain layer + the frontend service/store/UI layer at
+> party-fixes @4dd75860, ahead of the 2026-07-31 party. Every entry below was validated
+> against the code (line refs are from that commit), not inferred. Build state at scan
+> time: `cargo check` 0 errors / 37 warnings, `tsc --noEmit` clean.
+> **Nothing here is fixed** — user decision 2026-07-30: acceptable for tomorrow's party,
+> revisit after. Party-critical = would be visible to guests/DJ on the night.
+
+## Party-critical
+- [ ] **P1 — the lobby never shows Live↔Paused transitions** (`frontend/src/stores/lobby/lobby.store.ts:73-79`).
+  `updateRoom` only writes when `existingRoom.listenerCount !== room.listenerCount`, so every
+  `roomUpdated` whose count is unchanged is silently dropped. That is exactly the set of
+  transitions the backend emits `RoomUpdated` for with a stable count: DJ mute/unmute
+  (`handle_stop_producing`/`handle_resume_producing`), DJ-vanished pause
+  (`handle_dj_disconnect`), audio-bot device loss/return. Net effect: the "Paused" badge +
+  status dot added in 153fe115 are dead for live transitions — guests see "Live" on a paused
+  room and tap into silence (and a resumed room keeps reading "Paused"). Name/description
+  changes are dropped too. Related: `addRoom` (`:66-72`) skips ids already present, so the
+  optimistic `addRoom` in `LobbyService.announceRoom` (which writes `isStreaming:false`)
+  can never be corrected by the server's later `RoomAdded`.
+  → Fix: drop the listenerCount guard; compare the whole room (or just always write).
+  [impact: high, effort: S]
+- [ ] **P2 — a transient ICE flap replaces the whole page with a spinner, including the DJ's
+  Stop/Mute** (`MediaSoupClient.ts:305` → `connection.store.ts:178`).
+  Transport `connectionstatechange: 'disconnected'` maps to `WebrtcConnectionState.DISCONNECTING`,
+  and `isConnecting()` counts `DISCONNECTING` as connecting. `DJRoom.tsx:221/240` and
+  `ListenerRoom.tsx:472/483` gate the entire page body on that, so a few seconds of ICE loss —
+  routine on a crowded party WiFi, and usually self-healing — blanks the DJ's controls and shows
+  every listener "Connecting…". Secondary: when ICE recovers, `'connected'` writes `CONNECTED`
+  over `STREAMING`, and `ConnectionStatusGroup`'s label map renders `CONNECTED` as **"Connecting"**
+  — a green pulsing dot next to the word "Connecting", permanently, on a healthy stream.
+  → Fix needs a design call: debounce `'disconnected'` (the recovery coordinator already uses a
+  4s debounce for exactly this), and/or stop letting `DISCONNECTING` gate the page body, and/or
+  don't downgrade `STREAMING`→`CONNECTED` on re-connect. [impact: high, effort: M]
+- [ ] **P3 — phantom listeners inflate every count, permanently** (`backend/src/api/ws/mod.rs:682-693`,
+  `lib/domain/listener.rs:541`). `LobbyCommand::RequestJoin` inserts the `Listener` into the room
+  immediately, but the disconnect-cleanup (reap) timer is only armed when the listener **socket
+  closes** (`ws/mod.rs:1028-1043`). A guest who taps Join and never completes the listener WS
+  (closed the tab, navigated away, join failed) leaves an entry nothing ever removes — the
+  setup-room sweeper skips public rooms by design. That count drives the DJ badge, the listener
+  badge and the lobby card. Bounded by distinct `session_id`s (localStorage-stable), so it is a
+  per-device leak, not unbounded. Also at `:682` the listener is created with
+  `let (event_tx, _event_rx) = unbounded_channel()` — the receiver is dropped immediately, so the
+  channel is closed until the socket rebinds it and every broadcast to that listener logs a
+  failed-send warning in the meantime.
+  → Fix: arm a join-grace reaper at RequestJoin time (cancelled when the socket connects), or
+  sweep listeners that have never had a socket. [impact: high, effort: M]
+- [ ] **P4 — join failures are completely silent to the guest** (`Landing.tsx:339-341`, also
+  `:307-310`). `catch (error) { console.error(...) }` with no UI. A guest tapping a room that just
+  ended (or hitting a WS blip, or a `success:false` response) gets a spinner flash on the card and
+  then nothing — no banner, no explanation, no reason not to keep tapping. `console` is stripped in
+  production builds (vite `drop_console`), so there is not even a trace on the device.
+  `lobbyAdapter.setCreationError(...)` already exists and renders as a banner — reuse it.
+  [impact: high, effort: S]
+- [ ] **P5 — "Stop" can silently fail to end the room** (`DJRoom.tsx:343-346` +
+  `StreamControls.tsx:40-50`). `endStream` is `await closeDJRoom(); navigate('/')`. If
+  `closeDJRoom` rejects — WS send fails, or the 30s wait for the `roomClosed` reply times out —
+  `navigate` never runs, `confirmEnd`'s `finally` closes the confirm dialog anyway, and the
+  rejection escapes as an unhandled promise rejection. DJ taps End → confirms → dialog closes →
+  room is still live, no error shown, and the only signal is a client-log beacon.
+  → Fix: catch in `endStream`, surface a failure message, navigate regardless (the DJ-disconnect
+  grace still closes the room). [impact: high, effort: S]
+- [ ] **P6 — an orphaned socket nulls the live connection; two reconnect loops can race**
+  (`WebSocketClient.ts:430-431, 478-479, 848-863, 1037-1062`). `ws.onclose`/`ws.onerror` do
+  `Ref.set(connectionState, none())` without checking the closing socket is still the current one.
+  Meanwhile `onclose → reconnectCallback → attemptReconnection` can be in a backoff sleep while
+  `forceReconnectNow()` (called from the recovery coordinator on visibility/pageshow/online, i.e.
+  every phone lock/unlock) sees `connectionState === None` and forks a **second**
+  `attemptReconnection` daemon. Both can reach `establishConnection` concurrently and both open a
+  socket; the older one's later `onclose` then wipes `connectionState` for the healthy newer one →
+  `isSocketOpen()` false → UI reads disconnected → yet another socket. Self-heals via the
+  already-open guard, but produces duplicate backend listener connections and visible flapping.
+  → Fix: identity-check the socket in `onclose`/`onerror` before clearing, and single-flight
+  `attemptReconnection`. [impact: med-high, effort: M]
+
+## Lower severity (write-down, not scheduled)
+- [ ] **`waitForConnection()` has no timeout** (`MediaSoupClient.ts:180-209`). The 30s
+  `setupConnectionTimeout` sets an error state but never fails the pending deferred, so a transport
+  stuck pre-`connected` hangs `joinRoomAsListener` forever → `joinRoomOperation.loading` stays true
+  → permanent "Still connecting — hang tight…" with no error path. Usually rescued by the browser's
+  own ICE `failed` (which does reject the deferred). [impact: med, effort: S]
+- [ ] **Adapter `resetRoom()` doesn't clear `listenerCount`** (`connection.adapter.ts:145-150`). It
+  hand-rolls the reset instead of calling `connectionStore.actions.resetRoom()`, which *does* clear
+  it (`connection.store.ts:160-166`). A stale count from the previous room flashes on the next join.
+  [impact: low, effort: XS]
+- [ ] **Lobby WS initial snapshot sends only ONE room** (`ws/mod.rs:313-323` uses
+  `rooms.first().unwrap()`). Harmless only because `Landing` does a REST `getRoomList()` on mount;
+  if that fetch fails, guests see exactly one room and no way to discover the rest.
+  [impact: med, effort: S]
+- [ ] **No DJ-side WebRTC recovery.** `startListenerRecovery` is listener-only. If the DJ's send
+  transport dies (ICE failed), they get the red overlay and the only exit is navigate-back → Go Live
+  again. Acceptable for a wired/close DJ rig; a gap for a phone DJ. [impact: med, effort: L]
+- [ ] **Local phantom room for the DJ** (`LobbyService.announceRoom:302-313`). The room is added
+  optimistically with `isPublic:true` before it is public server-side. Combined with P1's broken
+  `updateRoom`/`addRoom`, that card stays wrong for the life of the page, and it flips
+  `isActivelyEngaged()` → the lobby "+" button locks out. Self-corrects on remount (REST refetch
+  does a full `setRooms`). [impact: low, effort: S]
+- [ ] **`stale_listener_timeout` = 600s** (config default). Every guest who wanders off without a
+  clean LeaveRoom holds a slot for 10 minutes. Tuning call, not a bug. [impact: low, effort: XS]
+- [ ] **Second `AudioContext` per listener** (`Oscilloscope.tsx:40-64`): the scope creates its own
+  48kHz context + `MediaStreamAudioSourceNode` on top of AudioClient's anchor-mode one — two live
+  contexts plus Opus decode on a mid-range Android. (Already noted as a follow-up in the 2026-07-09
+  oscilloscope item.) Also on iOS the suspended-`resume()` path bails at `:54` and is only retried
+  when `props.stream` changes, so the scope can stay permanently blank. [impact: low, effort: M]
+- [ ] **`isLobbyFull()` is `> MAX_LIVE_ROOMS`** (`Landing.tsx:383`), i.e. 9 rooms allowed, not 8.
+  [impact: low, effort: XS]
+- [ ] **Lobby "Connecting…" has no retry after the first 10s** (`Landing.tsx:147-176`).
+  `armLobbyTimeout` only fires on mount and on manual retry, so a *mid-session* lobby drop that
+  never recovers leaves an infinite spinner with no affordance — the L1 dead end, one layer down.
+  [impact: med, effort: S]
+- [ ] **`client-logs/` has no total-size cap** (`api/api/client_log.rs`). Rate-limited to 30/min per
+  device but unbounded on disk. (Already listed under Wave 2a verifier follow-ups.)
+  [impact: low, effort: S]
+- [ ] **DashMap iterators held across `.await`** (`lib/domain/lobby.rs:177-218, 359-404`):
+  `get_public_rooms` / `find_room_by_dj_session_id` / `find_room_by_listener_session` /
+  `sweep_setup_rooms` all `await` a room `RwLock` while the DashMap shard read-guard from `.iter()`
+  is alive. No live deadlock path today (every write-guard is dropped before the rooms map is
+  touched), but it is a landmine for the next edit. [impact: low, effort: M]
+- [ ] **Dead / duplicate code** (all compiler-confirmed): unreachable duplicate
+  `ListenerCommand::GetRouterCapabilities` match arm at `ws/mod.rs:1790` (the first arm at `:1584`
+  wins; the second's roomId-mismatch validation is therefore never applied); unused full-`Room`
+  clones at `ws/mod.rs:2189` and `:2224`; `lib/domain/broadcast.rs` is entirely unreferenced and its
+  `#[cfg(test)]` module constructs a `Room` shape that no longer exists.
+  [impact: none, effort: S]
+
 # Bugs
 ## Critical
 - [x] ✔️FIXED **N1 — audio-bot line-in device unplug → whole floor silently dead, no signal, forever**
